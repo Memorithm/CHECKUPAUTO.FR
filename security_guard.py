@@ -29,6 +29,7 @@ _ENDPOINT_REQ = defaultdict(deque)
 _ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/api/events': 60, '/go/booking': 20}
 _BANNED = {}
 _RISK = {}
+_STATE_WRITE = {}
 _SCANNER_UA = re.compile(r'(sqlmap|nikto|nmap|masscan|zgrab|gobuster|dirbuster|feroxbuster|ffuf|nuclei|wpscan|acunetix|nessus|openvas|burp)', re.I)
 _HONEYPOTS = {'/.env','/.git/config','/wp-login.php','/phpmyadmin','/server-status','/actuator/health',
     '/backup.zip','/admin-backup.zip','/config.json','/swagger.json','/openapi.json','/graphql','/graphiql',
@@ -80,8 +81,20 @@ def init_db():
         )''')
         db.execute('CREATE INDEX IF NOT EXISTS idx_security_time ON security_events(occurred_at)')
         db.execute('CREATE INDEX IF NOT EXISTS idx_security_client ON security_events(client_hash)')
+        db.execute('''CREATE TABLE IF NOT EXISTS security_client_state(
+          day TEXT NOT NULL,
+          client_hash TEXT NOT NULL,
+          risk REAL NOT NULL DEFAULT 0,
+          last_seen TEXT NOT NULL,
+          quarantine_until TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY(day,client_hash)
+        )''')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_security_state_day ON security_client_state(day)')
+        cutoff=(datetime.date.today()-datetime.timedelta(days=7)).isoformat()
+        db.execute('DELETE FROM security_client_state WHERE day<?',(cutoff,))
     DB.chmod(0o600)
     _ensure_secret()
+    _restore_persistent_state()
 
 
 def client_hash(ip: str) -> str:
@@ -92,6 +105,60 @@ def client_hash(ip: str) -> str:
 
 def client_ip(headers, peer_ip=''):
     return (headers.get('CF-Connecting-IP') or headers.get('X-Forwarded-For', '').split(',')[0].strip() or peer_ip or 'unknown')[:80]
+
+
+def _utcnow():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _parse_utc(value: str):
+    if not value:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(str(value).replace('Z','+00:00')).astimezone(datetime.timezone.utc)
+    except Exception:
+        return None
+
+
+def _persist_state(client: str, force=False):
+    if not client or client == 'system':
+        return
+    now_m=time.monotonic(); last=_STATE_WRITE.get(client,0.0)
+    score,last_score=_RISK.get(client,(0.0,now_m))
+    score=max(0.0,float(score)-max(0.0,now_m-last_score)/30.0)
+    _RISK[client]=(score,now_m)
+    banned=_BANNED.get(client,0.0); remaining=max(0.0,banned-now_m)
+    if not force and now_m-last<5.0 and score<65 and remaining<=0:
+        return
+    _STATE_WRITE[client]=now_m
+    now=_utcnow(); until=(now+datetime.timedelta(seconds=remaining)).isoformat(timespec='seconds') if remaining>0 else ''
+    try:
+        with sqlite3.connect(DB) as db:
+            db.execute('''INSERT INTO security_client_state(day,client_hash,risk,last_seen,quarantine_until)
+              VALUES(?,?,?,?,?) ON CONFLICT(day,client_hash) DO UPDATE SET
+              risk=excluded.risk,last_seen=excluded.last_seen,quarantine_until=excluded.quarantine_until''',
+              (datetime.date.today().isoformat(),client,round(score,2),now.isoformat(timespec='seconds'),until))
+    except Exception:
+        pass
+
+
+def _restore_persistent_state():
+    today=datetime.date.today().isoformat(); now=_utcnow(); mono=time.monotonic()
+    try:
+        with sqlite3.connect(DB) as db:
+            db.row_factory=sqlite3.Row
+            rows=list(db.execute('SELECT client_hash,risk,last_seen,quarantine_until FROM security_client_state WHERE day=?',(today,)))
+        for row in rows:
+            seen=_parse_utc(row['last_seen']) or now
+            elapsed=max(0.0,(now-seen).total_seconds())
+            score=max(0.0,float(row['risk'] or 0)-elapsed/30.0)
+            if score>0:
+                _RISK[row['client_hash']] = (score,mono)
+            until=_parse_utc(row['quarantine_until'])
+            if until and until>now:
+                _BANNED[row['client_hash']] = mono+(until-now).total_seconds()
+    except Exception:
+        pass
 def _prune(q: deque, now: float, window: float):
     while q and now - q[0] > window:
         q.popleft()
@@ -115,6 +182,8 @@ def _record(client: str, method: str, path: str, action: str, reason: str, risk=
 
 def _ban(client: str, seconds: int, reason: str):
     _BANNED[client] = max(_BANNED.get(client, 0), time.monotonic() + seconds)
+    _RISK[client] = (100.0,time.monotonic())
+    _persist_state(client,True)
     _record(client, '-', '-', 'quarantine', reason, 100, 429)
     try:
         alerts.emit('high','automatic_quarantine','Quarantaine automatique Sentinel',reason,fingerprint=client,
@@ -135,6 +204,7 @@ def _add_risk(client: str, points: float, reason: str, path='-') -> float:
     now = time.monotonic()
     score = min(100.0, _risk_value(client, now) + max(0.0, float(points)))
     _RISK[client] = (score, now)
+    _persist_state(client,force=score>=65)
     if points >= 20:
         _record(client, 'RISK', path, 'score', reason, int(score), 0)
     if score >= 85 and _BANNED.get(client, 0) <= now:
@@ -146,6 +216,7 @@ def _risk_floor(client: str, floor: float, reason: str, path='-') -> float:
     now = time.monotonic(); current = _risk_value(client, now)
     score = min(100.0, max(current, float(floor or 0)))
     _RISK[client] = (score, now)
+    _persist_state(client,force=score>=65)
     if score > current and score >= 25:
         _record(client, 'BEHAVIOR', path, 'score', reason, int(score), 0)
     if score >= 85 and _BANNED.get(client, 0) <= now:
@@ -314,6 +385,6 @@ def status(days=1):
     return {'days':days,'events':total,'blocked':blocked,'activeQuarantines':active,
             'topReasons':reasons,'recent':recent,'riskClients':live_scores,
             'behaviorProfiles':behavior.profiles(20,days),'alerts':alerts.summary(),
-            'privacy':'daily HMAC client hash + daily behavioral fingerprint; no raw IP storage'}
+            'statePersistence':'sqlite','privacy':'daily HMAC client hash + daily behavioral fingerprint; no raw IP storage'}
 
 init_db()

@@ -561,6 +561,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); booking.init_db(); security.init_db(); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); booking.init_db(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

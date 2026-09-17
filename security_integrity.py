@@ -30,7 +30,9 @@ CRITICAL_FILES = (
     'admin_server.py','security_guard.py','security_behavior.py','security_alerts.py','security_ai.py','security_integrity.py',
     'booking_bridge.py','mercure_admin_client.py','mercure_public_client.py','geo_marketing.py','analytics_store.py','gsc_client.py',
     'index.html','app.js','style.css','admin/index.html','admin/admin.js','admin/control-center.js','admin/gsc-admin.js','admin/admin.css',
-    'data/site-config.json','data/geo-radius-50.01km.json','requirements.txt','.gitignore','README.md','SECURITY.md',
+    'data/geo-radius-50.01km.json','requirements.txt','.gitignore','README.md','SECURITY.md',
+    'deploy/cybercheck.service','deploy/cybercheck-ollama.service','deploy/rebaseline-integrity.sh',
+    'scripts/precommit_security.py','.github/workflows/security-ci.yml',
     'assets/vehicle.png','assets/vehicle.mp4',
 )
 
@@ -166,7 +168,9 @@ def rebaseline():
     if git.get('dirty'):
         raise RuntimeError('Dépôt Git modifié : commit/push requis avant recalage de baseline')
     data=create_baseline(True)
-    try: alerts.emit('info','integrity_baseline','Baseline d’intégrité mise à jour',data.get('git',{}).get('head',''),cooldown=0)
+    try:
+        alerts.resolve_after_rebaseline()
+        alerts.emit('info','integrity_baseline','Baseline d’intégrité mise à jour',data.get('git',{}).get('head',''),cooldown=0)
     except Exception: pass
     return scan()
 

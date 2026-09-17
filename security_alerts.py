@@ -14,6 +14,8 @@ import requests
 STATE_DIR = Path('/root/CyberCheckSecurity')
 DB = STATE_DIR / 'security.sqlite3'
 _LOCK = threading.RLock()
+_STOP = threading.Event()
+_THREAD = None
 LEVELS = ('info','low','medium','high','critical')
 
 
@@ -80,6 +82,47 @@ def emit(level: str, kind: str, title: str, detail='', fingerprint='', metadata=
         with sqlite3.connect(DB) as db: db.execute('UPDATE security_alerts SET delivered=1 WHERE id=?',(alert_id,))
     return {'created':True,'id':alert_id,'delivered':delivered}
 
+def retry_pending(limit=20):
+    url=os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip()
+    if not url:
+        return {'configured':False,'attempted':0,'delivered':0}
+    limit=max(1,min(int(limit),100)); attempted=0; delivered=0
+    with sqlite3.connect(DB) as db:
+        db.row_factory=sqlite3.Row
+        rows=[dict(r) for r in db.execute('''SELECT id,created_at,level,kind,title,detail,fingerprint,metadata_json
+          FROM security_alerts WHERE delivered=0 AND acknowledged=0 AND level IN ('high','critical') ORDER BY id ASC LIMIT ?''',(limit,))]
+    for row in rows:
+        attempted+=1
+        try: metadata=json.loads(row.pop('metadata_json') or '{}')
+        except Exception: metadata={}
+        payload={'id':row['id'],'createdAt':row['created_at'],'level':row['level'],'kind':row['kind'],
+                 'title':row['title'],'detail':row['detail'],'fingerprint':row['fingerprint'],'metadata':metadata}
+        try:
+            if _deliver(payload):
+                with sqlite3.connect(DB) as db: db.execute('UPDATE security_alerts SET delivered=1 WHERE id=?',(row['id'],))
+                delivered+=1
+        except Exception:
+            pass
+    return {'configured':True,'attempted':attempted,'delivered':delivered}
+
+
+def _loop(interval):
+    while not _STOP.wait(max(60,int(interval))):
+        try: retry_pending(20)
+        except Exception: pass
+
+
+def start(interval=120):
+    global _THREAD
+    if _THREAD and _THREAD.is_alive(): return
+    _THREAD=threading.Thread(target=_loop,args=(interval,),daemon=True,name='CyberCheckSecurityAlerts')
+    _THREAD.start()
+
+
+def stop():
+    _STOP.set()
+
+
 def list_alerts(limit=50, unacknowledged=False):
     limit = max(1,min(int(limit),200))
     where = 'WHERE acknowledged=0' if unacknowledged else ''
@@ -96,14 +139,25 @@ def acknowledge(alert_id: int):
     return {'ok':True,'updated':cur.rowcount}
 
 
+def resolve_after_rebaseline():
+    with sqlite3.connect(DB) as db:
+        cur=db.execute('''UPDATE security_alerts SET acknowledged=1 WHERE acknowledged=0 AND (
+          kind='integrity' OR
+          (kind='system_event' AND detail='integrity_mismatch') OR
+          (kind='ai_supervisor' AND detail LIKE '%intégrité ALERTE%')
+        )''')
+    return {'ok':True,'updated':cur.rowcount}
+
+
 def summary():
     with sqlite3.connect(DB) as db:
         db.row_factory = sqlite3.Row
         open_count = db.execute('SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0').fetchone()['n']
         high = db.execute("SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0 AND level IN ('high','critical')").fetchone()['n']
+        undelivered = db.execute("SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0 AND delivered=0 AND level IN ('high','critical')").fetchone()['n']
         latest = [dict(r) for r in db.execute('''SELECT id,created_at,level,kind,title,detail,fingerprint,acknowledged,delivered
           FROM security_alerts ORDER BY id DESC LIMIT 25''')]
-    return {'open':open_count,'highOrCritical':high,'latest':latest,
+    return {'open':open_count,'highOrCritical':high,'undeliveredHighOrCritical':undelivered,'latest':latest,
             'webhookConfigured':bool(os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip())}
 
 init_db()

@@ -1,0 +1,40 @@
+name: Security CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Check tracked files for secrets
+        run: python scripts/precommit_security.py
+      - name: Compile Python sources
+        run: |
+          python -m py_compile \
+            admin_server.py analytics_store.py booking_bridge.py geo_marketing.py \
+            gsc_client.py mercure_admin_client.py mercure_public_client.py \
+            security_ai.py security_alerts.py security_behavior.py security_guard.py security_integrity.py
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check admin/admin.js
+          node --check admin/control-center.js
+          node --check admin/gsc-admin.js
+      - name: Verify no runtime-private paths are tracked
+        run: |
+          ! git ls-files | grep -E '(^|/)(private/|\.admin-password$|\.env($|\.)|.*\.(sqlite3?|db|log)$)'

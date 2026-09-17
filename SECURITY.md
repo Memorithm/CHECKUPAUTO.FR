@@ -21,3 +21,14 @@ The production application process must run as the dedicated `cybercheck` system
 ## Incident handling
 
 Rotate any credential immediately if it is ever committed. Removing a secret from the latest commit is not sufficient; assume Git history and clones may retain it.
+
+## Sentinel advanced state
+
+Behavioral fingerprints are daily pseudonymous hashes. Adaptive risk and active quarantines are persisted in `/root/CyberCheckSecurity/security.sqlite3`, so restarting the application does not clear an active defensive decision.
+
+High and critical alerts are persisted locally. If `CYBERCHECK_SECURITY_ALERT_WEBHOOK` is configured in `/root/CyberCheckPrivate/runtime.env`, undelivered high/critical alerts are retried automatically; `CYBERCHECK_SECURITY_ALERT_SECRET` optionally signs each payload with HMAC-SHA256.
+
+The local AI model is advisory only. Deterministic Sentinel severity always remains authoritative, and model-proposed actions are filtered before display.
+## Integrity approval after deployment
+
+After a legitimate code deployment has been committed, pushed to `origin/main`, and verified locally, approve the new immutable baseline as root with `deploy/rebaseline-integrity.sh`. The helper refuses dirty working trees or a local HEAD that differs from `origin/main`, stops the application during hashing, updates the root-owned baseline, resolves obsolete integrity alerts, then restarts CyberCheck.

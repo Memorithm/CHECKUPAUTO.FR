@@ -11,6 +11,7 @@ WorkingDirectory=/var/lib/cybercheck-ollama
 Environment=HOME=/var/lib/cybercheck-ollama
 Environment=OLLAMA_HOST=127.0.0.1:11435
 Environment=OLLAMA_MODELS=/root/.ollama/models
+Environment=OLLAMA_KEEP_ALIVE=15m
 ExecStart=/usr/local/bin/ollama serve
 Restart=on-failure
 RestartSec=5
