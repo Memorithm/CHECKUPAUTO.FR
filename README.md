@@ -32,14 +32,18 @@ Start the local application server with:
 
 The application listens on `127.0.0.1:8765` by design. Production/public exposure should be provided by a reverse proxy or Cloudflare Tunnel rather than binding the Python server directly to the Internet.
 
+For the hardened host deployment, install `deploy/cybercheck.service` as a systemd unit. It runs the application under the dedicated `cybercheck` account with no Linux capabilities and a read-only filesystem except for the explicitly required runtime state directories.
+
 ## Secrets and private state
 
-Runtime credentials are intentionally excluded from Git. In particular, never commit:
-- `.admin-password`;
-- `private/` and Mercure session cookies;
-- webhook secrets or Google service-account keys;
+Runtime credentials are intentionally excluded from Git and from the public web root. In particular, never commit:
+- `/root/CyberCheckPrivate/admin-password`;
+- Mercure session cookies and webhook secrets;
+- Google service-account keys;
 - analytics/security SQLite databases;
 - logs, Cloudflare Tunnel binaries or temporary tunnel state.
+
+Runtime private state lives under `/root/CyberCheckPrivate`; Sentinel state lives under `/root/CyberCheckSecurity`; the integrity baseline lives under the root-owned `/root/CyberCheckIntegrity`; deployment backups live under `/root/CyberCheckBackups`.
 
 The repository must remain deployable without embedding any credential in source control.
 

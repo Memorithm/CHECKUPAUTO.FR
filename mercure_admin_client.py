@@ -1,9 +1,10 @@
 from pathlib import Path
-import datetime, json, requests
+import datetime, json, os, requests
 from collections import Counter, defaultdict
 
 ROOT = Path(__file__).resolve().parent
-SESSION_FILE = ROOT / 'private' / 'mercure-admin-session.json'
+PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
+SESSION_FILE = PRIVATE_DIR / 'mercure-admin-session.json'
 BASE = 'https://rdv.checkupauto.fr'
 
 class MercureSessionError(RuntimeError):

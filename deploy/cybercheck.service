@@ -1,0 +1,45 @@
+[Unit]
+Description=CyberCheck application and Sentinel control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cybercheck
+Group=cybercheck
+WorkingDirectory=/root/CyberCheckLive
+Environment=PYTHONUNBUFFERED=1
+Environment=CYBERCHECK_PRIVATE_DIR=/root/CyberCheckPrivate
+ExecStart=/root/CyberCheckLive/.venv/bin/python /root/CyberCheckLive/admin_server.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+ProtectClock=true
+ProtectKernelLogs=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/root/CyberCheckPrivate /root/CyberCheckSecurity /root/CyberCheckLive/data
+ReadOnlyPaths=/root/CyberCheckLive /root/CyberCheckIntegrity
+
+[Install]
+WantedBy=multi-user.target

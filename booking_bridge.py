@@ -4,7 +4,8 @@ import datetime, hashlib, hmac, json, os, secrets, unicodedata, html
 import analytics_store as analytics
 
 ROOT = Path(__file__).resolve().parent
-SECRET_FILE = ROOT / 'private' / 'mercure-webhook-secret'
+PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
+SECRET_FILE = PRIVATE_DIR / 'mercure-webhook-secret'
 PROVIDER = 'mercure-rdv'
 CONFIRMED = ('confirmed','completed')
 ALLOWED_STATUS = ('confirmed','completed','cancelled','no_show')
@@ -108,11 +109,11 @@ def _fold(v):
 def mercure_prestation(service):
     return MERCURE_PRESTATIONS.get(_fold(service))
 
-def auto_submit_html(token, service):
+def auto_submit_html(token, service, nonce=""):
     prestation=mercure_prestation(service)
     if not prestation: return None
     action='https://rdv.checkupauto.fr/prendre_rdv?ccid='+token+'&cct='+browser_token(token)
-    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Ouverture de la réservation…</title></head><body><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"></form><script>document.getElementById('mercure').submit()</script><noscript><button form="mercure" type="submit">Continuer vers la réservation</button></noscript></body></html>'''.encode()
+    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Ouverture de la réservation…</title></head><body><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"></form><script nonce="{html.escape(str(nonce),quote=True)}">document.getElementById('mercure').submit()</script><noscript><button form="mercure" type="submit">Continuer vers la réservation</button></noscript></body></html>'''.encode()
 
 def create_intent(params, booking_url):
     token=secrets.token_urlsafe(20)

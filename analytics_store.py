@@ -1,9 +1,10 @@
 from pathlib import Path
 from urllib.parse import urlparse
-import datetime, sqlite3
+import datetime, sqlite3, os
 
 ROOT = Path(__file__).resolve().parent
-DB = ROOT / 'private' / 'analytics.sqlite3'
+PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
+DB = PRIVATE_DIR / 'analytics.sqlite3'
 ALLOWED_EVENTS = {
     'page_view','hero_cta_click','booking_click','phone_click','directions_click',
     'service_selected','offer_viewed'

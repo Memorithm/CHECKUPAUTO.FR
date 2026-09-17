@@ -2,7 +2,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-import base64, datetime, hashlib, hmac, html, json, os, re, tempfile
+import base64, datetime, hashlib, hmac, html, json, os, re, secrets, tempfile
 import gsc_client as gsc
 import analytics_store as analytics
 import booking_bridge as booking
@@ -12,10 +12,12 @@ import geo_marketing as geo_marketing
 import security_guard as security
 import security_ai as security_ai
 import security_integrity as security_integrity
+import security_alerts as security_alerts
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
-PASSWORD=(ROOT/'.admin-password').read_text().strip()
+PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
+PASSWORD=(PRIVATE_DIR/'admin-password').read_text().strip()
 MAX_BODY=131072
 CRAWLERS={
  'googlebot':'Googlebot','bingbot':'Bingbot','oaiSearchBot':'OAI-SearchBot','chatgptUser':'ChatGPT-User','gptBot':'GPTBot',
@@ -71,7 +73,7 @@ class Handler(SimpleHTTPRequestHandler):
   if getattr(self,'_security_checked',False): return getattr(self,'_security_allowed',True)
   self._security_checked=True
   d=security.evaluate(self.command,self.path,self.headers,self.client_address[0] if self.client_address else '')
-  self._security_client=d.get('client',''); self._security_path=d.get('path',''); self._security_risk=d.get('risk',0); self._security_allowed=bool(d.get('allow'))
+  self._security_client=d.get('client',''); self._security_fingerprint=d.get('fingerprint',''); self._security_path=d.get('path',''); self._security_risk=d.get('risk',0); self._security_allowed=bool(d.get('allow'))
   if self._security_allowed: return True
   status=int(d.get('status') or 403)
   if status==404: self.send_json({'error':'not_found'},404)
@@ -81,17 +83,27 @@ class Handler(SimpleHTTPRequestHandler):
  def send_response(self,code,message=None):
   try:
    if getattr(self,'_security_client','') and not getattr(self,'_security_response_recorded',False):
-    security.observe_response(self._security_client,self.command,getattr(self,'_security_path',urlparse(self.path).path),int(code),getattr(self,'_security_risk',0)); self._security_response_recorded=True
+    security.observe_response(self._security_client,self.command,getattr(self,'_security_path',urlparse(self.path).path),int(code),getattr(self,'_security_risk',0),getattr(self,'_security_fingerprint','')); self._security_response_recorded=True
   except Exception: pass
   return super().send_response(code,message)
  def end_headers(self):
   self.send_header('X-Content-Type-Options','nosniff'); self.send_header('X-Frame-Options','DENY')
   self.send_header('Referrer-Policy','strict-origin-when-cross-origin'); self.send_header('Cross-Origin-Opener-Policy','same-origin')
   self.send_header('Cross-Origin-Resource-Policy','same-site'); self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=(self)')
-  self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
+  nonce=getattr(self,'_csp_nonce',''); nonce_src=(" 'nonce-"+nonce+"'") if nonce else ''
+  self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
   self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
   if urlparse(self.path).path.startswith('/admin'): self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
   return super().end_headers()
+ def do_OPTIONS(self):
+  if not self._guard(): return
+  self.send_response(204); self.send_header('Allow','GET, HEAD, POST, DELETE, OPTIONS'); self.send_header('Content-Length','0'); self.end_headers()
+ def _unsupported_method(self):
+  self._guard()
+ def do_PUT(self): return self._unsupported_method()
+ def do_PATCH(self): return self._unsupported_method()
+ def do_TRACE(self): return self._unsupported_method()
+ def do_CONNECT(self): return self._unsupported_method()
  def translate_path(self,path):
   clean=urlparse(path).path
   if clean=='/admin': clean='/admin/'
@@ -127,6 +139,7 @@ class Handler(SimpleHTTPRequestHandler):
   if security.static_allowed(path,False): return super().do_HEAD()
   self.send_response(404); self.end_headers(); return
  def render_index(self,c):
+  nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
   raw=(ROOT/'index.html').read_text()
   seo=c['seo']; robots='index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1' if seo['indexingEnabled'] else 'noindex,nofollow'
   raw=re.sub(r'<title>.*?</title>',f'<title>{esc(seo["title"])}</title>',raw,count=1,flags=re.S)
@@ -142,8 +155,8 @@ class Handler(SimpleHTTPRequestHandler):
 <meta property="og:description" content="{description}"><meta property="og:url" content="{canonical}">
 <meta property="og:image" content="{image}"><meta name="twitter:card" content="summary_large_image">
 {verify}
-<script type="application/ld+json">{jsonld}</script>
-<!-- SEO_DYNAMIC_END -->'''.format(robots=robots,canonical=esc(seo['canonicalUrl']),site=esc(seo['siteName']),title=esc(seo['title']),description=esc(seo['description']),image=esc(asset_url(c,seo['ogImage'])),verify=verify,jsonld=json.dumps(structured,ensure_ascii=False,separators=(',',':')).replace('</','<\\/'))
+<script nonce="{nonce}" type="application/ld+json">{jsonld}</script>
+<!-- SEO_DYNAMIC_END -->'''.format(robots=robots,canonical=esc(seo['canonicalUrl']),site=esc(seo['siteName']),title=esc(seo['title']),description=esc(seo['description']),image=esc(asset_url(c,seo['ogImage'])),verify=verify,nonce=nonce,jsonld=json.dumps(structured,ensure_ascii=False,separators=(',',':')).replace('</','<\\/'))
   return raw.replace('</head>',block+'\n</head>',1).encode()
  def do_GET(self):
   if not self._guard(): return
@@ -168,6 +181,14 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/security/posture':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(security_integrity.posture())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/security/alerts':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(security_alerts.summary())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/security/sbom':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(security_integrity.generate_sbom())
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/booking/services':
    c=load_config(); return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':incentive_config(c)})
@@ -196,7 +217,7 @@ class Handler(SimpleHTTPRequestHandler):
      phone=esc(c['business']['phone']); tel=re.sub(r'[^+\d]','',c['business']['phone'])
      doc=f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Réservation par téléphone</title><style>body{{font-family:system-ui;background:#f5f6f1;color:#111;padding:32px}}main{{max-width:620px;margin:auto}}a{{display:inline-block;padding:14px 20px;border-radius:999px;background:#111;color:#fff;text-decoration:none}}</style></head><body><main><h1>Cette prestation se réserve par téléphone.</h1><p>La réservation en ligne est limitée aux contrôles à 80 € et 90 €.</p><a href="tel:{tel}">Appeler le centre · {phone}</a></main></body></html>'''.encode()
      return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
-    result=booking.create_intent(params,c['business']['bookingUrl']); doc=booking.auto_submit_html(result['token'],service)
+    result=booking.create_intent(params,c['business']['bookingUrl']); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce; doc=booking.auto_submit_html(result['token'],service,nonce)
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path.startswith('/api/admin/mercure/'):
@@ -280,6 +301,16 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json(result,201)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path.startswith('/api/admin/') and not self.authorized(): return self.require_auth()
+  if path=='/api/admin/security/alerts/ack':
+   try:
+    payload=self._read_json(); return self.send_json(security_alerts.acknowledge(int(payload.get('id'))))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/security/vulnerability-refresh':
+   try: return self.send_json({'ok':True,'audit':security_integrity.audit_vulnerabilities(True)})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},502)
+  if path=='/api/admin/security/assess':
+   try: return self.send_json({'ok':True,'assessment':security_ai.assess()})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/mercure/promo-slot':
    try:
     payload=self._read_json(); c=load_config(); policy=incentive_config(c)
@@ -482,6 +513,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); booking.init_db(); security.init_db(); security_integrity.start(120); security_ai.start(60)
+ analytics.init_db(); booking.init_db(); security.init_db(); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

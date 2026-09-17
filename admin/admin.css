@@ -26,3 +26,7 @@ select{margin-top:8px;width:100%;border:1px solid var(--line);border-radius:9px;
 
 /* CyberCheck Sentinel */
 .security-panel{border-top:3px solid #7d5cff}.security-panel .metric-grid article{background:#fbfaff}.security-panel .control-tables{margin-top:18px}.security-panel #securityRecent td:nth-child(4){max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Sentinel advanced telemetry */
+.security-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.security-panel #securityAlerts td:nth-child(4),.security-panel #securityVulnerabilities td:nth-child(3){max-width:360px;white-space:normal;line-height:1.4}.security-panel #securityBehaviorProfiles td:first-child,.security-panel #securityRecent td:nth-child(2){font-family:Consolas,monospace;font-size:10px}.security-panel .compact-action{border:1px solid var(--line);border-radius:7px;padding:6px 9px;background:#f4f7f5;color:var(--green);cursor:pointer}.security-panel .danger{background:#fff0f0;color:#923b3b;border:1px solid #e8c8c8}
+@media(max-width:900px){.security-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.security-metrics{grid-template-columns:1fr}}

@@ -13,6 +13,9 @@ import threading
 import time
 from urllib.parse import unquote, urlsplit
 
+import security_behavior as behavior
+import security_alerts as alerts
+
 STATE_DIR = Path('/root/CyberCheckSecurity')
 DB = STATE_DIR / 'security.sqlite3'
 SECRET_FILE = STATE_DIR / 'client-hmac-secret'
@@ -22,10 +25,14 @@ _PATHS = defaultdict(deque)
 _NOT_FOUND = defaultdict(deque)
 _PROBES = defaultdict(deque)
 _AUTH_FAIL = defaultdict(deque)
+_ENDPOINT_REQ = defaultdict(deque)
+_ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/go/booking': 20}
 _BANNED = {}
 _RISK = {}
 _SCANNER_UA = re.compile(r'(sqlmap|nikto|nmap|masscan|zgrab|gobuster|dirbuster|feroxbuster|ffuf|nuclei|wpscan|acunetix|nessus|openvas|burp)', re.I)
-_HONEYPOTS = {'/.env','/.git/config','/wp-login.php','/phpmyadmin','/server-status','/actuator/health'}
+_HONEYPOTS = {'/.env','/.git/config','/wp-login.php','/phpmyadmin','/server-status','/actuator/health',
+    '/backup.zip','/admin-backup.zip','/config.json','/swagger.json','/openapi.json','/graphql','/graphiql',
+    '/api/internal','/api/debug','/.well-known/cybercheck-backup'}
 _SENSITIVE_PATHS = (
     '/.git', '/.env', '/.svn', '/.hg', '/wp-admin', '/wp-login',
     '/phpmyadmin', '/server-status', '/actuator', '/vendor/phpunit',
@@ -42,7 +49,8 @@ _QUERY_SIG = re.compile(
 )
 _ALLOWED_METHODS = {'GET', 'HEAD', 'POST', 'DELETE', 'OPTIONS'}
 _PUBLIC_STATIC = {'/style.css', '/app.js', '/favicon.ico', '/favicon.png'}
-_PUBLIC_PREFIXES = ('/assets/',)
+_ASSET_SUFFIXES = {'.png','.jpg','.jpeg','.webp','.gif','.svg','.ico','.mp4','.webm','.glb','.gltf','.bin','.ktx2','.wasm'}
+_ADMIN_SUFFIXES = {'.html','.css','.js'}
 _ADMIN_PREFIX = '/admin/'
 
 
@@ -108,6 +116,11 @@ def _record(client: str, method: str, path: str, action: str, reason: str, risk=
 def _ban(client: str, seconds: int, reason: str):
     _BANNED[client] = max(_BANNED.get(client, 0), time.monotonic() + seconds)
     _record(client, '-', '-', 'quarantine', reason, 100, 429)
+    try:
+        alerts.emit('high','automatic_quarantine','Quarantaine automatique Sentinel',reason,fingerprint=client,
+                    metadata={'durationSeconds':int(seconds)},dedup_key=f'quarantine:{client}:{reason}',cooldown=900)
+    except Exception:
+        pass
 
 
 def _risk_value(client: str, now=None) -> float:
@@ -129,6 +142,17 @@ def _add_risk(client: str, points: float, reason: str, path='-') -> float:
     return score
 
 
+def _risk_floor(client: str, floor: float, reason: str, path='-') -> float:
+    now = time.monotonic(); current = _risk_value(client, now)
+    score = min(100.0, max(current, float(floor or 0)))
+    _RISK[client] = (score, now)
+    if score > current and score >= 25:
+        _record(client, 'BEHAVIOR', path, 'score', reason, int(score), 0)
+    if score >= 85 and _BANNED.get(client, 0) <= now:
+        _ban(client, 1800, 'adaptive_behavior_quarantine')
+    return score
+
+
 def _sensitive_path(path: str) -> bool:
     p = unquote(path).lower()
     if any(x in p for x in _SENSITIVE_PATHS):
@@ -136,88 +160,127 @@ def _sensitive_path(path: str) -> bool:
     name = p.rsplit('/', 1)[-1]
     return any(name.endswith(s) or s in name for s in _SENSITIVE_SUFFIXES)
 def static_allowed(path: str, admin_authorized=False) -> bool:
-    if path in _PUBLIC_STATIC:
+    decoded = unquote(unquote(path or ''))
+    parts = decoded.replace('\\', '/').split('/')
+    if '\x00' in decoded or '..' in parts:
+        return False
+    if decoded in _PUBLIC_STATIC:
         return True
-    if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
-        return True
-    if admin_authorized and path.startswith(_ADMIN_PREFIX):
-        return True
+    if decoded.startswith('/assets/'):
+        return Path(decoded).suffix.lower() in _ASSET_SUFFIXES
+    if admin_authorized and decoded.startswith(_ADMIN_PREFIX):
+        return Path(decoded).suffix.lower() in _ADMIN_SUFFIXES
     return False
 
 
 def evaluate(method: str, raw_target: str, headers, peer_ip='') -> dict:
     now = time.monotonic()
-    parts = urlsplit(raw_target)
-    path = parts.path or '/'
-    query = parts.query or ''
-    ip = client_ip(headers, peer_ip)
-    client = client_hash(ip)
+    parts = urlsplit(raw_target); path = parts.path or '/'; query = parts.query or ''
+    decoded_path = unquote(unquote(path))
+    ip = client_ip(headers, peer_ip); client = client_hash(ip)
     ua = (headers.get('User-Agent') or '')[:300]
+    behavioral = behavior.observe_request(client, headers, method, path)
+    fp = behavioral.get('fingerprint','')
     with _LOCK:
+        if behavioral.get('risk',0):
+            _risk_floor(client, behavioral['risk'], 'behavior:' + ','.join(behavioral.get('reasons',[])[:3]), path)
+        def deny(status, risk, reason):
+            return {'allow':False,'status':status,'client':client,'fingerprint':fp,'path':path,
+                    'risk':risk,'reason':reason,'behavior':behavioral.get('classification','normal')}
         ban_until = _BANNED.get(client, 0)
         if ban_until > now:
-            return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'quarantine_active'}
+            return deny(429,100,'quarantine_active')
         cumulative = _risk_value(client, now)
         if cumulative >= 85:
             _ban(client, 1800, 'adaptive_risk_quarantine')
-            return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'adaptive_risk_quarantine'}
+            return deny(429,100,'adaptive_risk_quarantine')
         if _SCANNER_UA.search(ua):
             cumulative = _add_risk(client, 35, 'scanner_user_agent', path)
-            if cumulative >= 85:
-                return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'scanner_user_agent'}
+            try: alerts.emit('high','scanner_signature','Signature de scanner détectée',ua[:120],fp,
+                             {'path':path},dedup_key=f'scanner:{fp}',cooldown=1800)
+            except Exception: pass
+            if cumulative >= 85: return deny(429,100,'scanner_user_agent')
         elif not ua:
             cumulative = _add_risk(client, 6, 'missing_user_agent', path)
         if method.upper() not in _ALLOWED_METHODS:
             _record(client, method, path, 'block', 'method_not_allowed', 90, 405)
-            return {'allow': False, 'status': 405, 'client': client, 'path': path, 'risk': 90, 'reason': 'method_not_allowed'}
-        if len(raw_target) > 4096 or len(path) > 1024 or len(query) > 2048:
-            _record(client, method, path, 'block', 'request_target_too_large', 80, 414)
-            return {'allow': False, 'status': 414, 'client': client, 'path': path, 'risk': 80, 'reason': 'request_target_too_large'}
-        if _sensitive_path(path):
-            q = _PROBES[client]; q.append(now); _prune(q, now, 600)
-            honeypot = unquote(path).lower() in _HONEYPOTS
-            cumulative = _add_risk(client, 60 if honeypot else 45, 'honeypot_probe' if honeypot else 'sensitive_probe', path)
-            if len(q) >= 3:
-                _ban(client, 1800, 'repeated_sensitive_probes')
-            reason = 'honeypot_probe' if honeypot else 'sensitive_probe'
-            _record(client, method, path, 'block', reason, max(95, int(cumulative)), 404)
-            return {'allow': False, 'status': 404, 'client': client, 'path': path, 'risk': max(95, int(cumulative)), 'reason': reason}
+            return deny(405,90,'method_not_allowed')
+        if len(raw_target)>4096 or len(path)>1024 or len(query)>2048:
+            _record(client,method,path,'block','request_target_too_large',80,414)
+            return deny(414,80,'request_target_too_large')
+        normalized_parts = decoded_path.replace('\\','/').split('/')
+        if '\x00' in decoded_path or '..' in normalized_parts or '\\' in decoded_path:
+            cumulative=_add_risk(client,70,'path_traversal_signature',path)
+            _record(client,method,path,'block','path_traversal_signature',max(95,int(cumulative)),403)
+            try: alerts.emit('critical','path_traversal','Tentative de traversée de chemin',path,fp,
+                             dedup_key=f'traversal:{fp}',cooldown=1800)
+            except Exception: pass
+            return deny(403,max(95,int(cumulative)),'path_traversal_signature')
+        if decoded_path.lower() in _HONEYPOTS or _sensitive_path(path):
+            q=_PROBES[client]; q.append(now); _prune(q,now,600)
+            honeypot=decoded_path.lower() in _HONEYPOTS
+            reason='honeypot_probe' if honeypot else 'sensitive_probe'
+            cumulative=_add_risk(client,65 if honeypot else 45,reason,path)
+            if honeypot:
+                try: alerts.emit('high','honeypot','Leurre Sentinel déclenché',path,fp,
+                                 {'clientHash':client},dedup_key=f'honeypot:{fp}:{path}',cooldown=1800)
+                except Exception: pass
+            if len(q)>=3: _ban(client,1800,'repeated_sensitive_probes')
+            _record(client,method,path,'block',reason,max(95,int(cumulative)),404)
+            return deny(404,max(95,int(cumulative)),reason)
         if _QUERY_SIG.search(unquote(query)):
-            q = _PROBES[client]; q.append(now); _prune(q, now, 600)
-            cumulative = _add_risk(client, 70, 'malicious_query_signature', path)
-            if len(q) >= 2:
-                _ban(client, 1800, 'repeated_payload_signatures')
-            _record(client, method, path, 'block', 'malicious_query_signature', max(95, int(cumulative)), 403)
-            return {'allow': False, 'status': 403, 'client': client, 'path': path, 'risk': max(95, int(cumulative)), 'reason': 'malicious_query_signature'}
+            q=_PROBES[client]; q.append(now); _prune(q,now,600)
+            cumulative=_add_risk(client,70,'malicious_query_signature',path)
+            if len(q)>=2: _ban(client,1800,'repeated_payload_signatures')
+            _record(client,method,path,'block','malicious_query_signature',max(95,int(cumulative)),403)
+            try: alerts.emit('critical','payload_signature','Charge malveillante détectée',path,fp,
+                             dedup_key=f'payload:{fp}',cooldown=1800)
+            except Exception: pass
+            return deny(403,max(95,int(cumulative)),'malicious_query_signature')
+        req=_REQ[client]; req.append(now); _prune(req,now,60)
+        for route, route_limit in _ENDPOINT_LIMITS.items():
+            if path==route:
+                eq=_ENDPOINT_REQ[(client,route)]; eq.append(now); _prune(eq,now,60)
+                if len(eq)>route_limit:
+                    score=_add_risk(client,20,'endpoint_rate_limit',path)
+                    _record(client,method,path,'block','endpoint_rate_limit',max(70,int(score)),429)
+                    return deny(429,max(70,int(score)),'endpoint_rate_limit')
+                break
+        paths=_PATHS[client]; paths.append((now,path)); _prune_paths(paths,now,60)
+        distinct=len({p for _,p in paths}); limit=45 if path.startswith('/admin') else (90 if path.startswith('/api/') else 180)
+        if len(req)>limit or distinct>70:
+            _ban(client,900,'rate_or_path_sweep'); return deny(429,100,'rate_or_path_sweep')
+        nf=_NOT_FOUND[client]; _prune(nf,now,60); probe=_PROBES[client]; _prune(probe,now,600)
+        transient=min(100,int((len(req)/max(limit,1))*45+(distinct/70)*30+min(len(nf),25)/25*20+min(len(probe),3)/3*30))
+        cumulative=_risk_value(client,now); risk=min(100,max(transient,int(cumulative),int(behavioral.get('risk',0))))
+        return {'allow':True,'status':0,'client':client,'fingerprint':fp,'path':path,'risk':risk,'reason':'allow',
+                'behavior':behavioral.get('classification','normal'),'behaviorReasons':behavioral.get('reasons',[])[:6]}
 
-        req = _REQ[client]; req.append(now); _prune(req, now, 60)
-        paths = _PATHS[client]; paths.append((now, path)); _prune_paths(paths, now, 60)
-        distinct = len({p for _, p in paths})
-        limit = 45 if path.startswith('/admin') else (90 if path.startswith('/api/') else 180)
-        if len(req) > limit or distinct > 70:
-            _ban(client, 900, 'rate_or_path_sweep')
-            return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'rate_or_path_sweep'}
-
-        nf = _NOT_FOUND[client]; _prune(nf, now, 60)
-        probe = _PROBES[client]; _prune(probe, now, 600)
-        transient = min(100, int((len(req)/max(limit,1))*45 + (distinct/70)*30 + min(len(nf),25)/25*20 + min(len(probe),3)/3*30))
-        cumulative = _risk_value(client, now)
-        risk = min(100, max(transient, int(cumulative)))
-        return {'allow': True, 'status': 0, 'client': client, 'path': path, 'risk': risk, 'reason': 'allow'}
-def observe_response(client: str, method: str, path: str, status: int, risk=0):
+def observe_response(client: str, method: str, path: str, status: int, risk=0, fingerprint=''):
     now = time.monotonic()
     with _LOCK:
-        if int(status) == 404:
-            q = _NOT_FOUND[client]; q.append(now); _prune(q, now, 60)
-            _add_risk(client, 3, 'http_404', path)
-            if len(q) >= 25:
-                _ban(client, 900, 'excessive_404_scan')
-        elif int(status) == 401:
-            _add_risk(client, 8, 'http_401', path)
-        elif int(status) == 403:
-            _add_risk(client, 15, 'http_403', path)
-        if int(status) >= 400:
-            _record(client, method, path, 'response', f'http_{status}', max(int(risk), int(_risk_value(client, now))), status)
+        b = behavior.observe_response(fingerprint, client, int(status)) if fingerprint else {'risk':0,'reasons':[]}
+        if b.get('risk',0):
+            _risk_floor(client,b['risk'],'behavior_response:' + ','.join(b.get('reasons',[])[:3]),path)
+        if int(status)==404:
+            q=_NOT_FOUND[client]; q.append(now); _prune(q,now,60)
+            _add_risk(client,3,'http_404',path)
+            if len(q)>=25: _ban(client,900,'excessive_404_scan')
+        elif int(status)==401:
+            _add_risk(client,8,'http_401',path)
+        elif int(status)==403:
+            _add_risk(client,15,'http_403',path)
+        if int(status)>=400:
+            _record(client,method,path,'response',f'http_{status}',max(int(risk),int(_risk_value(client,now))),status)
+
+
+def system_event(reason: str, risk=80, action='alert', path='-'):
+    _record('system','SYSTEM',str(path),str(action),str(reason),int(risk),0)
+    if int(risk)>=70:
+        level='critical' if int(risk)>=95 else 'high'
+        try: alerts.emit(level,'system_event','Alerte système Sentinel',str(reason),metadata={'path':str(path),'risk':int(risk)},
+                         dedup_key=f'system:{reason}:{path}',cooldown=900)
+        except Exception: pass
 
 
 def auth_failure(client: str, path='/admin/'):
@@ -226,6 +289,11 @@ def auth_failure(client: str, path='/admin/'):
         q = _AUTH_FAIL[client]; q.append(now); _prune(q, now, 600)
         score = _add_risk(client, 20, 'basic_auth_failed', path)
         _record(client, 'AUTH', path, 'auth_failure', 'basic_auth_failed', max(70, int(score)), 401)
+        if len(q) >= 3:
+            try: alerts.emit('high','admin_auth_failures','Échecs répétés d’authentification admin',
+                             f'{len(q)} échecs sur 10 minutes',client,{'path':path},
+                             dedup_key=f'authfail:{client}',cooldown=1200)
+            except Exception: pass
         if len(q) >= 6:
             _ban(client, 1800, 'admin_bruteforce')
 
@@ -243,6 +311,9 @@ def status(days=1):
     active = sum(1 for t in _BANNED.values() if t > now)
     live_scores = sorted(({'clientHash': c, 'risk': round(_risk_value(c, now), 1)} for c in list(_RISK)), key=lambda x: x['risk'], reverse=True)
     live_scores = [x for x in live_scores if x['risk'] > 0][:12]
-    return {'days': days, 'events': total, 'blocked': blocked, 'activeQuarantines': active, 'topReasons': reasons, 'recent': recent, 'riskClients': live_scores, 'privacy': 'daily HMAC client hash; no raw IP storage'}
+    return {'days':days,'events':total,'blocked':blocked,'activeQuarantines':active,
+            'topReasons':reasons,'recent':recent,'riskClients':live_scores,
+            'behaviorProfiles':behavior.profiles(20,days),'alerts':alerts.summary(),
+            'privacy':'daily HMAC client hash + daily behavioral fingerprint; no raw IP storage'}
 
 init_db()
