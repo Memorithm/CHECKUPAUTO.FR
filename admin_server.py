@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+import base64, datetime, hashlib, hmac, html, json, os, re, tempfile
+import gsc_client as gsc
+import analytics_store as analytics
+import booking_bridge as booking
+import mercure_admin_client as mercure_admin
+import mercure_public_client as mercure_public
+import geo_marketing as geo_marketing
+import security_guard as security
+import security_ai as security_ai
+import security_integrity as security_integrity
+ROOT=Path(__file__).resolve().parent
+CONFIG=ROOT/'data/site-config.json'
+USER='admin'
+PASSWORD=(ROOT/'.admin-password').read_text().strip()
+MAX_BODY=131072
+CRAWLERS={
+ 'googlebot':'Googlebot','bingbot':'Bingbot','oaiSearchBot':'OAI-SearchBot','chatgptUser':'ChatGPT-User','gptBot':'GPTBot',
+ 'claudeSearchBot':'Claude-SearchBot','claudeUser':'Claude-User','claudeBot':'ClaudeBot','perplexityBot':'PerplexityBot','perplexityUser':'Perplexity-User','googleExtended':'Google-Extended'
+}
+INCENTIVE_DEFAULTS={
+ 'enabled':True,'label':'PRIX AVANTAGE',
+ 'eligibleServices':{'technical':True,'fitted':True},
+ 'defaultDiscountPercent':0.0,'maxDiscountPercent':0.0,'horizonDays':30,
+ 'allowedWeekdays':[1,2,3,4,5,6],'timeStart':'09:00','timeEnd':'19:00',
+ 'showOriginalPrice':True,'showDiscountPercent':True
+}
+def _hhmm(value,name):
+ value=str(value or '')
+ if not re.fullmatch(r'\d{2}:\d{2}',value): raise ValueError(f'{name} invalide')
+ h,m=map(int,value.split(':'))
+ if h>23 or m>59: raise ValueError(f'{name} invalide')
+ return value
+def incentive_config(c):
+ raw=c.get('incentives') if isinstance(c,dict) else {}
+ raw=raw if isinstance(raw,dict) else {}
+ eligible=raw.get('eligibleServices') if isinstance(raw.get('eligibleServices'),dict) else {}
+ days=raw.get('allowedWeekdays',INCENTIVE_DEFAULTS['allowedWeekdays'])
+ if not isinstance(days,list): days=INCENTIVE_DEFAULTS['allowedWeekdays']
+ out={
+  'enabled':bool(raw.get('enabled',INCENTIVE_DEFAULTS['enabled'])),
+  'label':str(raw.get('label') or INCENTIVE_DEFAULTS['label'])[:50],
+  'eligibleServices':{'technical':bool(eligible.get('technical',True)),'fitted':bool(eligible.get('fitted',True))},
+  'defaultDiscountPercent':float(raw.get('defaultDiscountPercent',0) or 0),
+  'maxDiscountPercent':float(raw.get('maxDiscountPercent',0) or 0),
+  'horizonDays':int(raw.get('horizonDays',30) or 30),
+  'allowedWeekdays':sorted({int(x) for x in days if str(x).isdigit() and 0<=int(x)<=6}),
+  'timeStart':str(raw.get('timeStart') or '09:00'),
+  'timeEnd':str(raw.get('timeEnd') or '19:00'),
+  'showOriginalPrice':bool(raw.get('showOriginalPrice',True)),
+  'showDiscountPercent':bool(raw.get('showDiscountPercent',True)),
+ }
+ return out
+def load_config(): return json.loads(CONFIG.read_text())
+def canonical_origin(url):
+ p=urlparse(url); return f'{p.scheme}://{p.netloc}'
+def asset_url(c,path):
+ if path.startswith('https://'): return path
+ return canonical_origin(c['seo']['canonicalUrl'])+'/'+path.lstrip('/')
+def esc(v): return html.escape(str(v),quote=True)
+class Handler(SimpleHTTPRequestHandler):
+ server_version='CyberCheck'
+ sys_version=''
+ def version_string(self): return 'CyberCheck'
+ def list_directory(self,path):
+  self.send_error(404); return None
+ def _guard(self):
+  if getattr(self,'_security_checked',False): return getattr(self,'_security_allowed',True)
+  self._security_checked=True
+  d=security.evaluate(self.command,self.path,self.headers,self.client_address[0] if self.client_address else '')
+  self._security_client=d.get('client',''); self._security_path=d.get('path',''); self._security_risk=d.get('risk',0); self._security_allowed=bool(d.get('allow'))
+  if self._security_allowed: return True
+  status=int(d.get('status') or 403)
+  if status==404: self.send_json({'error':'not_found'},404)
+  elif self._security_path.startswith('/api/'): self.send_json({'ok':False,'error':'request_rejected'},status)
+  else: self.send_bytes(b'Request rejected','text/plain; charset=utf-8',status)
+  return False
+ def send_response(self,code,message=None):
+  try:
+   if getattr(self,'_security_client','') and not getattr(self,'_security_response_recorded',False):
+    security.observe_response(self._security_client,self.command,getattr(self,'_security_path',urlparse(self.path).path),int(code),getattr(self,'_security_risk',0)); self._security_response_recorded=True
+  except Exception: pass
+  return super().send_response(code,message)
+ def end_headers(self):
+  self.send_header('X-Content-Type-Options','nosniff'); self.send_header('X-Frame-Options','DENY')
+  self.send_header('Referrer-Policy','strict-origin-when-cross-origin'); self.send_header('Cross-Origin-Opener-Policy','same-origin')
+  self.send_header('Cross-Origin-Resource-Policy','same-site'); self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=(self)')
+  self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
+  self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
+  if urlparse(self.path).path.startswith('/admin'): self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
+  return super().end_headers()
+ def translate_path(self,path):
+  clean=urlparse(path).path
+  if clean=='/admin': clean='/admin/'
+  if clean=='/admin/': clean='/admin/index.html'
+  return str(ROOT/clean.lstrip('/'))
+ def send_bytes(self,data,ctype,status=200,cache='no-store'):
+  self.send_response(status); self.send_header('Content-Type',ctype); self.send_header('Cache-Control',cache); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
+ def send_json(self,obj,status=200): self.send_bytes(json.dumps(obj,ensure_ascii=False).encode(),'application/json; charset=utf-8',status)
+ def authorized(self):
+  raw=self.headers.get('Authorization','')
+  if not raw.startswith('Basic '): return False
+  try: userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
+  except Exception: return False
+  return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
+ def require_auth(self):
+  if self.headers.get('Authorization') and getattr(self,'_security_client',''):
+   try: security.auth_failure(self._security_client,urlparse(self.path).path)
+   except Exception: pass
+  self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="CyberCheck Administration", charset="UTF-8"'); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(b'Authentication required')
+ def log_message(self,format,*args):
+  # Do not persist client IP addresses in prototype access logs.
+  return
+ def do_HEAD(self):
+  if not self._guard(): return
+  path=urlparse(self.path).path
+  dynamic={'/','/index.html','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/api/site-config','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
+  if path in dynamic or path=='/api/booking/availability':
+   self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
+  if path.startswith('/admin'):
+   if not self.authorized(): return self.require_auth()
+   if security.static_allowed(path,True): return super().do_HEAD()
+   self.send_response(404); self.end_headers(); return
+  if security.static_allowed(path,False): return super().do_HEAD()
+  self.send_response(404); self.end_headers(); return
+ def render_index(self,c):
+  raw=(ROOT/'index.html').read_text()
+  seo=c['seo']; robots='index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1' if seo['indexingEnabled'] else 'noindex,nofollow'
+  raw=re.sub(r'<title>.*?</title>',f'<title>{esc(seo["title"])}</title>',raw,count=1,flags=re.S)
+  raw=re.sub(r'<meta name="description" content="[^"]*">',f'<meta name="description" content="{esc(seo["description"])}">',raw,count=1)
+  raw=re.sub(r'<!-- SEO_DYNAMIC_START -->.*?<!-- SEO_DYNAMIC_END -->\s*','',raw,flags=re.S)
+  verify=f'<meta name="google-site-verification" content="{esc(seo["googleVerification"])}">' if seo.get('googleVerification') else ''
+  structured=build_structured_data(c)
+  block='''<!-- SEO_DYNAMIC_START -->
+<meta name="robots" content="{robots}">
+<link rel="canonical" href="{canonical}">
+<meta property="og:type" content="website"><meta property="og:locale" content="fr_FR">
+<meta property="og:site_name" content="{site}"><meta property="og:title" content="{title}">
+<meta property="og:description" content="{description}"><meta property="og:url" content="{canonical}">
+<meta property="og:image" content="{image}"><meta name="twitter:card" content="summary_large_image">
+{verify}
+<script type="application/ld+json">{jsonld}</script>
+<!-- SEO_DYNAMIC_END -->'''.format(robots=robots,canonical=esc(seo['canonicalUrl']),site=esc(seo['siteName']),title=esc(seo['title']),description=esc(seo['description']),image=esc(asset_url(c,seo['ogImage'])),verify=verify,jsonld=json.dumps(structured,ensure_ascii=False,separators=(',',':')).replace('</','<\\/'))
+  return raw.replace('</head>',block+'\n</head>',1).encode()
+ def do_GET(self):
+  if not self._guard(): return
+  parsed=urlparse(self.path); path=parsed.path
+  if path=='/api/admin/analytics':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); days=int(q.get('days',['30'])[0]); return self.send_json(booking.merge_into_analytics(analytics.summary(days)))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/seo-health':
+   if not self.authorized(): return self.require_auth()
+   return self.send_json(build_seo_health(load_config()))
+  if path=='/api/admin/security/status':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); days=int((q.get('days') or ['1'])[0]); return self.send_json(security.status(days))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/security/ai':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(security_ai.latest())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/security/posture':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(security_integrity.posture())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/booking/services':
+   c=load_config(); return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':incentive_config(c)})
+  if path=='/api/geo/coverage':
+   try: return self.send_json(geo_marketing.coverage(load_config(),mercure_public.public_services()))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/geo/quote':
+   try:
+    q=parse_qs(parsed.query); city=(q.get('city') or q.get('postalCode') or [''])[0]
+    return self.send_json(geo_marketing.quote(load_config(),city,mercure_public.public_services()))
+   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'Calcul géographique indisponible','detail':str(exc)},502)
+  if path=='/api/booking/availability':
+   try:
+    q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [datetime.date.today().isoformat()])[0]; c=load_config(); policy=incentive_config(c)
+    requested=datetime.date.fromisoformat(date); limit=datetime.date.today()+datetime.timedelta(days=int(policy['horizonDays']))
+    if requested>limit: raise ValueError(f"Date hors horizon de réservation ({policy['horizonDays']} jours)")
+    result=mercure_public.availability(service,date); result['incentives']=policy; return self.send_json(result)
+   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'Disponibilités temporairement indisponibles','detail':str(exc)},502)
+  if path=='/go/booking':
+   try:
+    c=load_config(); q=parse_qs(parsed.query)
+    params={k:(v[0] if v else '') for k,v in q.items()}; service=params.get('service','')
+    if not booking.mercure_prestation(service):
+     phone=esc(c['business']['phone']); tel=re.sub(r'[^+\d]','',c['business']['phone'])
+     doc=f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Réservation par téléphone</title><style>body{{font-family:system-ui;background:#f5f6f1;color:#111;padding:32px}}main{{max-width:620px;margin:auto}}a{{display:inline-block;padding:14px 20px;border-radius:999px;background:#111;color:#fff;text-decoration:none}}</style></head><body><main><h1>Cette prestation se réserve par téléphone.</h1><p>La réservation en ligne est limitée aux contrôles à 80 € et 90 €.</p><a href="tel:{tel}">Appeler le centre · {phone}</a></main></body></html>'''.encode()
+     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
+    result=booking.create_intent(params,c['business']['bookingUrl']); doc=booking.auto_submit_html(result['token'],service)
+    return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path.startswith('/api/admin/mercure/'):
+   if not self.authorized(): return self.require_auth()
+   try:
+    c=load_config(); days=int(parse_qs(parsed.query).get('days',['30'])[0])
+    if path=='/api/admin/mercure/status':
+     return self.send_json({'provider':'AutoBilan-Systems / Mercure RDV','centreId':240,'bookingUrl':c['business']['bookingUrl'],'secret':booking.secret_info(False),'stats':booking.stats(days),'webhookUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/booking-confirmed','browserCallbackUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/browser-confirmed'})
+    if path=='/api/admin/mercure/live-summary': return self.send_json(mercure_admin.live_summary(days))
+    if path=='/api/admin/mercure/session-status': return self.send_json(mercure_admin.session_status())
+    if path=='/api/admin/mercure/promotions':
+     q=parse_qs(parsed.query); today=datetime.date.today(); start=(q.get('start') or [today.isoformat()])[0]; end=(q.get('end') or [(today+datetime.timedelta(days=30)).isoformat()])[0]
+     return self.send_json({'promotions':mercure_admin.list_promotions(),'events':mercure_admin.promotion_events(start,end),'start':start,'end':end})
+    if path=='/api/admin/mercure/secret': return self.send_json(booking.secret_info(True))
+    return self.send_json({'error':'not_found'},404)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path.startswith('/api/admin/google/'):
+   if not self.authorized(): return self.require_auth()
+   c=load_config(); site=c['seo'].get('searchConsoleProperty') or c['seo']['canonicalUrl']
+   try:
+    if path=='/api/admin/google/status':
+     info=gsc.credential_info(); result={'credentials':info,'property':site,'connected':False}
+     if info['configured']:
+      check=gsc.property_status(site); result.update(check); result['connected']=check['accessible']
+     return self.send_json(result)
+    if path=='/api/admin/google/properties': return self.send_json({'properties':gsc.list_properties()})
+    if path=='/api/admin/google/performance':
+     q=parse_qs(parsed.query); days=int(q.get('days',['28'])[0]); return self.send_json(gsc.performance(site,days))
+    if path=='/api/admin/google/sitemaps': return self.send_json({'sitemaps':gsc.list_sitemaps(site)})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},502)
+  if path=='/zone-tarifs':
+   return self.send_bytes(build_geo_pricing_page(load_config()),'text/html; charset=utf-8',cache='no-cache')
+  if path in ('/','/index.html'):
+   return self.send_bytes(self.render_index(load_config()),'text/html; charset=utf-8',cache='no-cache')
+  if path=='/robots.txt': return self.send_bytes(build_robots(load_config()).encode(),'text/plain; charset=utf-8',cache='no-cache')
+  if path=='/sitemap.xml': return self.send_bytes(build_sitemap(load_config()).encode(),'application/xml; charset=utf-8',cache='no-cache')
+  if path=='/llms.txt': return self.send_bytes(build_llms(load_config()).encode(),'text/plain; charset=utf-8',cache='no-cache')
+  if path=='/api/site-config': return self.send_json(load_config())
+  if path=='/api/admin/config':
+   if not self.authorized(): return self.require_auth()
+   return self.send_json(load_config())
+  if path.startswith('/admin'):
+   if not self.authorized(): return self.require_auth()
+   if security.static_allowed(path,True): return super().do_GET()
+   return self.send_json({'error':'not_found'},404)
+  if security.static_allowed(path,False): return super().do_GET()
+  return self.send_json({'error':'not_found'},404)
+ def _read_json(self, allow_empty=False):
+  length=int(self.headers.get('Content-Length','0'))
+  if length==0 and allow_empty: return {}
+  if length<=0 or length>MAX_BODY: raise ValueError('invalid body size')
+  return json.loads(self.rfile.read(length))
+ def do_POST(self):
+  if not self._guard(): return
+  path=urlparse(self.path).path
+  if path=='/api/integrations/mercure/browser-confirmed':
+   try:
+    origin=self.headers.get('Origin','')
+    if origin and origin!='https://rdv.checkupauto.fr': return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
+    payload=self._read_json(); result=booking.browser_confirmation(payload)
+    data=json.dumps(result,ensure_ascii=False).encode()
+    self.send_response(201); self.send_header('Content-Type','application/json; charset=utf-8')
+    self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','https://rdv.checkupauto.fr')
+    self.send_header('Vary','Origin'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data); return
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},401)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/integrations/mercure/booking-confirmed':
+   try:
+    length=int(self.headers.get('Content-Length','0'))
+    if length<=0 or length>MAX_BODY: raise ValueError('invalid body size')
+    raw=self.rfile.read(length)
+    if not booking.verify_signature(raw,self.headers.get('X-CyberCheck-Signature')):
+     return self.send_json({'ok':False,'error':'invalid signature'},401)
+    payload=json.loads(raw); return self.send_json(booking.apply_conversion(payload),200)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/events':
+   try:
+    c=load_config(); cfg=c.get('analytics',{})
+    if not cfg.get('enabled',True): return self.send_json({'ok':True,'disabled':True})
+    payload=self._read_json(); result=analytics.record_event(payload,int(cfg.get('retentionDays',180)))
+    return self.send_json(result,201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path.startswith('/api/admin/') and not self.authorized(): return self.require_auth()
+  if path=='/api/admin/mercure/promo-slot':
+   try:
+    payload=self._read_json(); c=load_config(); policy=incentive_config(c)
+    if not policy['enabled']: raise ValueError('Le système d’incitation est désactivé')
+    service_key=str(payload.get('service') or '').strip(); meta=mercure_public.service(service_key)
+    if not policy['eligibleServices'].get(service_key,False): raise ValueError('Cette prestation n’est pas éligible aux remises')
+    final=float(payload.get('finalPrice')); base=float(meta['basePrice'])
+    if final<=0 or final>=base: raise ValueError(f'Le prix promotionnel doit être compris entre 0 et {base:.0f} €')
+    discount=round((base-final)/base*100,2)
+    cap=float(policy.get('maxDiscountPercent') or 0)
+    if cap>0 and discount>cap+0.001: raise ValueError(f'La remise dépasse le plafond administrateur de {cap:g} %')
+    ds=str(payload.get('dateStart') or ''); de=str(payload.get('dateEnd') or ds); ts=_hhmm(payload.get('timeStart'),'Heure de début'); te=_hhmm(payload.get('timeEnd'),'Heure de fin')
+    d1=datetime.date.fromisoformat(ds); d2=datetime.date.fromisoformat(de); today=datetime.date.today()
+    if d1<today: raise ValueError('La promotion doit commencer aujourd’hui ou plus tard')
+    if d2<d1: raise ValueError('La date de fin doit être postérieure à la date de début')
+    if d2>today+datetime.timedelta(days=int(policy['horizonDays'])): raise ValueError(f"La promotion dépasse l’horizon autorisé de {policy['horizonDays']} jours")
+    if ts>=te: raise ValueError('L’heure de fin doit être postérieure à l’heure de début')
+    if ts<policy['timeStart'] or te>policy['timeEnd']: raise ValueError(f"Plage autorisée : {policy['timeStart']}–{policy['timeEnd']}")
+    raw_days=payload.get('weekdays'); weekdays=[]
+    if isinstance(raw_days,list):
+     for x in raw_days:
+      try: v=int(x)
+      except Exception: continue
+      if 0<=v<=6 and v not in weekdays: weekdays.append(v)
+    if not weekdays and d1==d2: weekdays=[(d1.weekday()+1)%7]
+    if not weekdays: raise ValueError('Sélectionnez au moins un jour')
+    allowed=set(policy['allowedWeekdays'])
+    if any(v not in allowed for v in weekdays): raise ValueError('Un ou plusieurs jours ne sont pas autorisés par la politique d’incitation')
+    name=f"CYBERCHECK · {policy['label']} · {meta['label']} · {final:.2f} EUR"
+    result=mercure_admin.plan_promotion_slot(name=name,final_price=final,prestation_id=meta['id'],date_start=ds,date_end=de,time_start=ts,time_end=te,weekdays=[str(v) for v in weekdays])
+    return self.send_json({'ok':True,'service':service_key,'basePrice':base,'finalPrice':round(final,2),'discountPercent':discount,'policy':policy,**result},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/mercure/rotate-secret':
+   try: return self.send_json({'ok':True,**booking.rotate_secret()})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path.startswith('/api/admin/google/'):
+   c=load_config(); site=c['seo'].get('searchConsoleProperty') or c['seo']['canonicalUrl']
+   try:
+    payload=self._read_json(allow_empty=True)
+    if path=='/api/admin/google/credentials': return self.send_json({'ok':True,'credentials':gsc.save_credentials(payload)})
+    if path=='/api/admin/google/test':
+     check=gsc.property_status(site); return self.send_json({'ok':True,'property':site,**check})
+    if path=='/api/admin/google/sitemap-submit':
+     sitemap=payload.get('sitemapUrl') or canonical_origin(c['seo']['canonicalUrl'])+'/sitemap.xml'
+     if not isinstance(sitemap,str) or not sitemap.startswith('https://'): raise ValueError('sitemapUrl must use https')
+     return self.send_json({'ok':True,**gsc.submit_sitemap(site,sitemap)})
+    if path=='/api/admin/google/inspect':
+     target=payload.get('url') or c['seo']['canonicalUrl']
+     if not isinstance(target,str) or not target.startswith('https://'): raise ValueError('inspection URL must use https')
+     return self.send_json({'ok':True,'result':gsc.inspect_url(site,target)})
+    return self.send_json({'error':'not_found'},404)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path!='/api/admin/config': return self.send_json({'error':'not_found'},404)
+  try:
+   incoming=self._read_json(); validated=validate_config(incoming)
+   fd,tmp=tempfile.mkstemp(prefix='site-config.',suffix='.json',dir=str(CONFIG.parent))
+   with os.fdopen(fd,'w') as f: json.dump(validated,f,ensure_ascii=False,indent=2); f.write('\n')
+   os.replace(tmp,CONFIG); return self.send_json({'ok':True,'config':validated})
+  except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+ def do_DELETE(self):
+  if not self._guard(): return
+  parsed=urlparse(self.path); path=parsed.path
+  if not self.authorized(): return self.require_auth()
+  if path=='/api/admin/google/credentials':
+   try: return self.send_json({'ok':True,'credentials':gsc.remove_credentials()})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/mercure/promo-slot':
+   try:
+    q=parse_qs(parsed.query); cid=(q.get('id') or [''])[0]
+    return self.send_json(mercure_admin.remove_promotion_slot(cid))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  return self.send_json({'error':'not_found'},404)
+
+def build_seo_health(c):
+ seo=c.get('seo',{}); cr=seo.get('crawlers',{}); sd=seo.get('structuredData',{}); ac=c.get('analytics',{})
+ checks=[]
+ def add(key,label,status,detail): checks.append({'key':key,'label':label,'status':status,'detail':detail})
+ indexing=bool(seo.get('indexingEnabled'))
+ add('indexing','Indexation globale','pass' if indexing else 'warning','Autorisée' if indexing else 'Désactivée sur cette préversion')
+ canonical=seo.get('canonicalUrl',''); add('canonical','URL canonique','pass' if canonical.startswith('https://') else 'fail',canonical or 'Absente')
+ title=seo.get('title',''); add('title','Titre SEO','pass' if 25<=len(title)<=70 else 'warning',f'{len(title)} caractères')
+ desc=seo.get('description',''); add('description','Méta-description','pass' if 90<=len(desc)<=200 else 'warning',f'{len(desc)} caractères')
+ add('opengraph','Image Open Graph','pass' if seo.get('ogImage') else 'fail',seo.get('ogImage') or 'Absente')
+ complete=all(sd.get(k) for k in ('businessName','streetAddress','postalCode','locality','country'))
+ add('schema','Schema.org LocalBusiness','pass' if complete else 'fail','Complet' if complete else 'Champs locaux manquants')
+ add('sitemap','Sitemap XML','pass','Généré automatiquement depuis l’URL canonique')
+ add('googlebot','Googlebot','pass' if indexing and cr.get('googlebot') else 'warning','Autorisé' if indexing and cr.get('googlebot') else ('Préférence autorisée, mais indexation globale coupée' if cr.get('googlebot') else 'Bloqué'))
+ add('oai-search','OAI-SearchBot','pass' if indexing and cr.get('oaiSearchBot') else 'warning','Autorisé' if indexing and cr.get('oaiSearchBot') else ('Préférence autorisée, mais indexation globale coupée' if cr.get('oaiSearchBot') else 'Bloqué'))
+ add('perplexity','PerplexityBot','pass' if indexing and cr.get('perplexityBot') else 'warning','Autorisé' if indexing and cr.get('perplexityBot') else ('Préférence autorisée, mais indexation globale coupée' if cr.get('perplexityBot') else 'Bloqué'))
+ add('training-openai','GPTBot entraînement','pass' if not cr.get('gptBot') else 'warning','Bloqué' if not cr.get('gptBot') else 'Autorisé')
+ add('training-anthropic','ClaudeBot entraînement','pass' if not cr.get('claudeBot') else 'warning','Bloqué' if not cr.get('claudeBot') else 'Autorisé')
+ cred=gsc.credential_info(); add('gsc','Google Search Console','pass' if cred.get('configured') else 'warning',cred.get('clientEmail') or 'Identifiants non installés')
+ add('google-verification','Vérification Google','pass' if seo.get('googleVerification') else 'warning','Configurée' if seo.get('googleVerification') else 'Code non renseigné')
+ add('analytics','Mesure first-party','pass' if ac.get('enabled',True) else 'warning','Sans cookie / sans identifiant' if ac.get('enabled',True) else 'Désactivée')
+ bs=booking.stats(30); has_flux=bool(bs.get('recent'))
+ add('mercure','Mercure RDV confirmations','pass' if has_flux else 'warning',f"Flux HMAC reçu · {bs.get('confirmedBookings',0)} RDV confirmés sur 30 j" if has_flux else 'Bridge HMAC prêt · activation fournisseur encore requise')
+ totals={k:sum(1 for x in checks if x['status']==k) for k in ('pass','warning','fail')}
+ return {'checks':checks,'totals':totals,'generatedAt':datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
+
+def build_robots(c):
+ seo=c['seo']; canonical=seo['canonicalUrl']; lines=[]
+ if not seo['indexingEnabled']:
+  return 'User-agent: *\nDisallow: /\n\n# Preview environment: global indexing disabled\n'
+ for key,ua in CRAWLERS.items():
+  lines += [f'User-agent: {ua}', 'Allow: /' if seo['crawlers'].get(key,False) else 'Disallow: /']
+  if seo['crawlers'].get(key,False): lines += ['Disallow: /admin/','Disallow: /api/admin/']
+  lines.append('')
+ lines += ['User-agent: *','Allow: /','Disallow: /admin/','Disallow: /api/admin/','',f'Sitemap: {canonical_origin(canonical)}/sitemap.xml','']
+ return '\n'.join(lines)
+def build_sitemap(c):
+ url=esc(c['seo']['canonicalUrl']); last=c['updatedAt'][:10]
+ return f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{url}</loc><lastmod>{last}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url></urlset>\n'
+def build_llms(c):
+ seo=c['seo']; s=c['services']; offer=c['offer']; b=c['business']
+ return f'''# {seo['siteName']}
+
+> {seo['aiSummary']}
+
+- Site officiel: {seo['canonicalUrl']}
+- Téléphone: {b['phone']}
+- Adresse: {b['address']}
+- Réservation: {b['bookingUrl']}
+- Offre principale: {offer['title'] if offer['enabled'] else 'Aucune offre active'}
+
+## Prestations
+- {s['technical']['label']}: {s['technical']['price']} EUR
+- {s['fitted']['label']}: {s['fitted']['price']} EUR
+- {s['pollution']['label']}: {s['pollution']['price']} EUR
+
+## Référencement
+Le contenu canonique et les règles d’exploration sont définis par robots.txt et les métadonnées HTML du site.
+'''
+def build_structured_data(c):
+ seo=c['seo']; sd=seo['structuredData']; b=c['business']; s=c['services']
+ offers=[{'@type':'Offer','name':v['label'],'price':v['price'],'priceCurrency':'EUR'} for v in s.values()]
+ return {'@context':'https://schema.org','@type':'LocalBusiness','name':sd['businessName'],'url':seo['canonicalUrl'],'description':seo['description'],'telephone':b['phone'],'priceRange':sd['priceRange'],'address':{'@type':'PostalAddress','streetAddress':sd['streetAddress'],'postalCode':sd['postalCode'],'addressLocality':sd['locality'],'addressCountry':sd['country']},'makesOffer':offers}
+def text(v,name,maxlen=300,allow_empty=False):
+ if not isinstance(v,str): raise ValueError(f'{name} must be text')
+ v=v.strip()
+ if (not v and not allow_empty) or len(v)>maxlen: raise ValueError(f'{name} invalid length')
+ return v
+def price(v,name):
+ if isinstance(v,bool) or not isinstance(v,(int,float)) or v<0 or v>1000: raise ValueError(f'{name} invalid')
+ return round(float(v),2)
+def https_url(v,name):
+ v=text(v,name,500)
+ if not v.startswith('https://'): raise ValueError(f'{name} must use https')
+ return v
+def validate_config(c):
+ if not isinstance(c,dict): raise ValueError('invalid config')
+ offer=c.get('offer',{}); business=c.get('business',{}); hero=c.get('hero',{}); services=c.get('services',{}); seo=c.get('seo',{}); analytics_cfg=c.get('analytics',{}); inc=c.get('incentives',{})
+ out={'version':4,'updatedAt':datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
+ out['offer']={'enabled':bool(offer.get('enabled',False)),'title':text(offer.get('title',''),'offer.title',80),'subtitle':text(offer.get('subtitle',''),'offer.subtitle',240),'heroLine':text(offer.get('heroLine',''),'offer.heroLine',180),'finalTitle':text(offer.get('finalTitle',''),'offer.finalTitle',180)}
+ out['business']={'phone':text(business.get('phone',''),'business.phone',40),'address':text(business.get('address',''),'business.address',120),'bookingUrl':https_url(business.get('bookingUrl',''),'bookingUrl')}
+ out['hero']={'kicker':text(hero.get('kicker',''),'hero.kicker',160)}
+ out['services']={}
+ for key in ('technical','fitted','pollution'):
+  sv=services.get(key,{})
+  out['services'][key]={'label':text(sv.get('label',''),f'services.{key}.label',80),'price':price(sv.get('price'),f'services.{key}.price')}
+ eligible=inc.get('eligibleServices',{}) if isinstance(inc.get('eligibleServices',{}),dict) else {}
+ def pct(name,default=0):
+  v=inc.get(name,default)
+  if isinstance(v,bool) or not isinstance(v,(int,float)) or v<0 or v>90: raise ValueError(f'incentives.{name} invalid')
+  return round(float(v),2)
+ horizon=inc.get('horizonDays',30)
+ if isinstance(horizon,bool) or not isinstance(horizon,(int,float)) or horizon<1 or horizon>180: raise ValueError('incentives.horizonDays invalid')
+ days=inc.get('allowedWeekdays',[1,2,3,4,5,6])
+ if not isinstance(days,list): raise ValueError('incentives.allowedWeekdays invalid')
+ clean_days=[]
+ for d in days:
+  if isinstance(d,bool): raise ValueError('incentives.allowedWeekdays invalid')
+  try: d=int(d)
+  except Exception: raise ValueError('incentives.allowedWeekdays invalid')
+  if d<0 or d>6: raise ValueError('incentives.allowedWeekdays invalid')
+  if d not in clean_days: clean_days.append(d)
+ if not clean_days: raise ValueError('Sélectionnez au moins un jour autorisé')
+ ts=_hhmm(inc.get('timeStart','09:00'),'incentives.timeStart'); te=_hhmm(inc.get('timeEnd','19:00'),'incentives.timeEnd')
+ if ts>=te: raise ValueError('La plage horaire d’incitation est invalide')
+ out['incentives']={
+  'enabled':bool(inc.get('enabled',True)),
+  'label':text(inc.get('label','PRIX AVANTAGE'),'incentives.label',50),
+  'eligibleServices':{'technical':bool(eligible.get('technical',True)),'fitted':bool(eligible.get('fitted',True))},
+  'defaultDiscountPercent':pct('defaultDiscountPercent',0),
+  'maxDiscountPercent':pct('maxDiscountPercent',0),
+  'horizonDays':int(horizon),
+  'allowedWeekdays':clean_days,
+  'timeStart':ts,'timeEnd':te,
+  'showOriginalPrice':bool(inc.get('showOriginalPrice',True)),
+  'showDiscountPercent':bool(inc.get('showDiscountPercent',True))
+ }
+ cr=seo.get('crawlers',{}); sd=seo.get('structuredData',{})
+ og=text(seo.get('ogImage',''),'seo.ogImage',500)
+ if not (og.startswith('/') or og.startswith('https://')): raise ValueError('seo.ogImage must be an absolute https URL or /path')
+ out['seo']={'indexingEnabled':bool(seo.get('indexingEnabled',False)),'siteName':text(seo.get('siteName',''),'seo.siteName',80),'title':text(seo.get('title',''),'seo.title',120),'description':text(seo.get('description',''),'seo.description',320),'canonicalUrl':https_url(seo.get('canonicalUrl',''),'seo.canonicalUrl'),'ogImage':og,'googleVerification':text(seo.get('googleVerification',''),'seo.googleVerification',300,True),'searchConsoleProperty':text(seo.get('searchConsoleProperty',''),'seo.searchConsoleProperty',500,True),'aiSummary':text(seo.get('aiSummary',''),'seo.aiSummary',800)}
+ out['seo']['structuredData']={'businessName':text(sd.get('businessName',''),'seo.structuredData.businessName',100),'streetAddress':text(sd.get('streetAddress',''),'seo.structuredData.streetAddress',120),'postalCode':text(sd.get('postalCode',''),'seo.structuredData.postalCode',20),'locality':text(sd.get('locality',''),'seo.structuredData.locality',80),'country':text(sd.get('country',''),'seo.structuredData.country',2).upper(),'priceRange':text(sd.get('priceRange',''),'seo.structuredData.priceRange',20)}
+ out['seo']['crawlers']={k:bool(cr.get(k,False)) for k in CRAWLERS}
+ retention=analytics_cfg.get('retentionDays',180)
+ if isinstance(retention,bool) or not isinstance(retention,(int,float)) or retention<7 or retention>730: raise ValueError('analytics.retentionDays invalid')
+ out['analytics']={'enabled':bool(analytics_cfg.get('enabled',True)),'retentionDays':int(retention),'privacyMode':'cookieless'}
+ return out
+if __name__=='__main__':
+ os.chdir(ROOT)
+ analytics.init_db(); booking.init_db(); security.init_db(); security_integrity.start(120); security_ai.start(60)
+ print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
+ ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

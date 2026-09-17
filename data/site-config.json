@@ -1,0 +1,93 @@
+{
+  "version": 4,
+  "updatedAt": "2026-09-17T10:32:39+02:00",
+  "offer": {
+    "enabled": true,
+    "title": "CONTRE-VISITE OFFERTE",
+    "subtitle": "Si votre contrôle technique nécessite une contre-visite, Checkup Auto vous l’offre.",
+    "heroLine": "Et si une contre-visite est nécessaire, elle est offerte.",
+    "finalTitle": "Un contrôle clair. Une contre-visite offerte."
+  },
+  "business": {
+    "phone": "01 86 04 63 64",
+    "address": "1E rue Niépce · Les Mureaux",
+    "bookingUrl": "https://rdv.checkupauto.fr/"
+  },
+  "hero": {
+    "kicker": "■ CONTRE-VISITE OFFERTE · CONTRÔLE TECHNIQUE AUX MUREAUX"
+  },
+  "services": {
+    "technical": {
+      "label": "Contrôle technique",
+      "price": 80.0
+    },
+    "fitted": {
+      "label": "Véhicule aménagé",
+      "price": 90.0
+    },
+    "pollution": {
+      "label": "Visite pollution",
+      "price": 30.0
+    }
+  },
+  "seo": {
+    "indexingEnabled": false,
+    "siteName": "Checkup Auto",
+    "title": "Contrôle technique Les Mureaux | Checkup Auto",
+    "description": "Contrôle technique aux Mureaux chez Checkup Auto. Réservation en ligne, tarifs clairs et contre-visite offerte si elle est nécessaire.",
+    "canonicalUrl": "https://www.checkupauto.fr/",
+    "ogImage": "/assets/vehicle.png",
+    "googleVerification": "",
+    "searchConsoleProperty": "https://www.checkupauto.fr/",
+    "aiSummary": "Checkup Auto est un centre de contrôle technique automobile situé aux Mureaux. Le site présente les prestations, les tarifs, la réservation en ligne et l’offre de contre-visite offerte lorsqu’elle est nécessaire.",
+    "structuredData": {
+      "businessName": "Checkup Auto",
+      "streetAddress": "1E rue Niépce",
+      "postalCode": "78130",
+      "locality": "Les Mureaux",
+      "country": "FR",
+      "priceRange": "€€"
+    },
+    "crawlers": {
+      "googlebot": true,
+      "bingbot": true,
+      "oaiSearchBot": true,
+      "chatgptUser": true,
+      "gptBot": false,
+      "claudeSearchBot": true,
+      "claudeUser": true,
+      "claudeBot": false,
+      "perplexityBot": true,
+      "perplexityUser": true,
+      "googleExtended": true
+    }
+  },
+  "analytics": {
+    "enabled": true,
+    "retentionDays": 180,
+    "privacyMode": "cookieless"
+  },
+  "incentives": {
+    "enabled": true,
+    "label": "PRIX AVANTAGE",
+    "eligibleServices": {
+      "technical": true,
+      "fitted": true
+    },
+    "defaultDiscountPercent": 0,
+    "maxDiscountPercent": 0,
+    "horizonDays": 30,
+    "allowedWeekdays": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "timeStart": "09:00",
+    "timeEnd": "19:00",
+    "showOriginalPrice": true,
+    "showDiscountPercent": true
+  }
+}

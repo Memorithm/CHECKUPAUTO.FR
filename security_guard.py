@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+from collections import defaultdict, deque
+from pathlib import Path
+import datetime
+import hashlib
+import hmac
+import os
+import re
+import secrets
+import sqlite3
+import threading
+import time
+from urllib.parse import unquote, urlsplit
+
+STATE_DIR = Path('/root/CyberCheckSecurity')
+DB = STATE_DIR / 'security.sqlite3'
+SECRET_FILE = STATE_DIR / 'client-hmac-secret'
+_LOCK = threading.RLock()
+_REQ = defaultdict(deque)
+_PATHS = defaultdict(deque)
+_NOT_FOUND = defaultdict(deque)
+_PROBES = defaultdict(deque)
+_AUTH_FAIL = defaultdict(deque)
+_BANNED = {}
+_RISK = {}
+_SCANNER_UA = re.compile(r'(sqlmap|nikto|nmap|masscan|zgrab|gobuster|dirbuster|feroxbuster|ffuf|nuclei|wpscan|acunetix|nessus|openvas|burp)', re.I)
+_HONEYPOTS = {'/.env','/.git/config','/wp-login.php','/phpmyadmin','/server-status','/actuator/health'}
+_SENSITIVE_PATHS = (
+    '/.git', '/.env', '/.svn', '/.hg', '/wp-admin', '/wp-login',
+    '/phpmyadmin', '/server-status', '/actuator', '/vendor/phpunit',
+    '/cgi-bin', '/config.', '/backup', '/database', '/dump', '/.aws',
+)
+_SENSITIVE_SUFFIXES = (
+    '.bak', '.old', '.orig', '.save', '.swp', '.sql', '.sqlite', '.sqlite3',
+    '.pem', '.key', '.crt', '.p12', '.log', '.pyc', '.map', '~',
+)
+_QUERY_SIG = re.compile(
+    r'(\.\./|%2e%2e|<script|%3cscript|union\s+select|sleep\s*\(|benchmark\s*\('
+    r'|\$\{jndi:|/etc/passwd|cmd=|powershell|;\s*(?:cat|curl|wget|bash|sh)\b)',
+    re.I,
+)
+_ALLOWED_METHODS = {'GET', 'HEAD', 'POST', 'DELETE', 'OPTIONS'}
+_PUBLIC_STATIC = {'/style.css', '/app.js', '/favicon.ico', '/favicon.png'}
+_PUBLIC_PREFIXES = ('/assets/',)
+_ADMIN_PREFIX = '/admin/'
+
+
+def _now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+
+
+def _ensure_secret():
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if not SECRET_FILE.exists():
+        SECRET_FILE.write_text(secrets.token_urlsafe(48) + '\n')
+        SECRET_FILE.chmod(0o600)
+    return SECRET_FILE.read_text().strip()
+def init_db():
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB) as db:
+        db.execute('''CREATE TABLE IF NOT EXISTS security_events(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          occurred_at TEXT NOT NULL,
+          client_hash TEXT NOT NULL,
+          method TEXT NOT NULL,
+          path TEXT NOT NULL,
+          status INTEGER NOT NULL DEFAULT 0,
+          risk INTEGER NOT NULL DEFAULT 0,
+          action TEXT NOT NULL,
+          reason TEXT NOT NULL DEFAULT ''
+        )''')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_security_time ON security_events(occurred_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_security_client ON security_events(client_hash)')
+    DB.chmod(0o600)
+    _ensure_secret()
+
+
+def client_hash(ip: str) -> str:
+    day = datetime.date.today().isoformat()
+    raw = f'{day}|{ip or "unknown"}'.encode()
+    return hmac.new(_ensure_secret().encode(), raw, hashlib.sha256).hexdigest()[:20]
+
+
+def client_ip(headers, peer_ip=''):
+    return (headers.get('CF-Connecting-IP') or headers.get('X-Forwarded-For', '').split(',')[0].strip() or peer_ip or 'unknown')[:80]
+def _prune(q: deque, now: float, window: float):
+    while q and now - q[0] > window:
+        q.popleft()
+
+
+def _prune_paths(q: deque, now: float, window: float):
+    while q and now - q[0][0] > window:
+        q.popleft()
+
+
+def _record(client: str, method: str, path: str, action: str, reason: str, risk=0, status=0):
+    try:
+        with sqlite3.connect(DB) as db:
+            db.execute(
+                'INSERT INTO security_events(occurred_at,client_hash,method,path,status,risk,action,reason) VALUES(?,?,?,?,?,?,?,?)',
+                (_now_iso(), client, method[:12], path[:180], int(status), int(risk), action[:24], reason[:180]),
+            )
+    except Exception:
+        pass
+
+
+def _ban(client: str, seconds: int, reason: str):
+    _BANNED[client] = max(_BANNED.get(client, 0), time.monotonic() + seconds)
+    _record(client, '-', '-', 'quarantine', reason, 100, 429)
+
+
+def _risk_value(client: str, now=None) -> float:
+    now = time.monotonic() if now is None else now
+    score, last = _RISK.get(client, (0.0, now))
+    score = max(0.0, score - max(0.0, now - last) / 30.0)
+    _RISK[client] = (score, now)
+    return score
+
+
+def _add_risk(client: str, points: float, reason: str, path='-') -> float:
+    now = time.monotonic()
+    score = min(100.0, _risk_value(client, now) + max(0.0, float(points)))
+    _RISK[client] = (score, now)
+    if points >= 20:
+        _record(client, 'RISK', path, 'score', reason, int(score), 0)
+    if score >= 85 and _BANNED.get(client, 0) <= now:
+        _ban(client, 1800, 'adaptive_risk_quarantine')
+    return score
+
+
+def _sensitive_path(path: str) -> bool:
+    p = unquote(path).lower()
+    if any(x in p for x in _SENSITIVE_PATHS):
+        return True
+    name = p.rsplit('/', 1)[-1]
+    return any(name.endswith(s) or s in name for s in _SENSITIVE_SUFFIXES)
+def static_allowed(path: str, admin_authorized=False) -> bool:
+    if path in _PUBLIC_STATIC:
+        return True
+    if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        return True
+    if admin_authorized and path.startswith(_ADMIN_PREFIX):
+        return True
+    return False
+
+
+def evaluate(method: str, raw_target: str, headers, peer_ip='') -> dict:
+    now = time.monotonic()
+    parts = urlsplit(raw_target)
+    path = parts.path or '/'
+    query = parts.query or ''
+    ip = client_ip(headers, peer_ip)
+    client = client_hash(ip)
+    ua = (headers.get('User-Agent') or '')[:300]
+    with _LOCK:
+        ban_until = _BANNED.get(client, 0)
+        if ban_until > now:
+            return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'quarantine_active'}
+        cumulative = _risk_value(client, now)
+        if cumulative >= 85:
+            _ban(client, 1800, 'adaptive_risk_quarantine')
+            return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'adaptive_risk_quarantine'}
+        if _SCANNER_UA.search(ua):
+            cumulative = _add_risk(client, 35, 'scanner_user_agent', path)
+            if cumulative >= 85:
+                return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'scanner_user_agent'}
+        elif not ua:
+            cumulative = _add_risk(client, 6, 'missing_user_agent', path)
+        if method.upper() not in _ALLOWED_METHODS:
+            _record(client, method, path, 'block', 'method_not_allowed', 90, 405)
+            return {'allow': False, 'status': 405, 'client': client, 'path': path, 'risk': 90, 'reason': 'method_not_allowed'}
+        if len(raw_target) > 4096 or len(path) > 1024 or len(query) > 2048:
+            _record(client, method, path, 'block', 'request_target_too_large', 80, 414)
+            return {'allow': False, 'status': 414, 'client': client, 'path': path, 'risk': 80, 'reason': 'request_target_too_large'}
+        if _sensitive_path(path):
+            q = _PROBES[client]; q.append(now); _prune(q, now, 600)
+            honeypot = unquote(path).lower() in _HONEYPOTS
+            cumulative = _add_risk(client, 60 if honeypot else 45, 'honeypot_probe' if honeypot else 'sensitive_probe', path)
+            if len(q) >= 3:
+                _ban(client, 1800, 'repeated_sensitive_probes')
+            reason = 'honeypot_probe' if honeypot else 'sensitive_probe'
+            _record(client, method, path, 'block', reason, max(95, int(cumulative)), 404)
+            return {'allow': False, 'status': 404, 'client': client, 'path': path, 'risk': max(95, int(cumulative)), 'reason': reason}
+        if _QUERY_SIG.search(unquote(query)):
+            q = _PROBES[client]; q.append(now); _prune(q, now, 600)
+            cumulative = _add_risk(client, 70, 'malicious_query_signature', path)
+            if len(q) >= 2:
+                _ban(client, 1800, 'repeated_payload_signatures')
+            _record(client, method, path, 'block', 'malicious_query_signature', max(95, int(cumulative)), 403)
+            return {'allow': False, 'status': 403, 'client': client, 'path': path, 'risk': max(95, int(cumulative)), 'reason': 'malicious_query_signature'}
+
+        req = _REQ[client]; req.append(now); _prune(req, now, 60)
+        paths = _PATHS[client]; paths.append((now, path)); _prune_paths(paths, now, 60)
+        distinct = len({p for _, p in paths})
+        limit = 45 if path.startswith('/admin') else (90 if path.startswith('/api/') else 180)
+        if len(req) > limit or distinct > 70:
+            _ban(client, 900, 'rate_or_path_sweep')
+            return {'allow': False, 'status': 429, 'client': client, 'path': path, 'risk': 100, 'reason': 'rate_or_path_sweep'}
+
+        nf = _NOT_FOUND[client]; _prune(nf, now, 60)
+        probe = _PROBES[client]; _prune(probe, now, 600)
+        transient = min(100, int((len(req)/max(limit,1))*45 + (distinct/70)*30 + min(len(nf),25)/25*20 + min(len(probe),3)/3*30))
+        cumulative = _risk_value(client, now)
+        risk = min(100, max(transient, int(cumulative)))
+        return {'allow': True, 'status': 0, 'client': client, 'path': path, 'risk': risk, 'reason': 'allow'}
+def observe_response(client: str, method: str, path: str, status: int, risk=0):
+    now = time.monotonic()
+    with _LOCK:
+        if int(status) == 404:
+            q = _NOT_FOUND[client]; q.append(now); _prune(q, now, 60)
+            _add_risk(client, 3, 'http_404', path)
+            if len(q) >= 25:
+                _ban(client, 900, 'excessive_404_scan')
+        elif int(status) == 401:
+            _add_risk(client, 8, 'http_401', path)
+        elif int(status) == 403:
+            _add_risk(client, 15, 'http_403', path)
+        if int(status) >= 400:
+            _record(client, method, path, 'response', f'http_{status}', max(int(risk), int(_risk_value(client, now))), status)
+
+
+def auth_failure(client: str, path='/admin/'):
+    now = time.monotonic()
+    with _LOCK:
+        q = _AUTH_FAIL[client]; q.append(now); _prune(q, now, 600)
+        score = _add_risk(client, 20, 'basic_auth_failed', path)
+        _record(client, 'AUTH', path, 'auth_failure', 'basic_auth_failed', max(70, int(score)), 401)
+        if len(q) >= 6:
+            _ban(client, 1800, 'admin_bruteforce')
+
+
+def status(days=1):
+    days = max(1, min(int(days), 30))
+    since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat(timespec='seconds')
+    with sqlite3.connect(DB) as db:
+        db.row_factory = sqlite3.Row
+        total = db.execute('SELECT COUNT(*) n FROM security_events WHERE occurred_at>=?', (since,)).fetchone()['n']
+        blocked = db.execute("SELECT COUNT(*) n FROM security_events WHERE occurred_at>=? AND action IN ('block','quarantine')", (since,)).fetchone()['n']
+        reasons = [dict(r) for r in db.execute('SELECT reason,COUNT(*) count FROM security_events WHERE occurred_at>=? GROUP BY reason ORDER BY count DESC LIMIT 12', (since,))]
+        recent = [dict(r) for r in db.execute('SELECT occurred_at,client_hash,method,path,status,risk,action,reason FROM security_events WHERE occurred_at>=? ORDER BY id DESC LIMIT 40', (since,))]
+    now = time.monotonic()
+    active = sum(1 for t in _BANNED.values() if t > now)
+    live_scores = sorted(({'clientHash': c, 'risk': round(_risk_value(c, now), 1)} for c in list(_RISK)), key=lambda x: x['risk'], reverse=True)
+    live_scores = [x for x in live_scores if x['risk'] > 0][:12]
+    return {'days': days, 'events': total, 'blocked': blocked, 'activeQuarantines': active, 'topReasons': reasons, 'recent': recent, 'riskClients': live_scores, 'privacy': 'daily HMAC client hash; no raw IP storage'}
+
+init_db()

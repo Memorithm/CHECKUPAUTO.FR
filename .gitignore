@@ -1,0 +1,39 @@
+# Runtime secrets and private state
+.admin-password
+.env
+.env.*
+!.env.example
+private/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime data / logs
+*.log
+*.sqlite
+*.sqlite3
+*.db
+tunnel.log
+server.log
+admin-server.log
+
+# Local tooling
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+cloudflared
+.DS_Store
+
+# Local backups and scratch files
+*.bak
+*.bak-*
+*.tmp
+*.swp
+*~
+
+# Test / coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
