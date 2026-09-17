@@ -137,7 +137,7 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/api/site-config','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
+  dynamic={'/','/index.html','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path.startswith('/admin'):
@@ -233,7 +233,7 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     c=load_config(); days=int(parse_qs(parsed.query).get('days',['30'])[0])
     if path=='/api/admin/mercure/status':
-     return self.send_json({'provider':'AutoBilan-Systems / Mercure RDV','centreId':240,'bookingUrl':c['business']['bookingUrl'],'secret':booking.secret_info(False),'stats':booking.stats(days),'webhookUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/booking-confirmed','browserCallbackUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/browser-confirmed'})
+     return self.send_json({'provider':'AutoBilan-Systems / Mercure RDV','centreId':240,'bookingUrl':c['business']['bookingUrl'],'secret':booking.secret_info(False),'stats':booking.stats(days),'providerProtection':mercure_public.provider_health(),'webhookUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/booking-confirmed','browserCallbackUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/browser-confirmed'})
     if path=='/api/admin/mercure/live-summary': return self.send_json(mercure_admin.live_summary(days))
     if path=='/api/admin/mercure/session-status': return self.send_json(mercure_admin.session_status())
     if path=='/api/admin/mercure/promotions':
@@ -256,6 +256,8 @@ class Handler(SimpleHTTPRequestHandler):
      q=parse_qs(parsed.query); days=int(q.get('days',['28'])[0]); return self.send_json(gsc.performance(site,days))
     if path=='/api/admin/google/sitemaps': return self.send_json({'sitemaps':gsc.list_sitemaps(site)})
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},502)
+  if path=='/.well-known/security.txt':
+   return self.send_bytes(build_security_txt(load_config()).encode(),'text/plain; charset=utf-8',cache='public, max-age=3600')
   if path=='/zone-tarifs':
    return self.send_bytes(build_geo_pricing_page(load_config()),'text/html; charset=utf-8',cache='no-cache')
   if path in ('/','/index.html'):
@@ -422,6 +424,11 @@ def build_seo_health(c):
  add('mercure','Mercure RDV confirmations','pass' if has_flux else 'warning',f"Flux HMAC reçu · {bs.get('confirmedBookings',0)} RDV confirmés sur 30 j" if has_flux else 'Bridge HMAC prêt · activation fournisseur encore requise')
  totals={k:sum(1 for x in checks if x['status']==k) for k in ('pass','warning','fail')}
  return {'checks':checks,'totals':totals,'generatedAt':datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
+
+def build_security_txt(c):
+ origin=canonical_origin(c['seo']['canonicalUrl'])
+ expires=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=365)).replace(microsecond=0).isoformat().replace('+00:00','Z')
+ return f'Contact: mailto:contact@checkupauto.fr\nExpires: {expires}\nPreferred-Languages: fr, en\nCanonical: {origin}/.well-known/security.txt\n'
 
 def build_robots(c):
  seo=c['seo']; canonical=seo['canonicalUrl']; lines=[]
