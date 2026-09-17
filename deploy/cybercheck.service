@@ -1,7 +1,7 @@
 [Unit]
 Description=CyberCheck application and Sentinel control plane
-After=network-online.target
-Wants=network-online.target
+After=network-online.target cybercheck-ollama.service
+Wants=network-online.target cybercheck-ollama.service
 
 [Service]
 Type=simple
@@ -9,12 +9,11 @@ User=cybercheck
 Group=cybercheck
 WorkingDirectory=/root/CyberCheckLive
 Environment=PYTHONUNBUFFERED=1
-Environment=CYBERCHECK_PRIVATE_DIR=/root/CyberCheckPrivate
+EnvironmentFile=-/root/CyberCheckPrivate/runtime.env
 ExecStart=/root/CyberCheckLive/.venv/bin/python /root/CyberCheckLive/admin_server.py
 Restart=on-failure
 RestartSec=3
 UMask=0077
-
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
@@ -32,7 +31,6 @@ ProtectHostname=true
 RestrictRealtime=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
-MemoryDenyWriteExecute=true
 ProtectProc=invisible
 ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

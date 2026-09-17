@@ -1,0 +1,40 @@
+[Unit]
+Description=CyberCheck isolated local security model
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cybercheck
+Group=cybercheck
+WorkingDirectory=/var/lib/cybercheck-ollama
+Environment=HOME=/var/lib/cybercheck-ollama
+Environment=OLLAMA_HOST=127.0.0.1:11435
+Environment=OLLAMA_MODELS=/root/.ollama/models
+ExecStart=/usr/local/bin/ollama serve
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/cybercheck-ollama
+ReadOnlyPaths=/root/.ollama/models
+
+[Install]
+WantedBy=multi-user.target

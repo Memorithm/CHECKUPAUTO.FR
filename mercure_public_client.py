@@ -29,7 +29,14 @@ SERVICES = {
 
 _CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 _CACHE_LOCK = threading.Lock()
+_KEY_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+_PROVIDER_SEMAPHORE = threading.BoundedSemaphore(3)
+_BREAKER_LOCK = threading.Lock()
+_BREAKER_FAILURES = 0
+_BREAKER_OPEN_UNTIL = 0.0
 CACHE_TTL = 20.0
+BREAKER_THRESHOLD = 5
+BREAKER_SECONDS = 60.0
 
 
 def service(service_key: str) -> dict[str, Any]:
@@ -56,6 +63,41 @@ def _date(value: str) -> str:
     return parsed.isoformat()
 
 
+def _key_lock(key):
+    with _CACHE_LOCK:
+        return _KEY_LOCKS.setdefault(key, threading.Lock())
+
+
+def _breaker_before():
+    with _BREAKER_LOCK:
+        if time.monotonic() < _BREAKER_OPEN_UNTIL:
+            raise RuntimeError('Mercure temporairement protégé par le circuit breaker')
+
+
+def _breaker_success():
+    global _BREAKER_FAILURES, _BREAKER_OPEN_UNTIL
+    with _BREAKER_LOCK:
+        _BREAKER_FAILURES = 0
+        _BREAKER_OPEN_UNTIL = 0.0
+
+
+def _breaker_failure():
+    global _BREAKER_FAILURES, _BREAKER_OPEN_UNTIL
+    with _BREAKER_LOCK:
+        _BREAKER_FAILURES += 1
+        if _BREAKER_FAILURES >= BREAKER_THRESHOLD:
+            _BREAKER_OPEN_UNTIL = time.monotonic() + BREAKER_SECONDS
+
+
+def provider_health() -> dict[str, Any]:
+    with _BREAKER_LOCK:
+        remaining=max(0.0,_BREAKER_OPEN_UNTIL-time.monotonic()); failures=_BREAKER_FAILURES
+    with _CACHE_LOCK:
+        cache_entries=len(_CACHE)
+    return {'circuitOpen':remaining>0,'retryAfterSeconds':round(remaining,1),'consecutiveFailures':failures,
+            'maxConcurrentUpstream':3,'cacheEntries':cache_entries,'cacheTtlSeconds':CACHE_TTL}
+
+
 def _provider_session() -> requests.Session:
     s = requests.Session()
     r = s.post(BASE + '/prendre_rdv', data={'id': CENTRE_ID}, timeout=20)
@@ -66,31 +108,33 @@ def _provider_session() -> requests.Session:
 
 
 def _provider_availability(service_id: str, start_date: str) -> dict[str, Any]:
-    s = _provider_session()
-    r = s.post(BASE + '/rech_dispon_rdv', data={
-        'prestation_vl': service_id,
-        'prestation_pl': '',
-        'date': start_date,
-        'iframe': 'false',
-        'id': '',
-    }, timeout=20)
-    r.raise_for_status()
-    data = r.json()
-    if not isinstance(data, dict) or data.get('status') != 200:
-        raise RuntimeError('Disponibilités Mercure invalides')
+    _breaker_before()
+    try:
+        with _PROVIDER_SEMAPHORE:
+            _breaker_before()
+            s = _provider_session()
+            try:
+                r = s.post(BASE + '/rech_dispon_rdv', data={
+                    'prestation_vl': service_id,
+                    'prestation_pl': '',
+                    'date': start_date,
+                    'iframe': 'false',
+                    'id': '',
+                }, timeout=20)
+                r.raise_for_status()
+                data = r.json()
+                if not isinstance(data, dict) or data.get('status') != 200:
+                    raise RuntimeError('Disponibilités Mercure invalides')
+            finally:
+                s.close()
+    except Exception:
+        _breaker_failure()
+        raise
+    _breaker_success()
     return data
 
 
-def availability(service_key: str, start_date: str) -> dict[str, Any]:
-    meta = service(service_key)
-    start_date = _date(start_date)
-    cache_key = (service_key, start_date)
-    now = time.monotonic()
-    with _CACHE_LOCK:
-        hit = _CACHE.get(cache_key)
-        if hit and now - hit[0] < CACHE_TTL:
-            return hit[1]
-    raw = _provider_availability(meta['id'], start_date)
+def _normalize_availability(service_key: str, meta: dict[str, Any], start_date: str, raw: dict[str, Any]) -> dict[str, Any]:
     provider_base = float(raw.get('tarif') or meta['basePrice'])
     days = []
     for item in raw.get('message', {}).get('donnees', []):
@@ -118,13 +162,33 @@ def availability(service_key: str, start_date: str) -> dict[str, Any]:
             'available': bool(slots),
             'slots': slots,
         })
-    result = {
+    return {
         'service': {'key': service_key, **meta},
         'providerBasePrice': provider_base,
         'startDate': start_date,
         'days': days,
         'generatedAt': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
     }
+
+
+def availability(service_key: str, start_date: str) -> dict[str, Any]:
+    meta = service(service_key)
+    start_date = _date(start_date)
+    cache_key = (service_key, start_date)
+    now = time.monotonic()
     with _CACHE_LOCK:
-        _CACHE[cache_key] = (now, result)
-    return result
+        hit = _CACHE.get(cache_key)
+        if hit and now - hit[0] < CACHE_TTL:
+            return hit[1]
+    with _key_lock(cache_key):
+        now = time.monotonic()
+        with _CACHE_LOCK:
+            hit = _CACHE.get(cache_key)
+            if hit and now - hit[0] < CACHE_TTL:
+                return hit[1]
+        raw = _provider_availability(meta['id'], start_date)
+        result = _normalize_availability(service_key, meta, start_date, raw)
+        with _CACHE_LOCK:
+            _CACHE[cache_key] = (time.monotonic(), result)
+        return result
+

@@ -63,7 +63,8 @@ def _ollama(snapshot):
         }, ensure_ascii=False),
         'options': {'temperature':0.1,'num_predict':256,'num_ctx':4096},
     }
-    r = requests.post('http://127.0.0.1:11434/api/generate', json=payload, timeout=20)
+    base=os.environ.get('CYBERCHECK_SECURITY_AI_URL','http://127.0.0.1:11435').rstrip('/')
+    r = requests.post(base + '/api/generate', json=payload, timeout=75)
     r.raise_for_status()
     content = r.json().get('response') or '{}'
     data = json.loads(content)
