@@ -26,8 +26,8 @@ def _baseline(snapshot, posture):
     integrity_ok = bool((posture.get('integrity') or {}).get('ok', True))
     vuln_count = (posture.get('vulnerabilities') or {}).get('count')
     behavior_high = sum(1 for x in snapshot.get('behaviorProfiles',[]) if float(x.get('max_risk') or 0)>=65)
-    open_alerts = int((snapshot.get('alerts') or {}).get('open',0))
-    severity = 'critical' if not integrity_ok or active >= 5 else ('high' if active or behavior_high >= 3 or blocked >= 25 else ('elevated' if blocked >= 5 or behavior_high or open_alerts or (isinstance(vuln_count, int) and vuln_count > 0) else 'normal'))
+    actionable_alerts = int((snapshot.get('alerts') or {}).get('highOrCritical',0))
+    severity = 'critical' if not integrity_ok or active >= 5 else ('high' if active or behavior_high >= 3 or blocked >= 25 else ('elevated' if blocked >= 5 or behavior_high or actionable_alerts or (isinstance(vuln_count, int) and vuln_count > 0) else 'normal'))
     actions = []
     if not integrity_ok:
         actions.append('Vérifier immédiatement les fichiers critiques modifiés avant tout rebaselining.')
