@@ -118,11 +118,19 @@ class Handler(SimpleHTTPRequestHandler):
   try: userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
   except Exception: return False
   return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
+ def _admin_origin_ok(self):
+  origin=(self.headers.get('Origin') or '').strip()
+  if not origin: return True
+  try: origin_host=urlparse(origin).netloc.lower()
+  except Exception: return False
+  host=(self.headers.get('Host') or '').strip().lower()
+  return bool(origin_host and host and hmac.compare_digest(origin_host,host))
  def require_auth(self):
   if self.headers.get('Authorization') and getattr(self,'_security_client',''):
    try: security.auth_failure(self._security_client,urlparse(self.path).path)
    except Exception: pass
-  self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="CyberCheck Administration", charset="UTF-8"'); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(b'Authentication required')
+  self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="CyberCheck Administration", charset="UTF-8"'); self.send_header('Cache-Control','no-store'); self.end_headers();
+  if self.command!='HEAD': self.wfile.write(b'Authentication required')
  def log_message(self,format,*args):
   # Do not persist client IP addresses in prototype access logs.
   return
@@ -300,7 +308,11 @@ class Handler(SimpleHTTPRequestHandler):
     payload=self._read_json(); result=analytics.record_event(payload,int(cfg.get('retentionDays',180)))
     return self.send_json(result,201)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
-  if path.startswith('/api/admin/') and not self.authorized(): return self.require_auth()
+  if path.startswith('/api/admin/'):
+   if not self.authorized(): return self.require_auth()
+   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
+   ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+   if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
   if path=='/api/admin/security/alerts/ack':
    try:
     payload=self._read_json(); return self.send_json(security_alerts.acknowledge(int(payload.get('id'))))
@@ -374,6 +386,7 @@ class Handler(SimpleHTTPRequestHandler):
   if not self._guard(): return
   parsed=urlparse(self.path); path=parsed.path
   if not self.authorized(): return self.require_auth()
+  if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
   if path=='/api/admin/google/credentials':
    try: return self.send_json({'ok':True,'credentials':gsc.remove_credentials()})
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
@@ -423,6 +436,34 @@ def build_robots(c):
 def build_sitemap(c):
  url=esc(c['seo']['canonicalUrl']); last=c['updatedAt'][:10]
  return f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{url}</loc><lastmod>{last}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url></urlset>\n'
+def build_geo_pricing_page(c):
+ services=mercure_public.public_services(); cov=geo_marketing.coverage(c,services); markets=cov.get('markets') or []
+ canonical=canonical_origin(c['seo']['canonicalUrl'])+'/zone-tarifs'
+ rows=[]
+ for m in markets:
+  prices=m.get('prices') or {}; pct=float(m.get('discountPercent') or 0)
+  price80=prices.get('technical',80); price90=prices.get('fitted',90)
+  rows.append(f"<tr><td>{esc(m.get('name',''))}</td><td>{float(m.get('distanceKm') or 0):.1f} km</td><td>{float(price80):.2f} €</td><td>{float(price90):.2f} €</td><td>{pct:g} %</td></tr>")
+ body=''.join(rows)
+ title='Tarifs contrôle technique dans un rayon de 50,01 km | Checkup Auto'
+ desc='Consultez les tarifs et avantages Checkup Auto selon votre éloignement du centre des Mureaux, dans un rayon maximal de 50,01 km.'
+ robots='index,follow' if c['seo'].get('indexingEnabled') else 'noindex,nofollow'
+ doc=(f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+      f'<title>{esc(title)}</title><meta name="description" content="{esc(desc)}"><link rel="canonical" href="{esc(canonical)}">'
+      f'<meta name="robots" content="{robots}"><style>body{{font-family:system-ui;margin:0;background:#f4f5f0;color:#17372b}}'
+      'main{max-width:1080px;margin:auto;padding:48px 22px}a{color:#1f5845}h1{font-size:clamp(38px,6vw,72px);letter-spacing:-.05em}'
+      'p{line-height:1.7;color:#52675d}table{width:100%;border-collapse:collapse;background:#fff;margin-top:30px}'
+      'th,td{padding:12px;border-bottom:1px solid #dbe1d8;text-align:left}th{font-size:12px}.note{background:#fff;padding:18px;border:1px solid #dbe1d8;border-radius:12px}'
+      f'</style></head><body><main><a href="/">← Checkup Auto</a><h1>Tarifs et zone de service</h1>'
+      f'<p>Checkup Auto dessert les automobilistes situés dans un rayon maximal de <strong>{float(cov.get("radiusKm") or 50.01):.2f} km</strong> autour du centre des Mureaux. '
+      'Les deux prestations réservables en ligne sont le contrôle technique à 80 € et le véhicule aménagé à 90 €. Des créneaux promotionnels peuvent ponctuellement réduire ces tarifs.</p>'
+      f'<div class="note"><strong>{int(cov.get("communeCount") or 0)} communes</strong> sont référencées dans notre catalogue géographique. '
+      'Les tarifs ci-dessous sont calculés à partir de la politique d’incitation active et restent soumis aux disponibilités réelles.</div>'
+      '<table><thead><tr><th>Commune</th><th>Distance</th><th>Contrôle technique</th><th>Véhicule aménagé</th><th>Avantage distance</th></tr></thead>'
+      f'<tbody>{body}</tbody></table></main></body></html>')
+ return doc.encode()
+
+
 def build_llms(c):
  seo=c['seo']; s=c['services']; offer=c['offer']; b=c['business']
  return f'''# {seo['siteName']}
