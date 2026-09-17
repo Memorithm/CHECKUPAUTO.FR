@@ -23,7 +23,12 @@
 </section>
 <section id="reservation" class="reservation booking-planner">
 <div class="booking-intro"><small>VOTRE PROCHAIN RENDEZ-VOUS</small><h2>Choisissez votre créneau.</h2><p>Disponibilités Mercure en temps réel. Les créneaux signalés <strong>PRIX AVANTAGE</strong> appliquent réellement la réduction dans Mercure.<br><strong class="reservation-offer">✓ Contre-visite offerte</strong></p></div>
-<div class="booking-controls"><label>01 / PRESTATION RÉSERVABLE EN LIGNE<select id="service"><option value="technical" data-service="technical">Contrôle technique</option><option value="fitted" data-service="fitted">Véhicule aménagé</option></select></label><div class="price"><small>TARIF STANDARD</small><strong><span id="price">80</span>€</strong><em>TTC</em></div><label>02 / À PARTIR DU<input id="bookingStartDate" type="date"></label></div>
+<div id="vehicleSelector" class="vehicle-selector" role="radiogroup" aria-label="Type de véhicule">
+<button type="button" class="vehicle-option selected" data-service="technical" aria-pressed="true"><span class="vehicle-media"><video muted loop playsinline autoplay preload="metadata" poster="/assets/vehicle.png"><source src="/assets/vehicle.mp4?v=vehicle-selector-1" type="video/mp4"></video></span><span class="vehicle-option-copy"><small>CONTRÔLE TECHNIQUE</small><strong>Voiture standard <b>80 €</b></strong><em>Véhicule léger · réservation en ligne</em></span></button>
+<button type="button" class="vehicle-option" data-service="fitted" aria-pressed="false"><span class="vehicle-media"><video muted loop playsinline preload="metadata" poster="/assets/vehicle-amenaged.png"><source src="/assets/vehicle-amenaged.mp4?v=vehicle-selector-1" type="video/mp4"></video></span><span class="vehicle-option-copy"><small>VÉHICULES AMÉNAGÉS / VASP</small><strong>Food truck · Ambulance <b>90 €</b></strong><em>Véhicules spécifiques · réservation en ligne</em></span></button>
+</div>
+<select id="service" class="service-native" aria-label="Prestation sélectionnée"><option value="technical" data-service="technical">Contrôle technique</option><option value="fitted" data-service="fitted">Véhicule aménagé</option></select>
+<div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><strong><span id="price">80</span>€</strong><em>TTC</em></div><label>À PARTIR DU<input id="bookingStartDate" type="date"></label></div>
 <div class="booking-live-head"><div><strong>Disponibilités</strong><span id="bookingLiveStatus">Connexion à Mercure…</span></div><button type="button" id="bookingRefresh" class="planner-refresh">Actualiser</button></div>
 <div id="bookingDays" class="booking-days" aria-live="polite"><p class="booking-loading">Chargement des créneaux…</p></div>
 <div id="bookingSelection" class="booking-selection" hidden><div><small>CRÉNEAU SÉLECTIONNÉ</small><strong id="bookingSelectionLabel">—</strong><span id="bookingSelectionPrice">—</span></div><a id="bookingContinue" class="primary" href="#">Continuer la réservation →</a></div>
@@ -36,6 +41,6 @@
 <section class="final"><p>CONTRÔLE TECHNIQUE · CONTRE-VISITE OFFERTE</p><h2>Un contrôle clair.<br><em>Une contre-visite offerte.</em></h2><a class="primary" href="#reservation">Réserver mon contrôle ↗</a></section>
 </main>
 <footer><span>© 2026 CHECKUP AUTO · CYBERCHECK</span><span>EXPÉRIENCE MEMORITHM</span></footer>
-<script src="/app.js?v=booking-planner-1"></script>
+<script src="/app.js?v=vehicle-selector-1"></script>
 </body>
 </html>

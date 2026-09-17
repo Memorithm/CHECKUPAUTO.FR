@@ -33,7 +33,9 @@ CRITICAL_FILES = (
     'data/geo-radius-50.01km.json','requirements.txt','.gitignore','README.md','SECURITY.md',
     'deploy/cybercheck.service','deploy/cybercheck-ollama.service','deploy/rebaseline-integrity.sh',
     'scripts/precommit_security.py','.github/workflows/security-ci.yml',
-    'assets/vehicle.png','assets/vehicle.mp4',
+    'assets/vehicle.png','assets/vehicle.mp4','assets/vehicle-amenaged.png','assets/vehicle-amenaged.mp4',
+    '3d/blend/CyberCheckVehicle_Photo3D.blend','3d/blend/CyberCheckAmenaged_Photo3D.blend',
+    '3d/scripts/setup_reference_scene.py','3d/scripts/setup_amenaged_scene.py','3d/references/vehicules_amenages_clean.jpg',
 )
 
 

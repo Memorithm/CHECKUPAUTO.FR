@@ -29,9 +29,17 @@ async function loadSiteConfig(){
   toggle('.offer-banner,.offer-seal,.lead-offer,.reservation-offer,.trust span:first-child,.card-offer,.included-offer',c.offer.enabled);
  }catch(e){console.warn('CyberCheck config fallback:',e)}
 }
-loadSiteConfig().finally(()=>{initPlanner();initTracking()});
+loadSiteConfig().finally(()=>{initVehicleSelector();initPlanner();initTracking()});
 
 
+
+function initVehicleSelector(){
+ const select=document.querySelector('#service'),buttons=[...document.querySelectorAll('.vehicle-option')];if(!select||!buttons.length)return;
+ const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const sync=()=>{for(const b of buttons){const active=b.dataset.service===select.value;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));const v=b.querySelector('video');if(v){if(active&&!reduced)v.play().catch(()=>{});else v.pause()}}};
+ for(const b of buttons)b.addEventListener('click',()=>{if(select.value===b.dataset.service){sync();return}select.value=b.dataset.service;select.dispatchEvent(new Event('change',{bubbles:true}));trackEvent('service_selected',{service:b.dataset.service==='technical'?'Contrôle technique':'Véhicule aménagé'});sync()});
+ select.addEventListener('change',sync);sync();
+}
 
 const plannerState={service:'technical',selected:null,data:null};
 function localISODate(d=new Date()){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`}
