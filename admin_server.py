@@ -5,6 +5,7 @@ from urllib.parse import urlparse, parse_qs
 import base64, datetime, hashlib, hmac, html, json, os, re, secrets, tempfile
 import gsc_client as gsc
 import analytics_store as analytics
+import app_download as app_download
 import booking_bridge as booking
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
@@ -115,6 +116,8 @@ class Handler(SimpleHTTPRequestHandler):
  def send_bytes(self,data,ctype,status=200,cache='no-store'):
   self.send_response(status); self.send_header('Content-Type',ctype); self.send_header('Cache-Control',cache); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
  def send_json(self,obj,status=200): self.send_bytes(json.dumps(obj,ensure_ascii=False).encode(),'application/json; charset=utf-8',status)
+ def send_redirect(self,location,status=302):
+  self.send_response(status); self.send_header('Location',str(location)); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length','0'); self.end_headers()
  def authorized(self):
   raw=self.headers.get('Authorization','')
   if not raw.startswith('Basic '): return False
@@ -140,9 +143,13 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
+  dynamic={'/','/index.html','/app','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
+  if path=='/go/app':
+   c=load_config(); q=parse_qs(urlparse(self.path).query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c)
+   target=app['ios']['appStoreUrl'] if app['ios']['available'] else f'/app?src={source}'
+   return self.send_redirect(target)
   if path.startswith('/admin'):
    if not self.authorized(): return self.require_auth()
    static_path='/admin/index.html' if path in ('/admin','/admin/') else path
@@ -245,6 +252,13 @@ class Handler(SimpleHTTPRequestHandler):
     result=mercure_public.availability(service,date); result['incentives']=policy; return self.send_json(result)
    except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
    except Exception as exc: return self.send_json({'ok':False,'error':'Disponibilités temporairement indisponibles','detail':str(exc)},502)
+  if path=='/go/app':
+   c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c)
+   if not app['ios']['available']: return self.send_redirect(f'/app?src={source}')
+   try:
+    analytics.record_event({'event':'app_store_click','path':'/app','device':'unknown','referrer':self.headers.get('Referer',''),'utmSource':'app:'+source,'utmCampaign':app['campaign']},int((c.get('analytics') or {}).get('retentionDays',180)))
+   except Exception: pass
+   return self.send_redirect(app['ios']['appStoreUrl'])
   if path=='/go/booking':
    try:
     c=load_config(); q=parse_qs(parsed.query)
@@ -288,12 +302,16 @@ class Handler(SimpleHTTPRequestHandler):
    return self.send_bytes(build_security_txt(load_config()).encode(),'text/plain; charset=utf-8',cache='public, max-age=3600')
   if path=='/zone-tarifs':
    return self.send_bytes(build_geo_pricing_page(load_config()),'text/html; charset=utf-8',cache='no-cache')
+  if path=='/app':
+   c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
+   return self.send_bytes(app_download.landing_html(c,source,nonce),'text/html; charset=utf-8',cache='no-cache')
   if path in ('/','/index.html'):
    return self.send_bytes(self.render_index(load_config()),'text/html; charset=utf-8',cache='no-cache')
   if path=='/robots.txt': return self.send_bytes(build_robots(load_config()).encode(),'text/plain; charset=utf-8',cache='no-cache')
   if path=='/sitemap.xml': return self.send_bytes(build_sitemap(load_config()).encode(),'application/xml; charset=utf-8',cache='no-cache')
   if path=='/llms.txt': return self.send_bytes(build_llms(load_config()).encode(),'text/plain; charset=utf-8',cache='no-cache')
   if path=='/api/site-config': return self.send_json(load_config())
+  if path=='/api/app/status': return self.send_json(app_download.status(load_config()))
   if path=='/api/admin/config':
    if not self.authorized(): return self.require_auth()
    return self.send_json(load_config())

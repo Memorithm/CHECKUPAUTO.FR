@@ -7,7 +7,7 @@ DATA_DIR = Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
 DB = DATA_DIR / 'analytics.sqlite3'
 ALLOWED_EVENTS = {
     'page_view','hero_cta_click','booking_click','phone_click','directions_click',
-    'service_selected','offer_viewed'
+    'service_selected','offer_viewed','app_landing_view','app_store_click'
 }
 
 def connect():
@@ -95,9 +95,12 @@ def _period_counts(db, start, end=None):
     rows=db.execute(f'SELECT event,COUNT(*) n FROM events WHERE {where} GROUP BY event',args)
     counts={r['event']:r['n'] for r in rows}
     views=counts.get('page_view',0); bookings=counts.get('booking_click',0)
+    app_landings=counts.get('app_landing_view',0); app_clicks=counts.get('app_store_click',0)
     return {
       'pageViews':views,'bookingClicks':bookings,
       'bookingRate':round((bookings/views*100) if views else 0,2),
+      'appLandingViews':app_landings,'appStoreClicks':app_clicks,
+      'appStoreClickRate':round((app_clicks/app_landings*100) if app_landings else 0,2),
       'heroCtaClicks':counts.get('hero_cta_click',0),
       'phoneClicks':counts.get('phone_click',0),
       'directionsClicks':counts.get('directions_click',0),
@@ -119,19 +122,23 @@ def summary(days=30):
           SUM(event='page_view') views,
           SUM(event='booking_click') bookings,
           SUM(event='phone_click') phoneClicks,
-          SUM(event='directions_click') directionsClicks
+          SUM(event='directions_click') directionsClicks,
+          SUM(event='app_landing_view') appLandings,
+          SUM(event='app_store_click') appStoreClicks
           FROM events WHERE occurred_at>=? GROUP BY source
-          HAVING views>0 OR bookings>0
-          ORDER BY views DESC,bookings DESC LIMIT 30''',(current_iso,))]
+          HAVING views>0 OR bookings>0 OR appLandings>0 OR appStoreClicks>0
+          ORDER BY views DESC,appLandings DESC,bookings DESC LIMIT 30''',(current_iso,))]
         for row in sources:
             row['bookingRate']=round((row['bookings']/row['views']*100) if row['views'] else 0,2)
         campaigns=[dict(r) for r in db.execute('''
           SELECT campaign,
           SUM(event='page_view') views,
-          SUM(event='booking_click') bookings
+          SUM(event='booking_click') bookings,
+          SUM(event='app_landing_view') appLandings,
+          SUM(event='app_store_click') appStoreClicks
           FROM events WHERE occurred_at>=? AND campaign<>'' GROUP BY campaign
-          HAVING views>0 OR bookings>0
-          ORDER BY views DESC,bookings DESC LIMIT 30''',(current_iso,))]
+          HAVING views>0 OR bookings>0 OR appLandings>0 OR appStoreClicks>0
+          ORDER BY views DESC,appLandings DESC,bookings DESC LIMIT 30''',(current_iso,))]
         for row in campaigns:
             row['bookingRate']=round((row['bookings']/row['views']*100) if row['views'] else 0,2)
         devices=[dict(r) for r in db.execute("SELECT device,COUNT(*) views FROM events WHERE occurred_at>=? AND event='page_view' GROUP BY device ORDER BY views DESC",(current_iso,))]
@@ -153,7 +160,9 @@ def summary(days=30):
       'bookingRatePoints':round(current['bookingRate']-previous['bookingRate'],2),
       'heroCtaClicksPct':_pct_delta(current['heroCtaClicks'],previous['heroCtaClicks']),
       'phoneClicksPct':_pct_delta(current['phoneClicks'],previous['phoneClicks']),
-      'directionsClicksPct':_pct_delta(current['directionsClicks'],previous['directionsClicks'])
+      'directionsClicksPct':_pct_delta(current['directionsClicks'],previous['directionsClicks']),
+      'appLandingViewsPct':_pct_delta(current['appLandingViews'],previous['appLandingViews']),
+      'appStoreClicksPct':_pct_delta(current['appStoreClicks'],previous['appStoreClicks'])
     }
     return {
       **current,'days':days,'previous':previous,'delta':delta,

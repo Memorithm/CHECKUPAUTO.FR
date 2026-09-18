@@ -1,0 +1,91 @@
+import Foundation
+import SwiftUI
+import UserNotifications
+
+@MainActor
+final class AppModel: ObservableObject {
+    @Published private(set) var vehicles: [VehicleDeadline] = []
+    @Published var notificationAuthorized = false
+    @Published var errorMessage: String?
+
+    private let scheduler = ReminderScheduler()
+    private let storageKey = "checkupauto.vehicle.deadlines.v1"
+
+    init() {
+        load()
+        Task {
+            await refreshNotificationState()
+            await rescheduleAll()
+        }
+    }
+
+    func requestNotifications() {
+        Task {
+            do {
+                notificationAuthorized = try await scheduler.requestAuthorization()
+                if notificationAuthorized {
+                    await rescheduleAll()
+                }
+            } catch {
+                errorMessage = "Impossible d’activer les notifications : \(error.localizedDescription)"
+            }
+        }
+    }
+    func add(registration: String, name: String, dueDate: Date) {
+        let vehicle = VehicleDeadline(
+            registration: registration,
+            displayName: name,
+            controlDueDate: dueDate
+        )
+        vehicles.append(vehicle)
+        vehicles.sort { $0.controlDueDate < $1.controlDueDate }
+        persist()
+        Task {
+            do {
+                try await scheduler.reschedule(vehicle)
+            } catch {
+                errorMessage = "Le véhicule est enregistré, mais les rappels n’ont pas pu être programmés."
+            }
+        }
+    }
+
+    func delete(at offsets: IndexSet) {
+        let removed = offsets.map { vehicles[$0] }
+        vehicles.remove(atOffsets: offsets)
+        persist()
+        Task {
+            for vehicle in removed {
+                await scheduler.remove(vehicle)
+            }
+        }
+    }
+    private func rescheduleAll() async {
+        guard notificationAuthorized else { return }
+        for vehicle in vehicles {
+            do {
+                try await scheduler.reschedule(vehicle)
+            } catch {
+                errorMessage = "Certains rappels n’ont pas pu être reprogrammés."
+            }
+        }
+    }
+
+    private func refreshNotificationState() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationAuthorized = settings.authorizationStatus == .authorized ||
+            settings.authorizationStatus == .provisional
+    }
+
+    private func load() {
+        guard
+            let data = UserDefaults.standard.data(forKey: storageKey),
+            let decoded = try? JSONDecoder().decode([VehicleDeadline].self, from: data)
+        else { return }
+        vehicles = decoded.sorted { $0.controlDueDate < $1.controlDueDate }
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(vehicles) else { return }
+        UserDefaults.standard.set(data, forKey: storageKey)
+    }
+}

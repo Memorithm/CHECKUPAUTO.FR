@@ -12,7 +12,9 @@ The project currently includes:
 - local SEO / 50.01 km geographic targeting components;
 - CyberCheck Sentinel request filtering and security telemetry;
 - the isolated security AI supervisor;
-- Google Search Console integration hooks.
+- Google Search Console integration hooks;
+- permanent `/app` distribution landing page with source-tracked QR codes;
+- first SwiftUI iOS reminder application scaffold with local CT reminders.
 
 ## Local runtime
 
