@@ -145,7 +145,14 @@ class Handler(SimpleHTTPRequestHandler):
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path.startswith('/admin'):
    if not self.authorized(): return self.require_auth()
-   if security.static_allowed(path,True): return super().do_HEAD()
+   static_path='/admin/index.html' if path in ('/admin','/admin/') else path
+   if security.static_allowed(static_path,True):
+    original=self.path
+    try:
+     self.path=static_path
+     return super().do_HEAD()
+    finally:
+     self.path=original
    self.send_response(404); self.end_headers(); return
   if security.static_allowed(path,False): return super().do_HEAD()
   self.send_response(404); self.end_headers(); return
@@ -292,7 +299,14 @@ class Handler(SimpleHTTPRequestHandler):
    return self.send_json(load_config())
   if path.startswith('/admin'):
    if not self.authorized(): return self.require_auth()
-   if security.static_allowed(path,True): return super().do_GET()
+   static_path='/admin/index.html' if path in ('/admin','/admin/') else path
+   if security.static_allowed(static_path,True):
+    original=self.path
+    try:
+     self.path=static_path
+     return super().do_GET()
+    finally:
+     self.path=original
    return self.send_json({'error':'not_found'},404)
   if security.static_allowed(path,False): return super().do_GET()
   return self.send_json({'error':'not_found'},404)
