@@ -4,6 +4,7 @@ import datetime, json, os, tempfile
 import requests
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import service_account
+import integration_hub as integrations
 
 SCOPES = ['https://www.googleapis.com/auth/webmasters']
 WEBMASTERS = 'https://www.googleapis.com/webmasters/v3'
@@ -14,10 +15,13 @@ class GSCError(RuntimeError):
     pass
 
 def credential_info():
-    if not CREDS.exists():
-        return {'configured': False, 'clientEmail': None, 'projectId': None}
-    data = json.loads(CREDS.read_text())
-    return {'configured': True, 'clientEmail': data.get('client_email'), 'projectId': data.get('project_id')}
+    if CREDS.exists():
+        data = json.loads(CREDS.read_text())
+        return {'configured': True, 'mode': 'service_account', 'clientEmail': data.get('client_email'), 'projectId': data.get('project_id')}
+    if integrations.has_scopes(SCOPES):
+        info = integrations.oauth_client_info()
+        return {'configured': True, 'mode': 'oauth', 'clientEmail': 'Compte Google OAuth', 'projectId': info.get('projectId')}
+    return {'configured': False, 'mode': None, 'clientEmail': None, 'projectId': None}
 
 def save_credentials(payload):
     if not isinstance(payload, dict) or payload.get('type') != 'service_account':
@@ -45,11 +49,14 @@ def remove_credentials():
     return credential_info()
 
 def _access_token():
-    if not CREDS.exists():
-        raise GSCError('Aucun compte de service Google n’est configuré.')
-    creds = service_account.Credentials.from_service_account_file(str(CREDS), scopes=SCOPES)
-    creds.refresh(GoogleAuthRequest())
-    return creds.token
+    if CREDS.exists():
+        creds = service_account.Credentials.from_service_account_file(str(CREDS), scopes=SCOPES)
+        creds.refresh(GoogleAuthRequest())
+        return creds.token
+    try:
+        return integrations.google_access_token(SCOPES)
+    except integrations.IntegrationError as exc:
+        raise GSCError(str(exc)) from exc
 
 def _request(method, url, **kwargs):
     headers = dict(kwargs.pop('headers', {}))

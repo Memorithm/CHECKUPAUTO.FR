@@ -19,14 +19,17 @@ jobs:
         run: |
           python3 -m py_compile \
             admin_server.py analytics_store.py booking_bridge.py booking_test.py geo_marketing.py \
-            gsc_client.py mercure_admin_client.py mercure_public_client.py \
+            gsc_client.py integration_hub.py mercure_admin_client.py mercure_public_client.py \
             security_ai.py security_alerts.py security_behavior.py security_guard.py security_integrity.py
+      - name: Test integration hub
+        run: python3 integration_hub_test.py
       - name: Check JavaScript syntax
         run: |
           node --check app.js
           node --check admin/admin.js
           node --check admin/control-center.js
           node --check admin/gsc-admin.js
+          node --check admin/integrations.js
           node --check admin/competitive.js
           node --check admin/review-followup.js
       - name: Verify no runtime-private paths are tracked
