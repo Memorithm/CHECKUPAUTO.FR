@@ -37,3 +37,9 @@ cloudflared
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Blender automatic backup files
+*.blend1
+
+# Local visual reference sources
+assets/premium/*-source.*

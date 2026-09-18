@@ -32,3 +32,4 @@ The local AI model is advisory only. Deterministic Sentinel severity always rema
 ## Integrity approval after deployment
 
 After a legitimate code deployment has been committed, pushed to `origin/main`, and verified locally, approve the new immutable baseline as root with `deploy/rebaseline-integrity.sh`. The helper refuses dirty working trees or a local HEAD that differs from `origin/main`, stops the application during hashing, updates the root-owned baseline, resolves obsolete integrity alerts, then restarts CyberCheck.
+- Mutable application data (analytics and test-session state) lives in `/root/CyberCheckData`, owned by `cybercheck` with mode 0700. Secrets remain in `/root/CyberCheckPrivate`.

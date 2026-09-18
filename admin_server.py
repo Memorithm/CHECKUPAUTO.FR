@@ -6,6 +6,7 @@ import base64, datetime, hashlib, hmac, html, json, os, re, secrets, tempfile
 import gsc_client as gsc
 import analytics_store as analytics
 import booking_bridge as booking
+import booking_test as booking_test
 import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
 import geo_marketing as geo_marketing
@@ -13,6 +14,8 @@ import security_guard as security
 import security_ai as security_ai
 import security_integrity as security_integrity
 import security_alerts as security_alerts
+import competitive_intelligence as competitive
+import review_followup as reviews
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
@@ -177,6 +180,18 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/seo-health':
    if not self.authorized(): return self.require_auth()
    return self.send_json(build_seo_health(load_config()))
+  if path=='/api/admin/reviews/status':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(reviews.status())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/competitive/summary':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(competitive.summary())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/competitive/connectors':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(competitive.connector_status())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/security/status':
    if not self.authorized(): return self.require_auth()
    try:
@@ -197,6 +212,12 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/security/sbom':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(security_integrity.generate_sbom())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/booking-test/status':
+   try:
+    q=parse_qs(parsed.query); token=(q.get('token') or [''])[0]
+    return self.send_json(booking_test.status(token))
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/booking/services':
    c=load_config(); return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':incentive_config(c)})
@@ -310,11 +331,51 @@ class Handler(SimpleHTTPRequestHandler):
     payload=self._read_json(); result=analytics.record_event(payload,int(cfg.get('retentionDays',180)))
     return self.send_json(result,201)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/booking-test/create':
+   try:
+    payload=self._read_json(); result=booking_test.create_appointment(str(payload.get('token') or ''),str(payload.get('service') or ''),str(payload.get('date') or ''),str(payload.get('time') or ''))
+    return self.send_json(result,201)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/booking-test/remove':
+   try:
+    payload=self._read_json(); return self.send_json(booking_test.remove_appointment(str(payload.get('token') or '')))
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path.startswith('/api/admin/'):
    if not self.authorized(): return self.require_auth()
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  if path=='/api/admin/mercure/login':
+   try:
+    payload=self._read_json(); result=mercure_admin.login(payload.get('username'),payload.get('password'))
+    return self.send_json({'ok':True,**result})
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},401)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/booking-test/session':
+   try:
+    booking_test.purge_expired(); result=booking_test.create_session(); c=load_config()
+    host=(self.headers.get('Host') or '').strip(); proto=(self.headers.get('X-Forwarded-Proto') or 'https').split(',')[0].strip()
+    origin=(proto+'://'+host) if host else canonical_origin(c['seo']['canonicalUrl'])
+    result['url']=origin+'/?bookingTest='+result['token']+'#reservation'
+    return self.send_json({'ok':True,**result},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/reviews/process':
+   try: return self.send_json(reviews.process_once())
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/competitive/observation':
+   try:
+    payload=self._read_json(); cid=str(payload.get('competitorId') or '').strip(); category=str(payload.get('category') or '').strip(); source=str(payload.get('source') or 'admin').strip(); data=payload.get('data')
+    if not cid or not category or not isinstance(data,dict): raise ValueError('Observation invalide')
+    competitive.add_observation(cid,source,category,data,str(payload.get('sourceUrl') or '')); return self.send_json({'ok':True},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/competitive/review':
+   try:
+    payload=self._read_json(); cid=str(payload.get('competitorId') or '').strip(); review_text=str(payload.get('text') or '').strip()
+    if not cid or not review_text: raise ValueError('Avis invalide')
+    competitive.add_review(cid,str(payload.get('source') or 'admin'),review_text,payload.get('rating'),str(payload.get('externalId') or ''),str(payload.get('reviewedAt') or ''),bool(payload.get('ownerResponse'))); return self.send_json({'ok':True},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/security/alerts/ack':
    try:
     payload=self._read_json(); return self.send_json(security_alerts.acknowledge(int(payload.get('id'))))
@@ -509,8 +570,8 @@ def https_url(v,name):
  return v
 def validate_config(c):
  if not isinstance(c,dict): raise ValueError('invalid config')
- offer=c.get('offer',{}); business=c.get('business',{}); hero=c.get('hero',{}); services=c.get('services',{}); seo=c.get('seo',{}); analytics_cfg=c.get('analytics',{}); inc=c.get('incentives',{})
- out={'version':4,'updatedAt':datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
+ offer=c.get('offer',{}); business=c.get('business',{}); hero=c.get('hero',{}); services=c.get('services',{}); vehicles=c.get('vehicleCatalog',{}); seo=c.get('seo',{}); analytics_cfg=c.get('analytics',{}); inc=c.get('incentives',{})
+ out={'version':5,'updatedAt':datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
  out['offer']={'enabled':bool(offer.get('enabled',False)),'title':text(offer.get('title',''),'offer.title',80),'subtitle':text(offer.get('subtitle',''),'offer.subtitle',240),'heroLine':text(offer.get('heroLine',''),'offer.heroLine',180),'finalTitle':text(offer.get('finalTitle',''),'offer.finalTitle',180)}
  out['business']={'phone':text(business.get('phone',''),'business.phone',40),'address':text(business.get('address',''),'business.address',120),'bookingUrl':https_url(business.get('bookingUrl',''),'bookingUrl')}
  out['hero']={'kicker':text(hero.get('kicker',''),'hero.kicker',160)}
@@ -518,6 +579,13 @@ def validate_config(c):
  for key in ('technical','fitted','pollution'):
   sv=services.get(key,{})
   out['services'][key]={'label':text(sv.get('label',''),f'services.{key}.label',80),'price':price(sv.get('price'),f'services.{key}.price')}
+ defaults={'peugeot208':('Peugeot 208','technical'),'suv4x4':('4×4 / SUV','technical'),'utility':('Utilitaire','technical'),'ambulance':('Ambulance VASP','fitted'),'foodtruck':('Food-truck VASP','fitted')}
+ out['vehicleCatalog']={}
+ for key,(default_label,default_service) in defaults.items():
+  row=vehicles.get(key,{}) if isinstance(vehicles,dict) else {}
+  service_key=str(row.get('service') or default_service)
+  if service_key not in ('technical','fitted'): raise ValueError(f'vehicleCatalog.{key}.service invalid')
+  out['vehicleCatalog'][key]={'label':text(row.get('label') or default_label,f'vehicleCatalog.{key}.label',60),'service':service_key,'price':price(row.get('price',services.get(service_key,{}).get('price',0)),f'vehicleCatalog.{key}.price')}
  eligible=inc.get('eligibleServices',{}) if isinstance(inc.get('eligibleServices',{}),dict) else {}
  def pct(name,default=0):
   v=inc.get(name,default)
@@ -561,6 +629,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); booking.init_db(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

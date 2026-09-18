@@ -3,8 +3,8 @@ from urllib.parse import urlparse
 import datetime, sqlite3, os
 
 ROOT = Path(__file__).resolve().parent
-PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
-DB = PRIVATE_DIR / 'analytics.sqlite3'
+DATA_DIR = Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
+DB = DATA_DIR / 'analytics.sqlite3'
 ALLOWED_EVENTS = {
     'page_view','hero_cta_click','booking_click','phone_click','directions_click',
     'service_selected','offer_viewed'

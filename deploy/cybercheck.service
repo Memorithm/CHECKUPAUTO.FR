@@ -36,7 +36,7 @@ ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/root/CyberCheckPrivate /root/CyberCheckSecurity /root/CyberCheckLive/data
+ReadWritePaths=/root/CyberCheckPrivate /root/CyberCheckSecurity /root/CyberCheckData /root/CyberCheckLive/data
 ReadOnlyPaths=/root/CyberCheckLive /root/CyberCheckIntegrity
 
 [Install]

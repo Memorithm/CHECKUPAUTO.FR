@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f6f1">
 <title>CyberCheck — Checkup Auto</title>
 <meta name="description" content="Expérience immersive Checkup Auto — contrôle technique aux Mureaux.">
-<link rel="stylesheet" href="/style.css?v=booking-planner-1">
+<link rel="stylesheet" href="/style.css?v=vehicle-carousel-premium-2">
 </head>
 <body>
 <div class="topline"><span>CHECKUP AUTO · LES MUREAUX</span><span><a id="phoneLink" href="tel:+33186046364">01 86 04 63 64</a></span><span>LA PRÉCISION EST UNE ATTENTION.</span></div>
@@ -19,14 +19,17 @@
 <main id="top">
 <section class="hero">
 <div class="hero-copy"><p class="kicker">■ CONTRE-VISITE OFFERTE · CONTRÔLE TECHNIQUE AUX MUREAUX</p><h1>L’exigence<br>du détail.<br><em>La sérénité</em><br>en plus.</h1><p class="lead">La précision technique.<br>L’attention que votre voiture mérite.<br>Et la simplicité, du rendez-vous à la route.<br><strong class="lead-offer">Et si une contre-visite est nécessaire, elle est offerte.</strong></p><div class="actions"><a class="primary" href="#reservation">Réserver mon contrôle →</a><a href="#experience">⊕ Découvrir l’expérience</a></div><p class="location">⌖ 1E rue Niépce · Les Mureaux</p></div>
-<div class="hero-visual"><div class="offer-seal"><small>AVANTAGE CHECKUP AUTO</small><strong>CONTRE-VISITE</strong><b>OFFERTE</b></div><div class="visual-meta"><span>CYBERCHECK / ATELIER DIGITAL</span><span>● EXPLORATION INTERACTIVE</span></div><div class="headline-float">Précision<br><i>en mouvement.</i></div><div class="stage"><video id="vehicleVideo" autoplay muted loop playsinline poster="/assets/vehicle.png"><source src="/assets/vehicle.mp4?v=noscan-2" type="video/mp4"></video><div class="ring ring-a"></div><div class="ring ring-b"></div></div><div class="callout c1">01 / CARROSSERIE<br><b>État & alignements</b></div><div class="callout c2">02 / SÉCURITÉ<br><b>Freinage & liaisons au sol</b></div></div>
+<div class="hero-visual"><div class="offer-seal"><small>AVANTAGE CHECKUP AUTO</small><strong>CONTRE-VISITE</strong><b>OFFERTE</b></div><div class="visual-meta"><span>CYBERCHECK / ATELIER DIGITAL</span><span>● EXPLORATION INTERACTIVE</span></div><div class="headline-float">Précision<br><i>en mouvement.</i></div><div class="stage"><video id="vehicleVideo" autoplay muted loop playsinline poster="/assets/premium/vehicle-peugeot208-premium.webp"><source src="/assets/vehicle.mp4?v=noscan-2" type="video/mp4"></video><div class="ring ring-a"></div><div class="ring ring-b"></div></div><div class="callout c1">01 / CARROSSERIE<br><b>État & alignements</b></div><div class="callout c2">02 / SÉCURITÉ<br><b>Freinage & liaisons au sol</b></div></div>
 </section>
 <section id="reservation" class="reservation booking-planner">
 <div class="booking-intro"><small>VOTRE PROCHAIN RENDEZ-VOUS</small><h2>Choisissez votre créneau.</h2><p>Disponibilités Mercure en temps réel. Les créneaux signalés <strong>PRIX AVANTAGE</strong> appliquent réellement la réduction dans Mercure.<br><strong class="reservation-offer">✓ Contre-visite offerte</strong></p></div>
-<div id="vehicleSelector" class="vehicle-selector" role="radiogroup" aria-label="Type de véhicule">
-<button type="button" class="vehicle-option selected" data-service="technical" aria-pressed="true"><span class="vehicle-media"><video muted loop playsinline autoplay preload="metadata" poster="/assets/vehicle.png"><source src="/assets/vehicle.mp4?v=vehicle-selector-1" type="video/mp4"></video></span><span class="vehicle-option-copy"><small>CONTRÔLE TECHNIQUE</small><strong>Voiture standard <b>80 €</b></strong><em>Véhicule léger · réservation en ligne</em></span></button>
-<button type="button" class="vehicle-option" data-service="fitted" aria-pressed="false"><span class="vehicle-media"><video muted loop playsinline preload="metadata" poster="/assets/vehicle-amenaged.png"><source src="/assets/vehicle-amenaged.mp4?v=vehicle-selector-1" type="video/mp4"></video></span><span class="vehicle-option-copy"><small>VÉHICULES AMÉNAGÉS / VASP</small><strong>Food truck · Ambulance <b>90 €</b></strong><em>Véhicules spécifiques · réservation en ligne</em></span></button>
-</div>
+<div class="vehicle-carousel-shell"><button type="button" id="vehicleCarouselPrev" class="vehicle-carousel-arrow prev" aria-label="Véhicule précédent">‹</button><div id="vehicleSelector" class="vehicle-selector" role="radiogroup" aria-label="Type de véhicule">
+<button type="button" class="vehicle-option selected" data-vehicle="peugeot208" data-service="technical" aria-pressed="true"><span class="vehicle-media"><img src="/assets/premium/vehicle-peugeot208-premium.webp" alt="Peugeot 208 en présentation 3D"></span><span class="vehicle-option-copy"><small>VOITURE</small><strong>Peugeot 208 <b>80 €</b></strong><em>Contrôle technique</em></span></button>
+<button type="button" class="vehicle-option" data-vehicle="suv4x4" data-service="technical" aria-pressed="false"><span class="vehicle-media"><img src="/assets/premium/vehicle-suv4x4-premium.webp" alt="4x4 SUV modélisé en 3D"></span><span class="vehicle-option-copy"><small>4×4 / SUV</small><strong>4×4 / SUV <b>80 €</b></strong><em>Contrôle technique</em></span></button>
+<button type="button" class="vehicle-option" data-vehicle="utility" data-service="technical" aria-pressed="false"><span class="vehicle-media"><img src="/assets/premium/vehicle-utility-premium.webp" alt="Utilitaire modélisé en 3D"></span><span class="vehicle-option-copy"><small>UTILITAIRE</small><strong>Utilitaire <b>80 €</b></strong><em>Contrôle technique</em></span></button>
+<button type="button" class="vehicle-option" data-vehicle="ambulance" data-service="fitted" aria-pressed="false"><span class="vehicle-media"><img src="/assets/premium/vehicle-ambulance-premium.webp" alt="Ambulance VASP modélisée en 3D"></span><span class="vehicle-option-copy"><small>VASP</small><strong>Ambulance <b>90 €</b></strong><em>Véhicule aménagé</em></span></button>
+<button type="button" class="vehicle-option" data-vehicle="foodtruck" data-service="fitted" aria-pressed="false"><span class="vehicle-media"><img src="/assets/premium/vehicle-foodtruck-premium.webp" alt="Food-truck VASP modélisé en 3D"></span><span class="vehicle-option-copy"><small>VASP</small><strong>Food-truck <b>90 €</b></strong><em>Véhicule aménagé</em></span></button>
+</div><button type="button" id="vehicleCarouselNext" class="vehicle-carousel-arrow next" aria-label="Véhicule suivant">›</button></div>
 <select id="service" class="service-native" aria-label="Prestation sélectionnée"><option value="technical" data-service="technical">Contrôle technique</option><option value="fitted" data-service="fitted">Véhicule aménagé</option></select>
 <div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><strong><span id="price">80</span>€</strong><em>TTC</em></div><label>À PARTIR DU<input id="bookingStartDate" type="date"></label></div>
 <div class="booking-live-head"><div><strong>Disponibilités</strong><span id="bookingLiveStatus">Connexion à Mercure…</span></div><button type="button" id="bookingRefresh" class="planner-refresh">Actualiser</button></div>
@@ -41,6 +44,6 @@
 <section class="final"><p>CONTRÔLE TECHNIQUE · CONTRE-VISITE OFFERTE</p><h2>Un contrôle clair.<br><em>Une contre-visite offerte.</em></h2><a class="primary" href="#reservation">Réserver mon contrôle ↗</a></section>
 </main>
 <footer><span>© 2026 CHECKUP AUTO · CYBERCHECK</span><span>EXPÉRIENCE MEMORITHM</span></footer>
-<script src="/app.js?v=vehicle-selector-1"></script>
+<script src="/app.js?v=vehicle-carousel-premium-2"></script>
 </body>
 </html>

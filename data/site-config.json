@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "updatedAt": "2026-09-17T10:32:39+02:00",
   "offer": {
     "enabled": true,
@@ -89,5 +89,32 @@
     "timeEnd": "19:00",
     "showOriginalPrice": true,
     "showDiscountPercent": true
+  },
+  "vehicleCatalog": {
+    "peugeot208": {
+      "label": "208",
+      "service": "technical",
+      "price": 80.0
+    },
+    "suv4x4": {
+      "label": "4×4",
+      "service": "technical",
+      "price": 80.0
+    },
+    "utility": {
+      "label": "Utilitaire",
+      "service": "technical",
+      "price": 80.0
+    },
+    "ambulance": {
+      "label": "Ambulance",
+      "service": "fitted",
+      "price": 90.0
+    },
+    "foodtruck": {
+      "label": "Foodtruck",
+      "service": "fitted",
+      "price": 90.0
+    }
   }
 }

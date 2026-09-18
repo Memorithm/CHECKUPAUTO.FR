@@ -203,3 +203,194 @@ def remove_promotion_slot(creneau_id):
     if r.status_code not in (200, 201):
         raise RuntimeError(f'Suppression créneau promotionnel refusée ({r.status_code})')
     return {'ok': True, 'providerStatus': r.status_code}
+
+
+def _calendar_events(s, start, end):
+    r=_check_auth(s.get(BASE+'/admin/rendez-vous/json',params={'start':start,'end':end},timeout=25,allow_redirects=False))
+    r.raise_for_status(); data=r.json()
+    if not isinstance(data,list): raise RuntimeError('Réponse calendrier Mercure invalide')
+    return data
+
+
+def _event_id(event):
+    if not isinstance(event,dict): return ''
+    ext=event.get('extendedProps') or {}
+    return str(event.get('id') or ext.get('rendezVousId') or ext.get('rendezvousId') or '')
+
+
+def create_synthetic_test_appointment(service_key, date_value, time_value):
+    import mercure_public_client as mercure_public
+    meta=mercure_public.service(service_key)
+    datetime.date.fromisoformat(date_value)
+    datetime.time.fromisoformat(time_value)
+    s=_session()
+    payload={
+      'centre_type':'1','ligne_id':'454','duree':str(meta['duration']),'client_compte':'',
+      'nom':'CYBERCHECK TEST','prenom':'E2E','email':'','telephone':'','civilite':'Autre',
+      'marque':'132','modele':'1','marque_cl':'','modele_cl':'','energie':'2','immatriculation':'',
+      'vehicule_client':'','prestation':str(meta['id']),'utilisateur':'464',
+      'commentaire':'TEST CYBERCHECK E2E - SUPPRIMER','date':f'{date_value}T{time_value}',
+      'convoyage':'false','pret':'false','depot':'false','rendezvous_id':'',
+      'email_confirmation_vl':'false','imprime_confirmation_vl':'false','envoi_sms_vl':'false','rappel_sms_vl':'false',
+      'tcheckDispo':'true','coupon_ct_easy':'','bon_commande':''
+    }
+    r=_check_auth(s.post(BASE+'/admin/rendez_vous_add',data=payload,timeout=30,allow_redirects=False))
+    r.raise_for_status()
+    try: body=r.json()
+    except Exception: raise RuntimeError('Réponse de création Mercure non JSON')
+    appointment_id=str((body or {}).get('id') or ((body or {}).get('event') or {}).get('id') or '')
+    if not appointment_id: raise RuntimeError('Mercure n’a pas retourné l’identifiant du rendez-vous test')
+    end=(datetime.date.fromisoformat(date_value)+datetime.timedelta(days=1)).isoformat()
+    events=_calendar_events(s,date_value,end)
+    verified=any(_event_id(e)==appointment_id for e in events)
+    if not verified: raise RuntimeError('Rendez-vous créé mais non retrouvé dans le calendrier Mercure')
+    return {'appointmentId':appointment_id,'verified':True,'providerStatus':r.status_code}
+
+
+def remove_synthetic_test_appointment(appointment_id, appointment_at=''):
+    appointment_id=str(appointment_id or '').strip()
+    if not appointment_id: raise ValueError('Identifiant rendez-vous requis')
+    s=_session()
+    r=_check_auth(s.post(BASE+'/admin/rendez_vous_remove',data={'rendezvous_id':appointment_id},timeout=25,allow_redirects=False))
+    if r.status_code not in (200,201): raise RuntimeError(f'Suppression Mercure refusée ({r.status_code})')
+    if appointment_at:
+        date_value=str(appointment_at).split('T',1)[0]
+    else:
+        date_value=datetime.date.today().isoformat()
+    end=(datetime.date.fromisoformat(date_value)+datetime.timedelta(days=1)).isoformat()
+    events=_calendar_events(s,date_value,end)
+    verified=all(_event_id(e)!=appointment_id for e in events)
+    if not verified: raise RuntimeError('Mercure signale encore le rendez-vous après suppression')
+    return {'ok':True,'appointmentId':appointment_id,'verified':True,'providerStatus':r.status_code}
+
+
+def login(username, password):
+    import re
+    username=str(username or '').strip(); password=str(password or '')
+    if not username or not password: raise ValueError('Identifiant et mot de passe Mercure requis')
+    s=requests.Session()
+    r=s.get(BASE+'/admin',timeout=20)
+    r.raise_for_status()
+    m=re.search(r'name=["\']_csrf_token["\'][^>]*value=["\']([^"\']+)',r.text,re.I)
+    if not m: raise RuntimeError('Jeton CSRF Mercure introuvable')
+    r=s.post(BASE+'/admin/login',data={'utl_username':username,'password':password,'_csrf_token':m.group(1)},timeout=20,allow_redirects=False)
+    location=r.headers.get('Location') or ''
+    if r.status_code not in (301,302,303) or '/admin/calendrier' not in location:
+        raise PermissionError('Connexion Mercure refusée')
+    cookies=requests.utils.dict_from_cookiejar(s.cookies)
+    if not cookies: raise RuntimeError('Mercure n’a retourné aucun cookie de session')
+    SESSION_FILE.parent.mkdir(parents=True,exist_ok=True)
+    tmp=SESSION_FILE.with_suffix('.tmp'); tmp.write_text(json.dumps({'cookies':cookies},separators=(',',':'))+'\n'); tmp.chmod(0o600); os.replace(tmp,SESSION_FILE)
+    return {'connected':True,'status':302,'cookiesStored':len(cookies)}
+
+def _centre_parameter_form_values(html_text):
+    from html.parser import HTMLParser
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.in_form=False; self.depth=0; self.values=[]
+            self.textarea=None; self.textbuf=[]; self.select=None; self.options=[]; self.selected=None
+        def handle_starttag(self,tag,attrs):
+            a=dict(attrs)
+            if tag=='form' and a.get('name')=='parametre_centre':
+                self.in_form=True; self.depth=1; return
+            if not self.in_form: return
+            if tag=='form': self.depth+=1
+            if tag=='input':
+                name=a.get('name')
+                if not name: return
+                typ=(a.get('type') or 'text').lower()
+                if typ in ('submit','button','file','image','reset'): return
+                if typ in ('checkbox','radio') and 'checked' not in a: return
+                self.values.append((name,a.get('value','')))
+            elif tag=='textarea':
+                self.textarea=a.get('name'); self.textbuf=[]
+            elif tag=='select':
+                self.select=a.get('name'); self.options=[]; self.selected=None
+            elif tag=='option' and self.select:
+                val=a.get('value','')
+                self.options.append(val)
+                if 'selected' in a: self.selected=val
+        def handle_data(self,data):
+            if self.in_form and self.textarea: self.textbuf.append(data)
+        def handle_endtag(self,tag):
+            if not self.in_form: return
+            if tag=='textarea' and self.textarea:
+                self.values.append((self.textarea,''.join(self.textbuf)))
+                self.textarea=None; self.textbuf=[]
+            elif tag=='select' and self.select:
+                value=self.selected if self.selected is not None else (self.options[0] if self.options else '')
+                self.values.append((self.select,value)); self.select=None; self.options=[]; self.selected=None
+            elif tag=='form':
+                self.depth-=1
+                if self.depth<=0: self.in_form=False
+    p=P(); p.feed(html_text); return p.values
+
+def native_review_email_status():
+    s=_session()
+    r=_check_auth(s.get(BASE+'/admin/parametre_centre/240',timeout=20,allow_redirects=False)); r.raise_for_status()
+    values=_centre_parameter_form_values(r.text)
+    enabled=any(k=='parametre_centre[pc_envoi_email_avis]' and str(v)=='1' for k,v in values)
+    return {'connected':True,'nativeFavorableOnlyEmailEnabled':enabled}
+
+def disable_native_review_email_automation():
+    s=_session()
+    r=_check_auth(s.get(BASE+'/admin/parametre_centre/240',timeout=20,allow_redirects=False)); r.raise_for_status()
+    values=_centre_parameter_form_values(r.text)
+    before=any(k=='parametre_centre[pc_envoi_email_avis]' and str(v)=='1' for k,v in values)
+    if not before:
+        return {'ok':True,'changed':False,'nativeFavorableOnlyEmailEnabled':False}
+    values=[(k,v) for k,v in values if k!='parametre_centre[pc_envoi_email_avis]']
+    files=[(k,(None,str(v))) for k,v in values]
+    resp=_check_auth(s.post(BASE+'/admin/parametre_centre/240',files=files,timeout=30,allow_redirects=False))
+    if resp.status_code not in (200,201,302,303):
+        raise RuntimeError(f'Désactivation automatisme avis Mercure refusée ({resp.status_code})')
+    verify=_check_auth(s.get(BASE+'/admin/parametre_centre/240',timeout=20,allow_redirects=False)); verify.raise_for_status()
+    now=_centre_parameter_form_values(verify.text)
+    enabled=any(k=='parametre_centre[pc_envoi_email_avis]' and str(v)=='1' for k,v in now)
+    if enabled: raise RuntimeError('Mercure a conservé l’automatisme favorable uniquement')
+    return {'ok':True,'changed':True,'nativeFavorableOnlyEmailEnabled':False}
+
+def send_google_review_email(rendezvous_id):
+    rid=str(rendezvous_id or '').strip()
+    if not rid: raise ValueError('Identifiant rendez-vous requis')
+    s=_session()
+    r=_check_auth(s.post(BASE+'/admin/rdv_avis_google_email',data={'rendezvous_id':rid},timeout=20,allow_redirects=False))
+    if r.status_code not in (200,201):
+        detail=''
+        try:
+            payload=r.json()
+            if isinstance(payload,dict): detail=str(payload.get('error') or '')[:200]
+        except Exception: pass
+        raise RuntimeError(detail or f'Envoi email avis Google refusé ({r.status_code})')
+    return {'ok':True,'rendezVousId':rid,'providerStatus':r.status_code}
+
+def review_followup_rows(days=2):
+    days=max(1,min(int(days),7))
+    today=datetime.date.today()
+    start=(today-datetime.timedelta(days=days-1)).isoformat()
+    end=(today+datetime.timedelta(days=1)).isoformat()
+    s=_session()
+    rows=_appointments(s,start,end)
+    r=_check_auth(s.get(BASE+'/admin/rendez-vous/json',params={'start':start,'end':end},timeout=30,allow_redirects=False))
+    r.raise_for_status()
+    events=r.json()
+    if not isinstance(events,list): raise RuntimeError('Réponse Mercure calendrier invalide')
+    finished={}
+    for ev in events:
+        if not isinstance(ev,dict): continue
+        ext=ev.get('extendedProps') or {}
+        rid=str(ext.get('rendezVousId') or ev.get('id') or '').strip()
+        bg=str(ev.get('backgroundColor') or '').strip().lower().replace('#','')
+        if rid: finished[rid]=bg in {'ccc','cccccc'}
+    out=[]
+    for row in rows:
+        rid=str(row.get('id') or '').strip()
+        out.append({
+          'id':rid,
+          'dateRdv':str(row.get('date_rdv') or ''),
+          'honored':bool(row.get('est_honore')),
+          'finished':bool(finished.get(rid)),
+          'name':str(row.get('name') or '')[:120],
+        })
+    return out

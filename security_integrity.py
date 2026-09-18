@@ -28,14 +28,15 @@ _THREAD = None
 
 CRITICAL_FILES = (
     'admin_server.py','security_guard.py','security_behavior.py','security_alerts.py','security_ai.py','security_integrity.py',
-    'booking_bridge.py','mercure_admin_client.py','mercure_public_client.py','geo_marketing.py','analytics_store.py','gsc_client.py',
-    'index.html','app.js','style.css','admin/index.html','admin/admin.js','admin/control-center.js','admin/gsc-admin.js','admin/admin.css',
+    'booking_bridge.py','booking_test.py','competitive_intelligence.py','review_followup.py','mercure_admin_client.py','mercure_public_client.py','geo_marketing.py','analytics_store.py','gsc_client.py',
+    'index.html','app.js','style.css','admin/index.html','admin/admin.js','admin/control-center.js','admin/gsc-admin.js','admin/competitive.js','admin/review-followup.js','admin/admin.css',
     'data/geo-radius-50.01km.json','requirements.txt','.gitignore','README.md','SECURITY.md',
     'deploy/cybercheck.service','deploy/cybercheck-ollama.service','deploy/rebaseline-integrity.sh',
     'scripts/precommit_security.py','.github/workflows/security-ci.yml',
-    'assets/vehicle.png','assets/vehicle.mp4','assets/vehicle-amenaged.png','assets/vehicle-amenaged.mp4',
-    '3d/blend/CyberCheckVehicle_Photo3D.blend','3d/blend/CyberCheckAmenaged_Photo3D.blend',
-    '3d/scripts/setup_reference_scene.py','3d/scripts/setup_amenaged_scene.py','3d/references/vehicules_amenages_clean.jpg',
+    'assets/vehicle.png','assets/vehicle.mp4',
+    'assets/premium/vehicle-peugeot208-premium.webp','assets/premium/vehicle-suv4x4-premium.webp',
+    'assets/premium/vehicle-utility-premium.webp','assets/premium/vehicle-ambulance-premium.webp','assets/premium/vehicle-foodtruck-premium.webp',
+    '3d/blend/CyberCheckVehicle_Photo3D.blend','3d/scripts/setup_reference_scene.py',
 )
 
 

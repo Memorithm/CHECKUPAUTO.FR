@@ -82,9 +82,9 @@ async function loadMercureLive(){
   ccText('mercureLivePaid',ccNum(d.paid));ccText('mercureLiveValue',Number(d.scheduledValue||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'}));ccText('mercureLiveHonored',ccNum(d.honored));ccText('mercureLiveNoShow',ccNum(d.notHonored));
   ccText('mercureLivePeriod',`${days} derniers jours`);const dash=d.dashboard30d||{};ccText('mercureLiveOnlinePaid',ccNum(dash.nbr_rendezvous_paiement_ligne));ccText('mercureLiveOnlineSum',dash.somme_rendezvous_paiement_ligne?`${dash.somme_rendezvous_paiement_ligne} €`:'—');
   renderMercureLivePartners(d.partners||[]);renderMercureLiveServices(d.services||[]);
-  if(badge){badge.textContent='Session Mercure connectée';badge.className='gsc-status online'}
+  if(badge){badge.textContent='Session Mercure connectée';badge.className='gsc-status online'}const loginBadge=cc('mercureLoginState');if(loginBadge){loginBadge.textContent='Session connectée';loginBadge.className='gsc-status online'}
   return d;
- }catch(e){if(badge){badge.textContent='Session Mercure expirée';badge.className='gsc-status offline'}throw e}
+ }catch(e){if(badge){badge.textContent='Session Mercure expirée';badge.className='gsc-status offline'}const loginBadge=cc('mercureLoginState');if(loginBadge){loginBadge.textContent='Session expirée';loginBadge.className='gsc-status offline'}throw e}
 }
 
 function promoISO(d=new Date()){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`}
@@ -118,6 +118,26 @@ function initPromoPlanner(){const start=cc('promoDateStart'),end=cc('promoDateEn
  const refreshPrice=()=>{if(window.cyberCheckAdminConfig)applyPromoPolicy(window.cyberCheckAdminConfig)};cc('promoService')?.addEventListener('change',refreshPrice);cc('promoDateStart')?.addEventListener('change',()=>{if(end)end.min=start.value});
  window.addEventListener('cybercheck-config-loaded',e=>applyPromoPolicy(e.detail));if(window.cyberCheckAdminConfig)applyPromoPolicy(window.cyberCheckAdminConfig);
  cc('promoReload')?.addEventListener('click',()=>loadPromoPlanner().catch(e=>alert(e.message)));cc('promoCreate')?.addEventListener('click',async()=>{const b=cc('promoCreate'),old=b.textContent;b.disabled=true;b.textContent='Enregistrement Mercure…';try{await createPromoSlot()}catch(e){alert(e.message)}finally{b.disabled=promoPolicy?.enabled===false;b.textContent=old}});loadPromoPlanner().catch(()=>{})}
+
+async function loginMercure(){
+ const username=cc('mercureLoginUser')?.value||'',password=cc('mercureLoginPassword')?.value||'',badge=cc('mercureLoginState');
+ if(!username||!password)throw new Error('Identifiant et mot de passe Mercure requis');
+ if(badge){badge.textContent='Connexion…';badge.className='gsc-status warning'}
+ const r=await fetch('/api/admin/mercure/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})}),d=await r.json();
+ if(cc('mercureLoginPassword'))cc('mercureLoginPassword').value='';
+ if(!r.ok||d.ok===false){if(badge){badge.textContent='Connexion refusée';badge.className='gsc-status offline'}throw new Error(d.error||`HTTP ${r.status}`)}
+ if(badge){badge.textContent='Session connectée';badge.className='gsc-status online'}
+ await loadMercureLive();return d;
+}
+
+async function launchBookingTest(){
+ const popup=window.open('about:blank','cybercheck-booking-test');
+ try{
+  const r=await fetch('/api/admin/booking-test/session',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||`HTTP ${r.status}`);
+  ccText('bookingTestStatus',`Lien valable jusqu’au ${new Date(d.expiresAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`);
+  if(popup)popup.location=d.url;else window.location=d.url;
+ }catch(e){if(popup)popup.close();throw e}
+}
 
 async function loadMercureIntegration(){
  const days=Number(cc('analyticsPeriod')?.value||30),d=await ccApi(`/api/admin/mercure/status?days=${days}`);
@@ -170,6 +190,8 @@ async function loadSeoHealth(){
 }
 async function runButton(id,fn){const b=cc(id);if(!b)return;b.addEventListener('click',async()=>{const old=b.textContent;b.disabled=true;b.textContent='Actualisation…';try{await fn()}catch(e){alert(e.message)}finally{b.disabled=false;b.textContent=old}})}
 runButton('analyticsRefresh',async()=>{await Promise.all([loadAnalytics(),loadMercureIntegration(),loadMercureLive()])});runButton('seoHealthRefresh',loadSeoHealth);
+cc('mercureLoginButton')?.addEventListener('click',()=>loginMercure().catch(e=>alert(e.message)));
+cc('bookingTestLaunch')?.addEventListener('click',()=>launchBookingTest().catch(e=>alert(e.message)));
 runButton('mercureRevealSecret',copyMercureSecret);runButton('mercureRotateSecret',rotateMercureSecret);runButton('securityRefresh',loadSecurity);
 runButton('securityAssess',async()=>{await securityPost('/api/admin/security/assess');await loadSecurity()});
 runButton('securityVulnRefresh',async()=>{await securityPost('/api/admin/security/vulnerability-refresh');await loadSecurity()});
