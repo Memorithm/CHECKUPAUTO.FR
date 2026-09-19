@@ -82,8 +82,11 @@ def smtp_configured() -> bool:
 
 
 def gmail_configured() -> bool:
-    sender = _gmail_sender()
-    return valid_email(sender) and google_integration.has_scopes([GMAIL_SEND_SCOPE])
+    try:
+        sender = _gmail_sender()
+        return valid_email(sender) and google_integration.has_scopes([GMAIL_SEND_SCOPE])
+    except (OSError, google_integration.IntegrationError):
+        return False
 
 
 def active_transport() -> str | None:
@@ -107,15 +110,30 @@ def transport_status() -> dict:
         requested = _transport_mode()
         config_error = ""
     except ValueError as exc:
-        requested = "invalid"
-        config_error = str(exc)
+        return {
+            "configured": False,
+            "transport": "none",
+            "requested": "invalid",
+            "smtpAvailable": smtp_configured(),
+            "gmailAvailable": False,
+            "state": "invalid_configuration",
+            "error": str(exc),
+        }
+    smtp_available = smtp_configured()
+    gmail_available = gmail_configured()
+    transport = None
+    if requested in {"auto", "smtp"} and smtp_available:
+        transport = "smtp-relay"
+    elif requested in {"auto", "gmail"} and gmail_available:
+        transport = "gmail-api"
+    ready = transport is not None
     return {
-        "configured": configured(),
-        "transport": active_transport() or "none",
+        "configured": ready,
+        "transport": transport or "none",
         "requested": requested,
-        "smtpAvailable": smtp_configured(),
-        "gmailAvailable": gmail_configured(),
-        "state": "ready" if configured() else "awaiting_configuration",
+        "smtpAvailable": smtp_available,
+        "gmailAvailable": gmail_available,
+        "state": "ready" if ready else "awaiting_configuration",
         "error": config_error,
     }
 
