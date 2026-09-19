@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 import base64, datetime, hashlib, hmac, html, json, os, re, secrets, tempfile
 import gsc_client as gsc
 import analytics_store as analytics
@@ -18,6 +18,8 @@ import security_alerts as security_alerts
 import competitive_intelligence as competitive
 import review_followup as reviews
 import integration_hub as integrations
+import referral_engine as referrals
+import reminder_engine as reminders
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
@@ -211,6 +213,24 @@ class Handler(SimpleHTTPRequestHandler):
     result['redirectUri']=self._request_origin()+'/api/integrations/google/oauth/callback'
     return self.send_json(result)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},500)
+  if path=='/api/admin/referrals/accounts':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); limit=int((q.get('limit') or ['100'])[0])
+    return self.send_json({'accounts':referrals.list_accounts(limit),'rewardCents':referrals.configured_reward_cents()})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/referrals/summary':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); code=(q.get('code') or [''])[0]
+    return self.send_json(referrals.account_summary(code))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/reminders/plan':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); due=(q.get('due') or [''])[0]; timezone=(q.get('timezone') or [reminders.DEFAULT_TIMEZONE])[0]
+    return self.send_json({'dueDate':due,'timezone':timezone,'events':reminders.plan_dicts(due,timezone=timezone)})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/analytics':
    if not self.authorized(): return self.require_auth()
    try:
@@ -323,6 +343,11 @@ class Handler(SimpleHTTPRequestHandler):
      q=parse_qs(parsed.query); days=int(q.get('days',['28'])[0]); return self.send_json(gsc.performance(site,days))
     if path=='/api/admin/google/sitemaps': return self.send_json({'sitemaps':gsc.list_sitemaps(site)})
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},502)
+  if path.startswith('/p/'):
+   code=referrals.valid_code_or_empty(path[3:])
+   if not code: return self.send_json({'error':'referral_not_found'},404)
+   target='/?'+urlencode({'ref':code})
+   self.send_response(302); self.send_header('Location',target); self.send_header('Cache-Control','no-store'); self.send_header('X-Robots-Tag','noindex, nofollow'); self.end_headers(); return
   if path=='/.well-known/security.txt':
    return self.send_bytes(build_security_txt(load_config()).encode(),'text/plain; charset=utf-8',cache='public, max-age=3600')
   if path=='/zone-tarifs':
@@ -404,6 +429,16 @@ class Handler(SimpleHTTPRequestHandler):
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  if path=='/api/admin/referrals/account':
+   try:
+    payload=self._read_json(allow_empty=True); account=referrals.create_account(payload.get('code') or '',payload.get('rewardCents'))
+    return self.send_json({'ok':True,'account':account},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/referrals/redeem':
+   try:
+    payload=self._read_json(); result=referrals.redeem(payload.get('code'),int(payload.get('amountCents')),payload.get('reference'))
+    return self.send_json({'ok':True,'account':result})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/integrations/google/oauth-client':
    try:
     payload=self._read_json(); return self.send_json({'ok':True,'oauthClient':integrations.save_oauth_client(payload)})
@@ -704,6 +739,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); referrals.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
