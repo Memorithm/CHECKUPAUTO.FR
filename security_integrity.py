@@ -7,6 +7,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import sys
 import threading
 import subprocess
@@ -63,26 +64,64 @@ def git_state() -> dict:
         return {'available':False,'error':type(exc).__name__,'head':'','branch':'','dirty':None,'changedTracked':[]}
 
 
+def _canonical_distribution_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", str(name or "").strip()).lower()
+
+
+def _parse_requirement_line(raw: str) -> dict | None:
+    line = str(raw or "").split("#", 1)[0].strip()
+    if not line:
+        return None
+    requirement = line.split(";", 1)[0].strip()
+    match = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[([^]]+)\])?", requirement)
+    if not match:
+        return {'name': requirement, 'extras': [], 'required': '', 'pinned': False, 'requirement': requirement}
+    name = match.group(1)
+    extras = sorted({x.strip() for x in (match.group(2) or '').split(',') if x.strip()})
+    pinned = '==' in requirement
+    version = requirement.split('==', 1)[1].strip() if pinned else ''
+    return {'name': name, 'extras': extras, 'required': version, 'pinned': pinned, 'requirement': requirement}
+
+
 def dependency_state() -> dict:
-    required=[]
-    req=ROOT/'requirements.txt'
+    required = []
+    req = ROOT / 'requirements.txt'
     for raw in req.read_text().splitlines() if req.exists() else []:
-        line=raw.strip()
-        if not line or line.startswith('#'): continue
-        if '==' in line:
-            name,version=line.split('==',1); required.append((name.strip(),version.strip(),True))
-        else:
-            required.append((line.split(';',1)[0].strip(),' ',False))
-    installed={d.metadata.get('Name','').lower():d.version for d in importlib.metadata.distributions() if d.metadata.get('Name')}
-    rows=[]; missing=[]; mismatched=[]; unpinned=[]
-    for name,version,pinned in required:
-        actual=installed.get(name.lower())
-        row={'name':name,'required':version.strip(),'installed':actual,'pinned':pinned,'ok':bool(actual) and (not pinned or actual==version)}
+        parsed = _parse_requirement_line(raw)
+        if parsed:
+            required.append(parsed)
+    installed = {
+        _canonical_distribution_name(d.metadata.get('Name', '')): d.version
+        for d in importlib.metadata.distributions()
+        if d.metadata.get('Name')
+    }
+    rows = []
+    missing = []
+    mismatched = []
+    unpinned = []
+    for item in required:
+        name = item['name']
+        version = item['required']
+        pinned = item['pinned']
+        actual = installed.get(_canonical_distribution_name(name))
+        row = {**item, 'installed': actual, 'ok': bool(actual) and (not pinned or actual == version)}
         rows.append(row)
-        if not actual: missing.append(name)
-        elif pinned and actual!=version: mismatched.append({'name':name,'required':version,'installed':actual})
-        if not pinned: unpinned.append(name)
-    return {'ok':not missing and not mismatched and not unpinned,'requirements':rows,'missing':missing,'mismatched':mismatched,'unpinned':unpinned}
+        if not actual:
+            missing.append(item['requirement'])
+        elif pinned and actual != version:
+            mismatched.append({'name': name, 'requirement': item['requirement'], 'required': version, 'installed': actual})
+        if not pinned:
+            unpinned.append(item['requirement'])
+    return {'ok': not missing and not mismatched and not unpinned,
+            'requirements': rows, 'missing': missing, 'mismatched': mismatched, 'unpinned': unpinned}
+
+
+def _component_fingerprint(components: list[dict]) -> str:
+    rows = sorted(
+        f"{_canonical_distribution_name(c.get('name', ''))}=={c.get('version', '')}"
+        for c in components
+    )
+    return hashlib.sha256("\n".join(rows).encode()).hexdigest()
 
 
 def _snapshot() -> dict:
@@ -206,12 +245,17 @@ def generate_sbom() -> dict:
 
 def audit_vulnerabilities(force=False) -> dict:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    sbom = generate_sbom()
+    component_fingerprint = _component_fingerprint(sbom['components'])
     if VULN_AUDIT.exists() and not force:
         age = datetime.datetime.now(datetime.timezone.utc).timestamp() - VULN_AUDIT.stat().st_mtime
         if age < 86400:
-            try: return json.loads(VULN_AUDIT.read_text())
-            except Exception: pass
-    sbom = generate_sbom()
+            try:
+                cached = json.loads(VULN_AUDIT.read_text())
+                if cached.get('componentFingerprint') == component_fingerprint:
+                    return cached
+            except Exception:
+                pass
     queries = [{'package': {'name': c['name'], 'ecosystem': 'PyPI'}, 'version': c['version']} for c in sbom['components']]
     try:
         r = requests.post('https://api.osv.dev/v1/querybatch', json={'queries': queries}, timeout=25)
@@ -227,14 +271,19 @@ def audit_vulnerabilities(force=False) -> dict:
                 })
         data = {'generatedAt': _now(), 'source': 'OSV.dev', 'componentCount': len(queries),
                 'vulnerabilityCount': len(findings), 'affectedComponents': len({x['component'] for x in findings}),
-                'findings': findings[:100], 'ok': not findings}
+                'findings': findings[:100], 'ok': not findings, 'componentFingerprint': component_fingerprint}
     except Exception as exc:
         if VULN_AUDIT.exists():
             try:
-                data = json.loads(VULN_AUDIT.read_text()); data['stale'] = True; data['refreshError'] = type(exc).__name__; return data
-            except Exception: pass
+                cached = json.loads(VULN_AUDIT.read_text())
+                if cached.get('componentFingerprint') == component_fingerprint:
+                    cached['stale'] = True
+                    cached['refreshError'] = type(exc).__name__
+                    return cached
+            except Exception:
+                pass
         data = {'generatedAt': _now(), 'source': 'OSV.dev', 'componentCount': len(queries),
-                'vulnerabilityCount': None, 'affectedComponents': None, 'findings': [], 'ok': None, 'error': type(exc).__name__}
+                'vulnerabilityCount': None, 'affectedComponents': None, 'findings': [], 'ok': None, 'error': type(exc).__name__, 'componentFingerprint': component_fingerprint}
     VULN_AUDIT.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
     VULN_AUDIT.chmod(0o600)
     if isinstance(data.get('vulnerabilityCount'),int) and data['vulnerabilityCount']>0:
