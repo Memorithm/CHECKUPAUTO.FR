@@ -31,6 +31,14 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("/api/admin/notifications/preflight", javascript)
         self.assertIn("/api/admin/notifications/preflight", server)
 
+    def test_admin_exposes_ios_distribution_channel(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        self.assertIn('id="notificationAppDistribution"', html)
+        self.assertIn("/api/app/status", javascript)
+        self.assertIn("distributionChannel==='testflight'", javascript)
+        self.assertIn("distributionChannel==='app-store'", javascript)
+
     def test_preflight_renderer_uses_text_content(self):
         javascript = (ROOT / "admin" / "notifications.js").read_text()
         start = javascript.index("function renderPreflight")

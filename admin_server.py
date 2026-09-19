@@ -162,7 +162,7 @@ class Handler(SimpleHTTPRequestHandler):
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
    c=load_config(); q=parse_qs(urlparse(self.path).query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c)
-   target=app['ios']['appStoreUrl'] if app['ios']['available'] else f'/app?src={source}'
+   target=app['ios'].get('targetUrl') if app['ios']['available'] else f'/app?src={source}'
    return self.send_redirect(target)
   if path.startswith('/admin'):
    if not self.authorized(): return self.require_auth()
@@ -319,12 +319,13 @@ class Handler(SimpleHTTPRequestHandler):
    except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
    except Exception as exc: return self.send_json({'ok':False,'error':'Disponibilités temporairement indisponibles','detail':str(exc)},502)
   if path=='/go/app':
-   c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c)
-   if not app['ios']['available']: return self.send_redirect(f'/app?src={source}')
+   c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c); ios=app['ios']
+   if not ios['available']: return self.send_redirect(f'/app?src={source}')
    try:
-    analytics.record_event({'event':'app_store_click','path':'/app','device':'unknown','referrer':self.headers.get('Referer',''),'utmSource':'app:'+source,'utmCampaign':app['campaign']},int((c.get('analytics') or {}).get('retentionDays',180)))
+    event='app_store_click' if ios['channel']=='app-store' else 'app_testflight_click'
+    analytics.record_event({'event':event,'path':'/app','device':'unknown','referrer':self.headers.get('Referer',''),'utmSource':'app:'+source,'utmCampaign':app['campaign'],'service':ios['channel']},int((c.get('analytics') or {}).get('retentionDays',180)))
    except Exception: pass
-   return self.send_redirect(app['ios']['appStoreUrl'])
+   return self.send_redirect(ios['targetUrl'])
   if path=='/go/booking':
    try:
     c=load_config(); q=parse_qs(parsed.query)
