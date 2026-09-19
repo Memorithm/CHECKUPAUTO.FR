@@ -174,7 +174,7 @@ final class AppModel: ObservableObject {
     private func disableRemoteRegistration() async {
         DeviceRegistrationState.setRegistered(false)
         refreshRegistrationState()
-        try? await DeviceRegistrationClient.unregister()
+        _ = try? await DeviceRegistrationClient.unregister()
         for vehicle in vehicles {
             await scheduler.remove(
                 vehicle,

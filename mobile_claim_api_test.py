@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+import security_guard
 
 
 class MobileClaimAPISurfaceTest(unittest.TestCase):
@@ -15,6 +16,13 @@ class MobileClaimAPISurfaceTest(unittest.TestCase):
         self.assertIn("register_installation(self._read_json())", source)
         self.assertIn("/api/mobile/installations/delete", source)
         self.assertIn("delete_installation(self._read_json())", source)
+
+    def test_mobile_identity_routes_are_endpoint_rate_limited(self):
+        limits = security_guard._ENDPOINT_LIMITS
+        self.assertEqual(limits["/api/mobile/installations/register"], 12)
+        self.assertEqual(limits["/api/mobile/installations/delete"], 12)
+        self.assertEqual(limits["/api/mobile/claims/consume"], 20)
+        self.assertEqual(limits["/api/mobile/reminders/sync"], 30)
 
     def test_authoritative_sync_is_started_with_server(self):
         source = Path("admin_server.py").read_text()
