@@ -280,7 +280,18 @@ def login(username, password):
     cookies=requests.utils.dict_from_cookiejar(s.cookies)
     if not cookies: raise RuntimeError('Mercure n’a retourné aucun cookie de session')
     SESSION_FILE.parent.mkdir(parents=True,exist_ok=True)
-    tmp=SESSION_FILE.with_suffix('.tmp'); tmp.write_text(json.dumps({'cookies':cookies},separators=(',',':'))+'\n'); tmp.chmod(0o600); os.replace(tmp,SESSION_FILE)
+    owner=None
+    try:
+        st=SESSION_FILE.stat(); owner=(st.st_uid,st.st_gid)
+    except FileNotFoundError:
+        pass
+    tmp=SESSION_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps({'cookies':cookies},separators=(',',':'))+'\n')
+    tmp.chmod(0o600)
+    if owner is not None and hasattr(os,'chown'):
+        try: os.chown(tmp,*owner)
+        except PermissionError: pass
+    os.replace(tmp,SESSION_FILE)
     return {'connected':True,'status':302,'cookiesStored':len(cookies)}
 
 def _centre_parameter_form_values(html_text):
