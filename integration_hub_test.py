@@ -1,0 +1,130 @@
+import json
+import os
+import stat
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlparse
+
+import integration_hub as hub
+
+
+class IntegrationHubTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        hub.PRIVATE_DIR = root
+        hub.INTEGRATION_DIR = root / "integrations"
+        hub.CLIENT_FILE = hub.INTEGRATION_DIR / "google-oauth-client.json"
+        hub.TOKEN_FILE = hub.INTEGRATION_DIR / "google-oauth-token.json"
+        hub.SETTINGS_FILE = hub.INTEGRATION_DIR / "google-settings.json"
+        hub.STATE_FILE = hub.INTEGRATION_DIR / "google-oauth-state.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def install_client(self):
+        return hub.save_oauth_client({
+            "web": {
+                "client_id": "client-id.apps.googleusercontent.com",
+                "client_secret": "super-secret",
+                "project_id": "cybercheck-test",
+                "token_uri": hub.TOKEN_URL,
+            }
+        })
+
+    def test_private_files_are_mode_600(self):
+        self.install_client()
+        mode = stat.S_IMODE(os.stat(hub.CLIENT_FILE).st_mode)
+        self.assertEqual(mode, 0o600)
+        self.assertEqual(stat.S_IMODE(os.stat(hub.INTEGRATION_DIR).st_mode), 0o700)
+
+    def test_authorization_url_uses_incremental_scopes_and_state(self):
+        self.install_client()
+        result = hub.create_authorization_url(
+            "https://www.checkupauto.fr",
+            ["analytics", "business_profile"],
+        )
+        parsed = urlparse(result["authorizationUrl"])
+        params = parse_qs(parsed.query)
+        scopes = set(params["scope"][0].split())
+        self.assertIn("https://www.googleapis.com/auth/analytics.readonly", scopes)
+        self.assertIn("https://www.googleapis.com/auth/business.manage", scopes)
+        self.assertEqual(params["access_type"], ["offline"])
+        self.assertEqual(params["include_granted_scopes"], ["true"])
+        self.assertTrue(hub.STATE_FILE.exists())
+
+    def test_callback_rejects_wrong_state(self):
+        self.install_client()
+        hub.create_authorization_url("https://www.checkupauto.fr", ["analytics"])
+        with self.assertRaises(hub.IntegrationError):
+            hub.handle_oauth_callback(
+                "https://www.checkupauto.fr",
+                "wrong-state",
+                "code",
+            )
+
+    def test_callback_persists_token_and_marks_connector_connected(self):
+        self.install_client()
+        auth = hub.create_authorization_url("https://www.checkupauto.fr", ["analytics"])
+        state = parse_qs(urlparse(auth["authorizationUrl"]).query)["state"][0]
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "access_token": "access",
+            "refresh_token": "refresh",
+            "expires_in": 3600,
+            "scope": "https://www.googleapis.com/auth/analytics.readonly",
+            "token_type": "Bearer",
+        }
+        with patch("integration_hub.requests.post", return_value=response):
+            hub.handle_oauth_callback("https://www.checkupauto.fr", state, "code")
+        status = hub.status()
+        analytics = next(x for x in status["connectors"] if x["id"] == "analytics")
+        self.assertTrue(analytics["connected"])
+        saved = json.loads(hub.TOKEN_FILE.read_text())
+        self.assertEqual(saved["refresh_token"], "refresh")
+        self.assertIn("expires_at", saved)
+        self.assertFalse(hub.STATE_FILE.exists())
+
+    def test_ads_is_partial_until_developer_token_is_configured(self):
+        self.install_client()
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "refresh_token": "refresh",
+            "scope": "https://www.googleapis.com/auth/adwords",
+        })
+        ads = next(x for x in hub.status()["connectors"] if x["id"] == "google_ads")
+        self.assertFalse(ads["connected"])
+        self.assertEqual(ads["state"], "attention")
+        hub.save_settings({"googleAdsDeveloperToken": "dev-token"})
+        ads = next(x for x in hub.status()["connectors"] if x["id"] == "google_ads")
+        self.assertTrue(ads["connected"])
+
+    def test_legacy_search_console_is_reported_connected(self):
+        row = next(
+            x for x in hub.status({"configured": True})["connectors"]
+            if x["id"] == "search_console"
+        )
+        self.assertTrue(row["connected"])
+        self.assertIn("compte de service", row["detail"].lower())
+
+    def test_refresh_token_flow(self):
+        self.install_client()
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "refresh_token": "refresh",
+            "scope": "https://www.googleapis.com/auth/analytics.readonly",
+        })
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"access_token": "new-access", "expires_in": 3600}
+        with patch("integration_hub.requests.post", return_value=response) as post:
+            token = hub.google_access_token(
+                ["https://www.googleapis.com/auth/analytics.readonly"]
+            )
+        self.assertEqual(token, "new-access")
+        self.assertEqual(post.call_args.kwargs["data"]["grant_type"], "refresh_token")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -17,6 +17,7 @@ import security_integrity as security_integrity
 import security_alerts as security_alerts
 import competitive_intelligence as competitive
 import review_followup as reviews
+import integration_hub as integrations
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
@@ -76,7 +77,10 @@ class Handler(SimpleHTTPRequestHandler):
  def _guard(self):
   if getattr(self,'_security_checked',False): return getattr(self,'_security_allowed',True)
   self._security_checked=True
-  d=security.evaluate(self.command,self.path,self.headers,self.client_address[0] if self.client_address else '')
+  raw_target=self.path
+  if urlparse(raw_target).path=='/api/integrations/google/oauth/callback':
+   raw_target=urlparse(raw_target).path
+  d=security.evaluate(self.command,raw_target,self.headers,self.client_address[0] if self.client_address else '')
   self._security_client=d.get('client',''); self._security_fingerprint=d.get('fingerprint',''); self._security_path=d.get('path',''); self._security_risk=d.get('risk',0); self._security_allowed=bool(d.get('allow'))
   if self._security_allowed: return True
   status=int(d.get('status') or 403)
@@ -124,6 +128,8 @@ class Handler(SimpleHTTPRequestHandler):
   try: userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
   except Exception: return False
   return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
+ def _request_origin(self):
+  return canonical_origin(load_config()['seo']['canonicalUrl'])
  def _admin_origin_ok(self):
   origin=(self.headers.get('Origin') or '').strip()
   if not origin: return True
@@ -186,6 +192,25 @@ class Handler(SimpleHTTPRequestHandler):
  def do_GET(self):
   if not self._guard(): return
   parsed=urlparse(self.path); path=parsed.path
+  if path=='/api/integrations/google/oauth/callback':
+   try:
+    q=parse_qs(parsed.query)
+    integrations.handle_oauth_callback(self._request_origin(),(q.get('state') or [''])[0],(q.get('code') or [''])[0],(q.get('error') or [''])[0])
+    doc=('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">'
+         '<meta http-equiv="refresh" content="0;url=/admin/#integrations"><title>Google connecté</title></head>'
+         '<body><p>Connexion Google enregistrée. <a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode()
+    return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
+   except Exception as exc:
+    return self.send_bytes(('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">'
+      '<title>Connexion Google impossible</title></head><body><h1>Connexion Google impossible</h1><p>'+esc(exc)+'</p>'
+      '<p><a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode(),'text/html; charset=utf-8',400,'no-store')
+  if path=='/api/admin/integrations/google/status':
+   if not self.authorized(): return self.require_auth()
+   try:
+    result=integrations.status(gsc.credential_info())
+    result['redirectUri']=self._request_origin()+'/api/integrations/google/oauth/callback'
+    return self.send_json(result)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},500)
   if path=='/api/admin/analytics':
    if not self.authorized(): return self.require_auth()
    try:
@@ -379,6 +404,21 @@ class Handler(SimpleHTTPRequestHandler):
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  if path=='/api/admin/integrations/google/oauth-client':
+   try:
+    payload=self._read_json(); return self.send_json({'ok':True,'oauthClient':integrations.save_oauth_client(payload)})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/integrations/google/settings':
+   try:
+    payload=self._read_json(); return self.send_json({'ok':True,'settings':integrations.save_settings(payload)})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/integrations/google/oauth/start':
+   try:
+    payload=self._read_json(); connectors=payload.get('connectors') or []
+    if not isinstance(connectors,list): raise ValueError('connectors doit être une liste')
+    result=integrations.create_authorization_url(self._request_origin(),[str(x) for x in connectors])
+    return self.send_json({'ok':True,**result})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/mercure/login':
    try:
     payload=self._read_json(); result=mercure_admin.login(payload.get('username'),payload.get('password'))
@@ -482,6 +522,9 @@ class Handler(SimpleHTTPRequestHandler):
   parsed=urlparse(self.path); path=parsed.path
   if not self.authorized(): return self.require_auth()
   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
+  if path=='/api/admin/integrations/google/oauth':
+   try: return self.send_json({'ok':True,**integrations.revoke_oauth()})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/google/credentials':
    try: return self.send_json({'ok':True,'credentials':gsc.remove_credentials()})
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
