@@ -28,6 +28,15 @@ Dans Xcode, sélectionner l’équipe Apple de signature, puis exécuter d’abo
 
 Le projet demande iOS 17 ou supérieur et ne dépend d’aucune bibliothèque tierce à l’exécution.
 
+Sans Xcode complet, le Mac mini peut néanmoins valider le noyau déterministe du planificateur avec les Command Line Tools :
+
+```bash
+swiftc Sources/Models.swift Tests/ReminderPlanSmoke.swift -o /tmp/reminder-plan-smoke
+/tmp/reminder-plan-smoke
+```
+
+La sortie attendue est `REMINDER_PLAN_SMOKE_OK`. Les tests XCTest et la compilation iOS complète nécessitent Xcode.app.
+
 ## ReferralWallet et moteur central
 
 Le solde de parrainage ne sera jamais calculé localement par l’application. `referral_engine.py` reste la source de vérité serveur pour les crédits en attente, acquis et consommés. L’application affichera ce solde après mise en place de l’authentification Checkup Auto.

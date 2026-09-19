@@ -20,6 +20,7 @@ final class ReminderPlanTests: XCTestCase {
         )
         XCTAssertEqual(moments.map(\.daysBefore), [60, 30, 15, 7, 1])
     }
+}
 
 extension ReminderPlanTests {
     func testDropsReminderMomentsThatAlreadyPassed() {

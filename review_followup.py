@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import datetime, html, os, sqlite3, threading
 
 import email_gateway as mail
+import notification_broker as notifications
 import mercure_admin_client as mercure
 
 DATA_DIR=Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
@@ -141,7 +142,12 @@ def process_once():
         if state and state.get('status')=='sent': continue
         if state and int(state.get('attempts') or 0)>=MAX_ATTEMPTS: continue
         try:
-            mail.send_email(recipient,'Votre avis sur Checkup Auto',plain,rich)
+            delivery=notifications.send_email(
+                recipient,'Votre avis sur Checkup Auto',plain,rich,
+                category='google_review',reference=rid,
+            )
+            if delivery.get('inFlight'):
+                continue
             _mark(rid,'sent'); sent+=1
         except Exception as exc:
             _mark(rid,'failed',type(exc).__name__+': '+str(exc)); failed+=1
@@ -168,7 +174,8 @@ def status():
       'sessionConnected':bool(session.get('connected')),
       'sessionError':session.get('error',''),
       'nativeFavorableOnlyEmailEnabled':native.get('nativeFavorableOnlyEmailEnabled'),
-      'delivery':'checkupauto_smtp','mercureDeliveryDisabled':True,
+      'delivery':'notification_broker','mercureDeliveryDisabled':True,
+      'notificationBroker':notifications.status(5),
       'emailTransportConfigured':mail.configured(),
       'mercureEmailFieldConfigured':bool(str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip()),
       'reviewUrlConfigured':bool(str(os.environ.get('CYBERCHECK_GOOGLE_REVIEW_URL','') or '').strip()),
