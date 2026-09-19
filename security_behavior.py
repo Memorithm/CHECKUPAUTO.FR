@@ -129,6 +129,7 @@ def _metrics(state: dict, headers, now: float) -> tuple[float, list[str], dict]:
 
 
 def _persist(fp: str, client: str, state: dict, risk: float, force=False):
+    init_db()
     now = time.monotonic()
     if not force and now - state.get('last_persist', 0.0) < 10 and risk < 35:
         return
@@ -187,6 +188,7 @@ def observe_response(fp: str, client: str, status: int) -> dict:
 
 
 def profiles(limit=25, days=1):
+    init_db()
     limit = max(1, min(int(limit), 100)); days = max(1, min(int(days), 30))
     since = (datetime.date.today() - datetime.timedelta(days=days-1)).isoformat()
     with sqlite3.connect(DB) as db:
@@ -194,5 +196,3 @@ def profiles(limit=25, days=1):
         rows = [dict(r) for r in db.execute('''SELECT day,fingerprint,client_hash,last_seen,requests,errors,unique_paths,max_risk,classification
           FROM behavior_profiles WHERE day>=? ORDER BY max_risk DESC,last_seen DESC LIMIT ?''',(since,limit))]
     return rows
-
-init_db()
