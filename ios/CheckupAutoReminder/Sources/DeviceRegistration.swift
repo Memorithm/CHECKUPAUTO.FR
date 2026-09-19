@@ -73,7 +73,7 @@ enum DeviceRegistrationIdentity {
 }
 
 enum DeviceRegistrationClient {
-    static let endpoint = URL(string: "https://www.checkupauto.fr/api/mobile/devices/register")!
+    static var endpoint: URL { MobileAPI.endpoint("/api/mobile/devices/register") }
 
     static func register(deviceToken: Data, session: URLSession = .shared) async throws {
         let identity = try DeviceRegistrationIdentity.loadOrCreate()

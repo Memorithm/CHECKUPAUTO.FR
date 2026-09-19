@@ -77,7 +77,7 @@ enum MobileBootstrapError: Error {
 }
 
 enum MobileBootstrapClient {
-    static let endpoint = URL(string: "https://www.checkupauto.fr/api/mobile/bootstrap")!
+    static var endpoint: URL { MobileAPI.endpoint("/api/mobile/bootstrap") }
 
     static func fetch(session: URLSession = .shared) async throws -> MobileBootstrap {
         var request = URLRequest(url: endpoint)

@@ -29,6 +29,8 @@ open CheckupAutoReminder.xcodeproj
 
 Dans Xcode, sélectionner l’équipe Apple de signature, puis exécuter d’abord les tests sur un simulateur iPhone avant le test sur un iPhone physique.
 
+Pour tester une build Debug contre un environnement CheckupAuto temporaire sans modifier le code, définir la variable d’environnement du scheme CHECKUPAUTO_API_BASE_URL avec une origine HTTPS de test. Seules les origines HTTPS propres sont acceptées (sans identifiants, chemin, query string ni fragment). En Release, cette variable est ignorée et l’API reste verrouillée sur https://www.checkupauto.fr.
+
 Le projet demande iOS 17 ou supérieur et ne dépend d’aucune bibliothèque tierce à l’exécution.
 
 Sans Xcode complet, le Mac mini peut néanmoins valider le noyau déterministe du planificateur avec les Command Line Tools :

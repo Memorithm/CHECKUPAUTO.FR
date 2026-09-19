@@ -33,7 +33,7 @@ enum MobileDeadlineSyncError: Error {
 }
 
 enum MobileDeadlineSyncClient {
-    static let endpoint = URL(string: "https://www.checkupauto.fr/api/mobile/reminders/sync")!
+    static var endpoint: URL { MobileAPI.endpoint("/api/mobile/reminders/sync") }
 
     static func request(
         vehicles: [VehicleDeadline],
