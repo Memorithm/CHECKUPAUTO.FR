@@ -11,6 +11,7 @@ import notification_broker as notifications
 import reminder_engine as reminders
 
 INTERVAL_SECONDS = 3600
+IOS_CONTROL_DUE_CATEGORY = "CHECKUPAUTO_CT_DUE"
 _STOP = threading.Event()
 _THREAD = None
 
@@ -85,6 +86,7 @@ def process_once(now: datetime.datetime | None = None) -> dict:
                     "dueDate": row["due_date"],
                     "daysBefore": row["days_before"],
                 },
+                notification_category=IOS_CONTROL_DUE_CATEGORY,
             )
             if delivery.get("alreadySent"):
                 already += 1

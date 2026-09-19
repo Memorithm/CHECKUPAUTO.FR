@@ -278,6 +278,7 @@ def send_push(
     reference: str,
     data: dict | None = None,
     environment: str = "sandbox",
+    notification_category: str = "",
 ) -> dict:
     token = str(device_token or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{32,400}", token) or len(token) % 2:
@@ -319,7 +320,14 @@ def send_push(
               failure_class='',next_attempt_at='',transport_key=? WHERE idempotency_key=?""",
               (attempt, now_iso, transport_key, key))
     try:
-        push_transport.send(token, title, body, data=data, environment=environment)
+        push_transport.send(
+            token,
+            title,
+            body,
+            data=data,
+            environment=environment,
+            notification_category=notification_category,
+        )
     except Exception as exc:
         failure_class = _classify_failure(exc)
         next_at, _ = _record_transport_failure(transport_key, failure_class, exc, now, attempt)

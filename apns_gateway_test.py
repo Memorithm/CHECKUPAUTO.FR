@@ -51,6 +51,24 @@ class APNSGatewayTest(unittest.TestCase):
                 self.assertEqual(error.retry_after, "60")
 
 
+    def test_notification_payload_carries_ios_action_category(self):
+        payload = apns._notification_payload(
+            "Contrôle technique",
+            "Pensez à réserver.",
+            data={"deadlineId": "opaque"},
+            notification_category="CHECKUPAUTO_CT_DUE",
+        )
+        self.assertEqual(payload["aps"]["category"], "CHECKUPAUTO_CT_DUE")
+        self.assertEqual(payload["data"], {"deadlineId": "opaque"})
+
+    def test_notification_payload_rejects_unsafe_category(self):
+        with self.assertRaises(ValueError):
+            apns._notification_payload(
+                "Titre",
+                "Corps",
+                notification_category="bad category/with spaces",
+            )
+
     def test_preflight_validates_p256_signing_key_without_push(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ec

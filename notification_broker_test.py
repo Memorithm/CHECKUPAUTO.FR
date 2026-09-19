@@ -107,9 +107,27 @@ class NotificationBrokerTest(unittest.TestCase):
     def test_push_is_delivered_once_without_persisting_device_token(self, send_push):
         send_push.return_value = {"ok": True}
         token = "ab" * 32
-        first = broker.send_push(token, "Rappel", "Votre contrôle approche.", category="ct_due", reference="mobile-42")
-        second = broker.send_push(token, "Rappel", "Votre contrôle approche.", category="ct_due", reference="mobile-42")
+        first = broker.send_push(
+            token,
+            "Rappel",
+            "Votre contrôle approche.",
+            category="ct_due",
+            reference="mobile-42",
+            notification_category="CHECKUPAUTO_CT_DUE",
+        )
+        second = broker.send_push(
+            token,
+            "Rappel",
+            "Votre contrôle approche.",
+            category="ct_due",
+            reference="mobile-42",
+            notification_category="CHECKUPAUTO_CT_DUE",
+        )
         self.assertEqual(send_push.call_count, 1)
+        self.assertEqual(
+            send_push.call_args.kwargs["notification_category"],
+            "CHECKUPAUTO_CT_DUE",
+        )
         self.assertEqual(first["status"], "sent")
         self.assertTrue(second["alreadySent"])
         self.assertNotIn(token.encode(), broker.DB.read_bytes())
