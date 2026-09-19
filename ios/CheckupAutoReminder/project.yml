@@ -36,7 +36,10 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - Tests
+      - Tests/DeviceRegistrationTests.swift
+      - Tests/MobileBootstrapTests.swift
+      - Tests/MobileDeadlineSyncTests.swift
+      - Tests/ReminderPlanTests.swift
     dependencies:
       - target: CheckupAutoReminder
     settings:
