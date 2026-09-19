@@ -14,7 +14,8 @@ The project currently includes:
 - the isolated security AI supervisor;
 - Google Search Console integration hooks;
 - permanent `/app` distribution landing page with source-tracked QR codes;
-- first SwiftUI iOS reminder application scaffold with local CT reminders.
+- first SwiftUI iOS reminder application scaffold with local CT reminders;
+- Checkup Auto-owned e-mail delivery gateway; Mercure is restricted to data retrieval for follow-up workflows.
 
 ## Local runtime
 

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import datetime, os, sqlite3, threading
+from urllib.parse import urlparse
+import datetime, html, os, sqlite3, threading
 
+import email_gateway as mail
 import mercure_admin_client as mercure
 
 DATA_DIR=Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
@@ -13,6 +15,25 @@ INTERVAL_SECONDS=900
 DELAY_MINUTES=45
 LOOKBACK_HOURS=36
 MAX_ATTEMPTS=3
+REVIEW_HOSTS={'g.page','google.com','www.google.com','search.google.com','maps.app.goo.gl'}
+
+def _review_url():
+    raw=str(os.environ.get('CYBERCHECK_GOOGLE_REVIEW_URL','') or '').strip()
+    if not raw: return ''
+    p=urlparse(raw); host=(p.hostname or '').lower()
+    if p.scheme!='https' or host not in REVIEW_HOSTS or p.username or p.password:
+        raise ValueError('URL avis Google invalide')
+    return raw
+
+def _review_message(url):
+    text=('Merci d’avoir confié votre véhicule à Checkup Auto.\n\n'
+          'Votre avis nous aide à améliorer notre service. Vous pouvez le déposer ici :\n'
+          f'{url}\n\nMerci,\nCheckup Auto')
+    safe=html.escape(url,quote=True)
+    body=('<p>Merci d’avoir confié votre véhicule à <strong>Checkup Auto</strong>.</p>'
+          '<p>Votre avis nous aide à améliorer notre service.</p>'
+          f'<p><a href="{safe}">Donner mon avis Google</a></p><p>Merci,<br>Checkup Auto</p>')
+    return text,body
 
 def _now():
     return datetime.datetime.now(datetime.timezone.utc)
@@ -88,7 +109,22 @@ def process_once():
             mercure.disable_native_review_email_automation()
         except Exception as exc:
             return {'ok':False,'state':'native_positive_only_enabled','error':str(exc)}
-    now=_now(); sent=failed=eligible=0
+    if not str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip():
+        return {'ok':False,'state':'waiting_mercure_email_field','error':'Champ email client Mercure non vérifié'}
+    try:
+        transport=mail.load_config()
+    except Exception as exc:
+        return {'ok':False,'state':'invalid_email_transport','error':str(exc)}
+    if transport is None:
+        return {'ok':False,'state':'waiting_email_transport','error':'Relais email Checkup Auto non configuré'}
+    try:
+        review_url=_review_url()
+    except Exception as exc:
+        return {'ok':False,'state':'invalid_review_url','error':str(exc)}
+    if not review_url:
+        return {'ok':False,'state':'waiting_review_url','error':'URL avis Google non configurée'}
+    plain,rich=_review_message(review_url)
+    now=_now(); sent=failed=eligible=missing=0
     for row in mercure.review_followup_rows(2):
         rid=str(row.get('id') or '').strip()
         if not rid or not row.get('honored') or not row.get('finished'): continue
@@ -98,15 +134,18 @@ def process_once():
         age=(now-at).total_seconds()/3600
         if age < DELAY_MINUTES/60 or age > LOOKBACK_HOURS: continue
         eligible+=1
+        recipient=str(row.get('email') or '').strip()
+        if not mail.valid_email(recipient):
+            missing+=1; continue
         state=_state(rid)
         if state and state.get('status')=='sent': continue
         if state and int(state.get('attempts') or 0)>=MAX_ATTEMPTS: continue
         try:
-            mercure.send_google_review_email(rid)
+            mail.send_email(recipient,'Votre avis sur Checkup Auto',plain,rich)
             _mark(rid,'sent'); sent+=1
         except Exception as exc:
             _mark(rid,'failed',type(exc).__name__+': '+str(exc)); failed+=1
-    return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'failed':failed}
+    return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'failed':failed,'missingRecipient':missing}
 
 def status():
     session=mercure.session_status()
@@ -129,6 +168,10 @@ def status():
       'sessionConnected':bool(session.get('connected')),
       'sessionError':session.get('error',''),
       'nativeFavorableOnlyEmailEnabled':native.get('nativeFavorableOnlyEmailEnabled'),
+      'delivery':'checkupauto_smtp','mercureDeliveryDisabled':True,
+      'emailTransportConfigured':mail.configured(),
+      'mercureEmailFieldConfigured':bool(str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip()),
+      'reviewUrlConfigured':bool(str(os.environ.get('CYBERCHECK_GOOGLE_REVIEW_URL','') or '').strip()),
       'sent24h':sent24,'sentTotal':sent_total,'permanentFailures':failed,'latest':latest,
       'privacy':'CyberCheck stores appointment id + delivery state only; customer email remains in Mercure'
     }
