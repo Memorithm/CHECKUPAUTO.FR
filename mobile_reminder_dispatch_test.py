@@ -46,6 +46,7 @@ class MobileReminderDispatchTest(unittest.TestCase):
         _, _, _ = send_push.call_args.args
         kwargs = send_push.call_args.kwargs
         self.assertEqual(kwargs["environment"], "sandbox")
+        self.assertEqual(kwargs["notification_category"], "CHECKUPAUTO_CT_DUE")
         self.assertEqual(kwargs["data"], {
             "deadlineId": self.row["deadline_id"],
             "dueDate": self.row["due_date"],

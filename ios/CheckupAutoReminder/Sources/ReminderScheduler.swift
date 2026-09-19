@@ -23,6 +23,7 @@ actor ReminderScheduler {
             content.title = "Contrôle technique à prévoir"
             content.body = message(for: vehicle, daysBefore: moment.daysBefore)
             content.sound = .default
+            content.categoryIdentifier = NotificationRouting.controlDueCategory
             content.userInfo = ["vehicleID": vehicle.id.uuidString]
             var date = calendar.dateComponents(
                 [.year, .month, .day, .hour, .minute],

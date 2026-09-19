@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -138,7 +139,34 @@ def _error_from_response(response) -> APNSError:
     )
 
 
-def send(device_token: str, title: str, body: str, *, data: dict | None = None, environment: str = "sandbox") -> dict:
+def _notification_payload(
+    title: str,
+    body: str,
+    *,
+    data: dict | None = None,
+    notification_category: str = "",
+) -> dict:
+    aps = {"alert": {"title": str(title)[:120], "body": str(body)[:500]}, "sound": "default"}
+    category = str(notification_category or "").strip()
+    if category:
+        if len(category) > 64 or not re.fullmatch(r"[A-Za-z0-9._-]+", category):
+            raise ValueError("Catégorie APNs invalide")
+        aps["category"] = category
+    payload = {"aps": aps}
+    if data:
+        payload["data"] = data
+    return payload
+
+
+def send(
+    device_token: str,
+    title: str,
+    body: str,
+    *,
+    data: dict | None = None,
+    environment: str = "sandbox",
+    notification_category: str = "",
+) -> dict:
     cfg = _config()
     if not status()["configured"]:
         raise RuntimeError("APNs non configuré")
@@ -150,9 +178,12 @@ def send(device_token: str, title: str, body: str, *, data: dict | None = None, 
     if environment not in {"sandbox", "production"}:
         raise ValueError("Environnement APNs invalide")
     host = "https://api.push.apple.com" if environment == "production" else "https://api.sandbox.push.apple.com"
-    payload = {"aps": {"alert": {"title": str(title)[:120], "body": str(body)[:500]}, "sound": "default"}}
-    if data:
-        payload["data"] = data
+    payload = _notification_payload(
+        title,
+        body,
+        data=data,
+        notification_category=notification_category,
+    )
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(raw) > 4096:
         raise ValueError("payload APNs trop volumineux")

@@ -37,6 +37,7 @@ targets:
     platform: iOS
     sources:
       - Tests/DeviceRegistrationTests.swift
+      - Tests/NotificationRoutingTests.swift
       - Tests/MobileAPITests.swift
       - Tests/MobileBootstrapTests.swift
       - Tests/MobileDeadlineSyncTests.swift
