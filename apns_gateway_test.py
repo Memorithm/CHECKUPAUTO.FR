@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import apns_gateway as apns
 
@@ -31,6 +32,13 @@ class APNSGatewayTest(unittest.TestCase):
         self.assertFalse(error.token_invalid)
         self.assertTrue(error.provider_error)
         self.assertFalse(error.retryable)
+
+    @patch.object(apns.Path, "is_file", side_effect=PermissionError("denied"))
+    def test_status_treats_unreadable_private_directory_as_unconfigured(self, _is_file):
+        state = apns.status()
+        self.assertFalse(state["configured"])
+        self.assertFalse(state["keyPresent"])
+        self.assertEqual(state["state"], "awaiting_credentials")
 
     def test_service_and_rate_limit_errors_are_retryable(self):
         for status, reason in ((429, "TooManyRequests"), (500, "InternalServerError"), (503, "ServiceUnavailable")):
