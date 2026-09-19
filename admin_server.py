@@ -20,6 +20,7 @@ import review_followup as reviews
 import integration_hub as integrations
 import referral_engine as referrals
 import reminder_engine as reminders
+import notification_broker as notifications
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
@@ -230,6 +231,12 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     q=parse_qs(parsed.query); due=(q.get('due') or [''])[0]; timezone=(q.get('timezone') or [reminders.DEFAULT_TIMEZONE])[0]
     return self.send_json({'dueDate':due,'timezone':timezone,'events':reminders.plan_dicts(due,timezone=timezone)})
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/notifications/status':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); limit=int((q.get('limit') or ['20'])[0])
+    return self.send_json(notifications.status(limit))
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/analytics':
    if not self.authorized(): return self.require_auth()
@@ -739,6 +746,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); referrals.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); referrals.init_db(); notifications.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

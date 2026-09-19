@@ -17,7 +17,8 @@ The project currently includes:
 - first SwiftUI iOS reminder application scaffold with local CT reminders;
 - Checkup Auto-owned e-mail delivery gateway; Mercure is restricted to data retrieval for follow-up workflows.
 - server-side ReferralWallet with pending/earned credit ledger and 5 EUR default reward per completed referred control;
-- deterministic ReminderEngine aligned with the iOS J-60/J-30/J-15/J-7/J-1 reminder policy.
+- deterministic ReminderEngine aligned with the iOS J-60/J-30/J-15/J-7/J-1 reminder policy;
+- privacy-preserving NotificationBroker with idempotent delivery ledger; raw recipient addresses and message bodies are not persisted.
 
 ## Local runtime
 

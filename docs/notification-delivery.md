@@ -6,9 +6,15 @@ Mercure is a data source only. CyberCheck must not call Mercure endpoints that s
 
 The delivery path is intentionally separated:
 
-`Mercure data -> CyberCheck decision engine -> Checkup Auto mail relay -> customer`
+`Mercure data -> CyberCheck decision engine -> NotificationBroker -> Checkup Auto mail relay -> customer`
 
 The former Mercure Google-review sender is explicitly disabled in `mercure_admin_client.py`.
+
+## NotificationBroker
+
+`notification_broker.py` is the delivery boundary. It creates a deterministic idempotency key from channel, category, business reference and recipient, records delivery state without persisting the raw recipient or message body, leases in-flight deliveries to prevent concurrent duplicate sends, and permits retries after failures. The administration API exposes read-only status at `/api/admin/notifications/status`.
+
+The broker currently has one active transport: e-mail. APNs is declared as not configured until Apple credentials and the production app identity are available.
 
 ## Email transport
 
@@ -29,7 +35,7 @@ This deliberately prevents accidental delivery to the wrong address.
 
 ## Google review follow-up
 
-`CYBERCHECK_GOOGLE_REVIEW_URL` must be a validated HTTPS Google review URL. The follow-up engine sends the request through `email_gateway.py` only. It stores the Mercure appointment identifier and delivery state, but not the customer's e-mail address.
+`CYBERCHECK_GOOGLE_REVIEW_URL` must be a validated HTTPS Google review URL. The follow-up engine sends the request through `notification_broker.py`, which delegates to `email_gateway.py`. It stores the Mercure appointment identifier and delivery state, but not the customer's e-mail address or message body.
 
 ## Current host state
 

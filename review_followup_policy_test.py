@@ -2,7 +2,7 @@ import datetime
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 _TMP = tempfile.TemporaryDirectory()
 os.environ["CYBERCHECK_DATA_DIR"] = _TMP.name
@@ -28,7 +28,7 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
         self.assertEqual(result["state"], "waiting_mercure_email_field")
     @patch.object(followup, "_mark")
     @patch.object(followup, "_state", return_value=None)
-    @patch.object(followup.mail, "send_email")
+    @patch.object(followup.notifications, "send_email")
     @patch.object(followup.mercure, "send_google_review_email")
     @patch.object(followup.mercure, "review_followup_rows")
     @patch.object(
@@ -48,6 +48,7 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
         mark,
     ):
         now = datetime.datetime.now(datetime.timezone.utc)
+        own_send.return_value = {"ok": True, "status": "sent", "inFlight": False}
         rows.return_value = [{
             "id": "42",
             "dateRdv": (now - datetime.timedelta(hours=1)).isoformat(),
@@ -66,7 +67,10 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["sent"], 1)
-        own_send.assert_called_once()
+        own_send.assert_called_once_with(
+            "client@example.fr", "Votre avis sur Checkup Auto", ANY, ANY,
+            category="google_review", reference="42",
+        )
         mercure_send.assert_not_called()
         mark.assert_called_once_with("42", "sent")
 
