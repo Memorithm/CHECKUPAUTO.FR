@@ -12,6 +12,7 @@ import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
 import mobile_bootstrap as mobile_bootstrap
 import mobile_devices as mobile_devices
+import mobile_reminder_dispatch as mobile_reminder_dispatch
 import geo_marketing as geo_marketing
 import security_guard as security
 import security_ai as security_ai
@@ -241,7 +242,8 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/mobile/devices/status':
    if not self.authorized(): return self.require_auth()
-   try: return self.send_json(mobile_devices.status())
+   try:
+    result=mobile_devices.status(); result['reminderDispatch']=mobile_reminder_dispatch.status(); return self.send_json(result)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/notifications/status':
    if not self.authorized(): return self.require_auth()
@@ -439,6 +441,13 @@ class Handler(SimpleHTTPRequestHandler):
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.unregister(self._read_json()))
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/mobile/reminders/sync':
+   try:
+    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+    return self.send_json(mobile_devices.sync_deadlines(self._read_json()))
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/events':
@@ -777,6 +786,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db(); reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); reminder_dispatch.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db(); reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); reminder_dispatch.start(); mobile_reminder_dispatch.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

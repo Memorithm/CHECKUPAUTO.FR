@@ -52,8 +52,11 @@ async function loadNotificationStatus() {
     const emailChannel=data.channels?.email||{};
     const emailTransport=emailChannel.transport==='gmail-api'?'GMAIL':emailChannel.transport==='smtp-relay'?'SMTP':'';
     notificationEl('notificationEmail').textContent = emailChannel.configured ? `PRÊT${emailTransport?' · '+emailTransport:''}` : 'À CONFIGURER';
-    notificationEl('notificationPush').textContent = data.channels?.push?.configured ? `PRÊT · ${(data.channels.push.environment || '').toUpperCase()}` : 'À CONFIGURER';
+    const pushChannel=data.channels?.push||{};
+    const mobileDispatch=devices.reminderDispatch||{};
+    notificationEl('notificationPush').textContent = !pushChannel.configured ? 'À CONFIGURER' : mobileDispatch.active ? 'ACTIF' : 'PRÊT · INACTIF';
     notificationEl('notificationDevices').textContent = devices.active || 0;
+    notificationEl('notificationMobileDeadlines').textContent = devices.deadlines || 0;
     notificationEl('notificationReminderInventory').textContent = reminder.inventory || 0;
     notificationEl('notificationReminderDue').textContent = reminder.eligibleNow || 0;
     notificationEl('notificationReminderBackfill').textContent = reminder.backfillComplete ? 'COMPLET' : 'EN COURS';
@@ -61,6 +64,7 @@ async function loadNotificationStatus() {
     if (reminderState) {
       const parts = [`Mercure ${reminder.sessionConnected ? 'connecté' : 'déconnecté'}`,
         `email ${reminder.emailTransportConfigured ? 'prêt' : 'à configurer'}`,
+        `push mobile ${mobileDispatch.active ? 'actif' : mobileDispatch.enabled ? 'en attente APNs' : 'inactif'}`,
         `J-${(reminder.leadDays || []).join(' / J-')}`];
       reminderState.textContent = parts.join(' · ');
     }

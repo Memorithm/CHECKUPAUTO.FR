@@ -22,6 +22,11 @@ struct MobileBookingConfig: Codable, Equatable, Sendable {
     let url: String
 }
 
+struct MobileNotificationConfig: Codable, Equatable, Sendable {
+    let remotePushActive: Bool
+    let localFallback: Bool
+}
+
 struct MobileReferralConfig: Codable, Equatable, Sendable {
     let rewardCents: Int
     let currency: String
@@ -37,6 +42,7 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let reminders: MobileReminderPolicy
     let booking: MobileBookingConfig
+    let notifications: MobileNotificationConfig
     let referral: MobileReferralConfig
     let app: MobileAppConfig
 
@@ -44,6 +50,7 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
         schemaVersion: 1,
         reminders: MobileReminderPolicy(leadDays: [60, 30, 15, 7, 1], hour: 9, timezone: "Europe/Paris"),
         booking: MobileBookingConfig(url: "https://rdv.checkupauto.fr/"),
+        notifications: MobileNotificationConfig(remotePushActive: false, localFallback: true),
         referral: MobileReferralConfig(rewardCents: 500, currency: "EUR"),
         app: MobileAppConfig(landingUrl: "https://www.checkupauto.fr/app", available: false, downloadPath: "/go/app")
     )
@@ -53,7 +60,8 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
         _ = try reminders.validated()
         guard let bookingURL = URL(string: booking.url), bookingURL.scheme == "https", bookingURL.host != nil,
               let landingURL = URL(string: app.landingUrl), landingURL.scheme == "https", landingURL.host != nil,
-              app.downloadPath.hasPrefix("/"), referral.rewardCents > 0, referral.rewardCents <= 5_000,
+              app.downloadPath.hasPrefix("/"), notifications.localFallback != notifications.remotePushActive,
+              referral.rewardCents > 0, referral.rewardCents <= 5_000,
               referral.currency == "EUR" else {
             throw MobileBootstrapError.invalidConfiguration
         }
