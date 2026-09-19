@@ -1,10 +1,12 @@
 # Notifications iOS et APNs
 
-L'application iOS conserve une identité d'installation locale distincte des données Mercure. Lors de l'autorisation des notifications, iOS fournit un jeton APNs ; l'application génère un `installationId` aléatoire et un secret d'enregistrement de 256 bits, conservés dans le Trousseau Apple (`ThisDeviceOnly`). Le serveur ne renvoie jamais le jeton APNs ni le secret dans ses API d'administration.
+L'application iOS conserve une identité d'installation locale distincte des données Mercure. Au premier démarrage, elle génère un installationId aléatoire et un secret de 256 bits conservés dans le Trousseau Apple (ThisDeviceOnly), puis enregistre cette identité auprès de CheckupAuto indépendamment du consentement aux notifications. Le serveur ne renvoie jamais le secret ni un jeton APNs dans ses API d'administration.
 
 ## API d'enregistrement
 
-`POST /api/mobile/devices/register` accepte uniquement du JSON avec `installationId`, `registrationSecret`, `deviceToken` et `environment` (`sandbox` ou `production`). Les mises à jour d'une installation existante exigent le même secret. `POST /api/mobile/devices/unregister` désactive l'installation et efface le jeton brut du registre privé.
+POST /api/mobile/installations/register enregistre l'identité minimale de l'installation sans exiger de jeton APNs. POST /api/mobile/devices/register attache ensuite le canal push avec deviceToken et environment (sandbox ou production) lorsque l'utilisateur autorise les notifications. Toutes les mises à jour d'une installation existante exigent le même secret.
+
+POST /api/mobile/devices/unregister coupe uniquement le canal APNs, efface le jeton brut et purge les échéances de dispatch, mais conserve le binding véhicule afin qu'une réautorisation puisse le réutiliser. POST /api/mobile/installations/delete est l'opération distincte de suppression complète : elle supprime l'installation, ses échéances et ses bindings.
 
 Le registre est stocké dans `CYBERCHECK_DATA_DIR/mobile-devices.sqlite3`, en dehors du dépôt Git. La console expose uniquement des compteurs agrégés via `/api/admin/mobile/devices/status`.
 
@@ -45,7 +47,7 @@ Lorsque l’autorisation est de nouveau accordée, l’application demande un no
 
 Le registre mobile distingue désormais deux provenances : device pour le fallback saisi ou conservé sur l'iPhone, et mercure pour une échéance serveur autoritaire. Tant qu'aucune échéance mercure n'est associée à une installation, les échéances device restent utilisables. Dès qu'une échéance autoritaire existe pour cette installation, le moteur APNs ignore toutes les échéances device de cette installation afin d'éviter un double rappel ou une date contradictoire.
 
-La synchronisation publique de l'iPhone ne peut supprimer ou modifier que les lignes device et ne peut pas écraser une ligne mercure. L'injection mercure est un primitive interne non exposé par l'API mobile publique. Le lien vérifié entre une installation iOS et une identité véhicule Mercure reste à établir séparément avant d'activer cette source pour un client réel.
+La synchronisation publique de l'iPhone ne peut supprimer ou modifier que les lignes device et ne peut pas écraser une ligne mercure. L'injection mercure est une primitive interne non exposée par l'API mobile publique. Le binding vérifié installation iOS ↔ véhicule Mercure est fourni par le mécanisme de claim décrit plus bas ; il ne sera peuplé pour des clients réels qu'après activation d'un canal sûr de remise des claims.
 
 ## Claim sécurisé d'un véhicule
 

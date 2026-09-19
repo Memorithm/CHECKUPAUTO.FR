@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     init() {
         load()
         Task {
+            try? await DeviceRegistrationClient.registerInstallation()
             await refreshMobileConfig()
             await refreshNotificationState()
             refreshRegistrationState()
@@ -89,6 +90,7 @@ final class AppModel: ObservableObject {
 
     func refreshAfterForeground() {
         Task {
+            try? await DeviceRegistrationClient.registerInstallation()
             await refreshMobileConfig()
             await refreshNotificationState()
             refreshRegistrationState()

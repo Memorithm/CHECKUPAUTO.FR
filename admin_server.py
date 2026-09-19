@@ -432,6 +432,20 @@ class Handler(SimpleHTTPRequestHandler):
      return self.send_json({'ok':False,'error':'invalid signature'},401)
     payload=json.loads(raw); return self.send_json(booking.apply_conversion(payload),200)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/mobile/installations/register':
+   try:
+    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+    return self.send_json(mobile_devices.register_installation(self._read_json()),201)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/mobile/installations/delete':
+   try:
+    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+    return self.send_json(mobile_devices.delete_installation(self._read_json()),200)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/mobile/devices/register':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()

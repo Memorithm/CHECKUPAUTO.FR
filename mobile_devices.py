@@ -177,6 +177,33 @@ def init_db() -> None:
         pass
 
 
+def register_installation(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("payload invalide")
+    installation_id = _install_id(payload.get("installationId"))
+    secret_hash = _hash(_secret(payload.get("registrationSecret")))
+    now = _now_iso()
+    init_db()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT secret_hash FROM mobile_device WHERE installation_id=?",
+            (installation_id,),
+        ).fetchone()
+        if row and not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
+            raise PermissionError("identité mobile refusée")
+        db.execute(
+            """INSERT INTO mobile_device(
+                 installation_id,secret_hash,device_token,token_hash,environment,
+                 created_at,updated_at,last_seen_at,disabled_at,disabled_reason
+               ) VALUES(?,?,?,?,?,?,?,?, '', '')
+               ON CONFLICT(installation_id) DO UPDATE SET
+                 updated_at=excluded.updated_at,last_seen_at=excluded.last_seen_at""",
+            (installation_id, secret_hash, "", "", "", now, now, now),
+        )
+    return {"ok": True, "installationId": installation_id, "registeredAt": now}
+
+
 def register(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
@@ -230,7 +257,28 @@ def unregister(payload: dict) -> dict:
             raise PermissionError("identité mobile refusée")
         db.execute("UPDATE mobile_device SET device_token='',disabled_at=?,disabled_reason='client_unregister',updated_at=? WHERE installation_id=?", (now, now, installation_id))
         db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
+    return {"ok": True, "removed": True}
+
+
+def delete_installation(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("payload invalide")
+    installation_id = _install_id(payload.get("installationId"))
+    secret_hash = _hash(_secret(payload.get("registrationSecret")))
+    init_db()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT secret_hash FROM mobile_device WHERE installation_id=?",
+            (installation_id,),
+        ).fetchone()
+        if not row:
+            return {"ok": True, "removed": False}
+        if not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
+            raise PermissionError("identité mobile refusée")
+        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
         db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (installation_id,))
+        db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
     return {"ok": True, "removed": True}
 
 
@@ -257,13 +305,21 @@ def disable_invalid_token(installation_id: str, device_token: str, reason: str) 
     return {"ok": True, "disabled": True, "reason": clean_reason, "disabledAt": now}
 
 
-def _authenticated_device(db: sqlite3.Connection, installation_id: str, secret_hash: str) -> sqlite3.Row:
+def _authenticated_installation(db: sqlite3.Connection, installation_id: str, secret_hash: str) -> sqlite3.Row:
     row = db.execute(
-        "SELECT installation_id,secret_hash,device_token,environment,disabled_at FROM mobile_device WHERE installation_id=?",
+        """SELECT installation_id,secret_hash,device_token,environment,disabled_at
+           FROM mobile_device WHERE installation_id=?""",
         (installation_id,),
     ).fetchone()
-    if not row or row["disabled_at"] or not row["device_token"] or not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
+    if not row or not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
         raise PermissionError("identité mobile refusée")
+    return row
+
+
+def _authenticated_device(db: sqlite3.Connection, installation_id: str, secret_hash: str) -> sqlite3.Row:
+    row = _authenticated_installation(db, installation_id, secret_hash)
+    if row["disabled_at"] or not row["device_token"]:
+        raise PermissionError("canal push mobile indisponible")
     return row
 
 
@@ -317,7 +373,7 @@ def consume_vehicle_claim(payload: dict) -> dict:
     init_db()
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        _authenticated_device(db, installation_id, secret_hash)
+        _authenticated_installation(db, installation_id, secret_hash)
         claim = db.execute(
             """SELECT vehicle_id,client_kind,client_id,expires_at,consumed_at
                FROM mobile_vehicle_claim WHERE token_hash=?""",
