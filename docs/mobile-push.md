@@ -46,3 +46,13 @@ Lorsque l’autorisation est de nouveau accordée, l’application demande un no
 Le registre mobile distingue désormais deux provenances : device pour le fallback saisi ou conservé sur l'iPhone, et mercure pour une échéance serveur autoritaire. Tant qu'aucune échéance mercure n'est associée à une installation, les échéances device restent utilisables. Dès qu'une échéance autoritaire existe pour cette installation, le moteur APNs ignore toutes les échéances device de cette installation afin d'éviter un double rappel ou une date contradictoire.
 
 La synchronisation publique de l'iPhone ne peut supprimer ou modifier que les lignes device et ne peut pas écraser une ligne mercure. L'injection mercure est un primitive interne non exposé par l'API mobile publique. Le lien vérifié entre une installation iOS et une identité véhicule Mercure reste à établir séparément avant d'activer cette source pour un client réel.
+
+## Claim sécurisé d'un véhicule
+
+Le serveur peut créer en interne un claim à usage unique pour un véhicule Mercure déjà vérifié. Le jeton est généré avec 256 bits d'aléa, expire par défaut après 30 minutes et n'est jamais enregistré en clair : seul son SHA-256 est conservé jusqu'à consommation ou expiration.
+
+L'application consomme ce jeton via POST /api/mobile/claims/consume en présentant également son installationId et son registrationSecret. Après authentification, le serveur crée un bindingId UUID opaque. La réponse mobile ne contient ni vehicleId Mercure, ni clientId, ni clientKind. Le claim est supprimé dès sa consommation, ce qui interdit toute réutilisation.
+
+L'émission de claim reste volontairement interne : aucun endpoint HTTP ne permet d'appeler issue_vehicle_claim. Le canal de remise au client, par exemple un lien post-contrôle ou un QR personnalisé, doit être décidé séparément avant activation commerciale.
+
+Après un claim réussi, CyberCheck tente immédiatement de rapprocher le binding de l'inventaire privé ReminderEngine. Si une échéance Mercure vérifiée est disponible, elle devient la source autoritaire de l'installation ; sinon le fallback device reste en place. Une synchronisation horaire interne maintient ensuite ces échéances à jour.

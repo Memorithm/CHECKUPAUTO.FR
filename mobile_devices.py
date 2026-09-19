@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 import sqlite3
 import uuid
 from pathlib import Path
@@ -13,6 +14,8 @@ DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
 DB = DATA_DIR / "mobile-devices.sqlite3"
 _TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32,400}$")
 _SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+_CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+_PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 MAX_DEADLINES_PER_INSTALLATION = 24
 DEVICE_DEADLINE_SOURCE = "device"
 AUTHORITATIVE_DEADLINE_SOURCE = "mercure"
@@ -80,6 +83,27 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _provider_id(value: object, label: str) -> str:
+    raw = str(value or "").strip()
+    if not _PROVIDER_ID_RE.fullmatch(raw):
+        raise ValueError(f"{label} invalide")
+    return raw
+
+
+def _client_kind(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    if raw not in {"account", "free"}:
+        raise ValueError("clientKind invalide")
+    return raw
+
+
+def _claim_token(value: object) -> str:
+    raw = str(value or "").strip()
+    if not _CLAIM_RE.fullmatch(raw):
+        raise ValueError("claimToken invalide")
+    return raw
+
+
 def connect() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -124,6 +148,29 @@ def init_db() -> None:
             db.execute("ALTER TABLE mobile_deadline ADD COLUMN source TEXT NOT NULL DEFAULT 'device'")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_deadline_due ON mobile_deadline(due_date)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_deadline_source ON mobile_deadline(installation_id,source,due_date)")
+
+        db.execute("""CREATE TABLE IF NOT EXISTS mobile_vehicle_claim(
+          token_hash TEXT PRIMARY KEY,
+          vehicle_id TEXT NOT NULL,
+          client_kind TEXT NOT NULL,
+          client_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT NOT NULL DEFAULT ''
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_claim_expiry ON mobile_vehicle_claim(expires_at,consumed_at)")
+        db.execute("""CREATE TABLE IF NOT EXISTS mobile_vehicle_binding(
+          binding_id TEXT PRIMARY KEY,
+          installation_id TEXT NOT NULL,
+          vehicle_id TEXT NOT NULL,
+          client_kind TEXT NOT NULL,
+          client_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(installation_id,vehicle_id)
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_binding_install ON mobile_vehicle_binding(installation_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_binding_vehicle ON mobile_vehicle_binding(vehicle_id)")
     try:
         DB.chmod(0o600)
     except PermissionError:
@@ -152,6 +199,7 @@ def register(payload: dict) -> dict:
         )]
         for conflict_id in conflicts:
             db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (conflict_id,))
+            db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (conflict_id,))
         db.execute(
             "UPDATE mobile_device SET device_token='',disabled_at=?,disabled_reason='token_reassigned' WHERE token_hash=? AND installation_id<>? AND disabled_at=''",
             (now, token_hash, installation_id),
@@ -182,6 +230,7 @@ def unregister(payload: dict) -> dict:
             raise PermissionError("identité mobile refusée")
         db.execute("UPDATE mobile_device SET device_token='',disabled_at=?,disabled_reason='client_unregister',updated_at=? WHERE installation_id=?", (now, now, installation_id))
         db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
+        db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (installation_id,))
     return {"ok": True, "removed": True}
 
 
@@ -216,6 +265,117 @@ def _authenticated_device(db: sqlite3.Connection, installation_id: str, secret_h
     if not row or row["disabled_at"] or not row["device_token"] or not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
         raise PermissionError("identité mobile refusée")
     return row
+
+
+def issue_vehicle_claim(
+    vehicle_id: object,
+    client_kind: object,
+    client_id: object,
+    *,
+    ttl_seconds: int = 1800,
+) -> dict:
+    """Create a high-entropy one-time vehicle claim.
+
+    This function is intentionally internal-only. The raw token is returned exactly once
+    to the trusted caller and is never persisted.
+    """
+    vehicle = _provider_id(vehicle_id, "vehicleId")
+    kind = _client_kind(client_kind)
+    client = _provider_id(client_id, "clientId")
+    ttl = int(ttl_seconds)
+    if ttl < 60 or ttl > 86400:
+        raise ValueError("ttlSeconds invalide")
+    token = secrets.token_urlsafe(32)
+    token_hash = _hash(token)
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
+    now = now_dt.isoformat(timespec="seconds")
+    expires = (now_dt + datetime.timedelta(seconds=ttl)).isoformat(timespec="seconds")
+    init_db()
+    with connect() as db:
+        db.execute(
+            "DELETE FROM mobile_vehicle_claim WHERE consumed_at<>'' OR expires_at<=?",
+            (now,),
+        )
+        db.execute(
+            """INSERT INTO mobile_vehicle_claim(
+                 token_hash,vehicle_id,client_kind,client_id,created_at,expires_at,consumed_at
+               ) VALUES(?,?,?,?,?,?, '')""",
+            (token_hash, vehicle, kind, client, now, expires),
+        )
+    return {"claimToken": token, "expiresAt": expires}
+
+
+def consume_vehicle_claim(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("payload invalide")
+    installation_id = _install_id(payload.get("installationId"))
+    secret_hash = _hash(_secret(payload.get("registrationSecret")))
+    token = _claim_token(payload.get("claimToken"))
+    token_hash = _hash(token)
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
+    now = now_dt.isoformat(timespec="seconds")
+    init_db()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        _authenticated_device(db, installation_id, secret_hash)
+        claim = db.execute(
+            """SELECT vehicle_id,client_kind,client_id,expires_at,consumed_at
+               FROM mobile_vehicle_claim WHERE token_hash=?""",
+            (token_hash,),
+        ).fetchone()
+        if not claim or claim["consumed_at"]:
+            raise PermissionError("claim mobile refusé")
+        try:
+            expires = datetime.datetime.fromisoformat(str(claim["expires_at"]))
+        except ValueError as exc:
+            raise PermissionError("claim mobile refusé") from exc
+        if expires <= now_dt:
+            raise PermissionError("claim mobile refusé")
+
+        existing = db.execute(
+            """SELECT binding_id,created_at FROM mobile_vehicle_binding
+               WHERE installation_id=? AND vehicle_id=?""",
+            (installation_id, claim["vehicle_id"]),
+        ).fetchone()
+        binding_id = str(existing["binding_id"]) if existing else str(uuid.uuid4())
+        created_at = str(existing["created_at"]) if existing else now
+        db.execute(
+            """INSERT INTO mobile_vehicle_binding(
+                 binding_id,installation_id,vehicle_id,client_kind,client_id,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?)
+               ON CONFLICT(installation_id,vehicle_id) DO UPDATE SET
+                 client_kind=excluded.client_kind,client_id=excluded.client_id,
+                 updated_at=excluded.updated_at""",
+            (
+                binding_id,
+                installation_id,
+                claim["vehicle_id"],
+                claim["client_kind"],
+                claim["client_id"],
+                created_at,
+                now,
+            ),
+        )
+        db.execute(
+            "DELETE FROM mobile_vehicle_claim WHERE token_hash=?",
+            (token_hash,),
+        )
+    return {"ok": True, "bindingId": binding_id, "claimedAt": now}
+
+
+def active_vehicle_bindings(installation_id: str | None = None) -> list[dict]:
+    init_db()
+    query = """SELECT b.binding_id,b.installation_id,b.vehicle_id,b.client_kind,b.client_id
+               FROM mobile_vehicle_binding b
+               JOIN mobile_device m ON m.installation_id=b.installation_id
+               WHERE m.disabled_at='' AND m.device_token<>''"""
+    args: tuple = ()
+    if installation_id is not None:
+        query += " AND b.installation_id=?"
+        args = (_install_id(installation_id),)
+    query += " ORDER BY b.installation_id,b.binding_id"
+    with connect() as db:
+        return [dict(row) for row in db.execute(query, args)]
 
 
 def sync_deadlines(payload: dict) -> dict:
@@ -416,6 +576,11 @@ def status() -> dict:
         deadlines_by_source = {str(row["source"]): int(row["n"]) for row in source_rows}
         disabled_rows = db.execute("SELECT disabled_reason,COUNT(*) n FROM mobile_device WHERE disabled_at<>'' GROUP BY disabled_reason")
         disabled_by_reason = {str(row["disabled_reason"] or "unspecified"): int(row["n"]) for row in disabled_rows}
+        bindings = int(db.execute("SELECT COUNT(*) n FROM mobile_vehicle_binding").fetchone()["n"])
+        pending_claims = int(db.execute(
+            "SELECT COUNT(*) n FROM mobile_vehicle_claim WHERE consumed_at='' AND expires_at>?",
+            (_now_iso(),),
+        ).fetchone()["n"])
     return {"ok": True, "total": total, "active": active, "byEnvironment": by_environment,
             "disabledByReason": disabled_by_reason,
             "deadlines": deadlines,
@@ -425,4 +590,6 @@ def status() -> dict:
                 "authoritative": AUTHORITATIVE_DEADLINE_SOURCE,
                 "fallback": DEVICE_DEADLINE_SOURCE,
             },
+            "vehicleBindings": bindings,
+            "pendingClaims": pending_claims,
             "privacy": "Les jetons APNs et les échéances mobiles restent dans le stockage privé du serveur ; seules des échéances opaques sans immatriculation sont conservées."}

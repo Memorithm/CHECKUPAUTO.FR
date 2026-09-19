@@ -95,3 +95,11 @@ The broker persists only the normalized failure class and a redacted diagnostic;
 The private mobile deadline registry records deadline provenance. device is the local/mobile fallback source; mercure is the authoritative server source. If any authoritative Mercure deadline exists for a registered installation, remote mobile dispatch selects only Mercure deadlines for that installation. Device-submitted rows remain dormant as a fallback and become eligible again only if the authoritative snapshot is explicitly removed.
 
 The public /api/mobile/reminders/sync path is restricted to device rows and cannot overwrite an authoritative row. sync_authoritative_deadlines() is internal-only and is not wired to a public HTTP route. A verified installation-to-Mercure vehicle binding is still required before this authoritative path can be populated for real customers.
+
+## Secure mobile vehicle binding
+
+Vehicle-to-installation binding uses a one-time high-entropy claim. The raw claim token is returned only to the trusted internal issuer and is stored only as a SHA-256 digest while pending. Claims expire, are deleted on successful consumption and cannot be replayed.
+
+The public surface exposes only POST /api/mobile/claims/consume. There is deliberately no HTTP route for claim issuance. A successful consume returns an opaque binding UUID and never returns the Mercure vehicle or customer identifiers. The internal mobile_authoritative_sync worker maps active bindings to the already-synchronized reminder inventory and feeds authoritative dates into the private mobile deadline registry.
+
+Claim delivery to the customer is not activated yet. Choosing and securing that delivery channel remains a separate rollout step.

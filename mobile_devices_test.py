@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import mobile_devices as devices
@@ -204,6 +205,78 @@ class MobileDevicesTest(unittest.TestCase):
         self.assertEqual(state["deadlines"], 0)
         self.assertEqual(state["disabledByReason"]["apns:Unregistered"], 1)
         self.assertNotIn(self.token.encode(), devices.DB.read_bytes())
+
+    def test_vehicle_claim_is_hash_only_one_time_and_opaque_to_client(self):
+        devices.register(self.payload())
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        token = claim["claimToken"]
+        self.assertNotIn(token.encode(), devices.DB.read_bytes())
+        result = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": token,
+        })
+        uuid.UUID(result["bindingId"])
+        self.assertNotIn("vehicle", result)
+        self.assertNotIn("client", result)
+        bindings = devices.active_vehicle_bindings()
+        self.assertEqual(len(bindings), 1)
+        self.assertEqual(bindings[0]["vehicle_id"], "vehicle-77")
+        self.assertEqual(devices.status()["vehicleBindings"], 1)
+        self.assertEqual(devices.status()["pendingClaims"], 0)
+        with self.assertRaisesRegex(PermissionError, "claim mobile refusé"):
+            devices.consume_vehicle_claim({
+                "installationId": self.install_id,
+                "registrationSecret": self.secret,
+                "claimToken": token,
+            })
+
+    def test_wrong_installation_secret_does_not_consume_vehicle_claim(self):
+        devices.register(self.payload())
+        claim = devices.issue_vehicle_claim("vehicle-77", "free", "client-7")
+        with self.assertRaises(PermissionError):
+            devices.consume_vehicle_claim({
+                "installationId": self.install_id,
+                "registrationSecret": "B" * 43,
+                "claimToken": claim["claimToken"],
+            })
+        result = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        self.assertTrue(result["ok"])
+
+    def test_expired_vehicle_claim_is_refused(self):
+        devices.register(self.payload())
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        with devices.connect() as db:
+            db.execute(
+                "UPDATE mobile_vehicle_claim SET expires_at=?",
+                ("2020-01-01T00:00:00+00:00",),
+            )
+        with self.assertRaisesRegex(PermissionError, "claim mobile refusé"):
+            devices.consume_vehicle_claim({
+                "installationId": self.install_id,
+                "registrationSecret": self.secret,
+                "claimToken": claim["claimToken"],
+            })
+
+    def test_unregister_purges_vehicle_binding(self):
+        devices.register(self.payload())
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        self.assertEqual(len(devices.active_vehicle_bindings()), 1)
+        devices.unregister({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(devices.active_vehicle_bindings(), [])
+        self.assertEqual(devices.status()["vehicleBindings"], 0)
 
     def test_rejects_malformed_inputs(self):
         with self.assertRaises(ValueError): devices.register(self.payload(installationId="bad"))
