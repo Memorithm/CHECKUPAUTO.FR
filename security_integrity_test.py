@@ -76,6 +76,48 @@ class SecurityIntegrityTest(unittest.TestCase):
         self.assertEqual(result['vulnerabilityCount'], 0)
         self.assertEqual(result['componentFingerprint'], integrity._component_fingerprint(new))
 
+    def test_posture_reconciles_recovered_dependency_alerts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(integrity, 'ROOT', root), mock.patch.object(
+                integrity, 'STATE_DIR', root / 'state'
+            ), mock.patch.object(
+                integrity, 'BASELINE', root / 'baseline.json'
+            ), mock.patch.object(
+                integrity, 'scan', return_value={'ok': True, 'git': {}}
+            ), mock.patch.object(
+                integrity, 'generate_sbom', return_value={
+                    'componentCount': 0,
+                    'generatedAt': '2026-09-20T00:00:00+00:00',
+                    'components': [],
+                }
+            ), mock.patch.object(
+                integrity, 'audit_vulnerabilities', return_value={
+                    'vulnerabilityCount': 0,
+                    'affectedComponents': 0,
+                    'generatedAt': '2026-09-20T00:00:00+00:00',
+                    'source': 'OSV.dev',
+                    'findings': [],
+                }
+            ), mock.patch.object(
+                integrity, 'dependency_state', return_value={'ok': True}
+            ), mock.patch.object(
+                integrity.alerts,
+                'resolve_recovered_dependencies',
+                return_value={'ok': True, 'updated': 2, 'kinds': ['dependency_drift', 'dependency_vulnerability']},
+            ) as resolve, mock.patch.dict(
+                'os.environ',
+                {'CYBERCHECK_PRIVATE_DIR': str(root / 'private')},
+                clear=False,
+            ):
+                result = integrity.posture()
+        resolve.assert_called_once_with(
+            dependencies_ok=True,
+            vulnerability_count=0,
+        )
+        self.assertEqual(result['recoveredAlerts']['updated'], 2)
+        self.assertTrue(result['ok'])
+
     def test_failed_refresh_does_not_reuse_cache_for_old_components(self):
         with tempfile.TemporaryDirectory() as td:
             audit = Path(td) / 'audit.json'

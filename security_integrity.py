@@ -298,6 +298,10 @@ def audit_vulnerabilities(force=False) -> dict:
 
 def posture() -> dict:
     integrity=scan(); sbom=generate_sbom(); vuln=audit_vulnerabilities(False); deps=dependency_state()
+    recovered_alerts = alerts.resolve_recovered_dependencies(
+        dependencies_ok=bool(deps.get('ok')),
+        vulnerability_count=vuln.get('vulnerabilityCount'),
+    )
     private=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
     exposed_backups=[str(p.relative_to(ROOT)) for p in ROOT.rglob('*') if p.is_file() and ('.bak-' in p.name or p.suffix in {'.old','.orig'})]
     permission_issues=[]
@@ -328,6 +332,7 @@ def posture() -> dict:
       'vulnerabilities':{'count':vuln.get('vulnerabilityCount'),'affectedComponents':vuln.get('affectedComponents'),'generatedAt':vuln.get('generatedAt'),'source':vuln.get('source'),'stale':bool(vuln.get('stale')),'findings':vuln.get('findings',[])[:20]},
       'webrootBackupFiles':len(exposed_backups),'backupSamples':exposed_backups[:10],
       'permissionIssues':permission_issues,
+      'recoveredAlerts':recovered_alerts,
       'ok':integrity['ok'] and deps.get('ok',False) and not permission_issues
     }
 
