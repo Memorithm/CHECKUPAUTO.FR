@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -26,6 +29,7 @@ final class AppModel: ObservableObject {
             do {
                 notificationAuthorized = try await scheduler.requestAuthorization()
                 if notificationAuthorized {
+                    registerForRemoteNotifications()
                     await rescheduleAll()
                 }
             } catch {
@@ -92,6 +96,13 @@ final class AppModel: ObservableObject {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         notificationAuthorized = settings.authorizationStatus == .authorized ||
             settings.authorizationStatus == .provisional
+        if notificationAuthorized { registerForRemoteNotifications() }
+    }
+
+    private func registerForRemoteNotifications() {
+        #if canImport(UIKit)
+        UIApplication.shared.registerForRemoteNotifications()
+        #endif
     }
 
     private func load() {

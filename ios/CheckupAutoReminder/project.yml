@@ -3,11 +3,19 @@ options:
   bundleIdPrefix: fr.checkupauto
   deploymentTarget:
     iOS: "17.0"
+configs:
+  Debug: debug
+  Release: release
 settings:
   base:
     SWIFT_VERSION: 5.10
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 0.1.0
+  configs:
+    Debug:
+      APS_ENVIRONMENT: development
+    Release:
+      APS_ENVIRONMENT: production
 targets:
   CheckupAutoReminder:
     type: application
@@ -20,6 +28,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Checkup Auto
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: CheckupAutoReminder.entitlements
     scheme:
       testTargets:
         - CheckupAutoReminderTests

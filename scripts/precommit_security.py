@@ -9,7 +9,7 @@ FORBIDDEN_PATHS = (
     re.compile(r'(^|/)private/'),
     re.compile(r'(^|/)\.admin-password$'),
     re.compile(r'(^|/)\.env(?:\.|$)'),
-    re.compile(r'\.(?:sqlite3?|db|log)$', re.I),
+    re.compile(r'\.(?:sqlite3?|db|log|p8)$', re.I),
     re.compile(r'mercure-admin-session\.json$', re.I),
     re.compile(r'mercure-webhook-secret$', re.I),
 )

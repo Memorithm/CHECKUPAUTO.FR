@@ -86,11 +86,24 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertTrue(result["inFlight"])
         send_email.assert_not_called()
 
+
+    @patch.object(broker.push_transport, "send")
+    def test_push_is_delivered_once_without_persisting_device_token(self, send_push):
+        send_push.return_value = {"ok": True}
+        token = "ab" * 32
+        first = broker.send_push(token, "Rappel", "Votre contrôle approche.", category="ct_due", reference="mobile-42")
+        second = broker.send_push(token, "Rappel", "Votre contrôle approche.", category="ct_due", reference="mobile-42")
+        self.assertEqual(send_push.call_count, 1)
+        self.assertEqual(first["status"], "sent")
+        self.assertTrue(second["alreadySent"])
+        self.assertNotIn(token.encode(), broker.DB.read_bytes())
+
     @patch.object(broker.email_transport, "transport_status", return_value={
         "configured": True, "transport": "gmail-api", "requested": "auto",
         "smtpAvailable": False, "gmailAvailable": True, "state": "ready", "error": "",
     })
-    def test_status_exposes_channel_readiness_without_recipient_data(self, transport_status):
+    @patch.object(broker.push_transport, "status", return_value={"configured": False, "transport": "apns-http2", "state": "awaiting_credentials"})
+    def test_status_exposes_channel_readiness_without_recipient_data(self, push_status, transport_status):
         state = broker.status()
         self.assertTrue(state["channels"]["email"]["configured"])
         self.assertEqual(state["channels"]["email"]["transport"], "gmail-api")
