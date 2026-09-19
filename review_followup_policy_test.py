@@ -47,11 +47,8 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
             "name": "Client",
             "email": "client@example.fr",
         }]
-        env = {
-            "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
-            "CYBERCHECK_GOOGLE_REVIEW_URL": "https://g.page/r/checkupauto/review",
-        }
-        with patch.dict(os.environ, env, clear=True):
+        env = {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://g.page/r/checkupauto/review"}
+        with patch.dict(os.environ, env, clear=True), patch.object(followup.mail, "configured", return_value=True):
             result = followup.process_once()
 
         self.assertTrue(result["ok"])

@@ -111,11 +111,11 @@ def process_once():
         except Exception as exc:
             return {'ok':False,'state':'native_positive_only_enabled','error':str(exc)}
     try:
-        transport=mail.load_config()
+        transport_ready=mail.configured()
     except Exception as exc:
         return {'ok':False,'state':'invalid_email_transport','error':str(exc)}
-    if transport is None:
-        return {'ok':False,'state':'waiting_email_transport','error':'Relais email Checkup Auto non configuré'}
+    if not transport_ready:
+        return {'ok':False,'state':'waiting_email_transport','error':'Transport email Checkup Auto non configuré'}
     try:
         review_url=_review_url()
     except Exception as exc:
@@ -123,7 +123,7 @@ def process_once():
     if not review_url:
         return {'ok':False,'state':'waiting_review_url','error':'URL avis Google non configurée'}
     plain,rich=_review_message(review_url)
-    now=_now(); sent=failed=eligible=missing=0
+    now=_now(); sent=deferred=failed=eligible=missing=0
     for row in mercure.review_followup_rows(2):
         rid=str(row.get('id') or '').strip()
         if not rid or not row.get('honored') or not row.get('finished'): continue
@@ -146,10 +146,12 @@ def process_once():
             )
             if delivery.get('inFlight'):
                 continue
+            if delivery.get('deferred'):
+                deferred+=1; continue
             _mark(rid,'sent'); sent+=1
         except Exception as exc:
             _mark(rid,'failed',type(exc).__name__+': '+str(exc)); failed+=1
-    return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'failed':failed,'missingRecipient':missing}
+    return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'deferred':deferred,'failed':failed,'missingRecipient':missing}
 
 def status():
     session=mercure.session_status()

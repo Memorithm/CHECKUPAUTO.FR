@@ -71,7 +71,7 @@ def process_once(now: datetime.datetime | None = None) -> dict:
     if not transport.get("configured"):
         return {"ok": True, "state": "waiting_apns_credentials", "eligible": len(eligible), "sent": 0}
 
-    sent = already = in_flight = failed = retired = transient = provider_failures = 0
+    sent = already = in_flight = deferred = failed = retired = transient = provider_failures = 0
     for row in eligible:
         try:
             title, body = _message(row["due_date"], row["days_before"])
@@ -90,6 +90,8 @@ def process_once(now: datetime.datetime | None = None) -> dict:
                 already += 1
             elif delivery.get("inFlight"):
                 in_flight += 1
+            elif delivery.get("deferred"):
+                deferred += 1
             else:
                 sent += 1
         except apns_gateway.APNSError as exc:
@@ -115,6 +117,8 @@ def process_once(now: datetime.datetime | None = None) -> dict:
         state = "partial_failure"
     elif retired:
         state = "active_tokens_retired"
+    elif deferred:
+        state = "active_deferred"
     return {
         "ok": failed == 0,
         "state": state,
@@ -122,6 +126,7 @@ def process_once(now: datetime.datetime | None = None) -> dict:
         "sent": sent,
         "alreadySent": already,
         "inFlight": in_flight,
+        "deferred": deferred,
         "retiredTokens": retired,
         "transientFailures": transient,
         "providerFailures": provider_failures,
