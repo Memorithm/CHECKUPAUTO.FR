@@ -1,10 +1,32 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
+import requests
 import mercure_admin_client as mercure
 
 
 class MercureSchemaTest(unittest.TestCase):
+    def test_login_preserves_existing_session_file_owner(self):
+        with tempfile.TemporaryDirectory() as td:
+            session_file = Path(td) / "mercure-admin-session.json"
+            session_file.write_text('{"cookies":{"old":"cookie"}}\n')
+            st = session_file.stat()
+            browser = Mock()
+            first = Mock(text='<input name="_csrf_token" value="csrf-123">')
+            first.raise_for_status.return_value = None
+            second = Mock(status_code=302, headers={"Location": "/admin/calendrier"})
+            jar = requests.cookies.RequestsCookieJar(); jar.set("PHPSESSID", "cookie-123")
+            browser.get.return_value = first; browser.post.return_value = second; browser.cookies = jar
+            with patch.object(mercure, "SESSION_FILE", session_file), \
+                 patch.object(mercure.requests, "Session", return_value=browser), \
+                 patch.object(mercure.os, "chown") as chown:
+                result = mercure.login("user", "password")
+            self.assertTrue(result["connected"])
+            chown.assert_called_once_with(session_file.with_suffix(".tmp"), st.st_uid, st.st_gid)
+            self.assertEqual(session_file.stat().st_mode & 0o777, 0o600)
+
     @patch.object(mercure, "_session")
     @patch.object(mercure, "_appointments")
     @patch.object(mercure, "_calendar_events")
