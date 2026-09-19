@@ -19,6 +19,11 @@ class DeliveryResilienceTest(unittest.TestCase):
         value = "Sat, 19 Sep 2026 16:02:00 GMT"
         self.assertEqual(resilience.retry_after_seconds(value, now=self.now), 120)
 
+    def test_http_date_rounds_up_to_avoid_early_retry(self):
+        now = self.now + datetime.timedelta(microseconds=200_000)
+        value = "Sat, 19 Sep 2026 16:02:00 GMT"
+        self.assertEqual(resilience.retry_after_seconds(value, now=now), 120)
+
     def test_invalid_retry_after_is_ignored(self):
         self.assertIsNone(resilience.retry_after_seconds("not-a-date", now=self.now))
 

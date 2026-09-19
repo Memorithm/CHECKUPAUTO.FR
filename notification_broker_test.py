@@ -21,6 +21,13 @@ class NotificationBrokerTest(unittest.TestCase):
         broker.DB = self.old_db
         self.tmp.cleanup()
 
+    def test_seconds_until_rounds_up_to_avoid_early_retry(self):
+        now = broker.datetime.datetime(2026, 9, 19, 16, 0, 0, 800000, tzinfo=broker.datetime.timezone.utc)
+        target = "2026-09-19T16:02:00.800000+00:00"
+        self.assertEqual(broker._seconds_until(target, now), 120)
+        later = now + broker.datetime.timedelta(microseconds=100000)
+        self.assertEqual(broker._seconds_until(target, later), 120)
+
     @patch.object(broker.email_transport, "send_email")
     def test_email_is_delivered_once_per_reference(self, send_email):
         send_email.return_value = {"ok": True}

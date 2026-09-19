@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import math
 from email.utils import parsedate_to_datetime
 
 BASE_BACKOFF_SECONDS = 15
@@ -30,7 +31,7 @@ def retry_after_seconds(
     current = now or datetime.datetime.now(datetime.timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=datetime.timezone.utc)
-    seconds = int((parsed.astimezone(datetime.timezone.utc) - current.astimezone(datetime.timezone.utc)).total_seconds())
+    seconds = math.ceil((parsed.astimezone(datetime.timezone.utc) - current.astimezone(datetime.timezone.utc)).total_seconds())
     return min(max(0, seconds), cap)
 
 
