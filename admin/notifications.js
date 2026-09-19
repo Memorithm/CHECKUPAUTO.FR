@@ -31,6 +31,29 @@ function renderTransportHealth(items) {
   }
 }
 
+function renderPreflight(items) {
+  const body = notificationEl('notificationPreflightRows');
+  if (!body) return;
+  body.replaceChildren();
+  if (!items.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.textContent = 'Aucun diagnostic disponible';
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement('tr');
+    notificationCell(row, item.transport);
+    notificationCell(row, item.ready ? 'PRÊT' : String(item.state || 'INDISPONIBLE').toUpperCase());
+    notificationCell(row, item.reason || item.failureClass || '—');
+    notificationCell(row, Number(item.status) || '—');
+    body.appendChild(row);
+  }
+}
+
 function renderNotificationRows(items) {
   const body = notificationEl('notificationRecent');
   if (!body) return;
@@ -116,6 +139,27 @@ async function loadNotificationStatus() {
   }
 }
 
+async function runNotificationPreflight() {
+  const button = notificationEl('notificationPreflight');
+  const state = notificationEl('notificationPreflightState');
+  if (button) button.disabled = true;
+  if (state) state.textContent = 'Diagnostic en cours…';
+  try {
+    const response = await fetch('/api/admin/notifications/preflight', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Préflight indisponible');
+    renderPreflight(Array.isArray(data.transports) ? data.transports : []);
+    if (state) state.textContent = `Vérifié ${data.checkedAt || ''} · aucun envoi effectué`;
+  } catch (error) {
+    if (state) state.textContent = 'Diagnostic impossible';
+    renderPreflight([]);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function processRemindersNow() {
   const button = notificationEl('reminderProcess');
   if (button) button.disabled = true;
@@ -132,5 +176,6 @@ async function processRemindersNow() {
 }
 
 notificationEl('notificationRefresh')?.addEventListener('click', loadNotificationStatus);
+notificationEl('notificationPreflight')?.addEventListener('click', runNotificationPreflight);
 notificationEl('reminderProcess')?.addEventListener('click', processRemindersNow);
 loadNotificationStatus();

@@ -25,6 +25,7 @@ import referral_engine as referrals
 import reminder_engine as reminders
 import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
+import notification_preflight as notification_preflight
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
@@ -511,6 +512,10 @@ class Handler(SimpleHTTPRequestHandler):
     origin=(proto+'://'+host) if host else canonical_origin(c['seo']['canonicalUrl'])
     result['url']=origin+'/?bookingTest='+result['token']+'#reservation'
     return self.send_json({'ok':True,**result},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/notifications/preflight':
+   try:
+    self._read_json(allow_empty=True); return self.send_json(notification_preflight.run())
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/reminders/process':
    try: return self.send_json(reminder_dispatch.process_once())

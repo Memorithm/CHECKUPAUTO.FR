@@ -379,7 +379,7 @@ def has_scopes(required):
     return set(required or []).issubset(_granted_scopes())
 
 
-def google_access_token(required_scopes=None):
+def google_access_token(required_scopes=None, *, force_refresh=False):
     required_scopes = list(required_scopes or [])
     if required_scopes and not has_scopes(required_scopes):
         raise IntegrationError("Le compte Google connecté ne possède pas les autorisations requises.")
@@ -389,14 +389,14 @@ def google_access_token(required_scopes=None):
     if access and expires_at:
         try:
             expiry = datetime.datetime.fromisoformat(str(expires_at))
-            if expiry > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=30):
+            if not force_refresh and expiry > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=30):
                 return access
         except Exception:
             pass
     refresh = token.get("refresh_token")
     client = _load(CLIENT_FILE)
     if not refresh or not client.get("client_id") or not client.get("client_secret"):
-        if access:
+        if access and not force_refresh:
             return access
         raise IntegrationError("La connexion OAuth Google doit être renouvelée.")
     try:

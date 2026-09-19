@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import apns_gateway as apns
@@ -47,6 +49,43 @@ class APNSGatewayTest(unittest.TestCase):
                 self.assertTrue(error.retryable)
                 self.assertFalse(error.token_invalid)
                 self.assertEqual(error.retry_after, "60")
+
+
+    def test_preflight_validates_p256_signing_key_without_push(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        with TemporaryDirectory() as tmp:
+            key_path = Path(tmp) / "AuthKey_TEST.p8"
+            key = ec.generate_private_key(ec.SECP256R1())
+            key_path.write_bytes(key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+            cfg = {"keyId": "ABC123DEFG", "teamId": "DEF123GHIJ", "keyPath": str(key_path), "topic": "fr.checkupauto.reminder"}
+            with patch.object(apns, "_config", return_value=cfg):
+                state = apns.preflight()
+        self.assertTrue(state["ready"])
+        self.assertTrue(state["keyValid"])
+        self.assertEqual(state["reason"], "local_signing_validated")
+
+    def test_preflight_rejects_non_p256_signing_key(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        with TemporaryDirectory() as tmp:
+            key_path = Path(tmp) / "AuthKey_TEST.p8"
+            key = ec.generate_private_key(ec.SECP384R1())
+            key_path.write_bytes(key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+            cfg = {"keyId": "ABC123DEFG", "teamId": "DEF123GHIJ", "keyPath": str(key_path), "topic": "fr.checkupauto.reminder"}
+            with patch.object(apns, "_config", return_value=cfg):
+                state = apns.preflight()
+        self.assertFalse(state["ready"])
+        self.assertFalse(state["keyValid"])
+        self.assertEqual(state["state"], "invalid_configuration")
 
 
 if __name__ == "__main__":

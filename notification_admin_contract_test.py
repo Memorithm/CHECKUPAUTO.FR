@@ -22,6 +22,23 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("notificationCell", renderer)
         self.assertNotIn("innerHTML", renderer)
 
+    def test_admin_exposes_non_delivering_transport_preflight(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        server = (ROOT / "admin_server.py").read_text()
+        self.assertIn('id="notificationPreflight"', html)
+        self.assertIn('id="notificationPreflightRows"', html)
+        self.assertIn("/api/admin/notifications/preflight", javascript)
+        self.assertIn("/api/admin/notifications/preflight", server)
+
+    def test_preflight_renderer_uses_text_content(self):
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        start = javascript.index("function renderPreflight")
+        end = javascript.index("function renderNotificationRows", start)
+        renderer = javascript[start:end]
+        self.assertIn("notificationCell", renderer)
+        self.assertNotIn("innerHTML", renderer)
+
 
 if __name__ == "__main__":
     unittest.main()
