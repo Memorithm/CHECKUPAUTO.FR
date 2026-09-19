@@ -26,6 +26,25 @@ struct ContentView: View {
                     }
                 }
 
+                if !model.authoritativeVehicles.isEmpty {
+                    Section("Véhicules Checkup Auto") {
+                        ForEach(model.authoritativeVehicles) { vehicle in
+                            HStack {
+                                Label("Véhicule rattaché", systemImage: "checkmark.shield")
+                                Spacer()
+                                if let dueDate = vehicle.dueDateValue {
+                                    Text(dueDate, style: .date)
+                                        .fontWeight(.semibold)
+                                } else {
+                                    Text("Synchronisation…")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+                }
+
                 Section("Mes véhicules") {
                     if model.vehicles.isEmpty {
                         ContentUnavailableView(

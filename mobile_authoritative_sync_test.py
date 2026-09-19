@@ -90,6 +90,37 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
             (fallback_id, devices.DEVICE_DEADLINE_SOURCE),
         ])
 
+    def test_binding_syncs_authoritative_deadline_before_apns_permission(self):
+        second_installation = "936246c1-8932-4b6f-92b6-1ea591c09f96"
+        second_secret = "B" * 43
+        devices.register_installation({
+            "installationId": second_installation,
+            "registrationSecret": second_secret,
+        })
+        claim = devices.issue_vehicle_claim("vehicle-88", "account", "client-88")
+        binding = devices.consume_vehicle_claim({
+            "installationId": second_installation,
+            "registrationSecret": second_secret,
+            "claimToken": claim["claimToken"],
+        })
+        reminders._upsert([{
+            "vehicleId": "vehicle-88",
+            "clientKind": "account",
+            "clientId": "client-88",
+            "dueDate": "2027-04-30",
+            "appointmentId": "88",
+        }])
+        result = sync.sync_installation(second_installation)
+        self.assertEqual(result["authoritativeDeadlines"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": second_installation,
+            "registrationSecret": second_secret,
+        })
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": binding["bindingId"],
+            "dueDate": "2027-04-30",
+        }])
+
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()
         self.assertTrue(result["ok"])

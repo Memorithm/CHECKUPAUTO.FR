@@ -8,6 +8,7 @@ import UIKit
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var vehicles: [VehicleDeadline] = []
+    @Published private(set) var authoritativeVehicles: [AuthoritativeVehicleDeadline] = []
     @Published var notificationAuthorized = false
     @Published var errorMessage: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
@@ -24,11 +25,13 @@ final class AppModel: ObservableObject {
 
     init() {
         load()
+        authoritativeVehicles = AuthoritativeInventoryStore.load()
         Task {
             try? await DeviceRegistrationClient.registerInstallation()
             installationRegistrationSuppressed =
                 InstallationLifecycleState.isAutoRegistrationSuppressed()
             await refreshMobileConfig()
+            await refreshAuthoritativeInventory()
             await refreshNotificationState()
             refreshRegistrationState()
             await rescheduleAll()
@@ -103,9 +106,11 @@ final class AppModel: ObservableObject {
                 _ = try await VehicleClaimClient.consume(token: token)
                 installationRegistrationSuppressed =
                     InstallationLifecycleState.isAutoRegistrationSuppressed()
+                await refreshAuthoritativeInventory()
                 if notificationAuthorized {
                     registerForRemoteNotifications()
                 }
+                await rescheduleAll()
                 errorMessage = nil
             } catch {
                 errorMessage = "Ce lien de rattachement véhicule est invalide ou a expiré."
@@ -127,8 +132,16 @@ final class AppModel: ObservableObject {
                         leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
                     )
                 }
+                for vehicle in authoritativeVehicles {
+                    await scheduler.removeAuthoritative(
+                        vehicle,
+                        leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+                    )
+                }
                 VehicleDeadlineStore.clear()
+                AuthoritativeInventoryStore.clear()
                 vehicles = []
+                authoritativeVehicles = []
                 remotePushRegistered = false
                 installationRegistrationSuppressed =
                     InstallationLifecycleState.isAutoRegistrationSuppressed()
@@ -145,6 +158,7 @@ final class AppModel: ObservableObject {
             installationRegistrationSuppressed =
                 InstallationLifecycleState.isAutoRegistrationSuppressed()
             await refreshMobileConfig()
+            await refreshAuthoritativeInventory()
             await refreshNotificationState()
             refreshRegistrationState()
             await rescheduleAll()
@@ -192,6 +206,31 @@ final class AppModel: ObservableObject {
             } catch {
                 errorMessage = "Certains rappels n’ont pas pu être reprogrammés."
             }
+        }
+        for vehicle in authoritativeVehicles {
+            do {
+                if useLocalFallback {
+                    try await scheduler.rescheduleAuthoritative(vehicle, policy: mobileConfig.reminders)
+                } else {
+                    await scheduler.removeAuthoritative(
+                        vehicle,
+                        leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+                    )
+                }
+            } catch {
+                errorMessage = "Certains rappels autoritaires n’ont pas pu être reprogrammés."
+            }
+        }
+    }
+
+    private func refreshAuthoritativeInventory() async {
+        guard !installationRegistrationSuppressed else { return }
+        do {
+            let response = try await AuthoritativeInventoryClient.fetch()
+            authoritativeVehicles = response.vehicles
+            AuthoritativeInventoryStore.save(response.vehicles)
+        } catch {
+            // Preserve the last verified opaque inventory for offline fallback.
         }
     }
 

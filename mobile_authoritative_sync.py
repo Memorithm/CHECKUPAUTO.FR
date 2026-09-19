@@ -11,7 +11,7 @@ _THREAD = None
 
 
 def sync_installation(installation_id: str) -> dict:
-    bindings = mobile_devices.active_vehicle_bindings(installation_id)
+    bindings = mobile_devices.registered_vehicle_bindings(installation_id)
     if not bindings:
         return {
             "ok": True,
@@ -41,7 +41,7 @@ def sync_installation(installation_id: str) -> dict:
 
 
 def sync_once() -> dict:
-    bindings = mobile_devices.active_vehicle_bindings()
+    bindings = mobile_devices.registered_vehicle_bindings()
     installation_ids = sorted({row["installation_id"] for row in bindings})
     synced = 0
     deadlines = 0

@@ -9,6 +9,7 @@ class MobileClaimAPISurfaceTest(unittest.TestCase):
     def test_only_claim_consumption_is_exposed_over_http(self):
         source = Path("admin_server.py").read_text()
         self.assertIn("/api/mobile/claims/consume", source)
+        self.assertIn("/api/mobile/inventory", source)
         self.assertIn("consume_vehicle_claim(payload)", source)
         self.assertNotIn("issue_vehicle_claim(", source)
 
@@ -33,8 +34,18 @@ class MobileClaimAPISurfaceTest(unittest.TestCase):
         self.assertEqual(limits["/api/mobile/installations/register"], 12)
         self.assertEqual(limits["/api/mobile/installations/delete"], 12)
         self.assertEqual(limits["/api/mobile/claims/consume"], 20)
+        self.assertEqual(limits["/api/mobile/inventory"], 30)
         self.assertEqual(limits["/api/mobile/reminders/sync"], 30)
         self.assertEqual(limits["/api/admin/mobile/claims/issue"], 12)
+
+    def test_mobile_inventory_authenticates_before_authoritative_sync(self):
+        source = Path("admin_server.py").read_text()
+        route = source.index("if path=='/api/mobile/inventory':")
+        end = source.index("if path=='/api/mobile/reminders/sync':", route)
+        block = source[route:end]
+        auth = block.index("mobile_devices.bound_inventory(payload)")
+        sync = block.index("mobile_authoritative_sync.sync_installation")
+        self.assertLess(auth, sync)
 
     def test_admin_claim_issuance_remains_authenticated_and_internal(self):
         source = Path("admin_server.py").read_text()
