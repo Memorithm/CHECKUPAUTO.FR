@@ -17,15 +17,27 @@ class ProductionReadinessContractTest(unittest.TestCase):
         self.assertIn('id="readiness"', html)
         self.assertIn('id="readinessComponents"', html)
         self.assertIn("/api/admin/readiness", javascript)
+        self.assertIn('id="readinessGateReason"', html)
+        self.assertIn("Action corrective", html)
 
     def test_readiness_renderer_uses_safe_dom(self):
         javascript = (ROOT / "admin" / "readiness.js").read_text()
-        start = javascript.index("function renderReadinessComponents")
+        start = javascript.index("function readinessAction")
         end = javascript.index("async function loadProductionReadiness", start)
         renderer = javascript[start:end]
         self.assertIn("textContent", renderer)
         self.assertIn("replaceChildren", renderer)
         self.assertNotIn("innerHTML", renderer)
+
+    def test_public_indexing_activation_is_guarded(self):
+        server = (ROOT / "admin_server.py").read_text()
+        config_start = server.index("if path!='/api/admin/config'")
+        config_end = server.index("def do_DELETE", config_start)
+        config_route = server[config_start:config_end]
+        self.assertIn("enabling_public_indexing", config_route)
+        self.assertIn("production_readiness.require_activation(report)", config_route)
+        self.assertIn("production_activation_blocked", config_route)
+        self.assertIn("blockingComponents", config_route)
 
     def test_ci_checks_readiness_javascript(self):
         workflow = (ROOT / ".github" / "workflows" / "security-ci.yml").read_text()

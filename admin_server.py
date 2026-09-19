@@ -2,7 +2,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode
-import base64, datetime, hashlib, hmac, html, json, os, re, secrets, tempfile
+import base64, datetime, hashlib, hmac, html, json, os, re, secrets
 import gsc_client as gsc
 import analytics_store as analytics
 import app_download as app_download
@@ -29,8 +29,8 @@ import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
 import notification_preflight as notification_preflight
 import production_readiness as production_readiness
+import site_config_store as site_config_store
 ROOT=Path(__file__).resolve().parent
-CONFIG=ROOT/'data/site-config.json'
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
 PASSWORD=(PRIVATE_DIR/'admin-password').read_text().strip()
@@ -72,7 +72,7 @@ def incentive_config(c):
   'showDiscountPercent':bool(raw.get('showDiscountPercent',True)),
  }
  return out
-def load_config(): return json.loads(CONFIG.read_text())
+def load_config(): return site_config_store.load()
 def canonical_origin(url):
  p=urlparse(url); return f'{p.scheme}://{p.netloc}'
 def asset_url(c,path):
@@ -670,10 +670,14 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path!='/api/admin/config': return self.send_json({'error':'not_found'},404)
   try:
-   incoming=self._read_json(); validated=validate_config(incoming)
-   fd,tmp=tempfile.mkstemp(prefix='site-config.',suffix='.json',dir=str(CONFIG.parent))
-   with os.fdopen(fd,'w') as f: json.dump(validated,f,ensure_ascii=False,indent=2); f.write('\n')
-   os.replace(tmp,CONFIG); return self.send_json({'ok':True,'config':validated})
+   current=load_config(); incoming=self._read_json(); validated=validate_config(incoming)
+   enabling_public_indexing=not bool((current.get('seo') or {}).get('indexingEnabled')) and bool((validated.get('seo') or {}).get('indexingEnabled'))
+   if enabling_public_indexing:
+    report=production_readiness.status(validated,build_seo_health(validated))
+    try: production_readiness.require_activation(report)
+    except production_readiness.ProductionActivationBlocked as exc:
+     return self.send_json({'ok':False,'error':'production_activation_blocked','blockingComponents':list(exc.blockers)},409)
+   site_config_store.save(validated); return self.send_json({'ok':True,'config':validated})
   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
  def do_DELETE(self):
   if not self._guard(): return

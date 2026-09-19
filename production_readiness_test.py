@@ -59,8 +59,13 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["state"], "ready")
         self.assertTrue(result["launchReady"])
+        self.assertEqual(result["schemaVersion"], 2)
         self.assertEqual(result["blockers"], [])
+        self.assertEqual(result["criticalBlockers"], [])
+        self.assertTrue(result["activationGate"]["allowed"])
+        self.assertEqual(result["activationGate"]["state"], "open")
         self.assertEqual(result["counts"]["ready"], len(result["components"]))
+        self.assertTrue(all(item["remediation"] is None for item in result["components"]))
 
     def test_external_and_configuration_blockers_are_distinct(self):
         patches = healthy_patches()
@@ -93,6 +98,44 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertEqual(states["seo"], "configuration_required")
         self.assertEqual(result["state"], "blocked_external")
         self.assertFalse(result["launchReady"])
+        self.assertEqual(result["criticalBlockers"], ["email_delivery"])
+        self.assertFalse(result["activationGate"]["allowed"])
+        email = next(item for item in result["components"] if item["id"] == "email_delivery")
+        self.assertEqual(email["remediation"]["code"], "configure_email_transport")
+        self.assertTrue(email["remediation"]["external"])
+
+    def test_noncritical_blockers_do_not_close_activation_gate(self):
+        patches = healthy_patches()
+        patches[1] = mock.patch.object(readiness.notification_broker, "status", return_value={
+            "channels": {
+                "email": {"configured": True, "transport": "gmail-api"},
+                "push": {"configured": False},
+            },
+            "resilience": {"circuitsOpen": 0, "permanentFailures": 0},
+        })
+        patches[2] = mock.patch.object(readiness.app_download, "status", return_value={
+            "ios": {"available": False, "channel": "pending", "targetUrl": None},
+        })
+        result = self._run_with(patches)
+        self.assertEqual(result["state"], "blocked_external")
+        self.assertTrue(result["launchReady"])
+        self.assertEqual(result["criticalBlockers"], [])
+        self.assertTrue(result["activationGate"]["allowed"])
+
+    def test_require_activation_raises_only_with_critical_blockers(self):
+        patches = healthy_patches()
+        patches[1] = mock.patch.object(readiness.notification_broker, "status", return_value={
+            "channels": {
+                "email": {"configured": False, "transport": "none"},
+                "push": {"configured": False},
+            },
+            "resilience": {"circuitsOpen": 0, "permanentFailures": 0},
+        })
+        report = self._run_with(patches)
+        with self.assertRaises(readiness.ProductionActivationBlocked) as ctx:
+            readiness.require_activation(report)
+        self.assertEqual(ctx.exception.blockers, ("email_delivery",))
+        self.assertNotIn("SMTP", str(ctx.exception))
 
     def test_probe_exception_is_degraded_without_leaking_message(self):
         patches = healthy_patches()

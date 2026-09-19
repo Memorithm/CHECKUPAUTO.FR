@@ -23,9 +23,138 @@ _STATE_RANK = {
 }
 
 
+_REMEDIATION = {
+    "public_site": {
+        "code": "restore_public_https",
+        "summary": "Rétablir l’URL canonique HTTPS www.checkupauto.fr avant toute publication.",
+        "verify": "Relancer le diagnostic et obtenir Site public = PRÊT.",
+        "target": "#seo-control",
+        "external": False,
+    },
+    "mercure": {
+        "code": "restore_mercure_session",
+        "summary": "Rétablir la session Mercure puis relancer une synchronisation des échéances.",
+        "verify": "La session Mercure doit être connectée et l’inventaire lisible.",
+        "target": "#mercure",
+        "external": True,
+    },
+    "reminder_engine": {
+        "code": "complete_reminder_sync",
+        "summary": "Terminer la synchronisation autoritaire et corriger toute erreur ReminderEngine.",
+        "verify": "backfillComplete=true et ReminderEngine = PRÊT.",
+        "target": "#notifications",
+        "external": False,
+    },
+    "notification_broker": {
+        "code": "restore_notification_broker",
+        "summary": "Fermer les circuits défaillants après correction du transport concerné.",
+        "verify": "Aucun circuit ouvert dans NotificationBroker.",
+        "target": "#notifications",
+        "external": False,
+    },
+    "email_delivery": {
+        "code": "configure_email_transport",
+        "summary": "Configurer SMTP chiffré ou OAuth Gmail, puis exécuter le préflight sans envoi.",
+        "verify": "Le transport e-mail doit être configured et son préflight doit être prêt.",
+        "target": "#notifications",
+        "external": True,
+    },
+    "apns": {
+        "code": "configure_apns",
+        "summary": "Installer la clé APNs privée, le Key ID et le Team ID hors Git, puis lancer le préflight.",
+        "verify": "APNs doit être configured et le JWT ES256 local doit être valide.",
+        "target": "#notifications",
+        "external": True,
+    },
+    "ios_distribution": {
+        "code": "publish_ios",
+        "summary": "Publier un build TestFlight ou App Store signé et configurer son URL publique.",
+        "verify": "Le canal iOS doit être testflight ou app-store avec une URL Apple valide.",
+        "target": "#readiness",
+        "external": True,
+    },
+    "ios_claim": {
+        "code": "configure_ios_claim_domain",
+        "summary": "Configurer le préfixe Apple Application Identifier et valider Associated Domains/AASA.",
+        "verify": "Le QR claim doit annoncer ready=true.",
+        "target": "#notifications",
+        "external": True,
+    },
+    "google_integration": {
+        "code": "authorize_google",
+        "summary": "Configurer le client OAuth Google puis autoriser les connecteurs nécessaires.",
+        "verify": "OAuth autorisé ou au moins un connecteur Google connecté.",
+        "target": "#integrations",
+        "external": True,
+    },
+    "acquisition": {
+        "code": "restore_acquisition",
+        "summary": "Rétablir la collecte first-party sans cookie ni identifiant visiteur.",
+        "verify": "Le résumé acquisition doit être lisible par le Control Plane.",
+        "target": "#pilotage",
+        "external": False,
+    },
+    "referrals": {
+        "code": "restore_referrals",
+        "summary": "Rétablir le ledger de parrainage et vérifier la valeur de récompense configurée.",
+        "verify": "Le ledger doit répondre sans erreur.",
+        "target": "#referrals",
+        "external": False,
+    },
+    "review_followup": {
+        "code": "configure_review_followup",
+        "summary": "Configurer le transport e-mail et l’URL Google Review avant d’activer les relances.",
+        "verify": "emailTransportConfigured=true et reviewUrlConfigured=true.",
+        "target": "#notifications",
+        "external": True,
+    },
+    "seo": {
+        "code": "resolve_seo_health",
+        "summary": "Corriger les échecs SEO puis traiter les avertissements avant l’indexation publique.",
+        "verify": "Le contrôle SEO ne doit plus contenir d’échec ; viser zéro avertissement avant lancement.",
+        "target": "#seo-control",
+        "external": False,
+    },
+    "security": {
+        "code": "restore_security_posture",
+        "summary": "Corriger Sentinel, intégrité ou dépendances avant toute activation publique.",
+        "verify": "Sentinel doit retourner ok=true et zéro vulnérabilité connue.",
+        "target": "#security",
+        "external": False,
+    },
+    "alert_delivery": {
+        "code": "configure_alert_delivery",
+        "summary": "Configurer la livraison externe des alertes puis traiter les alertes hautes/critiques en attente.",
+        "verify": "undeliveredHighOrCritical doit revenir à 0.",
+        "target": "#security",
+        "external": True,
+    },
+}
+
+
+class ProductionActivationBlocked(RuntimeError):
+    def __init__(self, blockers: list[str]):
+        self.blockers = tuple(str(item) for item in blockers)
+        super().__init__("production_activation_blocked:" + ",".join(self.blockers))
+
+
+def require_activation(report: dict) -> dict:
+    gate = report.get("activationGate") or {}
+    if not bool(gate.get("allowed")):
+        raise ProductionActivationBlocked(list(gate.get("blockingComponents") or []))
+    return report
+
+
 def _component(key: str, label: str, state: str, detail: str, *, critical: bool, metrics: dict | None = None) -> dict:
     if state not in _STATE_RANK:
         raise ValueError(f"état readiness invalide: {state}")
+    remediation = None if state == "ready" else dict(_REMEDIATION.get(key) or {
+        "code": "investigate_component",
+        "summary": "Analyser ce composant puis relancer le diagnostic.",
+        "verify": "Le composant doit revenir à l’état ready.",
+        "target": "#readiness",
+        "external": False,
+    })
     return {
         "id": key,
         "label": label,
@@ -33,6 +162,7 @@ def _component(key: str, label: str, state: str, detail: str, *, critical: bool,
         "critical": bool(critical),
         "detail": str(detail),
         "metrics": metrics or {},
+        "remediation": remediation,
     }
 
 
@@ -236,14 +366,23 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         counts[item["state"]] += 1
     overall = max((item["state"] for item in components), key=lambda state: _STATE_RANK[state])
     critical = [item for item in components if item["critical"]]
-    launch_ready = all(item["state"] == "ready" for item in critical)
+    critical_blockers = [item["id"] for item in critical if item["state"] != "ready"]
+    launch_ready = not critical_blockers
     blockers = [item["id"] for item in components if item["state"] != "ready"]
     return {
         "ok": True,
+        "schemaVersion": 2,
         "state": overall,
         "launchReady": launch_ready,
         "counts": counts,
         "blockers": blockers,
+        "criticalBlockers": critical_blockers,
+        "activationGate": {
+            "allowed": launch_ready,
+            "state": "open" if launch_ready else "blocked",
+            "policy": "all_critical_components_ready",
+            "blockingComponents": critical_blockers,
+        },
         "components": components,
         "privacy": "Le diagnostic n’expose aucun secret, token, identifiant client ou donnée Mercure nominative.",
     }
