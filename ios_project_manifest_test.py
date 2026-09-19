@@ -26,6 +26,7 @@ class IOSProjectManifestTest(unittest.TestCase):
     def test_xctest_target_lists_real_test_sources(self):
         required = (
             "Tests/DeviceRegistrationTests.swift",
+            "Tests/MobileAPITests.swift",
             "Tests/MobileBootstrapTests.swift",
             "Tests/MobileDeadlineSyncTests.swift",
             "Tests/ReminderPlanTests.swift",
