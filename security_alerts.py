@@ -155,6 +155,27 @@ def resolve_after_rebaseline():
     return {'ok':True,'updated':cur.rowcount}
 
 
+def resolve_recovered_dependencies(*, dependencies_ok: bool, vulnerability_count) -> dict:
+    # Only conditions that can be proven healthy by the current dependency
+    # posture are auto-resolved. Attack/quarantine alerts remain operator-owned.
+    init_db()
+    kinds = []
+    if dependencies_ok is True:
+        kinds.append('dependency_drift')
+    if vulnerability_count == 0:
+        kinds.append('dependency_vulnerability')
+    if not kinds:
+        return {'ok':True,'updated':0,'kinds':[]}
+    placeholders = ','.join('?' for _ in kinds)
+    with sqlite3.connect(DB) as db:
+        cur = db.execute(
+            f'''UPDATE security_alerts SET acknowledged=1
+                WHERE acknowledged=0 AND kind IN ({placeholders})''',
+            kinds,
+        )
+    return {'ok':True,'updated':cur.rowcount,'kinds':kinds}
+
+
 def summary():
     init_db()
     with sqlite3.connect(DB) as db:
