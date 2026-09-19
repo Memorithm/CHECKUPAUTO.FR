@@ -52,7 +52,11 @@ def _config() -> dict:
 
 
 def status() -> dict:
-    cfg = _config(); key_exists = Path(cfg["keyPath"]).is_file()
+    cfg = _config()
+    try:
+        key_exists = Path(cfg["keyPath"]).is_file()
+    except OSError:
+        key_exists = False
     configured = bool(cfg["keyId"] and cfg["teamId"] and cfg["topic"] and key_exists)
     return {"configured": configured, "transport": "apns-http2", "state": "ready" if configured else "awaiting_credentials",
             "environments": ["sandbox", "production"], "topic": cfg["topic"], "keyPresent": key_exists,

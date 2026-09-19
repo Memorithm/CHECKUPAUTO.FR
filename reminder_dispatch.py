@@ -213,7 +213,7 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
         result = {"ok": True, "state": "waiting_email_transport", "eligible": len(eligible), "sync": sync}
         _set_meta("last_process", json.dumps(result, separators=(",", ":")))
         return result
-    sent = already = failed = missing = in_flight = 0
+    sent = already = deferred = failed = missing = in_flight = 0
     for row in eligible:
         try:
             recipient = mercure.customer_email(row["client_kind"], row["client_id"])
@@ -229,6 +229,8 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
                 already += 1
             elif delivery.get("inFlight"):
                 in_flight += 1
+            elif delivery.get("deferred"):
+                deferred += 1
             else:
                 sent += 1
         except Exception:
@@ -237,7 +239,7 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
         "ok": failed == 0,
         "state": "active" if failed == 0 else "partial_failure",
         "eligible": len(eligible), "sent": sent, "alreadySent": already,
-        "inFlight": in_flight, "missingRecipient": missing, "failed": failed,
+        "inFlight": in_flight, "deferred": deferred, "missingRecipient": missing, "failed": failed,
         "sync": sync,
     }
     _set_meta("last_process", json.dumps(result, separators=(",", ":")))

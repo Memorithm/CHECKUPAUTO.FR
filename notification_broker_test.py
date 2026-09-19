@@ -41,13 +41,22 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertNotIn(b"Votre controle approche", raw)
 
     @patch.object(broker.email_transport, "send_email")
-    def test_failed_delivery_can_be_retried(self, send_email):
+    def test_failed_delivery_obeys_backoff_then_can_be_retried(self, send_email):
         send_email.side_effect = [RuntimeError("relay down"), {"ok": True}]
         with self.assertRaises(RuntimeError):
             broker.send_email(
                 "client@example.fr", "Rappel", "Message",
                 category="control_reminder", reference="rdv-7",
             )
+        deferred = broker.send_email(
+            "client@example.fr", "Rappel", "Message",
+            category="control_reminder", reference="rdv-7",
+        )
+        self.assertTrue(deferred["deferred"])
+        self.assertGreater(deferred["retryAfterSeconds"], 0)
+        self.assertEqual(send_email.call_count, 1)
+        with broker.connect() as db:
+            db.execute("UPDATE notification_delivery SET next_attempt_at='' WHERE reference='rdv-7'")
         result = broker.send_email(
             "client@example.fr", "Rappel", "Message",
             category="control_reminder", reference="rdv-7",
@@ -97,6 +106,33 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertEqual(first["status"], "sent")
         self.assertTrue(second["alreadySent"])
         self.assertNotIn(token.encode(), broker.DB.read_bytes())
+
+
+    @patch.object(broker.push_transport, "send")
+    def test_apns_retry_after_defers_same_delivery(self, send_push):
+        send_push.side_effect = broker.push_transport.APNSError(503, "ServiceUnavailable", retry_after="120")
+        token = "cd" * 32
+        with self.assertRaises(broker.push_transport.APNSError):
+            broker.send_push(token, "Rappel", "Message", category="ct_due", reference="mobile-retry")
+        deferred = broker.send_push(token, "Rappel", "Message", category="ct_due", reference="mobile-retry")
+        self.assertTrue(deferred["deferred"])
+        self.assertGreaterEqual(deferred["retryAfterSeconds"], 119)
+        self.assertEqual(send_push.call_count, 1)
+        self.assertEqual(broker.status()["counts"]["deferred"], 1)
+
+    @patch.object(broker.push_transport, "send")
+    def test_apns_circuits_are_separated_by_environment(self, send_push):
+        send_push.side_effect = broker.push_transport.APNSError(503, "ServiceUnavailable")
+        for index in range(broker.resilience.CIRCUIT_THRESHOLD):
+            with self.assertRaises(broker.push_transport.APNSError):
+                broker.send_push("ab" * 32, "Rappel", "Message", category="ct_due", reference=f"sandbox-{index}", environment="sandbox")
+        sandbox = broker.send_push("ef" * 32, "Rappel", "Message", category="ct_due", reference="sandbox-blocked", environment="sandbox")
+        self.assertTrue(sandbox["deferred"])
+        with self.assertRaises(broker.push_transport.APNSError):
+            broker.send_push("12" * 32, "Rappel", "Message", category="ct_due", reference="production-still-independent", environment="production")
+        health = {item["transport"]: item for item in broker.status()["resilience"]["transports"]}
+        self.assertTrue(health["push:apns:sandbox"]["circuitOpen"])
+        self.assertIn("push:apns:production", health)
 
     @patch.object(broker.email_transport, "transport_status", return_value={
         "configured": True, "transport": "gmail-api", "requested": "auto",

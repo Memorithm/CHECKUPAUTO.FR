@@ -48,7 +48,13 @@ async function loadNotificationStatus() {
     const counts = data.counts || {};
     notificationEl('notificationSent').textContent = counts.sent || 0;
     notificationEl('notificationFailed').textContent = counts.failed || 0;
+    notificationEl('notificationDeferred').textContent = counts.deferred || 0;
     notificationEl('notificationDelivering').textContent = counts.delivering || 0;
+    const resilience=data.resilience||{};
+    const transportHealth=Array.isArray(resilience.transports)?resilience.transports:[];
+    notificationEl('notificationTransient').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.transientFailures)||0),0);
+    notificationEl('notificationConfigErrors').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.configurationFailures)||0),0);
+    notificationEl('notificationCircuits').textContent = resilience.circuitsOpen || 0;
     const emailChannel=data.channels?.email||{};
     const emailTransport=emailChannel.transport==='gmail-api'?'GMAIL':emailChannel.transport==='smtp-relay'?'SMTP':'';
     notificationEl('notificationEmail').textContent = emailChannel.configured ? `PRÊT${emailTransport?' · '+emailTransport:''}` : 'À CONFIGURER';
