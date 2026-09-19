@@ -15,6 +15,7 @@ class AppDownloadTest(unittest.TestCase):
 
     def test_normalize_source_accepts_known_values_only(self):
         self.assertEqual(app_download.normalize_source("qr-centre"), "qr-centre")
+        self.assertEqual(app_download.normalize_source("claim"), "claim")
         self.assertEqual(app_download.normalize_source("unexpected"), "direct")
 
     @patch.dict(os.environ, {

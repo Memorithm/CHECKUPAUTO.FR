@@ -116,6 +116,8 @@ async function loadNotificationStatus() {
     notificationEl('notificationPush').textContent = !pushChannel.configured ? 'À CONFIGURER' : mobileDispatch.active ? 'ACTIF' : 'PRÊT · INACTIF';
     const distributionChannel=appStatus.ios?.channel||'pending';
     notificationEl('notificationAppDistribution').textContent = distributionChannel==='app-store' ? 'APP STORE' : distributionChannel==='testflight' ? 'TESTFLIGHT' : 'EN PRÉPARATION';
+    const claimDelivery=devices.claimDelivery||{};
+    notificationEl('notificationClaimDelivery').textContent = claimDelivery.ready ? 'PRÊT' : 'À CONFIGURER';
     notificationEl('notificationDevices').textContent = devices.active || 0;
     const retiredByReason=devices.disabledByReason||{};
     notificationEl('notificationDevicesRetired').textContent = Object.values(retiredByReason).reduce((sum,value)=>sum+(Number(value)||0),0);
@@ -141,6 +143,87 @@ async function loadNotificationStatus() {
       state.textContent = 'Erreur';
       state.className = 'gsc-status offline';
     }
+  }
+}
+
+function renderClaimCandidates(items, delivery) {
+  const select = notificationEl('claimVehicleSelect');
+  const issue = notificationEl('claimIssue');
+  const state = notificationEl('claimDeliveryState');
+  if (!select || !issue || !state) return;
+  select.replaceChildren();
+  const ready = Boolean(delivery?.ready);
+  if (!ready) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Configuration Apple requise';
+    select.appendChild(option);
+    select.disabled = true;
+    issue.disabled = true;
+    state.textContent = delivery?.appIdentifierPrefixPresent
+      ? 'Associated Domains indisponible.'
+      : 'Préfixe d’identifiant d’app Apple requis avant émission d’un QR client.';
+    return;
+  }
+  select.disabled = false;
+  for (const item of items) {
+    const option = document.createElement('option');
+    option.value = String(item.vehicleId || '');
+    const rdv = item.appointmentId ? `RDV ${item.appointmentId}` : 'véhicule Mercure';
+    option.textContent = `${rdv} · échéance ${item.dueDate || '—'} · ${item.vehicleId || '—'}`;
+    select.appendChild(option);
+  }
+  issue.disabled = items.length === 0;
+  state.textContent = items.length
+    ? `Associated Domains prêt · ${items.length} véhicule(s) récent(s)`
+    : 'Associated Domains prêt · aucun véhicule éligible.';
+}
+
+async function loadClaimCandidates() {
+  const state = notificationEl('claimDeliveryState');
+  try {
+    const response = await fetch('/api/admin/mobile/claims/candidates?limit=30', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Claims indisponibles');
+    renderClaimCandidates(Array.isArray(data.candidates) ? data.candidates : [], data.claimDelivery || {});
+  } catch {
+    if (state) state.textContent = 'Inventaire de rattachement indisponible.';
+    renderClaimCandidates([], {});
+  }
+}
+
+async function issueVehicleClaim() {
+  const select = notificationEl('claimVehicleSelect');
+  const button = notificationEl('claimIssue');
+  const state = notificationEl('claimDeliveryState');
+  const panel = notificationEl('claimQrPanel');
+  const image = notificationEl('claimQrImage');
+  const expiry = notificationEl('claimExpiry');
+  const vehicleId = String(select?.value || '');
+  if (!vehicleId) return;
+  if (button) button.disabled = true;
+  if (panel) panel.hidden = true;
+  if (state) state.textContent = 'Génération du QR à usage unique…';
+  try {
+    const response = await fetch('/api/admin/mobile/claims/issue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicleId, ttlSeconds: 1800 }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Génération impossible');
+    const claim = data.claim || {};
+    if (!String(claim.qrDataUrl || '').startsWith('data:image/svg+xml;base64,')) {
+      throw new Error('QR invalide');
+    }
+    if (image) image.src = claim.qrDataUrl;
+    if (expiry) expiry.textContent = `Véhicule ${claim.vehicleId || '—'} · échéance ${claim.dueDate || '—'} · expire ${claim.expiresAt || '—'}`;
+    if (panel) panel.hidden = false;
+    if (state) state.textContent = 'QR généré localement · usage unique · valable 30 minutes.';
+  } catch {
+    if (state) state.textContent = 'Impossible de générer le QR de rattachement.';
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -183,4 +266,7 @@ async function processRemindersNow() {
 notificationEl('notificationRefresh')?.addEventListener('click', loadNotificationStatus);
 notificationEl('notificationPreflight')?.addEventListener('click', runNotificationPreflight);
 notificationEl('reminderProcess')?.addEventListener('click', processRemindersNow);
+notificationEl('claimRefresh')?.addEventListener('click', loadClaimCandidates);
+notificationEl('claimIssue')?.addEventListener('click', issueVehicleClaim);
 loadNotificationStatus();
+loadClaimCandidates();

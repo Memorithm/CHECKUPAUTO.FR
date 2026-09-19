@@ -39,6 +39,21 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("distributionChannel==='testflight'", javascript)
         self.assertIn("distributionChannel==='app-store'", javascript)
 
+    def test_admin_claim_qr_uses_privileged_endpoints_and_safe_dom(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        self.assertIn('id="notificationClaimDelivery"', html)
+        self.assertIn('id="claimVehicleSelect"', html)
+        self.assertIn('id="claimQrImage"', html)
+        self.assertIn("/api/admin/mobile/claims/candidates?limit=30", javascript)
+        self.assertIn("/api/admin/mobile/claims/issue", javascript)
+        start = javascript.index("function renderClaimCandidates")
+        end = javascript.index("async function runNotificationPreflight", start)
+        renderer = javascript[start:end]
+        self.assertIn("textContent", renderer)
+        self.assertNotIn("innerHTML", renderer)
+        self.assertNotIn("claimUrl", javascript)
+
     def test_preflight_renderer_uses_text_content(self):
         javascript = (ROOT / "admin" / "notifications.js").read_text()
         start = javascript.index("function renderPreflight")

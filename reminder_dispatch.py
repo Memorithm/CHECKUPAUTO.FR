@@ -99,6 +99,46 @@ def _upsert(rows: list[dict]) -> int:
             )
     return len(rows)
 
+def _vehicle_id(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw or len(raw) > 128 or any(ch.isspace() for ch in raw):
+        raise ValueError("vehicleId invalide")
+    return raw
+
+
+def mobile_claim_target(vehicle_id: object) -> dict:
+    """Return the authoritative reminder tuple used to issue a mobile claim.
+
+    Client identifiers never come from the admin request; they are resolved from the
+    already-synchronized Mercure reminder inventory.
+    """
+    clean = _vehicle_id(vehicle_id)
+    init_db()
+    with connect() as db:
+        row = db.execute(
+            """SELECT vehicle_id,client_kind,client_id,due_date,appointment_id,last_seen_at
+               FROM reminder_target WHERE vehicle_id=?""",
+            (clean,),
+        ).fetchone()
+    if not row:
+        raise LookupError("véhicule absent de l inventaire Mercure")
+    return dict(row)
+
+
+def mobile_claim_candidates(limit: int = 30) -> list[dict]:
+    limit = max(1, min(int(limit), 100))
+    today = _local_now().date().isoformat()
+    init_db()
+    with connect() as db:
+        rows = db.execute(
+            """SELECT vehicle_id,due_date,appointment_id,last_seen_at
+               FROM reminder_target WHERE due_date>=?
+               ORDER BY last_seen_at DESC, due_date ASC, vehicle_id ASC LIMIT ?""",
+            (today, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def deadlines_for_vehicle_ids(vehicle_ids: list[str]) -> list[dict]:
     if not isinstance(vehicle_ids, list) or len(vehicle_ids) > 1000:
         raise ValueError("vehicle_ids invalides")

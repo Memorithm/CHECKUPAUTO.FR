@@ -17,8 +17,12 @@ jobs:
         run: python3 scripts/precommit_security.py
       - name: Compile Python sources
         run: python3 -m compileall -q .
+      - name: Create isolated Python test environment
+        run: |
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Run Python unit tests
-        run: python3 -m unittest discover -p '*_test.py'
+        run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
       - name: Check JavaScript syntax
         run: |
           node --check app.js

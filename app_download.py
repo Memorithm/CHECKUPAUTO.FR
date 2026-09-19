@@ -17,6 +17,7 @@ _ALLOWED_SOURCES = {
     "centre",
     "email",
     "admin-test",
+    "claim",
 }
 _TESTFLIGHT_PATH = re.compile(r"^/join/[A-Za-z0-9_-]{4,64}/?$")
 
