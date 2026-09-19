@@ -84,6 +84,23 @@ enum AuthoritativeInventoryDate {
     }
 }
 
+enum AuthoritativeInventoryReconciliation {
+    static func remindersToRemove(
+        previous: [AuthoritativeVehicleDeadline],
+        next: [AuthoritativeVehicleDeadline]
+    ) -> [AuthoritativeVehicleDeadline] {
+        let nextByBinding = Dictionary(
+            uniqueKeysWithValues: next.map { ($0.bindingId, $0) }
+        )
+        return previous.filter { old in
+            guard let current = nextByBinding[old.bindingId] else {
+                return true
+            }
+            return old.dueDate != nil && current.dueDate == nil
+        }
+    }
+}
+
 enum AuthoritativeInventoryStore {
     static let storageKey = "checkupauto.authoritative.inventory.v1"
 

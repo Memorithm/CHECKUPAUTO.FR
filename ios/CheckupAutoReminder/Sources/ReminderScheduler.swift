@@ -44,9 +44,12 @@ actor ReminderScheduler {
         _ vehicle: AuthoritativeVehicleDeadline,
         policy: MobileReminderPolicy
     ) async throws {
-        guard let bindingID = vehicle.bindingUUID,
-              let dueDate = vehicle.dueDateValue else { return }
-        await removeAuthoritative(vehicle, leadDays: Array(Set(ReminderPlan.defaultLeadDays + policy.leadDays)))
+        guard let bindingID = vehicle.bindingUUID else { return }
+        await removeAuthoritative(
+            vehicle,
+            leadDays: Array(Set(ReminderPlan.defaultLeadDays + policy.leadDays))
+        )
+        guard let dueDate = vehicle.dueDateValue else { return }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: policy.timezone) ?? .current
         let moments = ReminderPlan.moments(
