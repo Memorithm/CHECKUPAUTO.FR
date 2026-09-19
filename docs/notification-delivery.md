@@ -109,3 +109,9 @@ Claim delivery to the customer is not activated yet. Choosing and securing that 
 Mobile installation identity is registered independently from notification permission. /api/mobile/installations/register stores the installation UUID and a hash of its registration secret without requiring an APNs token. This allows a valid vehicle claim to be consumed before notification permission is granted.
 
 /api/mobile/devices/unregister disables only the APNs channel and removes remote-dispatch deadlines; it intentionally preserves the verified vehicle binding. /api/mobile/installations/delete is the authenticated destructive operation that removes the installation and its bindings. This separation prevents a temporary notification opt-out from silently unlinking the customer's vehicle.
+
+## Staged iOS claim client
+
+The iOS core can validate and consume a vehicle claim without activating a claim-delivery channel. The accepted canonical form is an HTTPS CheckupAuto URL at /app/claim with the claim token in the URL fragment rather than the query string. HTTP, foreign hosts and query-carried tokens are rejected.
+
+The app ensures its installation identity is registered before posting the opaque token to /api/mobile/claims/consume and accepts only an opaque binding UUID in the response. Associated Domains, Universal Links and custom URL schemes remain intentionally unconfigured, so this code does not yet cause Safari, Mail or another app to route claim links into CheckupAuto automatically.

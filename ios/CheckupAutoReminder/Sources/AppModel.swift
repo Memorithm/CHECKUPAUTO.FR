@@ -88,6 +88,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func consumeVehicleClaim(url: URL) {
+        Task {
+            do {
+                let token = try VehicleClaimLink.token(from: url)
+                _ = try await VehicleClaimClient.consume(token: token)
+                errorMessage = nil
+            } catch {
+                errorMessage = "Ce lien de rattachement véhicule est invalide ou a expiré."
+            }
+        }
+    }
+
     func refreshAfterForeground() {
         Task {
             try? await DeviceRegistrationClient.registerInstallation()

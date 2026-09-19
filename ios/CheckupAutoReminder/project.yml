@@ -42,6 +42,7 @@ targets:
       - Tests/MobileBootstrapTests.swift
       - Tests/MobileDeadlineSyncTests.swift
       - Tests/ReminderPlanTests.swift
+      - Tests/VehicleClaimTests.swift
     dependencies:
       - target: CheckupAutoReminder
     settings:
