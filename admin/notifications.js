@@ -56,6 +56,8 @@ async function loadNotificationStatus() {
     const mobileDispatch=devices.reminderDispatch||{};
     notificationEl('notificationPush').textContent = !pushChannel.configured ? 'À CONFIGURER' : mobileDispatch.active ? 'ACTIF' : 'PRÊT · INACTIF';
     notificationEl('notificationDevices').textContent = devices.active || 0;
+    const retiredByReason=devices.disabledByReason||{};
+    notificationEl('notificationDevicesRetired').textContent = Object.values(retiredByReason).reduce((sum,value)=>sum+(Number(value)||0),0);
     notificationEl('notificationMobileDeadlines').textContent = devices.deadlines || 0;
     notificationEl('notificationReminderInventory').textContent = reminder.inventory || 0;
     notificationEl('notificationReminderDue').textContent = reminder.eligibleNow || 0;

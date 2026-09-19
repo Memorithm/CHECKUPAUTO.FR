@@ -54,6 +54,46 @@ class MobileReminderDispatchTest(unittest.TestCase):
         self.assertNotIn("registration", str(send_push.call_args).lower())
 
     @patch.object(dispatch.mobile_devices, "due_targets")
+    @patch.object(dispatch.mobile_devices, "disable_invalid_token", return_value={"disabled": True})
+    @patch.object(dispatch.notifications, "send_push")
+    @patch.object(dispatch.apns_gateway, "status", return_value={"configured": True})
+    @patch.object(dispatch, "_enabled", return_value=True)
+    def test_unregistered_token_is_retired_without_retry_failure(self, enabled, status, send_push, disable, due_targets):
+        due_targets.return_value = [self.row]
+        send_push.side_effect = dispatch.apns_gateway.APNSError(410, "Unregistered")
+        result = dispatch.process_once(self.now)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "active_tokens_retired")
+        self.assertEqual(result["retiredTokens"], 1)
+        disable.assert_called_once_with(self.row["installation_id"], self.row["device_token"], "apns:Unregistered")
+
+    @patch.object(dispatch.mobile_devices, "due_targets")
+    @patch.object(dispatch.notifications, "send_push")
+    @patch.object(dispatch.apns_gateway, "status", return_value={"configured": True})
+    @patch.object(dispatch, "_enabled", return_value=True)
+    def test_provider_configuration_error_stops_batch(self, enabled, status, send_push, due_targets):
+        second = dict(self.row); second["deadline_id"] = "936246c1-8932-4b6f-92b6-1ea591c09f96"
+        due_targets.return_value = [self.row, second]
+        send_push.side_effect = dispatch.apns_gateway.APNSError(400, "DeviceTokenNotForTopic")
+        result = dispatch.process_once(self.now)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["state"], "provider_failure")
+        self.assertEqual(result["providerFailures"], 1)
+        self.assertEqual(send_push.call_count, 1)
+
+    @patch.object(dispatch.mobile_devices, "due_targets")
+    @patch.object(dispatch.notifications, "send_push")
+    @patch.object(dispatch.apns_gateway, "status", return_value={"configured": True})
+    @patch.object(dispatch, "_enabled", return_value=True)
+    def test_transient_apns_failure_remains_retryable(self, enabled, status, send_push, due_targets):
+        due_targets.return_value = [self.row]
+        send_push.side_effect = dispatch.apns_gateway.APNSError(503, "ServiceUnavailable")
+        result = dispatch.process_once(self.now)
+        self.assertEqual(result["state"], "partial_failure")
+        self.assertEqual(result["transientFailures"], 1)
+        self.assertEqual(result["retiredTokens"], 0)
+
+    @patch.object(dispatch.mobile_devices, "due_targets")
     @patch.object(dispatch.notifications, "send_push")
     @patch.object(dispatch.apns_gateway, "status", return_value={"configured": False})
     @patch.object(dispatch, "_enabled", return_value=True)
