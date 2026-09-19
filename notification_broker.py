@@ -17,6 +17,10 @@ LEASE_SECONDS = 120
 MAX_ERROR = 300
 
 
+class PermanentDeliverySuppressed(RuntimeError):
+    pass
+
+
 def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
@@ -144,6 +148,8 @@ def _circuit_delay(transport_key: str, now: datetime.datetime) -> int:
 
 
 def _classify_failure(exc: Exception) -> str:
+    if isinstance(exc, email_transport.EmailDeliveryError):
+        return exc.failure_class
     if isinstance(exc, push_transport.APNSError):
         if exc.token_invalid:
             return "permanent"
@@ -227,6 +233,8 @@ def send_email(
             return _public_result(row, already_sent=True)
         if row and _lease_active(row, now):
             return _public_result(row, in_flight=True)
+        if row and row["failure_class"] == "permanent":
+            raise PermanentDeliverySuppressed("Échec permanent déjà enregistré pour cette livraison")
         row_delay = _seconds_until(str(row["next_attempt_at"] or ""), now) if row else 0
         if row_delay:
             return _deferred_result("email", category, reference, row_delay, row)
@@ -291,6 +299,8 @@ def send_push(
             return _public_result(row, already_sent=True)
         if row and _lease_active(row, now):
             return _public_result(row, in_flight=True)
+        if row and row["failure_class"] == "permanent":
+            raise PermanentDeliverySuppressed("Échec permanent déjà enregistré pour cette livraison")
         row_delay = _seconds_until(str(row["next_attempt_at"] or ""), now) if row else 0
         if row_delay:
             return _deferred_result("push", category, reference, row_delay, row)
@@ -371,6 +381,7 @@ def status(limit: int = 20) -> dict:
             "baseBackoffSeconds": resilience.BASE_BACKOFF_SECONDS,
             "maxBackoffSeconds": resilience.MAX_BACKOFF_SECONDS,
             "circuitsOpen": sum(1 for item in transports if item["circuitOpen"]),
+            "permanentFailures": int(failure_counts.get("permanent", 0)),
             "transports": transports,
         },
         "recent": recent,

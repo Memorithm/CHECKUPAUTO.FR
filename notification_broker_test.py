@@ -134,6 +134,46 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertTrue(health["push:apns:sandbox"]["circuitOpen"])
         self.assertIn("push:apns:production", health)
 
+    @patch.object(broker.email_transport, "send_email")
+    def test_email_retry_after_from_gateway_defers_delivery(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "Gmail rate limited", transport="gmail-api", status=429,
+            retry_after="120", retryable=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "client@example.fr", "Rappel", "Message",
+                category="control_reminder", reference="gmail-rate-limit",
+            )
+        deferred = broker.send_email(
+            "client@example.fr", "Rappel", "Message",
+            category="control_reminder", reference="gmail-rate-limit",
+        )
+        self.assertTrue(deferred["deferred"])
+        self.assertGreaterEqual(deferred["retryAfterSeconds"], 119)
+        self.assertEqual(send_email.call_count, 1)
+
+    @patch.object(broker.email_transport, "send_email")
+    def test_permanent_email_failure_is_not_retried(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "SMTP destinataire refusé (550)", transport="smtp-relay",
+            status=550, permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "client@example.fr", "Rappel", "Message",
+                category="control_reminder", reference="smtp-permanent",
+            )
+        with self.assertRaises(broker.PermanentDeliverySuppressed):
+            broker.send_email(
+                "client@example.fr", "Rappel", "Message",
+                category="control_reminder", reference="smtp-permanent",
+            )
+        self.assertEqual(send_email.call_count, 1)
+        state = broker.status()
+        self.assertEqual(state["failureCounts"]["permanent"], 1)
+        self.assertEqual(state["resilience"]["permanentFailures"], 1)
+
     @patch.object(broker.email_transport, "transport_status", return_value={
         "configured": True, "transport": "gmail-api", "requested": "auto",
         "smtpAvailable": False, "gmailAvailable": True, "state": "ready", "error": "",

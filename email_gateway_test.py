@@ -84,6 +84,48 @@ class EmailGatewayTest(unittest.TestCase):
         self.assertEqual(state["requested"], "invalid")
         self.assertTrue(state["error"])
 
+    @patch.dict(os.environ, {"CYBERCHECK_EMAIL_TRANSPORT": "gmail"}, clear=True)
+    @patch.object(mail.google_integration, "settings", return_value={"gmailSender": "contact@checkupauto.fr"})
+    @patch.object(mail.google_integration, "has_scopes", return_value=True)
+    @patch.object(mail.google_integration, "google_access_token", return_value="access-token")
+    @patch("email_gateway.requests.post")
+    def test_gmail_429_preserves_retry_after(self, post, access_token, has_scopes, settings):
+        response = Mock()
+        response.status_code = 429
+        response.headers = {"Retry-After": "120"}
+        response.json.return_value = {
+            "error": {"errors": [{"reason": "userRateLimitExceeded"}]}
+        }
+        post.return_value = response
+        with self.assertRaises(mail.EmailDeliveryError) as caught:
+            mail.send_email("client@example.fr", "Rappel", "Message")
+        self.assertTrue(caught.exception.retryable)
+        self.assertFalse(caught.exception.configuration_error)
+        self.assertEqual(caught.exception.retry_after, "120")
+        self.assertEqual(caught.exception.status, 429)
+
+    @patch.dict(os.environ, {"CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr"}, clear=True)
+    @patch("email_gateway.smtplib.SMTP")
+    def test_smtp_550_is_permanent_recipient_failure(self, smtp_cls):
+        client = smtp_cls.return_value
+        client.send_message.return_value = {"client@example.fr": (550, b"mailbox unavailable")}
+        with self.assertRaises(mail.EmailDeliveryError) as caught:
+            mail.send_email("client@example.fr", "Rappel", "Message")
+        self.assertTrue(caught.exception.permanent)
+        self.assertFalse(caught.exception.retryable)
+        self.assertEqual(caught.exception.status, 550)
+
+    @patch.dict(os.environ, {"CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr"}, clear=True)
+    @patch("email_gateway.smtplib.SMTP")
+    def test_smtp_451_is_retryable_recipient_failure(self, smtp_cls):
+        client = smtp_cls.return_value
+        client.send_message.return_value = {"client@example.fr": (451, b"local error")}
+        with self.assertRaises(mail.EmailDeliveryError) as caught:
+            mail.send_email("client@example.fr", "Rappel", "Message")
+        self.assertTrue(caught.exception.retryable)
+        self.assertFalse(caught.exception.permanent)
+        self.assertEqual(caught.exception.status, 451)
+
 
 if __name__ == "__main__":
     unittest.main()

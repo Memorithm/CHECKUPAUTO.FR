@@ -103,6 +103,14 @@ class IntegrationError(RuntimeError):
     pass
 
 
+class IntegrationHTTPError(IntegrationError):
+    def __init__(self, message, *, status=0, retry_after="", retryable=False):
+        self.status = int(status or 0)
+        self.retry_after = str(retry_after or "")[:80]
+        self.retryable = bool(retryable)
+        super().__init__(str(message or "Erreur HTTP d’intégration")[:180])
+
+
 def _ensure_dir():
     INTEGRATION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
@@ -403,9 +411,18 @@ def google_access_token(required_scopes=None):
             timeout=20,
         )
     except requests.RequestException as exc:
-        raise IntegrationError("Rafraîchissement OAuth Google impossible.") from exc
+        raise IntegrationHTTPError(
+            "Rafraîchissement OAuth Google impossible.",
+            retryable=True,
+        ) from exc
     if response.status_code >= 400:
-        raise IntegrationError("Google a refusé le rafraîchissement OAuth.")
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google a refusé le rafraîchissement OAuth.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
     incoming = response.json()
     token.update(incoming)
     token["refresh_token"] = refresh
