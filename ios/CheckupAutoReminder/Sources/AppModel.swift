@@ -12,6 +12,9 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
+    @Published private(set) var deletingAllData = false
+    @Published private(set) var installationRegistrationSuppressed =
+        InstallationLifecycleState.isAutoRegistrationSuppressed()
 
     private let scheduler = ReminderScheduler()
 
@@ -23,6 +26,8 @@ final class AppModel: ObservableObject {
         load()
         Task {
             try? await DeviceRegistrationClient.registerInstallation()
+            installationRegistrationSuppressed =
+                InstallationLifecycleState.isAutoRegistrationSuppressed()
             await refreshMobileConfig()
             await refreshNotificationState()
             refreshRegistrationState()
@@ -36,6 +41,9 @@ final class AppModel: ObservableObject {
             do {
                 notificationAuthorized = try await scheduler.requestAuthorization()
                 if notificationAuthorized {
+                    _ = try await DeviceRegistrationClient.registerInstallation(reactivate: true)
+                    installationRegistrationSuppressed =
+                        InstallationLifecycleState.isAutoRegistrationSuppressed()
                     DeviceRegistrationState.setRegistered(false)
                     refreshRegistrationState()
                     registerForRemoteNotifications()
@@ -93,6 +101,11 @@ final class AppModel: ObservableObject {
             do {
                 let token = try VehicleClaimLink.token(from: url)
                 _ = try await VehicleClaimClient.consume(token: token)
+                installationRegistrationSuppressed =
+                    InstallationLifecycleState.isAutoRegistrationSuppressed()
+                if notificationAuthorized {
+                    registerForRemoteNotifications()
+                }
                 errorMessage = nil
             } catch {
                 errorMessage = "Ce lien de rattachement véhicule est invalide ou a expiré."
@@ -100,9 +113,37 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func deleteAllData() {
+        guard !deletingAllData else { return }
+        Task {
+            deletingAllData = true
+            defer { deletingAllData = false }
+            let existingVehicles = vehicles
+            do {
+                _ = try await DeviceRegistrationClient.deleteInstallation()
+                for vehicle in existingVehicles {
+                    await scheduler.remove(
+                        vehicle,
+                        leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+                    )
+                }
+                VehicleDeadlineStore.clear()
+                vehicles = []
+                remotePushRegistered = false
+                installationRegistrationSuppressed =
+                    InstallationLifecycleState.isAutoRegistrationSuppressed()
+                errorMessage = nil
+            } catch {
+                errorMessage = "La suppression n’a pas pu être confirmée par Checkup Auto. Réessayez avec une connexion Internet."
+            }
+        }
+    }
+
     func refreshAfterForeground() {
         Task {
             try? await DeviceRegistrationClient.registerInstallation()
+            installationRegistrationSuppressed =
+                InstallationLifecycleState.isAutoRegistrationSuppressed()
             await refreshMobileConfig()
             await refreshNotificationState()
             refreshRegistrationState()
@@ -159,7 +200,9 @@ final class AppModel: ObservableObject {
         notificationAuthorized = settings.authorizationStatus == .authorized ||
             settings.authorizationStatus == .provisional
         if notificationAuthorized {
-            registerForRemoteNotifications()
+            if !installationRegistrationSuppressed {
+                registerForRemoteNotifications()
+            }
         } else {
             await disableRemoteRegistration()
         }

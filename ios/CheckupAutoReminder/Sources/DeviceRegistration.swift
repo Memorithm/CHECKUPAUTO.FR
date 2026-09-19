@@ -42,6 +42,28 @@ struct DeviceUnregistrationRequest: Codable, Equatable, Sendable {
     }
 }
 
+enum InstallationLifecycleState {
+    static let autoRegistrationSuppressedKey = "checkupauto.installation.autoregister.suppressed.v1"
+
+    static func isAutoRegistrationSuppressed(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: autoRegistrationSuppressedKey)
+    }
+
+    static func setAutoRegistrationSuppressed(
+        _ suppressed: Bool,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(suppressed, forKey: autoRegistrationSuppressedKey)
+    }
+
+    static func shouldAutoRegister(
+        reactivate: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        reactivate || !isAutoRegistrationSuppressed(defaults: defaults)
+    }
+}
+
 enum DeviceRegistrationState {
     static let defaultsKey = "checkupauto.remote-push.registered.v1"
     static let changedNotification = Notification.Name("CheckupAutoRemotePushRegistrationChanged")
@@ -72,6 +94,7 @@ enum DeviceRegistrationError: Error {
 
 enum DeviceRegistrationIdentity {
     private static let service = "fr.checkupauto.reminder.push"
+    static let accounts = ["installation-id", "registration-secret"]
 
     static func loadExisting() -> (installationId: String, secret: String)? {
         guard let install = read(account: "installation-id"),
@@ -95,6 +118,28 @@ enum DeviceRegistrationIdentity {
         try write(install, account: "installation-id")
         try write(secret, account: "registration-secret")
         return (install, secret)
+    }
+
+    static func deleteLocal() throws {
+        try deleteLocal(using: deleteAccount)
+    }
+
+    static func deleteLocal(using deleter: (String) -> OSStatus) throws {
+        for account in accounts {
+            let status = deleter(account)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw DeviceRegistrationError.keychainFailure
+            }
+        }
+    }
+
+    private static func deleteAccount(_ account: String) -> OSStatus {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        return SecItemDelete(query as CFDictionary)
     }
 
     private static func read(account: String) -> String? {
@@ -124,7 +169,14 @@ enum DeviceRegistrationClient {
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/devices/register") }
     static var unregisterEndpoint: URL { MobileAPI.endpoint("/api/mobile/devices/unregister") }
 
-    static func registerInstallation(session: URLSession = .shared) async throws {
+    @discardableResult
+    static func registerInstallation(
+        session: URLSession = .shared,
+        reactivate: Bool = false
+    ) async throws -> Bool {
+        guard InstallationLifecycleState.shouldAutoRegister(reactivate: reactivate) else {
+            return false
+        }
         let identity = try DeviceRegistrationIdentity.loadOrCreate()
         let payload = try DeviceUnregistrationRequest(
             installationId: identity.installationId,
@@ -140,10 +192,17 @@ enum DeviceRegistrationClient {
         guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
             throw DeviceRegistrationError.invalidResponse
         }
+        InstallationLifecycleState.setAutoRegistrationSuppressed(false)
+        return true
     }
 
-    static func deleteInstallation(session: URLSession = .shared) async throws {
-        guard let identity = DeviceRegistrationIdentity.loadExisting() else { return }
+    @discardableResult
+    static func deleteInstallation(session: URLSession = .shared) async throws -> Bool {
+        guard let identity = DeviceRegistrationIdentity.loadExisting() else {
+            InstallationLifecycleState.setAutoRegistrationSuppressed(true)
+            DeviceRegistrationState.setRegistered(false)
+            return false
+        }
         let payload = try DeviceUnregistrationRequest(
             installationId: identity.installationId,
             registrationSecret: identity.secret
@@ -158,7 +217,10 @@ enum DeviceRegistrationClient {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw DeviceRegistrationError.invalidResponse
         }
+        InstallationLifecycleState.setAutoRegistrationSuppressed(true)
         DeviceRegistrationState.setRegistered(false)
+        try DeviceRegistrationIdentity.deleteLocal()
+        return true
     }
 
     static func register(deviceToken: Data, session: URLSession = .shared) async throws {
@@ -181,6 +243,7 @@ enum DeviceRegistrationClient {
         guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
             throw DeviceRegistrationError.invalidResponse
         }
+        InstallationLifecycleState.setAutoRegistrationSuppressed(false)
         DeviceRegistrationState.setRegistered(true)
     }
 

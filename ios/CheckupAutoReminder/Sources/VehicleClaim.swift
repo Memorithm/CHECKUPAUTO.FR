@@ -78,7 +78,10 @@ enum VehicleClaimClient {
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/claims/consume") }
 
     static func consume(token: String, session: URLSession = .shared) async throws -> VehicleClaimResponse {
-        try await DeviceRegistrationClient.registerInstallation(session: session)
+        try await DeviceRegistrationClient.registerInstallation(
+            session: session,
+            reactivate: true
+        )
         let identity = try DeviceRegistrationIdentity.loadOrCreate()
         let payload = try VehicleClaimRequest(
             installationId: identity.installationId,

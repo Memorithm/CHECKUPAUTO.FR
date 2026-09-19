@@ -1,4 +1,5 @@
 import XCTest
+import Security
 @testable import CheckupAutoReminder
 
 final class DeviceRegistrationTests: XCTestCase {
@@ -51,6 +52,36 @@ extension DeviceRegistrationTests {
         XCTAssertEqual(
             DeviceRegistrationClient.unregisterEndpoint.path,
             "/api/mobile/devices/unregister"
+        )
+    }
+
+    func testInstallationSuppressionRequiresExplicitReactivation() {
+        let suite = "InstallationLifecycleTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Unable to create isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(InstallationLifecycleState.shouldAutoRegister(reactivate: false, defaults: defaults))
+        InstallationLifecycleState.setAutoRegistrationSuppressed(true, defaults: defaults)
+        XCTAssertFalse(InstallationLifecycleState.shouldAutoRegister(reactivate: false, defaults: defaults))
+        XCTAssertTrue(InstallationLifecycleState.shouldAutoRegister(reactivate: true, defaults: defaults))
+        InstallationLifecycleState.setAutoRegistrationSuppressed(false, defaults: defaults)
+        XCTAssertTrue(InstallationLifecycleState.shouldAutoRegister(reactivate: false, defaults: defaults))
+    }
+
+    func testIdentityDeletionTargetsBothKeychainAccounts() throws {
+        var deleted: [String] = []
+        try DeviceRegistrationIdentity.deleteLocal { account in
+            deleted.append(account)
+            return errSecItemNotFound
+        }
+        XCTAssertEqual(deleted, DeviceRegistrationIdentity.accounts)
+    }
+
+    func testIdentityDeletionRejectsUnexpectedKeychainFailure() {
+        XCTAssertThrowsError(
+            try DeviceRegistrationIdentity.deleteLocal { _ in errSecAuthFailed }
         )
     }
 

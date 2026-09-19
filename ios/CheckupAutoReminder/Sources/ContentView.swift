@@ -3,18 +3,25 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
             List {
-                if !model.notificationAuthorized {
+                if !model.notificationAuthorized || model.installationRegistrationSuppressed {
                     Section {
-                        Button("Activer les rappels") {
+                        Button {
                             model.requestNotifications()
+                        } label: {
+                            Text(
+                                model.installationRegistrationSuppressed
+                                    ? "Réactiver Checkup Auto"
+                                    : "Activer les rappels"
+                            )
                         }
                     } footer: {
-                        Text(model.remotePushActiveForDevice
-                             ? "Les rappels sont envoyés par Checkup Auto via notifications push."
+                        Text(model.installationRegistrationSuppressed
+                             ? "La synchronisation Checkup Auto est désactivée sur cet iPhone après l’effacement des données."
                              : "Les rappels restent programmés localement sur l’iPhone tant que le push distant n’est pas confirmé.")
                     }
                 }
@@ -52,6 +59,17 @@ struct ContentView: View {
                     Link("Voir les créneaux Checkup Auto", destination: model.bookingURL)
                 }
 
+                Section {
+                    Button("Effacer mes données Checkup Auto", role: .destructive) {
+                        showingDeleteConfirmation = true
+                    }
+                    .disabled(model.deletingAllData)
+                } header: {
+                    Text("Données")
+                } footer: {
+                    Text("Supprime l’installation, ses rattachements véhicule, les véhicules enregistrés sur cet iPhone et les rappels programmés.")
+                }
+
                 if let message = model.errorMessage {
                     Section {
                         Text(message)
@@ -74,6 +92,18 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: DeviceRegistrationState.changedNotification)) { _ in
                 model.refreshRegistrationState()
+            }
+            .confirmationDialog(
+                "Effacer toutes les données Checkup Auto de cet iPhone ?",
+                isPresented: $showingDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Effacer définitivement", role: .destructive) {
+                    model.deleteAllData()
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Cette action supprime aussi le rattachement véhicule côté Checkup Auto. Elle ne modifie pas les données réglementaires conservées dans Mercure.")
             }
             .sheet(isPresented: $showingAddVehicle) {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate in
