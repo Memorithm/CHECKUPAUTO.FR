@@ -1,5 +1,6 @@
 from pathlib import Path
 from urllib.parse import urlencode
+from email.utils import parseaddr
 import datetime
 import json
 import os
@@ -69,7 +70,8 @@ CONNECTORS = {
         "category": "Communication",
         "description": "Envoi de messages opérationnels depuis le compte autorisé.",
         "scopes": ["https://www.googleapis.com/auth/gmail.send"],
-        "mode": "oauth",
+        "mode": "oauth_plus_setting",
+        "setting": "gmailSender",
     },
     "calendar": {
         "label": "Google Calendar",
@@ -93,6 +95,7 @@ SETTING_KEYS = {
     "analyticsPropertyId",
     "businessAccountId",
     "tagManagerAccountId",
+    "gmailSender",
 }
 
 
@@ -178,7 +181,21 @@ def settings_info():
         "analyticsPropertyId": data.get("analyticsPropertyId") or "",
         "businessAccountId": data.get("businessAccountId") or "",
         "tagManagerAccountId": data.get("tagManagerAccountId") or "",
+        "gmailSender": data.get("gmailSender") or "",
     }
+
+
+def _valid_email(value):
+    raw = str(value or "").strip()
+    if not raw or len(raw) > 254 or any(ord(ch) < 32 for ch in raw):
+        return False
+    name, address = parseaddr(raw)
+    if name and address != raw:
+        return False
+    if address != raw or address.count("@") != 1:
+        return False
+    local, domain = address.rsplit("@", 1)
+    return bool(local and "." in domain and not domain.startswith(".") and not domain.endswith("."))
 
 
 def save_settings(payload):
@@ -191,6 +208,8 @@ def save_settings(payload):
         value = str(payload.get(key) or "").strip()
         if len(value) > 500:
             raise IntegrationError(f"{key} est trop long.")
+        if key == "gmailSender" and value and not _valid_email(value):
+            raise IntegrationError("Adresse d’envoi Gmail invalide.")
         if value:
             current[key] = value
         else:

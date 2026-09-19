@@ -109,6 +109,24 @@ class IntegrationHubTest(unittest.TestCase):
         self.assertTrue(row["connected"])
         self.assertIn("compte de service", row["detail"].lower())
 
+    def test_gmail_is_partial_until_sender_is_configured(self):
+        self.install_client()
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "refresh_token": "refresh",
+            "scope": "https://www.googleapis.com/auth/gmail.send",
+        })
+        gmail = next(x for x in hub.status()["connectors"] if x["id"] == "gmail")
+        self.assertFalse(gmail["connected"])
+        self.assertEqual(gmail["state"], "attention")
+        hub.save_settings({"gmailSender": "contact@checkupauto.fr"})
+        gmail = next(x for x in hub.status()["connectors"] if x["id"] == "gmail")
+        self.assertTrue(gmail["connected"])
+        self.assertEqual(hub.settings_info()["gmailSender"], "contact@checkupauto.fr")
+
+    def test_gmail_sender_must_be_valid_email(self):
+        with self.assertRaisesRegex(hub.IntegrationError, "Gmail invalide"):
+            hub.save_settings({"gmailSender": "not-an-email"})
+
     def test_refresh_token_flow(self):
         self.install_client()
         hub._atomic_json(hub.TOKEN_FILE, {
