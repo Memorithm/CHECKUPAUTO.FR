@@ -59,6 +59,7 @@ def _deliver(alert: dict):
     return True
 
 def emit(level: str, kind: str, title: str, detail='', fingerprint='', metadata=None, dedup_key='', cooldown=900):
+    init_db()
     level = level if level in LEVELS else 'medium'
     kind = str(kind)[:80]; title = str(title)[:180]; detail = str(detail)[:1000]
     fingerprint = str(fingerprint or '')[:64]
@@ -83,6 +84,7 @@ def emit(level: str, kind: str, title: str, detail='', fingerprint='', metadata=
     return {'created':True,'id':alert_id,'delivered':delivered}
 
 def retry_pending(limit=20):
+    init_db()
     url=os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip()
     if not url:
         return {'configured':False,'attempted':0,'delivered':0}
@@ -113,6 +115,7 @@ def _loop(interval):
 
 
 def start(interval=120):
+    init_db()
     global _THREAD
     if _THREAD and _THREAD.is_alive(): return
     _THREAD=threading.Thread(target=_loop,args=(interval,),daemon=True,name='CyberCheckSecurityAlerts')
@@ -124,6 +127,7 @@ def stop():
 
 
 def list_alerts(limit=50, unacknowledged=False):
+    init_db()
     limit = max(1,min(int(limit),200))
     where = 'WHERE acknowledged=0' if unacknowledged else ''
     with sqlite3.connect(DB) as db:
@@ -134,12 +138,14 @@ def list_alerts(limit=50, unacknowledged=False):
 
 
 def acknowledge(alert_id: int):
+    init_db()
     with sqlite3.connect(DB) as db:
         cur = db.execute('UPDATE security_alerts SET acknowledged=1 WHERE id=?',(int(alert_id),))
     return {'ok':True,'updated':cur.rowcount}
 
 
 def resolve_after_rebaseline():
+    init_db()
     with sqlite3.connect(DB) as db:
         cur=db.execute('''UPDATE security_alerts SET acknowledged=1 WHERE acknowledged=0 AND (
           kind='integrity' OR
@@ -150,6 +156,7 @@ def resolve_after_rebaseline():
 
 
 def summary():
+    init_db()
     with sqlite3.connect(DB) as db:
         db.row_factory = sqlite3.Row
         open_count = db.execute('SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0').fetchone()['n']
@@ -159,5 +166,3 @@ def summary():
           FROM security_alerts ORDER BY id DESC LIMIT 25''')]
     return {'open':open_count,'highOrCritical':high,'undeliveredHighOrCritical':undelivered,'latest':latest,
             'webhookConfigured':bool(os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip())}
-
-init_db()
