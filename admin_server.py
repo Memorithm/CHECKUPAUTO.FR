@@ -28,6 +28,7 @@ import reminder_engine as reminders
 import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
 import notification_preflight as notification_preflight
+import production_readiness as production_readiness
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
 USER='admin'
@@ -215,6 +216,11 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_bytes(('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">'
       '<title>Connexion Google impossible</title></head><body><h1>Connexion Google impossible</h1><p>'+esc(exc)+'</p>'
       '<p><a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode(),'text/html; charset=utf-8',400,'no-store')
+  if path=='/api/admin/readiness':
+   if not self.authorized(): return self.require_auth()
+   try:
+    c=load_config(); return self.send_json(production_readiness.status(c,build_seo_health(c)))
+   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
   if path=='/api/admin/integrations/google/status':
    if not self.authorized(): return self.require_auth()
    try:
