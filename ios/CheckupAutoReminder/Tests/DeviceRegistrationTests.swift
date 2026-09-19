@@ -35,6 +35,25 @@ extension DeviceRegistrationTests {
         ).validated())
     }
 
+    func testInstallationAndPushRoutesRemainSeparate() {
+        XCTAssertEqual(
+            DeviceRegistrationClient.installationEndpoint.path,
+            "/api/mobile/installations/register"
+        )
+        XCTAssertEqual(
+            DeviceRegistrationClient.deleteInstallationEndpoint.path,
+            "/api/mobile/installations/delete"
+        )
+        XCTAssertEqual(
+            DeviceRegistrationClient.endpoint.path,
+            "/api/mobile/devices/register"
+        )
+        XCTAssertEqual(
+            DeviceRegistrationClient.unregisterEndpoint.path,
+            "/api/mobile/devices/unregister"
+        )
+    }
+
     func testRemoteRegistrationStateIsDeviceLocalAndNotifiesOnChangeOnly() {
         let suite = "DeviceRegistrationTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else {

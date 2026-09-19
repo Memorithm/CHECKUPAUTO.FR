@@ -119,8 +119,47 @@ enum DeviceRegistrationIdentity {
 }
 
 enum DeviceRegistrationClient {
+    static var installationEndpoint: URL { MobileAPI.endpoint("/api/mobile/installations/register") }
+    static var deleteInstallationEndpoint: URL { MobileAPI.endpoint("/api/mobile/installations/delete") }
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/devices/register") }
     static var unregisterEndpoint: URL { MobileAPI.endpoint("/api/mobile/devices/unregister") }
+
+    static func registerInstallation(session: URLSession = .shared) async throws {
+        let identity = try DeviceRegistrationIdentity.loadOrCreate()
+        let payload = try DeviceUnregistrationRequest(
+            installationId: identity.installationId,
+            registrationSecret: identity.secret
+        ).validated()
+        var request = URLRequest(url: installationEndpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONEncoder().encode(payload)
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
+            throw DeviceRegistrationError.invalidResponse
+        }
+    }
+
+    static func deleteInstallation(session: URLSession = .shared) async throws {
+        guard let identity = DeviceRegistrationIdentity.loadExisting() else { return }
+        let payload = try DeviceUnregistrationRequest(
+            installationId: identity.installationId,
+            registrationSecret: identity.secret
+        ).validated()
+        var request = URLRequest(url: deleteInstallationEndpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONEncoder().encode(payload)
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw DeviceRegistrationError.invalidResponse
+        }
+        DeviceRegistrationState.setRegistered(false)
+    }
 
     static func register(deviceToken: Data, session: URLSession = .shared) async throws {
         DeviceRegistrationState.setRegistered(false)

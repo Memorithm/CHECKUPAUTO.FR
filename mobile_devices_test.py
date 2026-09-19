@@ -68,6 +68,44 @@ class MobileDevicesTest(unittest.TestCase):
         self.assertIn("source", columns)
         self.assertEqual(row["source"], devices.DEVICE_DEADLINE_SOURCE)
 
+    def test_installation_identity_can_exist_without_apns_token(self):
+        result = devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertTrue(result["ok"])
+        state = devices.status()
+        self.assertEqual(state["total"], 1)
+        self.assertEqual(state["active"], 0)
+        self.assertEqual(devices.active_targets(), [])
+        with self.assertRaisesRegex(PermissionError, "canal push"):
+            devices.sync_deadlines({
+                "installationId": self.install_id,
+                "registrationSecret": self.secret,
+                "deadlines": [],
+            })
+
+    def test_apns_registration_upgrades_existing_installation_identity(self):
+        devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        result = devices.register(self.payload())
+        self.assertTrue(result["ok"])
+        self.assertEqual(devices.status()["active"], 1)
+        self.assertEqual(devices.active_targets()[0]["installation_id"], self.install_id)
+
+    def test_installation_identity_secret_prevents_takeover(self):
+        devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        with self.assertRaises(PermissionError):
+            devices.register_installation({
+                "installationId": self.install_id,
+                "registrationSecret": "B" * 43,
+            })
+
     def test_register_keeps_token_private_from_status(self):
         result = devices.register(self.payload())
         self.assertTrue(result["ok"]); self.assertEqual(devices.status()["active"], 1)
@@ -206,6 +244,21 @@ class MobileDevicesTest(unittest.TestCase):
         self.assertEqual(state["disabledByReason"]["apns:Unregistered"], 1)
         self.assertNotIn(self.token.encode(), devices.DB.read_bytes())
 
+    def test_vehicle_claim_can_bind_installation_before_apns_permission(self):
+        devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        result = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        uuid.UUID(result["bindingId"])
+        self.assertEqual(devices.status()["vehicleBindings"], 1)
+        self.assertEqual(devices.active_vehicle_bindings(), [])
+
     def test_vehicle_claim_is_hash_only_one_time_and_opaque_to_client(self):
         devices.register(self.payload())
         claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
@@ -262,7 +315,7 @@ class MobileDevicesTest(unittest.TestCase):
                 "claimToken": claim["claimToken"],
             })
 
-    def test_unregister_purges_vehicle_binding(self):
+    def test_push_unregister_preserves_binding_but_full_delete_purges_it(self):
         devices.register(self.payload())
         claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
         devices.consume_vehicle_claim({
@@ -276,7 +329,19 @@ class MobileDevicesTest(unittest.TestCase):
             "registrationSecret": self.secret,
         })
         self.assertEqual(devices.active_vehicle_bindings(), [])
+        self.assertEqual(devices.status()["vehicleBindings"], 1)
+        with self.assertRaises(PermissionError):
+            devices.delete_installation({
+                "installationId": self.install_id,
+                "registrationSecret": "B" * 43,
+            })
+        deleted = devices.delete_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertTrue(deleted["removed"])
         self.assertEqual(devices.status()["vehicleBindings"], 0)
+        self.assertEqual(devices.status()["total"], 0)
 
     def test_rejects_malformed_inputs(self):
         with self.assertRaises(ValueError): devices.register(self.payload(installationId="bad"))

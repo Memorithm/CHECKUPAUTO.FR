@@ -70,7 +70,7 @@ A recent Mercure window is refreshed on every cycle. Historical coverage is prog
 
 The public endpoint `/api/mobile/bootstrap` exposes only non-secret mobile policy: reminder lead days, delivery hour and timezone, the public booking URL, the configured referral reward amount, application landing/download state, and whether central push is actually active. It does not expose Mercure identifiers, customer data, OAuth material, APNs credentials or administration configuration.
 
-The iOS application validates schema version 1 and the reminder policy before applying it. If the endpoint is unavailable or invalid, the app keeps the baked-in safe defaults (J-60/J-30/J-15/J-7/J-1 at 09:00 Europe/Paris and the public Mercure booking URL). Local notifications remain enabled unless the server explicitly declares central push active.
+The iOS application validates schema version 1 and the reminder policy before applying it. If the endpoint is unavailable or invalid, the app keeps the baked-in safe defaults (J-60/J-30/J-15/J-7/J-1 at 09:00 Europe/Paris and the public Mercure booking URL). Local notifications remain the safe fallback until both the server declares central push active and that specific installation has successfully registered its APNs token.
 
 ## Mobile due-date push pipeline
 
@@ -94,7 +94,7 @@ The broker persists only the normalized failure class and a redacted diagnostic;
 
 The private mobile deadline registry records deadline provenance. device is the local/mobile fallback source; mercure is the authoritative server source. If any authoritative Mercure deadline exists for a registered installation, remote mobile dispatch selects only Mercure deadlines for that installation. Device-submitted rows remain dormant as a fallback and become eligible again only if the authoritative snapshot is explicitly removed.
 
-The public /api/mobile/reminders/sync path is restricted to device rows and cannot overwrite an authoritative row. sync_authoritative_deadlines() is internal-only and is not wired to a public HTTP route. A verified installation-to-Mercure vehicle binding is still required before this authoritative path can be populated for real customers.
+The public /api/mobile/reminders/sync path is restricted to device rows and cannot overwrite an authoritative row. sync_authoritative_deadlines() is internal-only and is not wired to a public HTTP route. Verified installation-to-Mercure vehicle bindings are created by one-time claims; production population remains disabled until a customer claim-delivery channel is selected and activated.
 
 ## Secure mobile vehicle binding
 
@@ -103,3 +103,9 @@ Vehicle-to-installation binding uses a one-time high-entropy claim. The raw clai
 The public surface exposes only POST /api/mobile/claims/consume. There is deliberately no HTTP route for claim issuance. A successful consume returns an opaque binding UUID and never returns the Mercure vehicle or customer identifiers. The internal mobile_authoritative_sync worker maps active bindings to the already-synchronized reminder inventory and feeds authoritative dates into the private mobile deadline registry.
 
 Claim delivery to the customer is not activated yet. Choosing and securing that delivery channel remains a separate rollout step.
+
+## Installation identity versus APNs channel
+
+Mobile installation identity is registered independently from notification permission. /api/mobile/installations/register stores the installation UUID and a hash of its registration secret without requiring an APNs token. This allows a valid vehicle claim to be consumed before notification permission is granted.
+
+/api/mobile/devices/unregister disables only the APNs channel and removes remote-dispatch deadlines; it intentionally preserves the verified vehicle binding. /api/mobile/installations/delete is the authenticated destructive operation that removes the installation and its bindings. This separation prevents a temporary notification opt-out from silently unlinking the customer's vehicle.
