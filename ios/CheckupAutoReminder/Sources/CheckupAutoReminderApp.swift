@@ -8,6 +8,11 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate {
         Task {
             do {
                 try await DeviceRegistrationClient.register(deviceToken: deviceToken)
+                let config = (try? await MobileBootstrapClient.fetch()) ?? .fallback
+                try await MobileDeadlineSyncClient.sync(
+                    vehicles: VehicleDeadlineStore.load(),
+                    timezone: config.reminders.timezone
+                )
             } catch {
                 // Registration is retried on the next app launch / authorization refresh.
             }

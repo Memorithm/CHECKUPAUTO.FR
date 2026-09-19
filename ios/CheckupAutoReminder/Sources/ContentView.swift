@@ -13,7 +13,9 @@ struct ContentView: View {
                             model.requestNotifications()
                         }
                     } footer: {
-                        Text("Les rappels sont programmés localement sur l’iPhone.")
+                        Text(model.mobileConfig.notifications.remotePushActive
+                             ? "Les rappels sont envoyés par Checkup Auto via notifications push."
+                             : "Les rappels sont programmés localement sur l’iPhone.")
                     }
                 }
 

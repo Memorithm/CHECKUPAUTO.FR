@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from urllib.parse import urlparse
+import os
 
+import apns_gateway
 import app_download
 import referral_engine as referrals
 import reminder_engine as reminders
@@ -25,6 +27,8 @@ def status(config: dict) -> dict:
     business = business if isinstance(business, dict) else {}
     booking_url = _https_url(business.get("bookingUrl"), "business.bookingUrl")
     app = app_download.status(config)
+    push_requested = str(os.environ.get("CYBERCHECK_MOBILE_PUSH_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    push_active = bool(push_requested and apns_gateway.status().get("configured"))
     return {
         "schemaVersion": SCHEMA_VERSION,
         "reminders": {
@@ -33,6 +37,7 @@ def status(config: dict) -> dict:
             "timezone": reminders.DEFAULT_TIMEZONE,
         },
         "booking": {"url": booking_url},
+        "notifications": {"remotePushActive": push_active, "localFallback": not push_active},
         "referral": {
             "rewardCents": referrals.configured_reward_cents(),
             "currency": "EUR",

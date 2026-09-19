@@ -22,15 +22,11 @@ def _read_private(name: str, env: str = "") -> str:
 
 
 def _config() -> dict:
-    environment = str(os.environ.get("CYBERCHECK_APNS_ENVIRONMENT", "sandbox") or "sandbox").strip().lower()
-    if environment not in {"sandbox", "production"}:
-        environment = "sandbox"
     return {
         "keyId": _read_private("apns-key-id", "CYBERCHECK_APNS_KEY_ID"),
         "teamId": _read_private("apns-team-id", "CYBERCHECK_APNS_TEAM_ID"),
         "keyPath": str(PRIVATE_DIR / "apns-key.p8"),
         "topic": str(os.environ.get("CYBERCHECK_APNS_TOPIC", DEFAULT_TOPIC) or DEFAULT_TOPIC).strip(),
-        "environment": environment,
     }
 
 
@@ -38,7 +34,7 @@ def status() -> dict:
     cfg = _config(); key_exists = Path(cfg["keyPath"]).is_file()
     configured = bool(cfg["keyId"] and cfg["teamId"] and cfg["topic"] and key_exists)
     return {"configured": configured, "transport": "apns-http2", "state": "ready" if configured else "awaiting_credentials",
-            "environment": cfg["environment"], "topic": cfg["topic"], "keyPresent": key_exists,
+            "environments": ["sandbox", "production"], "topic": cfg["topic"], "keyPresent": key_exists,
             "keyIdPresent": bool(cfg["keyId"]), "teamIdPresent": bool(cfg["teamId"])}
 
 
@@ -63,7 +59,7 @@ def _provider_token(cfg: dict) -> str:
     return f"{header}.{claims}.{_b64(signature)}"
 
 
-def send(device_token: str, title: str, body: str, *, data: dict | None = None) -> dict:
+def send(device_token: str, title: str, body: str, *, data: dict | None = None, environment: str = "sandbox") -> dict:
     cfg = _config()
     if not status()["configured"]:
         raise RuntimeError("APNs non configuré")
@@ -71,7 +67,10 @@ def send(device_token: str, title: str, body: str, *, data: dict | None = None) 
         import httpx
     except ImportError as exc:
         raise RuntimeError("httpx indisponible pour APNs") from exc
-    host = "https://api.push.apple.com" if cfg["environment"] == "production" else "https://api.sandbox.push.apple.com"
+    environment = str(environment or "sandbox").strip().lower()
+    if environment not in {"sandbox", "production"}:
+        raise ValueError("Environnement APNs invalide")
+    host = "https://api.push.apple.com" if environment == "production" else "https://api.sandbox.push.apple.com"
     payload = {"aps": {"alert": {"title": str(title)[:120], "body": str(body)[:500]}, "sound": "default"}}
     if data:
         payload["data"] = data

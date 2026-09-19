@@ -6,14 +6,16 @@ Application SwiftUI local-first pour les rappels de contrôle technique.
 
 - ajout manuel d’un ou plusieurs véhicules ;
 - stockage local des échéances ;
-- notifications locales J-60, J-30, J-15, J-7 et J-1 à 09:00 Europe/Paris ;
+- notifications J-60, J-30, J-15, J-7 et J-1 à 09:00 Europe/Paris, locales tant que le canal push central n’est pas activé ;
 - reprogrammation des rappels au lancement ;
 - synchronisation de la politique publique (J-60/J-30/J-15/J-7/J-1, heure, fuseau et URL de réservation) depuis `/api/mobile/bootstrap`, avec repli local sûr ;
 - suppression des notifications associées lorsqu’un véhicule est supprimé ;
 - accès direct à la réservation Checkup Auto ;
 - tests unitaires du calcul des échéances.
 
-La synchronisation Mercure ne doit pas exposer de données clients via une API publique. Elle sera branchée ensuite derrière l’authentification Checkup Auto et le moteur de relance central.
+L'application synchronise au serveur uniquement un `deadlineId` UUID opaque et la date d'échéance. L'immatriculation et le libellé du véhicule restent sur l'iPhone ; aucun identifiant Mercure ni aucune donnée client n'est transmis par cette API. L'instantané est authentifié par l'identité d'installation conservée dans le Trousseau Apple.
+
+Le bootstrap public indique si le push central est réellement actif. Tant qu'il ne l'est pas, les notifications locales restent le mécanisme de repli ; lorsqu'il est activé, l'application retire les notifications locales correspondantes afin d'éviter les doublons.
 
 ## Première compilation sur le Mac mini
 
@@ -37,9 +39,12 @@ swiftc Sources/Models.swift Tests/ReminderPlanSmoke.swift -o /tmp/reminder-plan-
 
 swiftc Sources/MobileBootstrap.swift Tests/MobileBootstrapSmoke.swift -o /tmp/mobile-bootstrap-smoke
 /tmp/mobile-bootstrap-smoke
+
+swiftc Sources/Models.swift Sources/DeviceRegistration.swift Sources/MobileDeadlineSync.swift Tests/MobileDeadlineSyncSmoke.swift -o /tmp/mobile-deadline-sync-smoke
+/tmp/mobile-deadline-sync-smoke
 ```
 
-Les sorties attendues sont `REMINDER_PLAN_SMOKE_OK` et `MOBILE_BOOTSTRAP_SMOKE_OK`. Les tests XCTest et la compilation iOS complète nécessitent Xcode.app.
+Les sorties attendues sont `REMINDER_PLAN_SMOKE_OK`, `MOBILE_BOOTSTRAP_SMOKE_OK` et `MOBILE_DEADLINE_SYNC_SMOKE_OK`. Les tests XCTest et la compilation iOS complète nécessitent Xcode.app.
 
 ## ReferralWallet et moteur central
 

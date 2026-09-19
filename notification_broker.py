@@ -174,13 +174,18 @@ def send_push(
     category: str,
     reference: str,
     data: dict | None = None,
+    environment: str = "sandbox",
 ) -> dict:
     token = str(device_token or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{32,400}", token) or len(token) % 2:
         raise ValueError("Jeton APNs invalide")
+    environment = str(environment or "sandbox").strip().lower()
+    if environment not in {"sandbox", "production"}:
+        raise ValueError("Environnement APNs invalide")
     category = _text(category, "Catégorie", 80)
     reference = _text(reference, "Référence", 160)
-    key = _delivery_key("push", category, reference, token)
+    recipient_key = f"{environment}:{token}"
+    key = _delivery_key("push", category, reference, recipient_key)
     now = _now(); now_iso = now.isoformat(timespec="seconds")
     init_db()
     with connect() as db:
@@ -195,7 +200,7 @@ def send_push(
                 """INSERT INTO notification_delivery(
                    idempotency_key,channel,category,reference,recipient_hash,status,attempts,created_at,last_attempt_at
                    ) VALUES(?,?,?,?,?,'delivering',1,?,?)""",
-                (key, "push", category, reference, _recipient_hash(token), now_iso, now_iso),
+                (key, "push", category, reference, _recipient_hash(recipient_key), now_iso, now_iso),
             )
         else:
             db.execute(
@@ -203,7 +208,7 @@ def send_push(
                 (now_iso, key),
             )
     try:
-        push_transport.send(token, title, body, data=data)
+        push_transport.send(token, title, body, data=data, environment=environment)
     except Exception as exc:
         with connect() as db:
             db.execute("UPDATE notification_delivery SET status='failed',last_error=? WHERE idempotency_key=?", (_safe_error(exc), key))

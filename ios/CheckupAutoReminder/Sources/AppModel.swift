@@ -13,7 +13,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
 
     private let scheduler = ReminderScheduler()
-    private let storageKey = "checkupauto.vehicle.deadlines.v1"
 
     init() {
         load()
@@ -21,6 +20,7 @@ final class AppModel: ObservableObject {
             await refreshMobileConfig()
             await refreshNotificationState()
             await rescheduleAll()
+            await syncRemoteDeadlines()
         }
     }
 
@@ -47,11 +47,18 @@ final class AppModel: ObservableObject {
         vehicles.sort { $0.controlDueDate < $1.controlDueDate }
         persist()
         Task {
-            do {
-                try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
-            } catch {
-                errorMessage = "Le véhicule est enregistré, mais les rappels n’ont pas pu être programmés."
+            if notificationAuthorized {
+                do {
+                    if mobileConfig.notifications.localFallback {
+                        try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
+                    } else {
+                        await scheduler.remove(vehicle, leadDays: mobileConfig.reminders.leadDays)
+                    }
+                } catch {
+                    errorMessage = "Le véhicule est enregistré, mais les rappels n’ont pas pu être programmés."
+                }
             }
+            await syncRemoteDeadlines()
         }
     }
 
@@ -66,6 +73,7 @@ final class AppModel: ObservableObject {
                     leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
                 )
             }
+            await syncRemoteDeadlines()
         }
     }
 
@@ -85,7 +93,14 @@ final class AppModel: ObservableObject {
         guard notificationAuthorized else { return }
         for vehicle in vehicles {
             do {
-                try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
+                if mobileConfig.notifications.localFallback {
+                    try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
+                } else {
+                    await scheduler.remove(
+                        vehicle,
+                        leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+                    )
+                }
             } catch {
                 errorMessage = "Certains rappels n’ont pas pu être reprogrammés."
             }
@@ -105,16 +120,22 @@ final class AppModel: ObservableObject {
         #endif
     }
 
+    private func syncRemoteDeadlines() async {
+        do {
+            try await MobileDeadlineSyncClient.sync(
+                vehicles: vehicles,
+                timezone: mobileConfig.reminders.timezone
+            )
+        } catch {
+            // Remote push is an optional channel. Local reminders remain the safe fallback.
+        }
+    }
+
     private func load() {
-        guard
-            let data = UserDefaults.standard.data(forKey: storageKey),
-            let decoded = try? JSONDecoder().decode([VehicleDeadline].self, from: data)
-        else { return }
-        vehicles = decoded.sorted { $0.controlDueDate < $1.controlDueDate }
+        vehicles = VehicleDeadlineStore.load()
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(vehicles) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
+        VehicleDeadlineStore.save(vehicles)
     }
 }

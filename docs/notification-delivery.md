@@ -14,7 +14,7 @@ The former Mercure Google-review sender is explicitly disabled in `mercure_admin
 
 `notification_broker.py` is the delivery boundary. It creates a deterministic idempotency key from channel, category, business reference and recipient, records delivery state without persisting the raw recipient or message body, leases in-flight deliveries to prevent concurrent duplicate sends, and permits retries after failures. The administration API exposes read-only status at `/api/admin/notifications/status`.
 
-The broker currently has one active channel: e-mail. APNs is declared as not configured until Apple credentials and the production app identity are available.
+The broker supports e-mail and APNs. APNs remains non-delivering until Apple credentials are present and `CYBERCHECK_MOBILE_PUSH_ENABLED` is explicitly enabled; this activation gate prevents central push delivery from duplicating the application's local fallback reminders during rollout.
 
 ## Email transports
 
@@ -57,6 +57,12 @@ A recent Mercure window is refreshed on every cycle. Historical coverage is prog
 
 ## Mobile bootstrap policy
 
-The public endpoint `/api/mobile/bootstrap` exposes only non-secret mobile policy: reminder lead days, delivery hour and timezone, the public booking URL, the configured referral reward amount, and the public application landing/download state. It does not expose Mercure identifiers, customer data, OAuth material, APNs credentials or administration configuration.
+The public endpoint `/api/mobile/bootstrap` exposes only non-secret mobile policy: reminder lead days, delivery hour and timezone, the public booking URL, the configured referral reward amount, application landing/download state, and whether central push is actually active. It does not expose Mercure identifiers, customer data, OAuth material, APNs credentials or administration configuration.
 
-The iOS application validates schema version 1 and the reminder policy before applying it. If the endpoint is unavailable or invalid, the app keeps the baked-in safe defaults (J-60/J-30/J-15/J-7/J-1 at 09:00 Europe/Paris and the public Mercure booking URL). This removes duplicated mutable policy while preserving local reminders during a network outage.
+The iOS application validates schema version 1 and the reminder policy before applying it. If the endpoint is unavailable or invalid, the app keeps the baked-in safe defaults (J-60/J-30/J-15/J-7/J-1 at 09:00 Europe/Paris and the public Mercure booking URL). Local notifications remain enabled unless the server explicitly declares central push active.
+
+## Mobile due-date push pipeline
+
+The authenticated endpoint `/api/mobile/reminders/sync` receives a full snapshot of at most 24 mobile deadlines for an installation. Each entry contains only an opaque UUID and an ISO due date; registration plates, vehicle labels, Mercure identifiers and customer data never enter this registry. Device unregister and APNs-token reassignment purge stale mobile deadlines.
+
+`mobile_reminder_dispatch.py` evaluates those dates with the same J-60/J-30/J-15/J-7/J-1 policy and routes eligible notifications through `NotificationBroker`. The APNs environment is selected per registered device (`sandbox` or `production`) rather than globally, so Debug and Release installations can coexist safely.

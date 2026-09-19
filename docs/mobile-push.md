@@ -16,6 +16,10 @@ Les identifiants Apple ne doivent jamais être ajoutés au dépôt. Le serveur a
 - `/root/CyberCheckPrivate/apns-key-id`
 - `/root/CyberCheckPrivate/apns-team-id`
 
-Le topic par défaut est `fr.checkupauto.reminder`. `CYBERCHECK_APNS_ENVIRONMENT` choisit `sandbox` ou `production`. Le transport utilise l'API HTTP/2 APNs avec un provider token ES256 à durée courte.
+Le topic par défaut est `fr.checkupauto.reminder`. L'environnement APNs est attaché à chaque appareil (`sandbox` pour une build Debug, `production` pour une build Release) ; le serveur choisit donc le bon endpoint Apple au moment de chaque envoi. Le transport utilise l'API HTTP/2 APNs avec un provider token ES256 à durée courte.
 
-L'enregistrement sécurisé des appareils et le transport sont indépendants des données Mercure. Une association explicite entre une échéance mobile et une installation devra être ajoutée avant d'utiliser les push pour les relances d'échéance ; le système ne diffuse donc aucun push automatique à ce stade.
+## Synchronisation des échéances mobiles
+
+`POST /api/mobile/reminders/sync` exige la même identité d'installation authentifiée. L'application transmet un instantané borné à 24 échéances, chacune réduite à un UUID opaque `deadlineId` et une date ISO `dueDate`. Elle ne transmet ni immatriculation, ni libellé véhicule, ni identifiant client, ni donnée Mercure. La suppression d'un véhicule dans l'application supprime l'échéance correspondante du registre serveur au prochain instantané. La désinscription d'un appareil purge également ses échéances.
+
+Le moteur `mobile_reminder_dispatch.py` applique la même politique centrale que l'application (J-60/J-30/J-15/J-7/J-1 à 09:00 Europe/Paris) et passe par `NotificationBroker` pour l'idempotence. L'envoi distant est volontairement désactivé tant que `CYBERCHECK_MOBILE_PUSH_ENABLED` n'est pas explicitement activé et que les identifiants APNs privés ne sont pas présents. `/api/mobile/bootstrap` expose alors `notifications.remotePushActive`; l'application supprime ses notifications locales lorsque le push central est actif, sinon elle conserve les notifications locales comme repli sûr.

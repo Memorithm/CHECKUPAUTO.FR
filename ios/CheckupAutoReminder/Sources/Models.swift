@@ -50,3 +50,20 @@ enum ReminderPlan {
         .sorted { $0.fireDate < $1.fireDate }
     }
 }
+
+enum VehicleDeadlineStore {
+    static let storageKey = "checkupauto.vehicle.deadlines.v1"
+
+    static func load(defaults: UserDefaults = .standard) -> [VehicleDeadline] {
+        guard let data = defaults.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode([VehicleDeadline].self, from: data) else {
+            return []
+        }
+        return decoded.sorted { $0.controlDueDate < $1.controlDueDate }
+    }
+
+    static func save(_ vehicles: [VehicleDeadline], defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(vehicles) else { return }
+        defaults.set(data, forKey: storageKey)
+    }
+}
