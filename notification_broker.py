@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime, math
 import hashlib
 import os
 import re
@@ -122,7 +122,7 @@ def _seconds_until(value: str, now: datetime.datetime) -> int:
         return 0
     if target.tzinfo is None:
         target = target.replace(tzinfo=datetime.timezone.utc)
-    return max(0, int((target.astimezone(datetime.timezone.utc) - now).total_seconds()))
+    return max(0, math.ceil((target.astimezone(datetime.timezone.utc) - now).total_seconds()))
 
 
 def _public_result(row: sqlite3.Row, *, already_sent: bool = False, in_flight: bool = False, deferred: bool = False, retry_after: int = 0) -> dict:
@@ -169,7 +169,7 @@ def _record_transport_failure(transport_key: str, failure_class: str, exc: Excep
     delay = resilience.backoff_seconds(transport_key, attempt, retry_after=retry_after, now=now) if failure_class == "transient" else 0
     if failure_class == "configuration":
         delay = resilience.CONFIGURATION_CIRCUIT_SECONDS
-    next_at = (now + datetime.timedelta(seconds=delay)).isoformat(timespec="seconds") if delay else ""
+    next_at = (now + datetime.timedelta(seconds=delay)).isoformat(timespec="microseconds") if delay else ""
     with connect() as db:
         row = db.execute("SELECT * FROM notification_transport_health WHERE transport_key=?", (transport_key,)).fetchone()
         consecutive = int(row["consecutive_failures"]) + 1 if row else 1
