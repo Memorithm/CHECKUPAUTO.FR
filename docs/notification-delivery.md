@@ -115,3 +115,11 @@ Mobile installation identity is registered independently from notification permi
 The iOS core can validate and consume a vehicle claim without activating a claim-delivery channel. The accepted canonical form is an HTTPS CheckupAuto URL at /app/claim with the claim token in the URL fragment rather than the query string. HTTP, foreign hosts and query-carried tokens are rejected.
 
 The app ensures its installation identity is registered before posting the opaque token to /api/mobile/claims/consume and accepts only an opaque binding UUID in the response. Associated Domains, Universal Links and custom URL schemes remain intentionally unconfigured, so this code does not yet cause Safari, Mail or another app to route claim links into CheckupAuto automatically.
+
+## Durable iOS privacy purge
+
+Full installation deletion is server-confirmed before local destruction. After the server removes the installation and its vehicle bindings, the app deletes both Keychain identity records, clears locally stored vehicle deadlines and removes scheduled local reminders.
+
+A local suppression tombstone prevents automatic installation recreation on later launches or foreground transitions, even when iOS notification permission remains granted. Reactivation requires an explicit user action such as enabling CheckupAuto again or consuming a new valid vehicle claim.
+
+If server deletion fails, local identity and vehicle data are retained so the operation can be retried. Mercure regulatory records are outside this mobile purge and are not modified.

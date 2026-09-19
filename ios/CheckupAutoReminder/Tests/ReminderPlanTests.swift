@@ -36,6 +36,22 @@ extension ReminderPlanTests {
 
 
 extension ReminderPlanTests {
+    func testVehicleDeadlineStoreCanBeCleared() {
+        let suite = "VehicleDeadlineStoreTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Unable to create isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vehicle = VehicleDeadline(
+            registration: "AA-123-BB",
+            controlDueDate: date(2027, 1, 1)
+        )
+        VehicleDeadlineStore.save([vehicle], defaults: defaults)
+        XCTAssertEqual(VehicleDeadlineStore.load(defaults: defaults), [vehicle])
+        VehicleDeadlineStore.clear(defaults: defaults)
+        XCTAssertTrue(VehicleDeadlineStore.load(defaults: defaults).isEmpty)
+    }
+
     func testUsesServerSuppliedLeadDaysAndHour() {
         let moments = ReminderPlan.moments(
             dueDate: date(2027, 1, 1),

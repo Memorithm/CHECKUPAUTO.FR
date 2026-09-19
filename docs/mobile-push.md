@@ -66,3 +66,13 @@ L'application contient maintenant un client de consommation du claim. Elle accep
 Le client réenregistre d'abord l'identité d'installation puis appelle POST /api/mobile/claims/consume. La réponse attend exclusivement un bindingId UUID opaque. Aucun identifiant véhicule ou client Mercure n'est accepté comme résultat mobile.
 
 Cette prise en charge est actuellement préparatoire : ContentView sait traiter une URL reçue par SwiftUI, mais aucun Associated Domain, Universal Link ou schéma URL personnalisé n'est activé dans le projet. Aucun canal de remise de claim au client n'est donc activé par ce changement.
+
+## Effacement durable des données iOS
+
+L'action d'effacement complet de l'application suit un ordre volontairement conservateur : CheckupAuto confirme d'abord la suppression serveur de l'installation et de ses bindings, puis l'application retire les deux entrées d'identité du Trousseau Apple, efface les véhicules conservés localement et supprime les rappels locaux programmés.
+
+Après un effacement confirmé, un tombstone local bloque la recréation automatique de l'installation au démarrage ou au retour au premier plan, même si l'autorisation iOS de notifications est encore accordée. La réactivation doit résulter d'une action explicite : l'utilisateur choisit Réactiver Checkup Auto / Activer les rappels, ou consomme un nouveau claim véhicule valide.
+
+Si la suppression serveur échoue, les données locales ne sont pas effacées et l'application demande de réessayer avec une connexion réseau. Si le serveur a confirmé la suppression mais que l'effacement du Trousseau échoue, le tombstone est déjà posé : l'application ne recrée pas silencieusement l'installation supprimée.
+
+Cette fonction supprime les données de l'installation CheckupAuto et les données locales de l'application. Elle ne modifie pas les données réglementaires conservées dans Mercure.

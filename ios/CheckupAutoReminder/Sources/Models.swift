@@ -66,4 +66,8 @@ enum VehicleDeadlineStore {
         guard let data = try? JSONEncoder().encode(vehicles) else { return }
         defaults.set(data, forKey: storageKey)
     }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
+    }
 }
