@@ -190,6 +190,3 @@ def status(limit: int = 20) -> dict:
         "recent": recent,
         "privacy": "Les destinataires et le contenu des notifications ne sont pas persistés par le broker.",
     }
-
-
-init_db()
