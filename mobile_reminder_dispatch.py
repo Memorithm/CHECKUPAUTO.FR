@@ -71,7 +71,7 @@ def process_once(now: datetime.datetime | None = None) -> dict:
     if not transport.get("configured"):
         return {"ok": True, "state": "waiting_apns_credentials", "eligible": len(eligible), "sent": 0}
 
-    sent = already = in_flight = failed = 0
+    sent = already = in_flight = failed = retired = transient = provider_failures = 0
     for row in eligible:
         try:
             title, body = _message(row["due_date"], row["days_before"])
@@ -92,15 +92,39 @@ def process_once(now: datetime.datetime | None = None) -> dict:
                 in_flight += 1
             else:
                 sent += 1
+        except apns_gateway.APNSError as exc:
+            if exc.token_invalid:
+                result = mobile_devices.disable_invalid_token(
+                    row["installation_id"], row["device_token"], f"apns:{exc.reason}"
+                )
+                if result.get("disabled"):
+                    retired += 1
+                continue
+            failed += 1
+            if exc.retryable:
+                transient += 1
+            if exc.provider_error:
+                provider_failures += 1
+                break
         except Exception:
             failed += 1
+    state = "active"
+    if provider_failures:
+        state = "provider_failure"
+    elif failed:
+        state = "partial_failure"
+    elif retired:
+        state = "active_tokens_retired"
     return {
         "ok": failed == 0,
-        "state": "active" if failed == 0 else "partial_failure",
+        "state": state,
         "eligible": len(eligible),
         "sent": sent,
         "alreadySent": already,
         "inFlight": in_flight,
+        "retiredTokens": retired,
+        "transientFailures": transient,
+        "providerFailures": provider_failures,
         "failed": failed,
     }
 

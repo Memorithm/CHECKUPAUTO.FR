@@ -9,6 +9,27 @@ from pathlib import Path
 PRIVATE_DIR = Path(os.environ.get("CYBERCHECK_PRIVATE_DIR", "/root/CyberCheckPrivate"))
 DEFAULT_TOPIC = "fr.checkupauto.reminder"
 
+TOKEN_INVALID_REASONS = {"BadDeviceToken", "Unregistered"}
+PROVIDER_CONFIGURATION_REASONS = {
+    "BadCertificate", "BadCertificateEnvironment", "BadTopic", "DeviceTokenNotForTopic",
+    "ExpiredProviderToken", "Forbidden", "InvalidProviderToken", "MissingProviderToken",
+    "MissingTopic", "TopicDisallowed",
+}
+TRANSIENT_REASONS = {"InternalServerError", "ServiceUnavailable", "Shutdown", "TooManyRequests", "TooManyProviderTokenUpdates", "TransportError"}
+TRANSIENT_STATUS = {429, 500, 503}
+
+
+class APNSError(RuntimeError):
+    def __init__(self, status: int, reason: str, *, apns_id: str = "", retry_after: str = ""):
+        self.status = int(status)
+        self.reason = str(reason or "APNs error")[:120]
+        self.apns_id = str(apns_id or "")[:80]
+        self.retry_after = str(retry_after or "")[:80]
+        self.token_invalid = self.status == 410 or self.reason in TOKEN_INVALID_REASONS
+        self.provider_error = self.reason in PROVIDER_CONFIGURATION_REASONS or self.status in {403, 404, 405}
+        self.retryable = self.status in TRANSIENT_STATUS or self.reason in TRANSIENT_REASONS
+        super().__init__(f"APNs {self.status}: {self.reason}")
+
 
 def _read_private(name: str, env: str = "") -> str:
     value = str(os.environ.get(env, "") or "").strip() if env else ""
@@ -59,6 +80,22 @@ def _provider_token(cfg: dict) -> str:
     return f"{header}.{claims}.{_b64(signature)}"
 
 
+def _error_from_response(response) -> APNSError:
+    reason = "APNs error"
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            reason = str(payload.get("reason") or reason)
+    except Exception:
+        pass
+    return APNSError(
+        response.status_code,
+        reason,
+        apns_id=response.headers.get("apns-id", ""),
+        retry_after=response.headers.get("retry-after", ""),
+    )
+
+
 def send(device_token: str, title: str, body: str, *, data: dict | None = None, environment: str = "sandbox") -> dict:
     cfg = _config()
     if not status()["configured"]:
@@ -79,13 +116,11 @@ def send(device_token: str, title: str, body: str, *, data: dict | None = None, 
         raise ValueError("payload APNs trop volumineux")
     headers = {"authorization": f"bearer {_provider_token(cfg)}", "apns-topic": cfg["topic"],
                "apns-push-type": "alert", "apns-priority": "10", "content-type": "application/json"}
-    with httpx.Client(http2=True, timeout=12.0) as client:
-        response = client.post(f"{host}/3/device/{device_token}", content=raw, headers=headers)
+    try:
+        with httpx.Client(http2=True, timeout=12.0) as client:
+            response = client.post(f"{host}/3/device/{device_token}", content=raw, headers=headers)
+    except httpx.RequestError as exc:
+        raise APNSError(0, "TransportError") from exc
     if response.status_code != 200:
-        reason = "APNs error"
-        try:
-            reason = str(response.json().get("reason") or reason)[:120]
-        except Exception:
-            pass
-        raise RuntimeError(f"APNs {response.status_code}: {reason}")
+        raise _error_from_response(response)
     return {"ok": True, "status": 200, "apnsId": response.headers.get("apns-id", "")}

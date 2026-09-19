@@ -100,8 +100,12 @@ def init_db() -> None:
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           last_seen_at TEXT NOT NULL,
-          disabled_at TEXT NOT NULL DEFAULT ''
+          disabled_at TEXT NOT NULL DEFAULT '',
+          disabled_reason TEXT NOT NULL DEFAULT ''
         )""")
+        columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(mobile_device)")}
+        if "disabled_reason" not in columns:
+            db.execute("ALTER TABLE mobile_device ADD COLUMN disabled_reason TEXT NOT NULL DEFAULT ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_token_hash ON mobile_device(token_hash)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_active ON mobile_device(disabled_at,environment)")
         db.execute("""CREATE TABLE IF NOT EXISTS mobile_deadline(
@@ -142,7 +146,7 @@ def register(payload: dict) -> dict:
         for conflict_id in conflicts:
             db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (conflict_id,))
         db.execute(
-            "UPDATE mobile_device SET device_token='',disabled_at=? WHERE token_hash=? AND installation_id<>? AND disabled_at=''",
+            "UPDATE mobile_device SET device_token='',disabled_at=?,disabled_reason='token_reassigned' WHERE token_hash=? AND installation_id<>? AND disabled_at=''",
             (now, token_hash, installation_id),
         )
         db.execute("""INSERT INTO mobile_device(
@@ -150,7 +154,7 @@ def register(payload: dict) -> dict:
         ) VALUES(?,?,?,?,?,?,?,?, '')
         ON CONFLICT(installation_id) DO UPDATE SET
           device_token=excluded.device_token,token_hash=excluded.token_hash,environment=excluded.environment,
-          updated_at=excluded.updated_at,last_seen_at=excluded.last_seen_at,disabled_at=''""",
+          updated_at=excluded.updated_at,last_seen_at=excluded.last_seen_at,disabled_at='',disabled_reason=''""",
           (installation_id, secret_hash, token, token_hash, environment, now, now, now),
         )
     return {"ok": True, "installationId": installation_id, "environment": environment, "registeredAt": now}
@@ -169,10 +173,32 @@ def unregister(payload: dict) -> dict:
             return {"ok": True, "removed": False}
         if not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
             raise PermissionError("identité mobile refusée")
-        db.execute("UPDATE mobile_device SET device_token='',disabled_at=?,updated_at=? WHERE installation_id=?", (now, now, installation_id))
+        db.execute("UPDATE mobile_device SET device_token='',disabled_at=?,disabled_reason='client_unregister',updated_at=? WHERE installation_id=?", (now, now, installation_id))
         db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
     return {"ok": True, "removed": True}
 
+
+
+def disable_invalid_token(installation_id: str, device_token: str, reason: str) -> dict:
+    installation_id = _install_id(installation_id)
+    token = _device_token(device_token)
+    clean_reason = re.sub(r"[^A-Za-z0-9_.:-]", "_", str(reason or "invalid_token"))[:80] or "invalid_token"
+    token_hash = _hash(token)
+    init_db(); now = _now_iso()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT token_hash,disabled_at FROM mobile_device WHERE installation_id=?",
+            (installation_id,),
+        ).fetchone()
+        if not row or row["disabled_at"] or not hmac.compare_digest(str(row["token_hash"]), token_hash):
+            return {"ok": True, "disabled": False}
+        db.execute(
+            "UPDATE mobile_device SET device_token='',disabled_at=?,disabled_reason=?,updated_at=? WHERE installation_id=?",
+            (now, clean_reason, now, installation_id),
+        )
+        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
+    return {"ok": True, "disabled": True, "reason": clean_reason, "disabledAt": now}
 
 
 def _authenticated_device(db: sqlite3.Connection, installation_id: str, secret_hash: str) -> sqlite3.Row:
@@ -262,6 +288,9 @@ def status() -> dict:
         by_environment = {row["environment"]: int(row["n"]) for row in rows}
         deadlines = int(db.execute("SELECT COUNT(*) n FROM mobile_deadline").fetchone()["n"])
         installations_with_deadlines = int(db.execute("SELECT COUNT(DISTINCT installation_id) n FROM mobile_deadline").fetchone()["n"])
+        disabled_rows = db.execute("SELECT disabled_reason,COUNT(*) n FROM mobile_device WHERE disabled_at<>'' GROUP BY disabled_reason")
+        disabled_by_reason = {str(row["disabled_reason"] or "unspecified"): int(row["n"]) for row in disabled_rows}
     return {"ok": True, "total": total, "active": active, "byEnvironment": by_environment,
+            "disabledByReason": disabled_by_reason,
             "deadlines": deadlines, "installationsWithDeadlines": installations_with_deadlines,
             "privacy": "Les jetons APNs et les échéances mobiles restent dans le stockage privé du serveur ; seules des échéances opaques sans immatriculation sont conservées."}

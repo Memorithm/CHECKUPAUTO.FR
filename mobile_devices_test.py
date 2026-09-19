@@ -24,6 +24,19 @@ class MobileDevicesTest(unittest.TestCase):
                 "deviceToken": self.token, "environment": "sandbox"}
         data.update(changes); return data
 
+    def test_init_db_migrates_existing_registry_without_disabled_reason(self):
+        devices.DB.unlink(missing_ok=True)
+        with devices.connect() as db:
+            db.execute("""CREATE TABLE mobile_device(
+              installation_id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, device_token TEXT NOT NULL,
+              token_hash TEXT NOT NULL, environment TEXT NOT NULL, created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, disabled_at TEXT NOT NULL DEFAULT ''
+            )""")
+        devices.init_db()
+        with devices.connect() as db:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(mobile_device)")}
+        self.assertIn("disabled_reason", columns)
+
     def test_register_keeps_token_private_from_status(self):
         result = devices.register(self.payload())
         self.assertTrue(result["ok"]); self.assertEqual(devices.status()["active"], 1)
@@ -96,6 +109,23 @@ class MobileDevicesTest(unittest.TestCase):
         })
         self.assertEqual(devices.status()["deadlines"], 0)
         self.assertEqual(devices.active_targets()[0]["installation_id"], replacement_id)
+
+    def test_apns_invalid_token_disable_is_compare_and_clear_and_purges_deadlines(self):
+        devices.register(self.payload())
+        devices.sync_deadlines({
+            "installationId": self.install_id, "registrationSecret": self.secret,
+            "deadlines": [{"deadlineId": "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca", "dueDate": "2027-01-15"}],
+        })
+        stale = devices.disable_invalid_token(self.install_id, "cd" * 32, "apns:Unregistered")
+        self.assertFalse(stale["disabled"])
+        self.assertEqual(devices.status()["active"], 1)
+        result = devices.disable_invalid_token(self.install_id, self.token, "apns:Unregistered")
+        self.assertTrue(result["disabled"])
+        state = devices.status()
+        self.assertEqual(state["active"], 0)
+        self.assertEqual(state["deadlines"], 0)
+        self.assertEqual(state["disabledByReason"]["apns:Unregistered"], 1)
+        self.assertNotIn(self.token.encode(), devices.DB.read_bytes())
 
     def test_rejects_malformed_inputs(self):
         with self.assertRaises(ValueError): devices.register(self.payload(installationId="bad"))
