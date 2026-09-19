@@ -37,6 +37,36 @@ class MobileDevicesTest(unittest.TestCase):
             columns = {row["name"] for row in db.execute("PRAGMA table_info(mobile_device)")}
         self.assertIn("disabled_reason", columns)
 
+    def test_init_db_migrates_existing_deadlines_to_device_source(self):
+        devices.DB.unlink(missing_ok=True)
+        with devices.connect() as db:
+            db.execute("""CREATE TABLE mobile_deadline(
+              installation_id TEXT NOT NULL,
+              deadline_id TEXT NOT NULL,
+              due_date TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(installation_id,deadline_id)
+            )""")
+            db.execute(
+                """INSERT INTO mobile_deadline(
+                   installation_id,deadline_id,due_date,created_at,updated_at
+                   ) VALUES(?,?,?,?,?)""",
+                (
+                    self.install_id,
+                    "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca",
+                    "2027-01-15",
+                    "2026-09-19T00:00:00+00:00",
+                    "2026-09-19T00:00:00+00:00",
+                ),
+            )
+        devices.init_db()
+        with devices.connect() as db:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(mobile_deadline)")}
+            row = db.execute("SELECT source FROM mobile_deadline").fetchone()
+        self.assertIn("source", columns)
+        self.assertEqual(row["source"], devices.DEVICE_DEADLINE_SOURCE)
+
     def test_register_keeps_token_private_from_status(self):
         result = devices.register(self.payload())
         self.assertTrue(result["ok"]); self.assertEqual(devices.status()["active"], 1)
@@ -83,6 +113,54 @@ class MobileDevicesTest(unittest.TestCase):
         devices.sync_deadlines(base | {"deadlines": [{"deadlineId": second, "dueDate": "2027-03-15"}]})
         targets = devices.due_targets("2027-01-01", "2027-04-01")
         self.assertEqual([(r["deadline_id"], r["due_date"]) for r in targets], [(second, "2027-03-15")])
+
+    def test_authoritative_deadlines_suppress_device_fallback_without_deleting_it(self):
+        devices.register(self.payload())
+        device_id = "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca"
+        mercure_id = "936246c1-8932-4b6f-92b6-1ea591c09f96"
+        base = {"installationId": self.install_id, "registrationSecret": self.secret}
+        devices.sync_deadlines(base | {"deadlines": [
+            {"deadlineId": device_id, "dueDate": "2027-01-15"},
+        ]})
+        devices.sync_authoritative_deadlines(self.install_id, [
+            {"deadlineId": mercure_id, "dueDate": "2027-02-15"},
+        ])
+
+        targets = devices.due_targets("2027-01-01", "2027-03-01")
+        self.assertEqual(
+            [(row["deadline_id"], row["source"]) for row in targets],
+            [(mercure_id, devices.AUTHORITATIVE_DEADLINE_SOURCE)],
+        )
+        state = devices.status()
+        self.assertEqual(state["deadlinesBySource"][devices.DEVICE_DEADLINE_SOURCE], 1)
+        self.assertEqual(state["deadlinesBySource"][devices.AUTHORITATIVE_DEADLINE_SOURCE], 1)
+
+        devices.sync_authoritative_deadlines(self.install_id, [])
+        fallback = devices.due_targets("2027-01-01", "2027-03-01")
+        self.assertEqual(
+            [(row["deadline_id"], row["source"]) for row in fallback],
+            [(device_id, devices.DEVICE_DEADLINE_SOURCE)],
+        )
+
+    def test_device_snapshot_cannot_overwrite_authoritative_deadline(self):
+        devices.register(self.payload())
+        deadline_id = "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca"
+        devices.sync_authoritative_deadlines(self.install_id, [
+            {"deadlineId": deadline_id, "dueDate": "2027-02-15"},
+        ])
+        with self.assertRaisesRegex(ValueError, "source autoritaire"):
+            devices.sync_deadlines({
+                "installationId": self.install_id,
+                "registrationSecret": self.secret,
+                "deadlines": [{"deadlineId": deadline_id, "dueDate": "2027-03-15"}],
+            })
+        target = devices.due_targets("2027-02-01", "2027-04-01")[0]
+        self.assertEqual(target["due_date"], "2027-02-15")
+        self.assertEqual(target["source"], devices.AUTHORITATIVE_DEADLINE_SOURCE)
+
+    def test_authoritative_sync_requires_active_registered_installation(self):
+        with self.assertRaises(LookupError):
+            devices.sync_authoritative_deadlines(self.install_id, [])
 
     def test_deadline_sync_requires_registered_secret_and_unregister_purges(self):
         devices.register(self.payload())

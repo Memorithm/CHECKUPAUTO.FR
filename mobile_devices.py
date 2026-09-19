@@ -14,6 +14,8 @@ DB = DATA_DIR / "mobile-devices.sqlite3"
 _TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32,400}$")
 _SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 MAX_DEADLINES_PER_INSTALLATION = 24
+DEVICE_DEADLINE_SOURCE = "device"
+AUTHORITATIVE_DEADLINE_SOURCE = "mercure"
 
 
 def _now_iso() -> str:
@@ -112,11 +114,16 @@ def init_db() -> None:
           installation_id TEXT NOT NULL,
           deadline_id TEXT NOT NULL,
           due_date TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'device',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           PRIMARY KEY(installation_id,deadline_id)
         )""")
+        deadline_columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(mobile_deadline)")}
+        if "source" not in deadline_columns:
+            db.execute("ALTER TABLE mobile_deadline ADD COLUMN source TEXT NOT NULL DEFAULT 'device'")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_deadline_due ON mobile_deadline(due_date)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_deadline_source ON mobile_deadline(installation_id,source,due_date)")
     try:
         DB.chmod(0o600)
     except PermissionError:
@@ -237,20 +244,116 @@ def sync_deadlines(payload: dict) -> dict:
         if deadlines:
             placeholders = ",".join("?" for _ in deadlines)
             db.execute(
-                f"DELETE FROM mobile_deadline WHERE installation_id=? AND deadline_id NOT IN ({placeholders})",
-                (installation_id, *(deadline_id for deadline_id, _ in deadlines)),
+                f"""DELETE FROM mobile_deadline
+                    WHERE installation_id=? AND source=?
+                    AND deadline_id NOT IN ({placeholders})""",
+                (installation_id, DEVICE_DEADLINE_SOURCE, *(deadline_id for deadline_id, _ in deadlines)),
             )
         else:
-            db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
-        for deadline_id, due_date in deadlines:
             db.execute(
-                """INSERT INTO mobile_deadline(installation_id,deadline_id,due_date,created_at,updated_at)
-                   VALUES(?,?,?,?,?)
-                   ON CONFLICT(installation_id,deadline_id) DO UPDATE SET
-                   due_date=excluded.due_date,updated_at=excluded.updated_at""",
-                (installation_id, deadline_id, due_date, now, now),
+                "DELETE FROM mobile_deadline WHERE installation_id=? AND source=?",
+                (installation_id, DEVICE_DEADLINE_SOURCE),
             )
-    return {"ok": True, "installationId": installation_id, "deadlineCount": len(deadlines), "syncedAt": now}
+        for deadline_id, due_date in deadlines:
+            existing = db.execute(
+                "SELECT source FROM mobile_deadline WHERE installation_id=? AND deadline_id=?",
+                (installation_id, deadline_id),
+            ).fetchone()
+            if existing and str(existing["source"]) != DEVICE_DEADLINE_SOURCE:
+                raise ValueError("deadlineId réservé à une source autoritaire")
+            db.execute(
+                """INSERT INTO mobile_deadline(
+                     installation_id,deadline_id,due_date,source,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(installation_id,deadline_id) DO UPDATE SET
+                     due_date=excluded.due_date,updated_at=excluded.updated_at
+                   WHERE mobile_deadline.source='device'""",
+                (installation_id, deadline_id, due_date, DEVICE_DEADLINE_SOURCE, now, now),
+            )
+    return {
+        "ok": True,
+        "installationId": installation_id,
+        "deadlineCount": len(deadlines),
+        "source": DEVICE_DEADLINE_SOURCE,
+        "syncedAt": now,
+    }
+
+
+def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) -> dict:
+    """Replace the authoritative Mercure snapshot for one already registered installation.
+
+    This is an internal server-side primitive. It intentionally accepts no registration
+    secret and is not exposed by the public mobile API. A future verified installation
+    binding can call it after resolving Mercure vehicle identities.
+    """
+    installation_id = _install_id(installation_id)
+    if not isinstance(deadlines, list) or len(deadlines) > MAX_DEADLINES_PER_INSTALLATION:
+        raise ValueError("deadlines invalides")
+    parsed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in deadlines:
+        if not isinstance(item, dict):
+            raise ValueError("deadline invalide")
+        deadline_id = _deadline_id(item.get("deadlineId"))
+        if deadline_id in seen:
+            raise ValueError("deadlineId dupliqué")
+        seen.add(deadline_id)
+        parsed.append((deadline_id, _due_date(item.get("dueDate"))))
+
+    init_db()
+    now = _now_iso()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        device = db.execute(
+            """SELECT installation_id FROM mobile_device
+               WHERE installation_id=? AND disabled_at='' AND device_token<>''""",
+            (installation_id,),
+        ).fetchone()
+        if not device:
+            raise LookupError("installation mobile active introuvable")
+
+        if parsed:
+            placeholders = ",".join("?" for _ in parsed)
+            db.execute(
+                f"""DELETE FROM mobile_deadline
+                    WHERE installation_id=? AND source=?
+                    AND deadline_id NOT IN ({placeholders})""",
+                (installation_id, AUTHORITATIVE_DEADLINE_SOURCE, *(deadline_id for deadline_id, _ in parsed)),
+            )
+        else:
+            db.execute(
+                "DELETE FROM mobile_deadline WHERE installation_id=? AND source=?",
+                (installation_id, AUTHORITATIVE_DEADLINE_SOURCE),
+            )
+
+        for deadline_id, due_date in parsed:
+            db.execute(
+                """DELETE FROM mobile_deadline
+                   WHERE installation_id=? AND deadline_id=? AND source=?""",
+                (installation_id, deadline_id, DEVICE_DEADLINE_SOURCE),
+            )
+            db.execute(
+                """INSERT INTO mobile_deadline(
+                     installation_id,deadline_id,due_date,source,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(installation_id,deadline_id) DO UPDATE SET
+                     due_date=excluded.due_date,source=excluded.source,updated_at=excluded.updated_at""",
+                (
+                    installation_id,
+                    deadline_id,
+                    due_date,
+                    AUTHORITATIVE_DEADLINE_SOURCE,
+                    now,
+                    now,
+                ),
+            )
+    return {
+        "ok": True,
+        "installationId": installation_id,
+        "deadlineCount": len(parsed),
+        "source": AUTHORITATIVE_DEADLINE_SOURCE,
+        "syncedAt": now,
+    }
 
 
 def due_targets(start_date: str, end_date: str) -> list[dict]:
@@ -260,11 +363,32 @@ def due_targets(start_date: str, end_date: str) -> list[dict]:
     init_db()
     with connect() as db:
         rows = db.execute(
-            """SELECT d.installation_id,d.deadline_id,d.due_date,m.device_token,m.environment
-               FROM mobile_deadline d JOIN mobile_device m ON m.installation_id=d.installation_id
-               WHERE d.due_date>=? AND d.due_date<=? AND m.disabled_at='' AND m.device_token<>''
+            """WITH source_choice AS (
+                 SELECT installation_id,
+                        MAX(CASE WHEN source=? THEN 1 ELSE 0 END) AS has_authoritative
+                 FROM mobile_deadline
+                 GROUP BY installation_id
+               )
+               SELECT d.installation_id,d.deadline_id,d.due_date,d.source,
+                      m.device_token,m.environment
+               FROM mobile_deadline d
+               JOIN source_choice c ON c.installation_id=d.installation_id
+               JOIN mobile_device m ON m.installation_id=d.installation_id
+               WHERE d.due_date>=? AND d.due_date<=?
+                 AND m.disabled_at='' AND m.device_token<>''
+                 AND (
+                   (c.has_authoritative=1 AND d.source=?)
+                   OR
+                   (c.has_authoritative=0 AND d.source=?)
+                 )
                ORDER BY d.due_date,d.installation_id,d.deadline_id""",
-            (start, end),
+            (
+                AUTHORITATIVE_DEADLINE_SOURCE,
+                start,
+                end,
+                AUTHORITATIVE_DEADLINE_SOURCE,
+                DEVICE_DEADLINE_SOURCE,
+            ),
         )
         return [dict(row) for row in rows]
 
@@ -288,9 +412,17 @@ def status() -> dict:
         by_environment = {row["environment"]: int(row["n"]) for row in rows}
         deadlines = int(db.execute("SELECT COUNT(*) n FROM mobile_deadline").fetchone()["n"])
         installations_with_deadlines = int(db.execute("SELECT COUNT(DISTINCT installation_id) n FROM mobile_deadline").fetchone()["n"])
+        source_rows = db.execute("SELECT source,COUNT(*) n FROM mobile_deadline GROUP BY source")
+        deadlines_by_source = {str(row["source"]): int(row["n"]) for row in source_rows}
         disabled_rows = db.execute("SELECT disabled_reason,COUNT(*) n FROM mobile_device WHERE disabled_at<>'' GROUP BY disabled_reason")
         disabled_by_reason = {str(row["disabled_reason"] or "unspecified"): int(row["n"]) for row in disabled_rows}
     return {"ok": True, "total": total, "active": active, "byEnvironment": by_environment,
             "disabledByReason": disabled_by_reason,
-            "deadlines": deadlines, "installationsWithDeadlines": installations_with_deadlines,
+            "deadlines": deadlines,
+            "deadlinesBySource": deadlines_by_source,
+            "installationsWithDeadlines": installations_with_deadlines,
+            "sourcePolicy": {
+                "authoritative": AUTHORITATIVE_DEADLINE_SOURCE,
+                "fallback": DEVICE_DEADLINE_SOURCE,
+            },
             "privacy": "Les jetons APNs et les échéances mobiles restent dans le stockage privé du serveur ; seules des échéances opaques sans immatriculation sont conservées."}

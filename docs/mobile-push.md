@@ -40,3 +40,9 @@ Le fait que le push distant soit activé côté serveur ne suffit pas à désact
 Si l’autorisation de notifications est retirée dans Réglages, l’application réévalue l’état au retour au premier plan, marque le push distant de cet appareil comme inactif et appelle l’API de désinscription. Le serveur efface alors le jeton APNs actif et les échéances mobiles liées à cette installation. Un échec d’enregistrement APNs suit la même stratégie de sûreté : l’application revient au fallback local et tente de retirer tout ancien jeton serveur.
 
 Lorsque l’autorisation est de nouveau accordée, l’application demande un nouveau jeton APNs. Le fallback local n’est supprimé qu’après confirmation du nouvel enregistrement serveur, ce qui évite une fenêtre sans rappel lors d’un renouvellement de jeton ou d’une panne réseau.
+
+## Priorité des sources d'échéance
+
+Le registre mobile distingue désormais deux provenances : device pour le fallback saisi ou conservé sur l'iPhone, et mercure pour une échéance serveur autoritaire. Tant qu'aucune échéance mercure n'est associée à une installation, les échéances device restent utilisables. Dès qu'une échéance autoritaire existe pour cette installation, le moteur APNs ignore toutes les échéances device de cette installation afin d'éviter un double rappel ou une date contradictoire.
+
+La synchronisation publique de l'iPhone ne peut supprimer ou modifier que les lignes device et ne peut pas écraser une ligne mercure. L'injection mercure est un primitive interne non exposé par l'API mobile publique. Le lien vérifié entre une installation iOS et une identité véhicule Mercure reste à établir séparément avant d'activer cette source pour un client réel.
