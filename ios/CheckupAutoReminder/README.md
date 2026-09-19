@@ -27,3 +27,9 @@ open CheckupAutoReminder.xcodeproj
 Dans Xcode, sélectionner l’équipe Apple de signature, puis exécuter d’abord les tests sur un simulateur iPhone avant le test sur un iPhone physique.
 
 Le projet demande iOS 17 ou supérieur et ne dépend d’aucune bibliothèque tierce à l’exécution.
+
+## ReferralWallet et moteur central
+
+Le solde de parrainage ne sera jamais calculé localement par l’application. `referral_engine.py` reste la source de vérité serveur pour les crédits en attente, acquis et consommés. L’application affichera ce solde après mise en place de l’authentification Checkup Auto.
+
+La politique locale de rappel doit rester alignée avec `reminder_engine.py` : J-60, J-30, J-15, J-7 et J-1 à 09:00 dans le fuseau local.

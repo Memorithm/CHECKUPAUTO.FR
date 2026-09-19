@@ -2,6 +2,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import datetime, hashlib, hmac, json, os, secrets, unicodedata, html
 import analytics_store as analytics
+import referral_engine as referrals
 
 ROOT = Path(__file__).resolve().parent
 PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -47,7 +48,14 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_booking_conversion_confirmed ON booking_conversions(confirmed_at);
         CREATE INDEX IF NOT EXISTS idx_booking_conversion_source ON booking_conversions(source);
         ''')
+        intent_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_intents)')}
+        if 'referral_code' not in intent_cols:
+            db.execute("ALTER TABLE booking_intents ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
+        conversion_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_conversions)')}
+        if 'referral_code' not in conversion_cols:
+            db.execute("ALTER TABLE booking_conversions ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
     analytics.DB.chmod(0o600)
+    referrals.init_db()
     ensure_secret()
 def ensure_secret():
     SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -124,15 +132,16 @@ def create_intent(params, booking_url):
     path=analytics.clean(params.get('path') or '/',300)
     if not path.startswith('/'): path='/'
     service=analytics.clean(params.get('service'),100)
+    referral_code=referrals.valid_code_or_empty(params.get('referralCode'))
     with analytics.connect() as db:
-        db.execute('INSERT INTO booking_intents(token,created_at,source,campaign,device,path,service) VALUES(?,?,?,?,?,?,?)',
-                   (token,created,source,campaign,device,path,service))
+        db.execute('INSERT INTO booking_intents(token,created_at,source,campaign,device,path,service,referral_code) VALUES(?,?,?,?,?,?,?,?)',
+                   (token,created,source,campaign,device,path,service,referral_code))
         db.execute("INSERT INTO events(occurred_at,event,path,source,campaign,device,referrer_host,service) VALUES(?,?,?,?,?,?,?,?)",
                    (created,'booking_click',path,source,campaign,device,'',service))
     parts=urlsplit(booking_url)
     query=dict(parse_qsl(parts.query,keep_blank_values=True)); query['ccid']=token; query['cct']=browser_token(token)
     target=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),parts.fragment))
-    return {'token':token,'target':target,'source':source,'campaign':campaign}
+    return {'token':token,'target':target,'source':source,'campaign':campaign,'referralCode':referral_code or None}
 def _money_cents(value):
     if value in (None,''): return 0
     if isinstance(value,bool): raise ValueError('amount invalid')
@@ -152,20 +161,23 @@ def apply_conversion(payload):
     appointment=analytics.clean(payload.get('appointmentDate'),80)
     service=analytics.clean(payload.get('service'),120)
     amount_cents=_money_cents(payload.get('amount'))
-    source='Non attribué'; campaign=''; device='unknown'
+    source='Non attribué'; campaign=''; device='unknown'; referral_code=''
     with analytics.connect() as db:
         if token:
             intent=db.execute('SELECT * FROM booking_intents WHERE token=?',(token,)).fetchone()
             if intent:
                 source=intent['source']; campaign=intent['campaign']; device=intent['device']
+                referral_code=referrals.valid_code_or_empty(intent['referral_code'] if 'referral_code' in intent.keys() else '')
                 if not service: service=intent['service']
+        if not referral_code and payload.get('referralCode'):
+            referral_code=referrals.valid_code_or_empty(payload.get('referralCode'))
         if source=='Non attribué' and payload.get('source'):
             source=analytics.clean(payload.get('source'),100)
         now=now_iso(); confirmed=now if status in CONFIRMED else None
         db.execute('''INSERT INTO booking_conversions(
           provider,external_id,status,first_seen_at,updated_at,confirmed_at,appointment_at,
-          amount_cents,service,attribution_token,source,campaign,device)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+          amount_cents,service,attribution_token,source,campaign,device,referral_code)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(provider,external_id) DO UPDATE SET
           status=excluded.status,updated_at=excluded.updated_at,
           confirmed_at=CASE WHEN excluded.status IN ('confirmed','completed') THEN COALESCE(booking_conversions.confirmed_at,excluded.confirmed_at) ELSE booking_conversions.confirmed_at END,
@@ -173,9 +185,15 @@ def apply_conversion(payload):
           service=excluded.service,attribution_token=CASE WHEN excluded.attribution_token<>'' THEN excluded.attribution_token ELSE booking_conversions.attribution_token END,
           source=CASE WHEN excluded.source<>'Non attribué' THEN excluded.source ELSE booking_conversions.source END,
           campaign=CASE WHEN excluded.campaign<>'' THEN excluded.campaign ELSE booking_conversions.campaign END,
-          device=CASE WHEN excluded.device<>'unknown' THEN excluded.device ELSE booking_conversions.device END''',
-          (PROVIDER,external_id,status,now,now,confirmed,appointment,amount_cents,service,token,source,campaign,device))
-    return {'ok':True,'externalId':external_id,'status':status,'attributed':source!='Non attribué','source':source}
+          device=CASE WHEN excluded.device<>'unknown' THEN excluded.device ELSE booking_conversions.device END,
+          referral_code=CASE WHEN excluded.referral_code<>'' THEN excluded.referral_code ELSE booking_conversions.referral_code END''',
+          (PROVIDER,external_id,status,now,now,confirmed,appointment,amount_cents,service,token,source,campaign,device,referral_code))
+    reward=referrals.record_pending(referral_code,PROVIDER,external_id,token) if referral_code else referrals.reward_status(PROVIDER,external_id)
+    if status=='completed': reward=referrals.complete_control(PROVIDER,external_id) or reward
+    elif status in ('cancelled','no_show'): reward=referrals.cancel_pending(PROVIDER,external_id) or reward
+    return {'ok':True,'externalId':external_id,'status':status,'attributed':source!='Non attribué','source':source,
+            'referralCode':referral_code or (reward.get('referral_code') if reward else None),
+            'referralStatus':reward.get('status') if reward else None}
 def browser_confirmation(payload):
     if not isinstance(payload,dict): raise ValueError('invalid payload')
     ccid=analytics.clean(payload.get('ccid'),120)
