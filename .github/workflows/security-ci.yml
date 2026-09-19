@@ -29,6 +29,7 @@ jobs:
           node --check admin/admin.js
           node --check admin/control-center.js
           node --check admin/gsc-admin.js
+          node --check admin/readiness.js
           node --check admin/integrations.js
           node --check admin/referrals.js
           node --check admin/notifications.js

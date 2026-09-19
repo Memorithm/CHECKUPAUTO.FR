@@ -193,10 +193,9 @@ def start():
     global _THREAD
     init_db()
     if _THREAD and _THREAD.is_alive(): return
+    _STOP.clear()
     _THREAD=threading.Thread(target=_loop,daemon=True,name='CyberCheckReviewFollowup')
     _THREAD.start()
 
 def stop():
     _STOP.set()
-
-init_db()
