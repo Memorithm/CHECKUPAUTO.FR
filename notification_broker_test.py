@@ -86,10 +86,14 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertTrue(result["inFlight"])
         send_email.assert_not_called()
 
-    @patch.object(broker.email_transport, "configured", return_value=True)
-    def test_status_exposes_channel_readiness_without_recipient_data(self, configured):
+    @patch.object(broker.email_transport, "transport_status", return_value={
+        "configured": True, "transport": "gmail-api", "requested": "auto",
+        "smtpAvailable": False, "gmailAvailable": True, "state": "ready", "error": "",
+    })
+    def test_status_exposes_channel_readiness_without_recipient_data(self, transport_status):
         state = broker.status()
         self.assertTrue(state["channels"]["email"]["configured"])
+        self.assertEqual(state["channels"]["email"]["transport"], "gmail-api")
         self.assertFalse(state["channels"]["push"]["configured"])
         self.assertIn("privacy", state)
 

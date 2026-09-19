@@ -67,6 +67,7 @@ function ihRender(data){
   ih('googleAnalyticsPropertyId').value=s.analyticsPropertyId||'';
   ih('googleBusinessAccountId').value=s.businessAccountId||'';
   ih('googleTagManagerAccountId').value=s.tagManagerAccountId||'';
+  ih('googleGmailSender').value=s.gmailSender||'';
   ih('googleMapsKey').value='';
   ih('googleAdsDeveloperToken').value='';
   ih('googleMapsKey').placeholder=s.mapsApiKeyConfigured?'Clé API déjà enregistrée · laisser vide pour conserver':'Clé API Google Maps / Places';
@@ -119,7 +120,8 @@ async function ihSaveSettings(){
   const payload={
     analyticsPropertyId:ih('googleAnalyticsPropertyId').value.trim(),
     businessAccountId:ih('googleBusinessAccountId').value.trim(),
-    tagManagerAccountId:ih('googleTagManagerAccountId').value.trim()
+    tagManagerAccountId:ih('googleTagManagerAccountId').value.trim(),
+    gmailSender:ih('googleGmailSender').value.trim()
   };
   const maps=ih('googleMapsKey').value.trim();
   const ads=ih('googleAdsDeveloperToken').value.trim();

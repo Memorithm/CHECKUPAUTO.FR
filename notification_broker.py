@@ -183,7 +183,7 @@ def status(limit: int = 20) -> dict:
     return {
         "ok": True,
         "channels": {
-            "email": {"configured": email_transport.configured(), "transport": "smtp-relay"},
+            "email": email_transport.transport_status(),
             "push": {"configured": False, "transport": "apns", "state": "awaiting_credentials"},
         },
         "counts": counts,

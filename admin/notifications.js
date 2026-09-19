@@ -46,7 +46,9 @@ async function loadNotificationStatus() {
     notificationEl('notificationSent').textContent = counts.sent || 0;
     notificationEl('notificationFailed').textContent = counts.failed || 0;
     notificationEl('notificationDelivering').textContent = counts.delivering || 0;
-    notificationEl('notificationEmail').textContent = data.channels?.email?.configured ? 'PRÊT' : 'À CONFIGURER';
+    const emailChannel=data.channels?.email||{};
+    const emailTransport=emailChannel.transport==='gmail-api'?'GMAIL':emailChannel.transport==='smtp-relay'?'SMTP':'';
+    notificationEl('notificationEmail').textContent = emailChannel.configured ? `PRÊT${emailTransport?' · '+emailTransport:''}` : 'À CONFIGURER';
     notificationEl('notificationPush').textContent = data.channels?.push?.configured ? 'PRÊT' : 'À CONFIGURER';
     notificationEl('notificationReminderInventory').textContent = reminder.inventory || 0;
     notificationEl('notificationReminderDue').textContent = reminder.eligibleNow || 0;
