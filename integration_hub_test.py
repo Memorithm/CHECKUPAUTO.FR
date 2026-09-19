@@ -143,6 +143,22 @@ class IntegrationHubTest(unittest.TestCase):
         self.assertEqual(token, "new-access")
         self.assertEqual(post.call_args.kwargs["data"]["grant_type"], "refresh_token")
 
+    def test_refresh_503_preserves_retry_after(self):
+        self.install_client()
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "refresh_token": "refresh",
+            "scope": "https://www.googleapis.com/auth/gmail.send",
+        })
+        response = Mock()
+        response.status_code = 503
+        response.headers = {"Retry-After": "90"}
+        with patch("integration_hub.requests.post", return_value=response):
+            with self.assertRaises(hub.IntegrationHTTPError) as caught:
+                hub.google_access_token(["https://www.googleapis.com/auth/gmail.send"])
+        self.assertEqual(caught.exception.status, 503)
+        self.assertEqual(caught.exception.retry_after, "90")
+        self.assertTrue(caught.exception.retryable)
+
 
 if __name__ == "__main__":
     unittest.main()

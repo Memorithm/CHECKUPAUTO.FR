@@ -14,6 +14,49 @@ import integration_hub as google_integration
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+GMAIL_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+GMAIL_TRANSIENT_REASONS = {
+    "backendError",
+    "dailyLimitExceeded",
+    "internalError",
+    "quotaExceeded",
+    "rateLimitExceeded",
+    "userRateLimitExceeded",
+}
+SMTP_CONFIGURATION_CODES = {530, 534, 535, 538}
+
+
+class EmailDeliveryError(RuntimeError):
+    """Typed delivery failure safe to persist in NotificationBroker diagnostics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        transport: str,
+        status: int = 0,
+        reason: str = "",
+        retry_after: str = "",
+        retryable: bool = False,
+        configuration_error: bool = False,
+        permanent: bool = False,
+    ):
+        self.transport = str(transport or "email")[:40]
+        self.status = int(status or 0)
+        self.reason = str(reason or "")[:80]
+        self.retry_after = str(retry_after or "")[:80]
+        self.retryable = bool(retryable)
+        self.configuration_error = bool(configuration_error)
+        self.permanent = bool(permanent)
+        super().__init__(str(message or "Erreur de livraison e-mail")[:180])
+
+    @property
+    def failure_class(self) -> str:
+        if self.configuration_error:
+            return "configuration"
+        if self.permanent:
+            return "permanent"
+        return "transient"
 
 
 @dataclass(frozen=True)
@@ -157,34 +200,183 @@ def _message(to: str, sender: str, subject: str, text: str, html: str = "") -> E
     return message
 
 
+def _smtp_code(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _smtp_error(exc: Exception) -> EmailDeliveryError:
+    transport = "smtp-relay"
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        code = _smtp_code(getattr(exc, "smtp_code", 0))
+        return EmailDeliveryError(
+            f"SMTP authentification refusée ({code or 'erreur'})",
+            transport=transport,
+            status=code,
+            reason="authentication",
+            configuration_error=True,
+        )
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        codes = []
+        for item in (getattr(exc, "recipients", {}) or {}).values():
+            if isinstance(item, (tuple, list)) and item:
+                codes.append(_smtp_code(item[0]))
+        code = next((item for item in codes if 400 <= item < 500), 0) or next((item for item in codes if item), 0)
+        retryable = bool(code and 400 <= code < 500)
+        return EmailDeliveryError(
+            f"SMTP destinataire refusé ({code or 'erreur'})",
+            transport=transport,
+            status=code,
+            reason="recipient_refused",
+            retryable=retryable,
+            permanent=not retryable,
+        )
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        code = _smtp_code(getattr(exc, "smtp_code", 0))
+        retryable = 400 <= code < 500
+        return EmailDeliveryError(
+            f"SMTP expéditeur refusé ({code or 'erreur'})",
+            transport=transport,
+            status=code,
+            reason="sender_refused",
+            retryable=retryable,
+            configuration_error=not retryable,
+        )
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return EmailDeliveryError(
+            "SMTP fonctionnalité requise indisponible",
+            transport=transport,
+            reason="not_supported",
+            configuration_error=True,
+        )
+    if isinstance(exc, smtplib.SMTPResponseException):
+        code = _smtp_code(getattr(exc, "smtp_code", 0))
+        if code in SMTP_CONFIGURATION_CODES:
+            return EmailDeliveryError(
+                f"SMTP configuration refusée ({code})",
+                transport=transport,
+                status=code,
+                reason="configuration",
+                configuration_error=True,
+            )
+        retryable = 400 <= code < 500
+        permanent = 500 <= code < 600
+        return EmailDeliveryError(
+            f"SMTP erreur protocolaire ({code or 'erreur'})",
+            transport=transport,
+            status=code,
+            reason="smtp_response",
+            retryable=retryable,
+            permanent=permanent,
+        )
+    if isinstance(exc, (smtplib.SMTPServerDisconnected, TimeoutError, OSError, smtplib.SMTPException)):
+        return EmailDeliveryError(
+            "SMTP indisponible",
+            transport=transport,
+            reason="transport",
+            retryable=True,
+        )
+    return EmailDeliveryError("SMTP indisponible", transport=transport, reason="unknown", retryable=True)
+
+
 def _send_smtp(cfg: SMTPConfig, to: str, subject: str, text: str, html: str = "") -> dict:
     message = _message(to, cfg.sender, subject, text, html)
     context = ssl.create_default_context()
-    if cfg.mode == "ssl":
-        client = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=context)
-    else:
-        client = smtplib.SMTP(cfg.host, cfg.port, timeout=cfg.timeout)
+    client = None
     try:
+        if cfg.mode == "ssl":
+            client = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=context)
+        else:
+            client = smtplib.SMTP(cfg.host, cfg.port, timeout=cfg.timeout)
         client.ehlo()
         if cfg.mode == "starttls":
             client.starttls(context=context)
             client.ehlo()
         refused = client.send_message(message)
         if refused:
-            raise RuntimeError("SMTP a refusé un ou plusieurs destinataires")
+            raise smtplib.SMTPRecipientsRefused(refused)
+    except EmailDeliveryError:
+        raise
+    except Exception as exc:
+        raise _smtp_error(exc) from exc
     finally:
-        try:
-            client.quit()
-        except Exception:
-            client.close()
+        if client is not None:
+            try:
+                client.quit()
+            except Exception:
+                try:
+                    client.close()
+                except Exception:
+                    pass
     return {"ok": True, "channel": "email", "transport": "smtp-relay"}
+
+
+def _safe_reason(value: object) -> str:
+    raw = str(value or "")
+    return "".join(ch for ch in raw if ch.isalnum() or ch in "._-")[:80]
+
+
+def _gmail_response_error(response) -> EmailDeliveryError:
+    status = _smtp_code(getattr(response, "status_code", 0))
+    reason = ""
+    try:
+        payload = response.json()
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error, dict):
+            errors = error.get("errors")
+            if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                reason = _safe_reason(errors[0].get("reason"))
+            if not reason:
+                reason = _safe_reason(error.get("status"))
+    except Exception:
+        pass
+    retry_after = str(getattr(response, "headers", {}).get("Retry-After", "") or "")[:80]
+    retryable = status in GMAIL_TRANSIENT_STATUS or reason in GMAIL_TRANSIENT_REASONS
+    configuration_error = status in {401, 403} and not retryable
+    permanent = status >= 400 and not retryable and not configuration_error
+    suffix = f" · {reason}" if reason else ""
+    return EmailDeliveryError(
+        f"Gmail API a refusé l’envoi (HTTP {status}){suffix}",
+        transport="gmail-api",
+        status=status,
+        reason=reason or "gmail_http_error",
+        retry_after=retry_after,
+        retryable=retryable,
+        configuration_error=configuration_error,
+        permanent=permanent,
+    )
+
+
+def _google_token_error(exc: google_integration.IntegrationError) -> EmailDeliveryError:
+    status = _smtp_code(getattr(exc, "status", 0))
+    retry_after = str(getattr(exc, "retry_after", "") or "")[:80]
+    retryable = bool(getattr(exc, "retryable", False)) or isinstance(exc.__cause__, requests.RequestException)
+    return EmailDeliveryError(
+        "Google OAuth temporairement indisponible" if retryable else "Google OAuth doit être reconfiguré",
+        transport="gmail-api",
+        status=status,
+        reason="oauth",
+        retry_after=retry_after,
+        retryable=retryable,
+        configuration_error=not retryable,
+    )
 
 
 def _send_gmail(to: str, subject: str, text: str, html: str = "") -> dict:
     sender = _gmail_sender()
     if not valid_email(sender):
-        raise RuntimeError("Adresse d’envoi Gmail non configurée")
-    token = google_integration.google_access_token([GMAIL_SEND_SCOPE])
+        raise EmailDeliveryError(
+            "Adresse d’envoi Gmail non configurée",
+            transport="gmail-api",
+            reason="sender_configuration",
+            configuration_error=True,
+        )
+    try:
+        token = google_integration.google_access_token([GMAIL_SEND_SCOPE])
+    except google_integration.IntegrationError as exc:
+        raise _google_token_error(exc) from exc
     message = _message(to, sender, subject, text, html)
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
     try:
@@ -195,9 +387,14 @@ def _send_gmail(to: str, subject: str, text: str, html: str = "") -> dict:
             timeout=20,
         )
     except requests.RequestException as exc:
-        raise RuntimeError("Gmail API indisponible") from exc
+        raise EmailDeliveryError(
+            "Gmail API indisponible",
+            transport="gmail-api",
+            reason="transport",
+            retryable=True,
+        ) from exc
     if response.status_code >= 400:
-        raise RuntimeError(f"Gmail API a refusé l’envoi (HTTP {response.status_code})")
+        raise _gmail_response_error(response)
     try:
         message_id = str((response.json() or {}).get("id") or "")
     except Exception:
@@ -212,10 +409,25 @@ def send_email(to: str, subject: str, text: str, html: str = "") -> dict:
         if cfg is not None:
             return _send_smtp(cfg, to, subject, text, html)
         if mode == "smtp":
-            raise RuntimeError("SMTP Checkup Auto non configuré")
+            raise EmailDeliveryError(
+                "SMTP Checkup Auto non configuré",
+                transport="smtp-relay",
+                reason="configuration",
+                configuration_error=True,
+            )
     if mode in {"auto", "gmail"}:
         if gmail_configured():
             return _send_gmail(to, subject, text, html)
         if mode == "gmail":
-            raise RuntimeError("Gmail Checkup Auto non configuré")
-    raise RuntimeError("Aucun transport e-mail Checkup Auto n’est configuré")
+            raise EmailDeliveryError(
+                "Gmail Checkup Auto non configuré",
+                transport="gmail-api",
+                reason="configuration",
+                configuration_error=True,
+            )
+    raise EmailDeliveryError(
+        "Aucun transport e-mail Checkup Auto n’est configuré",
+        transport="email:none",
+        reason="configuration",
+        configuration_error=True,
+    )

@@ -66,3 +66,15 @@ The iOS application validates schema version 1 and the reminder policy before ap
 The authenticated endpoint `/api/mobile/reminders/sync` receives a full snapshot of at most 24 mobile deadlines for an installation. Each entry contains only an opaque UUID and an ISO due date; registration plates, vehicle labels, Mercure identifiers and customer data never enter this registry. Device unregister and APNs-token reassignment purge stale mobile deadlines.
 
 `mobile_reminder_dispatch.py` evaluates those dates with the same J-60/J-30/J-15/J-7/J-1 policy and routes eligible notifications through `NotificationBroker`. The APNs environment is selected per registered device (`sandbox` or `production`) rather than globally, so Debug and Release installations can coexist safely.
+
+## Delivery failure semantics
+
+E-mail failures are typed before they reach `NotificationBroker` so the broker can apply the same resilience policy used by APNs without parsing human-readable exception text.
+
+- Gmail HTTP `429` and `5xx` responses are transient. `Retry-After` is preserved when Google provides it and otherwise the broker applies bounded exponential backoff with jitter.
+- Gmail OAuth/authorization failures are configuration errors and open the transport circuit instead of being retried as if they were network outages.
+- Gmail non-retryable request failures are recorded as permanent delivery failures.
+- SMTP `4xx` replies are transient. Recipient `5xx` replies are permanent. Authentication and sender-configuration failures are configuration errors.
+- Permanent failures are retained in the idempotent ledger and the same business delivery is suppressed on later dispatch cycles instead of being sent repeatedly.
+
+The broker persists only the normalized failure class and a redacted diagnostic; raw recipients, message bodies, OAuth tokens and APNs tokens are not written to the notification ledger.
