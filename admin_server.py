@@ -10,6 +10,7 @@ import booking_bridge as booking
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
+import mobile_bootstrap as mobile_bootstrap
 import geo_marketing as geo_marketing
 import security_guard as security
 import security_ai as security_ai
@@ -153,7 +154,7 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/app','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
+  dynamic={'/','/index.html','/app','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
@@ -374,6 +375,9 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/llms.txt': return self.send_bytes(build_llms(load_config()).encode(),'text/plain; charset=utf-8',cache='no-cache')
   if path=='/api/site-config': return self.send_json(load_config())
   if path=='/api/app/status': return self.send_json(app_download.status(load_config()))
+  if path=='/api/mobile/bootstrap':
+   try: return self.send_json(mobile_bootstrap.status(load_config()))
+   except Exception as exc: return self.send_json({'ok':False,'error':'Configuration mobile indisponible','detail':str(exc)},500)
   if path=='/api/admin/config':
    if not self.authorized(): return self.require_auth()
    return self.send_json(load_config())

@@ -32,14 +32,15 @@ enum ReminderPlan {
         dueDate: Date,
         now: Date = Date(),
         calendar: Calendar = .current,
-        leadDays: [Int] = defaultLeadDays
+        leadDays: [Int] = defaultLeadDays,
+        hour: Int = 9
     ) -> [ReminderMoment] {
         leadDays.compactMap { days in
             guard let day = calendar.date(byAdding: .day, value: -days, to: dueDate) else {
                 return nil
             }
             var components = calendar.dateComponents([.year, .month, .day], from: day)
-            components.hour = 9
+            components.hour = hour
             components.minute = 0
             guard let fireDate = calendar.date(from: components), fireDate > now else {
                 return nil

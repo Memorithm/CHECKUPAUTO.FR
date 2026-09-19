@@ -8,20 +8,27 @@ actor ReminderScheduler {
         try await center.requestAuthorization(options: [.alert, .badge, .sound])
     }
 
-    func reschedule(_ vehicle: VehicleDeadline) async throws {
-        await remove(vehicle)
-        let moments = ReminderPlan.moments(dueDate: vehicle.controlDueDate)
+    func reschedule(_ vehicle: VehicleDeadline, policy: MobileReminderPolicy) async throws {
+        await remove(vehicle, leadDays: Array(Set(ReminderPlan.defaultLeadDays + policy.leadDays)))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: policy.timezone) ?? .current
+        let moments = ReminderPlan.moments(
+            dueDate: vehicle.controlDueDate,
+            calendar: calendar,
+            leadDays: policy.leadDays,
+            hour: policy.hour
+        )
         for moment in moments {
             let content = UNMutableNotificationContent()
             content.title = "Contrôle technique à prévoir"
             content.body = message(for: vehicle, daysBefore: moment.daysBefore)
             content.sound = .default
             content.userInfo = ["vehicleID": vehicle.id.uuidString]
-            var date = Calendar.current.dateComponents(
+            var date = calendar.dateComponents(
                 [.year, .month, .day, .hour, .minute],
                 from: moment.fireDate
             )
-            date.timeZone = .current
+            date.timeZone = calendar.timeZone
             let trigger = UNCalendarNotificationTrigger(dateMatching: date, repeats: false)
             let request = UNNotificationRequest(
                 identifier: identifier(vehicleID: vehicle.id, days: moment.daysBefore),
@@ -32,8 +39,8 @@ actor ReminderScheduler {
         }
     }
 
-    func remove(_ vehicle: VehicleDeadline) async {
-        let ids = ReminderPlan.defaultLeadDays.map {
+    func remove(_ vehicle: VehicleDeadline, leadDays: [Int] = ReminderPlan.defaultLeadDays) async {
+        let ids = leadDays.map {
             identifier(vehicleID: vehicle.id, days: $0)
         }
         center.removePendingNotificationRequests(withIdentifiers: ids)

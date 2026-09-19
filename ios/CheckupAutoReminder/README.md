@@ -6,8 +6,9 @@ Application SwiftUI local-first pour les rappels de contrôle technique.
 
 - ajout manuel d’un ou plusieurs véhicules ;
 - stockage local des échéances ;
-- notifications locales J-60, J-30, J-15, J-7 et J-1 à 09:00 heure locale ;
+- notifications locales J-60, J-30, J-15, J-7 et J-1 à 09:00 Europe/Paris ;
 - reprogrammation des rappels au lancement ;
+- synchronisation de la politique publique (J-60/J-30/J-15/J-7/J-1, heure, fuseau et URL de réservation) depuis `/api/mobile/bootstrap`, avec repli local sûr ;
 - suppression des notifications associées lorsqu’un véhicule est supprimé ;
 - accès direct à la réservation Checkup Auto ;
 - tests unitaires du calcul des échéances.
@@ -33,12 +34,15 @@ Sans Xcode complet, le Mac mini peut néanmoins valider le noyau déterministe d
 ```bash
 swiftc Sources/Models.swift Tests/ReminderPlanSmoke.swift -o /tmp/reminder-plan-smoke
 /tmp/reminder-plan-smoke
+
+swiftc Sources/MobileBootstrap.swift Tests/MobileBootstrapSmoke.swift -o /tmp/mobile-bootstrap-smoke
+/tmp/mobile-bootstrap-smoke
 ```
 
-La sortie attendue est `REMINDER_PLAN_SMOKE_OK`. Les tests XCTest et la compilation iOS complète nécessitent Xcode.app.
+Les sorties attendues sont `REMINDER_PLAN_SMOKE_OK` et `MOBILE_BOOTSTRAP_SMOKE_OK`. Les tests XCTest et la compilation iOS complète nécessitent Xcode.app.
 
 ## ReferralWallet et moteur central
 
 Le solde de parrainage ne sera jamais calculé localement par l’application. `referral_engine.py` reste la source de vérité serveur pour les crédits en attente, acquis et consommés. L’application affichera ce solde après mise en place de l’authentification Checkup Auto.
 
-La politique locale de rappel doit rester alignée avec `reminder_engine.py` : J-60, J-30, J-15, J-7 et J-1 à 09:00 dans le fuseau local.
+La politique locale de rappel est pilotée par `/api/mobile/bootstrap`, lui-même dérivé de `reminder_engine.py` : J-60, J-30, J-15, J-7 et J-1 à 09:00 Europe/Paris par défaut.
