@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import stat
@@ -158,6 +159,25 @@ class IntegrationHubTest(unittest.TestCase):
         self.assertEqual(caught.exception.status, 503)
         self.assertEqual(caught.exception.retry_after, "90")
         self.assertTrue(caught.exception.retryable)
+
+
+    def test_force_refresh_does_not_trust_cached_access_token(self):
+        self.install_client()
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "access_token": "cached-access",
+            "refresh_token": "refresh",
+            "scope": "https://www.googleapis.com/auth/gmail.send",
+            "expires_at": (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat(),
+        })
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"access_token": "validated-access", "expires_in": 3600}
+        with patch("integration_hub.requests.post", return_value=response) as post:
+            token = hub.google_access_token(
+                ["https://www.googleapis.com/auth/gmail.send"], force_refresh=True
+            )
+        self.assertEqual(token, "validated-access")
+        post.assert_called_once()
 
 
 if __name__ == "__main__":

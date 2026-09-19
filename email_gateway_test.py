@@ -127,5 +127,47 @@ class EmailGatewayTest(unittest.TestCase):
         self.assertEqual(caught.exception.status, 451)
 
 
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
+        "CYBERCHECK_SMTP_HOST": "smtp.example.fr",
+        "CYBERCHECK_SMTP_PORT": "587",
+        "CYBERCHECK_SMTP_MODE": "starttls",
+        "CYBERCHECK_SMTP_USERNAME": "mailer-user",
+        "CYBERCHECK_SMTP_PASSWORD": "runtime-only-secret",
+    }, clear=True)
+    @patch("email_gateway.smtplib.SMTP")
+    def test_smtp_preflight_validates_tls_auth_without_sending(self, smtp_cls):
+        client = smtp_cls.return_value
+        client.noop.return_value = (250, b"OK")
+        state = mail.smtp_preflight()
+        self.assertTrue(state["ready"])
+        self.assertTrue(state["tls"])
+        self.assertTrue(state["authentication"])
+        client.starttls.assert_called_once()
+        client.login.assert_called_once_with("mailer-user", "runtime-only-secret")
+        client.send_message.assert_not_called()
+
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
+        "CYBERCHECK_SMTP_USERNAME": "mailer-user",
+        "CYBERCHECK_SMTP_PASSWORD": "runtime-only-secret",
+        "CYBERCHECK_SMTP_MODE": "plain",
+    }, clear=True)
+    def test_smtp_auth_requires_encryption(self):
+        with self.assertRaisesRegex(ValueError, "requires starttls or ssl"):
+            mail.load_config()
+
+    @patch.dict(os.environ, {"CYBERCHECK_EMAIL_TRANSPORT": "gmail"}, clear=True)
+    @patch.object(mail.google_integration, "settings", return_value={"gmailSender": "contact@checkupauto.fr"})
+    @patch.object(mail.google_integration, "has_scopes", return_value=True)
+    @patch.object(mail.google_integration, "google_access_token", return_value="refreshed-access-token")
+    @patch("email_gateway.requests.post")
+    def test_gmail_preflight_forces_oauth_refresh_without_sending(self, post, access_token, has_scopes, settings):
+        state = mail.gmail_preflight()
+        self.assertTrue(state["ready"])
+        access_token.assert_called_once_with([mail.GMAIL_SEND_SCOPE], force_refresh=True)
+        post.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

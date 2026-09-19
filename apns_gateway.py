@@ -67,9 +67,21 @@ def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+def _load_signing_key(path: str):
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except ImportError as exc:
+        raise RuntimeError("cryptography indisponible pour APNs") from exc
+    key = serialization.load_pem_private_key(Path(path).read_bytes(), password=None)
+    if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256R1):
+        raise ValueError("La clé APNs doit être une clé privée EC P-256")
+    return key
+
+
 def _provider_token(cfg: dict) -> str:
     try:
-        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
     except ImportError as exc:
@@ -77,12 +89,38 @@ def _provider_token(cfg: dict) -> str:
     header = _b64(json.dumps({"alg":"ES256","kid":cfg["keyId"]}, separators=(",", ":")).encode())
     claims = _b64(json.dumps({"iss":cfg["teamId"],"iat":int(time.time())}, separators=(",", ":")).encode())
     signing_input = f"{header}.{claims}".encode("ascii")
-    key = serialization.load_pem_private_key(Path(cfg["keyPath"]).read_bytes(), password=None)
+    key = _load_signing_key(cfg["keyPath"])
     der = key.sign(signing_input, ec.ECDSA(hashes.SHA256()))
     r, s = decode_dss_signature(der)
     signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
     return f"{header}.{claims}.{_b64(signature)}"
 
+
+
+def preflight() -> dict:
+    """Validate APNs credentials locally without sending a push notification."""
+    cfg = _config()
+    static = status()
+    if not static["configured"]:
+        return {**static, "ready": False, "state": "awaiting_credentials", "reason": "credentials_missing", "keyValid": False}
+    if len(cfg["keyId"]) != 10 or not cfg["keyId"].isalnum():
+        return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "key_id_invalid", "keyValid": False}
+    if len(cfg["teamId"]) != 10 or not cfg["teamId"].isalnum():
+        return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "team_id_invalid", "keyValid": False}
+    if not cfg["topic"] or len(cfg["topic"]) > 255 or any(ch.isspace() for ch in cfg["topic"]):
+        return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "topic_invalid", "keyValid": False}
+    try:
+        _load_signing_key(cfg["keyPath"])
+        token = _provider_token(cfg)
+        if token.count(".") != 2:
+            raise ValueError("JWT APNs invalide")
+    except PermissionError:
+        return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "key_unreadable", "keyValid": False}
+    except OSError:
+        return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "key_unreadable", "keyValid": False}
+    except (ValueError, RuntimeError):
+        return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "key_invalid", "keyValid": False}
+    return {**static, "ready": True, "state": "ready", "reason": "local_signing_validated", "keyValid": True}
 
 def _error_from_response(response) -> APNSError:
     reason = "APNs error"

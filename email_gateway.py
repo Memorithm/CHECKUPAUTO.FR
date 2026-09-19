@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.utils import parseaddr
 import os
@@ -65,6 +65,8 @@ class SMTPConfig:
     port: int
     sender: str
     mode: str
+    username: str = ""
+    password: str = field(default="", repr=False)
     timeout: float = 20.0
 
 
@@ -102,7 +104,13 @@ def load_config() -> SMTPConfig | None:
         raise ValueError("CYBERCHECK_SMTP_PORT invalid")
     if not valid_email(sender):
         raise ValueError("CYBERCHECK_SMTP_FROM invalid")
-    return SMTPConfig(host=host, port=port, sender=sender, mode=mode)
+    username = _env("CYBERCHECK_SMTP_USERNAME")
+    password = _env("CYBERCHECK_SMTP_PASSWORD")
+    if bool(username) != bool(password):
+        raise ValueError("CYBERCHECK_SMTP_USERNAME and CYBERCHECK_SMTP_PASSWORD must be configured together")
+    if username and mode == "plain":
+        raise ValueError("SMTP authentication requires starttls or ssl")
+    return SMTPConfig(host=host, port=port, sender=sender, mode=mode, username=username, password=password)
 
 
 def _transport_mode() -> str:
@@ -281,19 +289,38 @@ def _smtp_error(exc: Exception) -> EmailDeliveryError:
     return EmailDeliveryError("SMTP indisponible", transport=transport, reason="unknown", retryable=True)
 
 
+def _open_smtp(cfg: SMTPConfig):
+    context = ssl.create_default_context()
+    if cfg.mode == "ssl":
+        client = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=context)
+    else:
+        client = smtplib.SMTP(cfg.host, cfg.port, timeout=cfg.timeout)
+    client.ehlo()
+    if cfg.mode == "starttls":
+        client.starttls(context=context)
+        client.ehlo()
+    if cfg.username:
+        client.login(cfg.username, cfg.password)
+    return client
+
+
+def _close_smtp(client) -> None:
+    if client is None:
+        return
+    try:
+        client.quit()
+    except Exception:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
 def _send_smtp(cfg: SMTPConfig, to: str, subject: str, text: str, html: str = "") -> dict:
     message = _message(to, cfg.sender, subject, text, html)
-    context = ssl.create_default_context()
     client = None
     try:
-        if cfg.mode == "ssl":
-            client = smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=cfg.timeout, context=context)
-        else:
-            client = smtplib.SMTP(cfg.host, cfg.port, timeout=cfg.timeout)
-        client.ehlo()
-        if cfg.mode == "starttls":
-            client.starttls(context=context)
-            client.ehlo()
+        client = _open_smtp(cfg)
         refused = client.send_message(message)
         if refused:
             raise smtplib.SMTPRecipientsRefused(refused)
@@ -302,14 +329,7 @@ def _send_smtp(cfg: SMTPConfig, to: str, subject: str, text: str, html: str = ""
     except Exception as exc:
         raise _smtp_error(exc) from exc
     finally:
-        if client is not None:
-            try:
-                client.quit()
-            except Exception:
-                try:
-                    client.close()
-                except Exception:
-                    pass
+        _close_smtp(client)
     return {"ok": True, "channel": "email", "transport": "smtp-relay"}
 
 
@@ -401,6 +421,99 @@ def _send_gmail(to: str, subject: str, text: str, html: str = "") -> dict:
         message_id = ""
     return {"ok": True, "channel": "email", "transport": "gmail-api", "messageId": message_id}
 
+
+
+def _preflight_failure(transport: str, exc: EmailDeliveryError) -> dict:
+    if exc.configuration_error:
+        state = "invalid_configuration"
+    elif exc.retryable:
+        state = "provider_unavailable"
+    elif exc.permanent:
+        state = "provider_rejected"
+    else:
+        state = "failed"
+    return {
+        "transport": transport,
+        "ready": False,
+        "state": state,
+        "failureClass": exc.failure_class,
+        "status": exc.status,
+        "reason": exc.reason,
+        "retryAfter": exc.retry_after,
+    }
+
+
+def smtp_preflight() -> dict:
+    """Validate SMTP configuration/connectivity without sending a message."""
+    try:
+        cfg = load_config()
+    except ValueError as exc:
+        return {"transport": "smtp-relay", "ready": False, "state": "invalid_configuration", "failureClass": "configuration", "status": 0, "reason": str(exc)[:120]}
+    if cfg is None:
+        return {"transport": "smtp-relay", "ready": False, "state": "awaiting_configuration", "failureClass": "configuration", "status": 0, "reason": "sender_missing"}
+    client = None
+    try:
+        client = _open_smtp(cfg)
+        code, _ = client.noop()
+        code = _smtp_code(code)
+        if code >= 400:
+            raise smtplib.SMTPResponseException(code, b"NOOP refused")
+    except Exception as exc:
+        return _preflight_failure("smtp-relay", _smtp_error(exc))
+    finally:
+        _close_smtp(client)
+    return {
+        "transport": "smtp-relay",
+        "ready": True,
+        "state": "ready",
+        "failureClass": "",
+        "status": 200,
+        "reason": "connection_validated",
+        "tls": cfg.mode in {"starttls", "ssl"},
+        "authentication": bool(cfg.username),
+    }
+
+
+def gmail_preflight() -> dict:
+    """Validate Gmail sender, scope and OAuth refresh without sending a message."""
+    sender = _gmail_sender()
+    if not valid_email(sender):
+        return {"transport": "gmail-api", "ready": False, "state": "awaiting_configuration", "failureClass": "configuration", "status": 0, "reason": "sender_missing_or_invalid"}
+    try:
+        scope_ok = google_integration.has_scopes([GMAIL_SEND_SCOPE])
+    except (OSError, google_integration.IntegrationError):
+        scope_ok = False
+    if not scope_ok:
+        return {"transport": "gmail-api", "ready": False, "state": "awaiting_configuration", "failureClass": "configuration", "status": 0, "reason": "gmail_send_scope_missing"}
+    try:
+        token = google_integration.google_access_token([GMAIL_SEND_SCOPE], force_refresh=True)
+        if not token:
+            raise google_integration.IntegrationError("Jeton Google absent")
+    except google_integration.IntegrationError as exc:
+        return _preflight_failure("gmail-api", _google_token_error(exc))
+    return {"transport": "gmail-api", "ready": True, "state": "ready", "failureClass": "", "status": 200, "reason": "oauth_token_validated"}
+
+
+def preflight() -> dict:
+    try:
+        requested = _transport_mode()
+    except ValueError as exc:
+        requested = "invalid"
+        mode_error = str(exc)[:120]
+    else:
+        mode_error = ""
+    smtp = smtp_preflight()
+    gmail = gmail_preflight()
+    active = active_transport() or "none"
+    selected = smtp if active == "smtp-relay" else gmail if active == "gmail-api" else None
+    return {
+        "ok": bool(selected and selected.get("ready")),
+        "requested": requested,
+        "activeTransport": active,
+        "state": selected.get("state") if selected else ("invalid_configuration" if mode_error else "awaiting_configuration"),
+        "error": mode_error,
+        "transports": [smtp, gmail],
+    }
 
 def send_email(to: str, subject: str, text: str, html: str = "") -> dict:
     mode = _transport_mode()
