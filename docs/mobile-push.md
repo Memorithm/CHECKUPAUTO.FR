@@ -32,3 +32,11 @@ Les erreurs de configuration fournisseur (`DeviceTokenNotForTopic`, topic/certif
 ## Action Réserver
 
 Les rappels de contrôle technique utilisent la catégorie iOS stable CHECKUPAUTO_CT_DUE. Cette catégorie expose l’action CHECKUPAUTO_BOOK, affichée comme **Réserver**. La même catégorie est utilisée par APNs et par le fallback local afin que le comportement utilisateur ne dépende pas du canal. Lorsque l’utilisateur choisit cette action, l’application recharge le bootstrap mobile et ouvre l’URL de réservation fournie par le serveur ; l’URL commerciale n’est donc pas dupliquée dans le routage de notification.
+
+## Cycle de vie côté iPhone
+
+Le fait que le push distant soit activé côté serveur ne suffit pas à désactiver le fallback local sur un iPhone. Le fallback reste actif jusqu’à ce que cet appareil ait effectivement reçu un jeton APNs et que son enregistrement auprès de CheckupAuto ait répondu avec succès. Cette confirmation est conservée localement par installation.
+
+Si l’autorisation de notifications est retirée dans Réglages, l’application réévalue l’état au retour au premier plan, marque le push distant de cet appareil comme inactif et appelle l’API de désinscription. Le serveur efface alors le jeton APNs actif et les échéances mobiles liées à cette installation. Un échec d’enregistrement APNs suit la même stratégie de sûreté : l’application revient au fallback local et tente de retirer tout ancien jeton serveur.
+
+Lorsque l’autorisation est de nouveau accordée, l’application demande un nouveau jeton APNs. Le fallback local n’est supprimé qu’après confirmation du nouvel enregistrement serveur, ce qui évite une fenêtre sans rappel lors d’un renouvellement de jeton ou d’une panne réseau.

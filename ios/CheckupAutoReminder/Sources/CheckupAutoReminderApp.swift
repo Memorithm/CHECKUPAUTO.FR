@@ -41,6 +41,16 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
         }
     }
 
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        DeviceRegistrationState.setRegistered(false)
+        Task {
+            try? await DeviceRegistrationClient.unregister()
+        }
+    }
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
@@ -76,6 +86,7 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
 
 @main
 struct CheckupAutoReminderApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = AppModel()
     #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(CheckupAutoAppDelegate.self) private var appDelegate
@@ -85,6 +96,11 @@ struct CheckupAutoReminderApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active {
+                        model.refreshAfterForeground()
+                    }
+                }
         }
     }
 }
