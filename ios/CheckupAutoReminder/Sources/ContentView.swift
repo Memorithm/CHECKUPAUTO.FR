@@ -13,9 +13,9 @@ struct ContentView: View {
                             model.requestNotifications()
                         }
                     } footer: {
-                        Text(model.mobileConfig.notifications.remotePushActive
+                        Text(model.remotePushActiveForDevice
                              ? "Les rappels sont envoyés par Checkup Auto via notifications push."
-                             : "Les rappels sont programmés localement sur l’iPhone.")
+                             : "Les rappels restent programmés localement sur l’iPhone tant que le push distant n’est pas confirmé.")
                     }
                 }
 
@@ -68,6 +68,9 @@ struct ContentView: View {
                         Label("Ajouter", systemImage: "plus")
                     }
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: DeviceRegistrationState.changedNotification)) { _ in
+                model.refreshRegistrationState()
             }
             .sheet(isPresented: $showingAddVehicle) {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate in

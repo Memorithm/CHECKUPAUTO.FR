@@ -11,14 +11,20 @@ final class AppModel: ObservableObject {
     @Published var notificationAuthorized = false
     @Published var errorMessage: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
+    @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
 
     private let scheduler = ReminderScheduler()
+
+    private var useLocalFallback: Bool {
+        mobileConfig.notifications.localFallback || !remotePushRegistered
+    }
 
     init() {
         load()
         Task {
             await refreshMobileConfig()
             await refreshNotificationState()
+            refreshRegistrationState()
             await rescheduleAll()
             await syncRemoteDeadlines()
         }
@@ -29,8 +35,12 @@ final class AppModel: ObservableObject {
             do {
                 notificationAuthorized = try await scheduler.requestAuthorization()
                 if notificationAuthorized {
+                    DeviceRegistrationState.setRegistered(false)
+                    refreshRegistrationState()
                     registerForRemoteNotifications()
                     await rescheduleAll()
+                } else {
+                    await disableRemoteRegistration()
                 }
             } catch {
                 errorMessage = "Impossible d’activer les notifications : \(error.localizedDescription)"
@@ -49,7 +59,7 @@ final class AppModel: ObservableObject {
         Task {
             if notificationAuthorized {
                 do {
-                    if mobileConfig.notifications.localFallback {
+                    if useLocalFallback {
                         try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
                     } else {
                         await scheduler.remove(vehicle, leadDays: mobileConfig.reminders.leadDays)
@@ -77,6 +87,29 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func refreshAfterForeground() {
+        Task {
+            await refreshMobileConfig()
+            await refreshNotificationState()
+            refreshRegistrationState()
+            await rescheduleAll()
+            await syncRemoteDeadlines()
+        }
+    }
+
+    func refreshRegistrationState() {
+        remotePushRegistered = DeviceRegistrationState.isRegistered()
+        Task {
+            await rescheduleAll()
+        }
+    }
+
+    var remotePushActiveForDevice: Bool {
+        notificationAuthorized &&
+            mobileConfig.notifications.remotePushActive &&
+            remotePushRegistered
+    }
+
     var bookingURL: URL {
         URL(string: mobileConfig.booking.url) ?? URL(string: "https://rdv.checkupauto.fr/")!
     }
@@ -93,7 +126,7 @@ final class AppModel: ObservableObject {
         guard notificationAuthorized else { return }
         for vehicle in vehicles {
             do {
-                if mobileConfig.notifications.localFallback {
+                if useLocalFallback {
                     try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
                 } else {
                     await scheduler.remove(
@@ -111,7 +144,11 @@ final class AppModel: ObservableObject {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         notificationAuthorized = settings.authorizationStatus == .authorized ||
             settings.authorizationStatus == .provisional
-        if notificationAuthorized { registerForRemoteNotifications() }
+        if notificationAuthorized {
+            registerForRemoteNotifications()
+        } else {
+            await disableRemoteRegistration()
+        }
     }
 
     private func registerForRemoteNotifications() {
@@ -121,6 +158,7 @@ final class AppModel: ObservableObject {
     }
 
     private func syncRemoteDeadlines() async {
+        guard notificationAuthorized, remotePushRegistered else { return }
         do {
             try await MobileDeadlineSyncClient.sync(
                 vehicles: vehicles,
@@ -128,6 +166,18 @@ final class AppModel: ObservableObject {
             )
         } catch {
             // Remote push is an optional channel. Local reminders remain the safe fallback.
+        }
+    }
+
+    private func disableRemoteRegistration() async {
+        DeviceRegistrationState.setRegistered(false)
+        refreshRegistrationState()
+        try? await DeviceRegistrationClient.unregister()
+        for vehicle in vehicles {
+            await scheduler.remove(
+                vehicle,
+                leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+            )
         }
     }
 
