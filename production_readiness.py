@@ -8,6 +8,7 @@ import gsc_client
 import integration_hub
 import mobile_claim_delivery
 import notification_broker
+import notification_preflight
 import referral_engine
 import reminder_dispatch
 import review_followup
@@ -232,21 +233,49 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             critical=True,
             metrics={"circuitsOpen": circuits, "permanentFailures": int(resilience.get("permanentFailures") or 0)},
         ))
+        preflight, preflight_error = _safe("notification preflight", notification_preflight.run)
         channels = broker.get("channels") or {}
         email = channels.get("email") or {}
-        email_ready = bool(email.get("configured"))
+        email_configured = bool(email.get("configured"))
+        email_probe = ((preflight or {}).get("email") or {}) if not preflight_error else {}
+        email_ready = email_configured and not preflight_error and bool(email_probe.get("ok"))
+        if not email_configured:
+            email_state = "configuration_required"
+            email_detail = "SMTP ou Gmail OAuth requis"
+        elif email_ready:
+            email_state = "ready"
+            email_detail = f"Transport {email.get('transport')} validé par préflight"
+        else:
+            email_state = "degraded"
+            email_detail = "Transport e-mail configuré mais préflight non prêt"
         components.append(_component(
-            "email_delivery", "Livraison e-mail", "ready" if email_ready else "configuration_required",
-            f"Transport {email.get("transport")} prêt" if email_ready else "SMTP ou Gmail OAuth requis",
+            "email_delivery", "Livraison e-mail", email_state, email_detail,
             critical=True,
-            metrics={"transport": email.get("transport") or "none"},
+            metrics={
+                "transport": email.get("transport") or "none",
+                "preflightState": email_probe.get("state") or ("unavailable" if preflight_error else "unknown"),
+            },
         ))
         push = channels.get("push") or {}
-        push_ready = bool(push.get("configured"))
+        push_configured = bool(push.get("configured"))
+        push_probe = ((preflight or {}).get("push") or {}) if not preflight_error else {}
+        push_ready = push_configured and not preflight_error and bool(push_probe.get("ready"))
+        if not push_configured:
+            push_state = "configuration_required"
+            push_detail = "Clé APNs, Key ID et Team ID requis"
+        elif push_ready:
+            push_state = "ready"
+            push_detail = "Identifiants APNs validés localement"
+        else:
+            push_state = "degraded"
+            push_detail = "APNs configuré mais préflight local non prêt"
         components.append(_component(
-            "apns", "Push APNs", "ready" if push_ready else "configuration_required",
-            "Identifiants APNs présents" if push_ready else "Clé APNs, Key ID et Team ID requis",
+            "apns", "Push APNs", push_state, push_detail,
             critical=False,
+            metrics={
+                "preflightState": push_probe.get("state") or ("unavailable" if preflight_error else "unknown"),
+                "keyValid": bool(push_probe.get("keyValid")),
+            },
         ))
 
     distribution, error = _safe("distribution iOS", lambda: app_download.status(config))

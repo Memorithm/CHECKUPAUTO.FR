@@ -22,6 +22,10 @@ def healthy_patches():
             },
             "resilience": {"circuitsOpen": 0, "permanentFailures": 0},
         }),
+        mock.patch.object(readiness.notification_preflight, "run", return_value={
+            "email": {"ok": True, "state": "ready"},
+            "push": {"ready": True, "state": "ready", "keyValid": True},
+        }),
         mock.patch.object(readiness.app_download, "status", return_value={
             "ios": {"available": True, "channel": "app-store", "targetUrl": "https://apps.apple.com/app/id123"},
         }),
@@ -76,16 +80,20 @@ class ProductionReadinessTest(unittest.TestCase):
             },
             "resilience": {"circuitsOpen": 0, "permanentFailures": 0},
         })
-        patches[2] = mock.patch.object(readiness.app_download, "status", return_value={
+        patches[2] = mock.patch.object(readiness.notification_preflight, "run", return_value={
+            "email": {"ok": False, "state": "awaiting_configuration"},
+            "push": {"ready": False, "state": "awaiting_credentials", "keyValid": False},
+        })
+        patches[3] = mock.patch.object(readiness.app_download, "status", return_value={
             "ios": {"available": False, "channel": "pending", "targetUrl": None},
         })
-        patches[3] = mock.patch.object(readiness.mobile_claim_delivery, "status", return_value={
+        patches[4] = mock.patch.object(readiness.mobile_claim_delivery, "status", return_value={
             "ready": False, "domain": "www.checkupauto.fr", "claimPath": "/app/claim",
         })
-        patches[5] = mock.patch.object(readiness.integration_hub, "status", return_value={
+        patches[6] = mock.patch.object(readiness.integration_hub, "status", return_value={
             "oauthAuthorized": False, "connectors": [{"connected": False}],
         })
-        patches[9] = mock.patch.object(readiness.review_followup, "status", return_value={
+        patches[10] = mock.patch.object(readiness.review_followup, "status", return_value={
             "emailTransportConfigured": False, "reviewUrlConfigured": False, "sentTotal": 0,
         })
         result = self._run_with(patches, {"totals": {"pass": 9, "warning": 7, "fail": 0}})
@@ -113,7 +121,11 @@ class ProductionReadinessTest(unittest.TestCase):
             },
             "resilience": {"circuitsOpen": 0, "permanentFailures": 0},
         })
-        patches[2] = mock.patch.object(readiness.app_download, "status", return_value={
+        patches[2] = mock.patch.object(readiness.notification_preflight, "run", return_value={
+            "email": {"ok": True, "state": "ready"},
+            "push": {"ready": False, "state": "awaiting_credentials", "keyValid": False},
+        })
+        patches[3] = mock.patch.object(readiness.app_download, "status", return_value={
             "ios": {"available": False, "channel": "pending", "targetUrl": None},
         })
         result = self._run_with(patches)
@@ -131,11 +143,30 @@ class ProductionReadinessTest(unittest.TestCase):
             },
             "resilience": {"circuitsOpen": 0, "permanentFailures": 0},
         })
+        patches[2] = mock.patch.object(readiness.notification_preflight, "run", return_value={
+            "email": {"ok": False, "state": "awaiting_configuration"},
+            "push": {"ready": False, "state": "awaiting_credentials", "keyValid": False},
+        })
         report = self._run_with(patches)
         with self.assertRaises(readiness.ProductionActivationBlocked) as ctx:
             readiness.require_activation(report)
         self.assertEqual(ctx.exception.blockers, ("email_delivery",))
         self.assertNotIn("SMTP", str(ctx.exception))
+
+
+    def test_configured_email_with_failed_preflight_blocks_activation(self):
+        patches = healthy_patches()
+        patches[2] = mock.patch.object(readiness.notification_preflight, "run", return_value={
+            "email": {"ok": False, "state": "transport_unavailable"},
+            "push": {"ready": True, "state": "ready", "keyValid": True},
+        })
+        result = self._run_with(patches)
+        states = {item["id"]: item["state"] for item in result["components"]}
+        self.assertEqual(states["email_delivery"], "degraded")
+        self.assertFalse(result["activationGate"]["allowed"])
+        self.assertIn("email_delivery", result["criticalBlockers"])
+        email = next(item for item in result["components"] if item["id"] == "email_delivery")
+        self.assertEqual(email["metrics"]["preflightState"], "transport_unavailable")
 
     def test_probe_exception_is_degraded_without_leaking_message(self):
         patches = healthy_patches()
