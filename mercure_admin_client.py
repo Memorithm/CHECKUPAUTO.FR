@@ -354,36 +354,96 @@ def disable_native_review_email_automation():
 def send_google_review_email(rendezvous_id):
     raise RuntimeError('Envoi email via Mercure désactivé par la politique Checkup Auto')
 
+def _customer_contact(s, client_kind, client_id):
+    client_kind=str(client_kind or '').strip().lower()
+    client_id=str(client_id or '').strip()
+    if not client_id or client_kind not in {'account','free'}:
+        return {'email':'','telephone':''}
+    endpoint='/admin/get-client-compte/' if client_kind=='account' else '/admin/get-client-libre/'
+    r=_check_auth(s.get(BASE+endpoint+client_id,timeout=20,allow_redirects=False))
+    r.raise_for_status(); data=r.json()
+    if not isinstance(data,dict): raise RuntimeError('Réponse Mercure client invalide')
+    return {
+      'email':str(data.get('email') or '').strip()[:254],
+      'telephone':str(data.get('telephone') or '').strip()[:40],
+    }
+
+
+def customer_email(client_kind, client_id):
+    return _customer_contact(_session(),client_kind,client_id).get('email','')
+
+
+def vehicle_details(vehicle_id, session=None):
+    vehicle_id=str(vehicle_id or '').strip()
+    if not vehicle_id: raise ValueError('Identifiant véhicule requis')
+    s=session or _session()
+    r=_check_auth(s.get(BASE+'/admin/get-vehicule/'+vehicle_id,timeout=20,allow_redirects=False))
+    r.raise_for_status(); data=r.json()
+    if not isinstance(data,dict): raise RuntimeError('Réponse Mercure véhicule invalide')
+    return data
+
+
+def reminder_source_rows(start, end):
+    datetime.date.fromisoformat(start); datetime.date.fromisoformat(end)
+    s=_session(); events=_calendar_events(s,start,end); cache={}; out=[]; seen=set()
+    for ev in events:
+        if not isinstance(ev,dict): continue
+        ext=ev.get('extendedProps') or {}
+        rid=str(ext.get('rendezVousId') or '').strip()
+        if not rid: continue
+        account_id=str(ext.get('clientCompteId') or '').strip()
+        free_id=str(ext.get('clientLibreId') or '').strip()
+        client_kind='account' if account_id else ('free' if free_id else '')
+        client_id=account_id or free_id
+        if not client_kind: continue
+        vehicle_ids=ext.get('vehiculeId') or []
+        if not isinstance(vehicle_ids,list): vehicle_ids=[vehicle_ids]
+        for raw_vid in vehicle_ids:
+            vid=str(raw_vid or '').strip()
+            if not vid: continue
+            key=(vid,client_kind,client_id)
+            if key in seen: continue
+            seen.add(key)
+            if vid not in cache:
+                cache[vid]=vehicle_details(vid,s)
+            due=str((cache[vid] or {}).get('date_echeance') or '').strip()[:10]
+            try: datetime.date.fromisoformat(due)
+            except Exception: continue
+            out.append({'vehicleId':vid,'clientKind':client_kind,'clientId':client_id,'dueDate':due,'appointmentId':rid})
+    return out
+
+
 def review_followup_rows(days=2):
     days=max(1,min(int(days),7))
     today=datetime.date.today()
     start=(today-datetime.timedelta(days=days-1)).isoformat()
     end=(today+datetime.timedelta(days=1)).isoformat()
-    email_field=str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip()
-    if email_field and (len(email_field)>80 or not email_field.replace('_','').isalnum()):
-        raise ValueError('Nom de champ email Mercure invalide')
-    s=_session()
-    rows=_appointments(s,start,end)
-    r=_check_auth(s.get(BASE+'/admin/rendez-vous/json',params={'start':start,'end':end},timeout=30,allow_redirects=False))
-    r.raise_for_status()
-    events=r.json()
-    if not isinstance(events,list): raise RuntimeError('Réponse Mercure calendrier invalide')
-    finished={}
+    s=_session(); rows=_appointments(s,start,end); events=_calendar_events(s,start,end)
+    meta={}
     for ev in events:
         if not isinstance(ev,dict): continue
         ext=ev.get('extendedProps') or {}
         rid=str(ext.get('rendezVousId') or ev.get('id') or '').strip()
+        if not rid: continue
         bg=str(ev.get('backgroundColor') or '').strip().lower().replace('#','')
-        if rid: finished[rid]=bg in {'ccc','cccccc'}
+        account_id=str(ext.get('clientCompteId') or '').strip()
+        free_id=str(ext.get('clientLibreId') or '').strip()
+        meta[rid]={
+          'finished':bg in {'ccc','cccccc'},
+          'email':str(ext.get('email') or '').strip()[:254],
+          'clientKind':'account' if account_id else ('free' if free_id else ''),
+          'clientId':account_id or free_id,
+        }
     out=[]
     for row in rows:
-        rid=str(row.get('id') or '').strip()
+        rid=str(row.get('id') or '').strip(); item=meta.get(rid,{})
+        email=str(item.get('email') or '').strip()
+        if not email and item.get('clientKind') and item.get('clientId'):
+            try: email=_customer_contact(s,item['clientKind'],item['clientId']).get('email','')
+            except Exception: email=''
         out.append({
-          'id':rid,
-          'dateRdv':str(row.get('date_rdv') or ''),
-          'honored':bool(row.get('est_honore')),
-          'finished':bool(finished.get(rid)),
-          'name':str(row.get('name') or '')[:120],
-          'email':str(row.get(email_field) or '').strip()[:254] if email_field else '',
+          'id':rid,'dateRdv':str(row.get('date_rdv') or ''),
+          'honored':bool(row.get('est_honore')),'finished':bool(item.get('finished')),
+          'name':str(row.get('name') or '')[:120],'email':email[:254],
         })
     return out

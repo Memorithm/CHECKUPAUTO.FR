@@ -110,8 +110,6 @@ def process_once():
             mercure.disable_native_review_email_automation()
         except Exception as exc:
             return {'ok':False,'state':'native_positive_only_enabled','error':str(exc)}
-    if not str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip():
-        return {'ok':False,'state':'waiting_mercure_email_field','error':'Champ email client Mercure non vérifié'}
     try:
         transport=mail.load_config()
     except Exception as exc:
@@ -177,7 +175,7 @@ def status():
       'delivery':'notification_broker','mercureDeliveryDisabled':True,
       'notificationBroker':notifications.status(5),
       'emailTransportConfigured':mail.configured(),
-      'mercureEmailFieldConfigured':bool(str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip()),
+      'mercureEmailSource':'calendar_extendedProps.email',
       'reviewUrlConfigured':bool(str(os.environ.get('CYBERCHECK_GOOGLE_REVIEW_URL','') or '').strip()),
       'sent24h':sent24,'sentTotal':sent_total,'permanentFailures':failed,'latest':latest,
       'privacy':'CyberCheck stores appointment id + delivery state only; customer email remains in Mercure'

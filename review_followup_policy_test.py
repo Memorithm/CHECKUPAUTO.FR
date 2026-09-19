@@ -16,16 +16,6 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             mercure.send_google_review_email("123")
 
-    @patch.object(followup.mercure, "session_status", return_value={"connected": True})
-    @patch.object(
-        followup.mercure,
-        "native_review_email_status",
-        return_value={"nativeFavorableOnlyEmailEnabled": False},
-    )
-    def test_waits_until_exact_mercure_email_field_is_verified(self, _native, _session):
-        with patch.dict(os.environ, {}, clear=True):
-            result = followup.process_once()
-        self.assertEqual(result["state"], "waiting_mercure_email_field")
     @patch.object(followup, "_mark")
     @patch.object(followup, "_state", return_value=None)
     @patch.object(followup.notifications, "send_email")
@@ -58,7 +48,6 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
             "email": "client@example.fr",
         }]
         env = {
-            "CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD": "verified_email_field",
             "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
             "CYBERCHECK_GOOGLE_REVIEW_URL": "https://g.page/r/checkupauto/review",
         }

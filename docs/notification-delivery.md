@@ -40,3 +40,10 @@ This deliberately prevents accidental delivery to the wrong address.
 ## Current host state
 
 At implementation time Thor had no local Postfix/sendmail service listening on ports 25, 465 or 587. Therefore this change cannot send real mail until a local MTA or another explicitly configured relay is deployed.
+## CT due-date reminder pipeline
+
+CyberCheck reads the verified Mercure calendar schema and resolves `vehiculeId` to `/admin/get-vehicule/<id>`, where `date_echeance` is the control due-date source. The local reminder inventory stores only provider technical identifiers, due date and last source appointment. Customer e-mail addresses are resolved from Mercure only at delivery time and are never persisted in the reminder inventory.
+
+The dispatch policy is shared with the iOS core: J-60, J-30, J-15, J-7 and J-1 at 09:00 Europe/Paris. Delivery is routed exclusively through NotificationBroker. Its idempotency reference hashes the provider vehicle identifier before persistence.
+
+A recent Mercure window is refreshed on every cycle. Historical coverage is progressively backfilled in bounded 31-day chunks up to 730 days so the integration does not issue an unbounded burst of provider requests. Missing SMTP configuration prevents delivery but does not prevent due-date synchronization.
