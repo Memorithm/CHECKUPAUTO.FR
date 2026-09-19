@@ -12,6 +12,7 @@ import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
 import mobile_bootstrap as mobile_bootstrap
 import mobile_devices as mobile_devices
+import mobile_authoritative_sync as mobile_authoritative_sync
 import mobile_reminder_dispatch as mobile_reminder_dispatch
 import geo_marketing as geo_marketing
 import security_guard as security
@@ -445,6 +446,19 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json(mobile_devices.unregister(self._read_json()))
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/mobile/claims/consume':
+   try:
+    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+    payload=self._read_json()
+    result=mobile_devices.consume_vehicle_claim(payload)
+    try:
+     mobile_authoritative_sync.sync_installation(str(payload.get('installationId') or ''))
+    except Exception:
+     pass
+    return self.send_json(result,200)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/mobile/reminders/sync':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
@@ -792,6 +806,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db(); reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); reminder_dispatch.start(); mobile_reminder_dispatch.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db(); reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); reminder_dispatch.start(); mobile_authoritative_sync.start(); mobile_reminder_dispatch.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

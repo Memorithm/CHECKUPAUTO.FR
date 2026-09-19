@@ -99,6 +99,31 @@ def _upsert(rows: list[dict]) -> int:
             )
     return len(rows)
 
+def deadlines_for_vehicle_ids(vehicle_ids: list[str]) -> list[dict]:
+    if not isinstance(vehicle_ids, list) or len(vehicle_ids) > 1000:
+        raise ValueError("vehicle_ids invalides")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in vehicle_ids:
+        raw = str(value or "").strip()
+        if not raw or len(raw) > 128:
+            raise ValueError("vehicle_id invalide")
+        if raw not in seen:
+            seen.add(raw)
+            cleaned.append(raw)
+    if not cleaned:
+        return []
+    init_db()
+    placeholders = ",".join("?" for _ in cleaned)
+    with connect() as db:
+        rows = db.execute(
+            f"""SELECT vehicle_id,due_date FROM reminder_target
+                WHERE vehicle_id IN ({placeholders})""",
+            tuple(cleaned),
+        )
+        return [dict(row) for row in rows]
+
+
 def sync_once(today: datetime.date | None = None) -> dict:
     init_db()
     today = today or datetime.date.today()
