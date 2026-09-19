@@ -34,6 +34,24 @@ class MobileClaimAPISurfaceTest(unittest.TestCase):
         self.assertEqual(limits["/api/mobile/installations/delete"], 12)
         self.assertEqual(limits["/api/mobile/claims/consume"], 20)
         self.assertEqual(limits["/api/mobile/reminders/sync"], 30)
+        self.assertEqual(limits["/api/admin/mobile/claims/issue"], 12)
+
+    def test_admin_claim_issuance_remains_authenticated_and_internal(self):
+        source = Path("admin_server.py").read_text()
+        admin_guard = source.index("if path.startswith('/api/admin/'):")
+        issue_route = source.index("if path=='/api/admin/mobile/claims/issue':")
+        self.assertLess(admin_guard, issue_route)
+        self.assertIn("mobile_claim_delivery.issue_for_vehicle", source)
+        self.assertIn("/api/admin/mobile/claims/candidates", source)
+        self.assertNotIn("mobile_devices.issue_vehicle_claim(", source)
+
+    def test_claim_web_surface_has_aasa_and_no_store_landing(self):
+        source = Path("admin_server.py").read_text()
+        self.assertIn("/.well-known/apple-app-site-association", source)
+        self.assertIn("/apple-app-site-association", source)
+        self.assertIn("if path=='/app/claim':", source)
+        self.assertIn("self._referrer_policy='no-referrer'", source)
+        self.assertIn("cache='no-store'", source)
 
     def test_security_behavior_import_is_runtime_side_effect_free(self):
         with mock.patch("sqlite3.connect", side_effect=AssertionError("database opened during import")):

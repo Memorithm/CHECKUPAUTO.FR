@@ -94,7 +94,7 @@ The broker persists only the normalized failure class and a redacted diagnostic;
 
 The private mobile deadline registry records deadline provenance. device is the local/mobile fallback source; mercure is the authoritative server source. If any authoritative Mercure deadline exists for a registered installation, remote mobile dispatch selects only Mercure deadlines for that installation. Device-submitted rows remain dormant as a fallback and become eligible again only if the authoritative snapshot is explicitly removed.
 
-The public /api/mobile/reminders/sync path is restricted to device rows and cannot overwrite an authoritative row. sync_authoritative_deadlines() is internal-only and is not wired to a public HTTP route. Verified installation-to-Mercure vehicle bindings are created by one-time claims; production population remains disabled until a customer claim-delivery channel is selected and activated.
+The public /api/mobile/reminders/sync path is restricted to device rows and cannot overwrite an authoritative row. sync_authoritative_deadlines() is internal-only and is not wired to a public HTTP route. Verified installation-to-Mercure vehicle bindings are created by one-time claims. The authenticated post-inspection QR channel can populate them once the Apple Application Identifier Prefix and signed Associated Domains capability are configured.
 
 ## Secure mobile vehicle binding
 
@@ -102,7 +102,7 @@ Vehicle-to-installation binding uses a one-time high-entropy claim. The raw clai
 
 The public surface exposes only POST /api/mobile/claims/consume. There is deliberately no HTTP route for claim issuance. A successful consume returns an opaque binding UUID and never returns the Mercure vehicle or customer identifiers. The internal mobile_authoritative_sync worker maps active bindings to the already-synchronized reminder inventory and feeds authoritative dates into the private mobile deadline registry.
 
-Claim delivery to the customer is not activated yet. Choosing and securing that delivery channel remains a separate rollout step.
+Customer claim delivery is implemented as an authenticated admin-only post-inspection QR flow. The admin request supplies only a vehicle identifier; the server resolves client identifiers from its authoritative Mercure reminder inventory before invoking the internal issuer. QR SVG generation is local, the raw token is never persisted, and issuance is refused until the Apple association identity is configured.
 
 ## Installation identity versus APNs channel
 
@@ -110,11 +110,11 @@ Mobile installation identity is registered independently from notification permi
 
 /api/mobile/devices/unregister disables only the APNs channel and removes remote-dispatch deadlines; it intentionally preserves the verified vehicle binding. /api/mobile/installations/delete is the authenticated destructive operation that removes the installation and its bindings. This separation prevents a temporary notification opt-out from silently unlinking the customer's vehicle.
 
-## Staged iOS claim client
+## iOS Universal Link claim client
 
 The iOS core can validate and consume a vehicle claim without activating a claim-delivery channel. The accepted canonical form is an HTTPS CheckupAuto URL at /app/claim with the claim token in the URL fragment rather than the query string. HTTP, foreign hosts and query-carried tokens are rejected.
 
-The app ensures its installation identity is registered before posting the opaque token to /api/mobile/claims/consume and accepts only an opaque binding UUID in the response. Associated Domains, Universal Links and custom URL schemes remain intentionally unconfigured, so this code does not yet cause Safari, Mail or another app to route claim links into CheckupAuto automatically.
+The app ensures its installation identity is registered before posting the opaque token to /api/mobile/claims/consume and accepts only an opaque binding UUID in the response. The app entitlement now includes only `applinks:www.checkupauto.fr`; the server AASA document authorizes only `/app/claim`. AASA publication and customer QR issuance remain fail-closed until a valid Apple Application Identifier Prefix is present. No custom URL scheme is enabled.
 
 ## Durable iOS privacy purge
 

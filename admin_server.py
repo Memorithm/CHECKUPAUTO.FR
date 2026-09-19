@@ -12,6 +12,7 @@ import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
 import mobile_bootstrap as mobile_bootstrap
 import mobile_devices as mobile_devices
+import mobile_claim_delivery as mobile_claim_delivery
 import mobile_authoritative_sync as mobile_authoritative_sync
 import mobile_reminder_dispatch as mobile_reminder_dispatch
 import geo_marketing as geo_marketing
@@ -105,12 +106,13 @@ class Handler(SimpleHTTPRequestHandler):
   return super().send_response(code,message)
  def end_headers(self):
   self.send_header('X-Content-Type-Options','nosniff'); self.send_header('X-Frame-Options','DENY')
-  self.send_header('Referrer-Policy','strict-origin-when-cross-origin'); self.send_header('Cross-Origin-Opener-Policy','same-origin')
+  self.send_header('Referrer-Policy',getattr(self,'_referrer_policy','strict-origin-when-cross-origin')); self.send_header('Cross-Origin-Opener-Policy','same-origin')
   self.send_header('Cross-Origin-Resource-Policy','same-site'); self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=(self)')
   nonce=getattr(self,'_csp_nonce',''); nonce_src=(" 'nonce-"+nonce+"'") if nonce else ''
   self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
   self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
-  if urlparse(self.path).path.startswith('/admin'): self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
+  response_path=urlparse(self.path).path
+  if response_path.startswith('/admin') or response_path=='/app/claim': self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
   return super().end_headers()
  def do_OPTIONS(self):
   if not self._guard(): return
@@ -245,7 +247,13 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/mobile/devices/status':
    if not self.authorized(): return self.require_auth()
    try:
-    result=mobile_devices.status(); result['reminderDispatch']=mobile_reminder_dispatch.status(); return self.send_json(result)
+    result=mobile_devices.status(); result['reminderDispatch']=mobile_reminder_dispatch.status(); result['claimDelivery']=mobile_claim_delivery.status(load_config()); return self.send_json(result)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/mobile/claims/candidates':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); limit=int((q.get('limit') or ['30'])[0])
+    return self.send_json({'ok':True,'claimDelivery':mobile_claim_delivery.status(load_config()),'candidates':mobile_claim_delivery.candidates(limit)})
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/notifications/status':
    if not self.authorized(): return self.require_auth()
@@ -373,8 +381,16 @@ class Handler(SimpleHTTPRequestHandler):
    self.send_response(302); self.send_header('Location',target); self.send_header('Cache-Control','no-store'); self.send_header('X-Robots-Tag','noindex, nofollow'); self.end_headers(); return
   if path=='/.well-known/security.txt':
    return self.send_bytes(build_security_txt(load_config()).encode(),'text/plain; charset=utf-8',cache='public, max-age=3600')
+  if path in ('/.well-known/apple-app-site-association','/apple-app-site-association'):
+   try:
+    return self.send_bytes(mobile_claim_delivery.association_document(load_config()),'application/json',cache='public, max-age=3600')
+   except Exception:
+    return self.send_json({'error':'association_not_ready'},503)
   if path=='/zone-tarifs':
    return self.send_bytes(build_geo_pricing_page(load_config()),'text/html; charset=utf-8',cache='no-cache')
+  if path=='/app/claim':
+   self._referrer_policy='no-referrer'
+   return self.send_bytes(mobile_claim_delivery.claim_landing_html(load_config()),'text/html; charset=utf-8',cache='no-store')
   if path=='/app':
    c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
    return self.send_bytes(app_download.landing_html(c,source,nonce),'text/html; charset=utf-8',cache='no-cache')
@@ -503,6 +519,13 @@ class Handler(SimpleHTTPRequestHandler):
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  if path=='/api/admin/mobile/claims/issue':
+   try:
+    payload=self._read_json(); claim=mobile_claim_delivery.issue_for_vehicle(load_config(),payload.get('vehicleId'),payload.get('ttlSeconds'))
+    return self.send_json({'ok':True,'claim':claim},201)
+   except LookupError as exc: return self.send_json({'ok':False,'error':str(exc)},404)
+   except RuntimeError as exc: return self.send_json({'ok':False,'error':str(exc)},409)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/referrals/account':
    try:
     payload=self._read_json(allow_empty=True); account=referrals.create_account(payload.get('code') or '',payload.get('rewardCents'))

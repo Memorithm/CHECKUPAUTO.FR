@@ -47,7 +47,7 @@ Lorsque l’autorisation est de nouveau accordée, l’application demande un no
 
 Le registre mobile distingue désormais deux provenances : device pour le fallback saisi ou conservé sur l'iPhone, et mercure pour une échéance serveur autoritaire. Tant qu'aucune échéance mercure n'est associée à une installation, les échéances device restent utilisables. Dès qu'une échéance autoritaire existe pour cette installation, le moteur APNs ignore toutes les échéances device de cette installation afin d'éviter un double rappel ou une date contradictoire.
 
-La synchronisation publique de l'iPhone ne peut supprimer ou modifier que les lignes device et ne peut pas écraser une ligne mercure. L'injection mercure est une primitive interne non exposée par l'API mobile publique. Le binding vérifié installation iOS ↔ véhicule Mercure est fourni par le mécanisme de claim décrit plus bas ; il ne sera peuplé pour des clients réels qu'après activation d'un canal sûr de remise des claims.
+La synchronisation publique de l'iPhone ne peut supprimer ou modifier que les lignes device et ne peut pas écraser une ligne mercure. L'injection mercure est une primitive interne non exposée par l'API mobile publique. Le binding vérifié installation iOS ↔ véhicule Mercure est fourni par le mécanisme de claim décrit plus bas. Le canal QR post-contrôle peut désormais peupler ce binding dès que le préfixe d’identifiant d’application Apple est configuré et que l'application signée possède l'Associated Domain prévu.
 
 ## Claim sécurisé d'un véhicule
 
@@ -55,17 +55,17 @@ Le serveur peut créer en interne un claim à usage unique pour un véhicule Mer
 
 L'application consomme ce jeton via POST /api/mobile/claims/consume en présentant également son installationId et son registrationSecret. Après authentification, le serveur crée un bindingId UUID opaque. La réponse mobile ne contient ni vehicleId Mercure, ni clientId, ni clientKind. Le claim est supprimé dès sa consommation, ce qui interdit toute réutilisation.
 
-L'émission de claim reste volontairement interne : aucun endpoint HTTP ne permet d'appeler issue_vehicle_claim. Le canal de remise au client, par exemple un lien post-contrôle ou un QR personnalisé, doit être décidé séparément avant activation commerciale.
+L'émission cryptographique reste interne : aucun endpoint public ne permet d'appeler issue_vehicle_claim. La console d'administration possède un endpoint authentifié qui résout le véhicule dans l'inventaire ReminderEngine issu de Mercure, puis appelle l'émetteur interne. Le QR SVG est produit localement sur CheckupAuto, sans service QR tiers. Le jeton brut n'est jamais persisté et reste uniquement dans le fragment #token=... du lien à usage unique.
 
 Après un claim réussi, CyberCheck tente immédiatement de rapprocher le binding de l'inventaire privé ReminderEngine. Si une échéance Mercure vérifiée est disponible, elle devient la source autoritaire de l'installation ; sinon le fallback device reste en place. Une synchronisation horaire interne maintient ensuite ces échéances à jour.
 
-## Client iOS de claim préparé
+## Universal Link de claim iOS
 
 L'application contient maintenant un client de consommation du claim. Elle accepte uniquement la forme canonique HTTPS https://www.checkupauto.fr/app/claim avec le jeton placé dans le fragment, par exemple #token=... . Un jeton placé dans la query string, un domaine différent ou HTTP sont refusés. Le fragment n'est pas envoyé au serveur lors de la requête navigateur, ce qui évite de placer le claim dans les journaux HTTP usuels.
 
 Le client réenregistre d'abord l'identité d'installation puis appelle POST /api/mobile/claims/consume. La réponse attend exclusivement un bindingId UUID opaque. Aucun identifiant véhicule ou client Mercure n'est accepté comme résultat mobile.
 
-Cette prise en charge est actuellement préparatoire : ContentView sait traiter une URL reçue par SwiftUI, mais aucun Associated Domain, Universal Link ou schéma URL personnalisé n'est activé dans le projet. Aucun canal de remise de claim au client n'est donc activé par ce changement.
+L'application déclare désormais l'Associated Domain `applinks:www.checkupauto.fr`. Le serveur publie l'Apple App Site Association sur `/.well-known/apple-app-site-association` et `/apple-app-site-association`, limité au chemin `/app/claim`. Le document AASA n'est servi que lorsque le préfixe d’identifiant d’application Apple de dix caractères est disponible ; sinon le serveur répond 503 et la console interdit l'émission d'un QR client. Aucun schéma URL personnalisé n'est activé. La durée de vie d'un QR client est de 30 minutes par défaut et plafonnée à 60 minutes par le canal d'administration.
 
 ## Effacement durable des données iOS
 
