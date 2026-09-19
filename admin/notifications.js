@@ -6,6 +6,31 @@ function notificationCell(row, value) {
   row.appendChild(cell);
 }
 
+function renderTransportHealth(items) {
+  const body = notificationEl('notificationTransportHealth');
+  if (!body) return;
+  body.replaceChildren();
+  if (!items.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    cell.textContent = 'Aucun incident transport';
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement('tr');
+    notificationCell(row, item.transport);
+    notificationCell(row, item.circuitOpen ? 'OUVERT' : 'FERMÉ');
+    notificationCell(row, Number(item.consecutiveFailures) || 0);
+    notificationCell(row, Number(item.transientFailures) || 0);
+    notificationCell(row, Number(item.configurationFailures) || 0);
+    notificationCell(row, item.circuitOpen ? `${Number(item.retryAfterSeconds) || 0} s` : '—');
+    body.appendChild(row);
+  }
+}
+
 function renderNotificationRows(items) {
   const body = notificationEl('notificationRecent');
   if (!body) return;
@@ -53,8 +78,10 @@ async function loadNotificationStatus() {
     const resilience=data.resilience||{};
     const transportHealth=Array.isArray(resilience.transports)?resilience.transports:[];
     notificationEl('notificationTransient').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.transientFailures)||0),0);
+    notificationEl('notificationPermanent').textContent = resilience.permanentFailures || 0;
     notificationEl('notificationConfigErrors').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.configurationFailures)||0),0);
     notificationEl('notificationCircuits').textContent = resilience.circuitsOpen || 0;
+    renderTransportHealth(transportHealth);
     const emailChannel=data.channels?.email||{};
     const emailTransport=emailChannel.transport==='gmail-api'?'GMAIL':emailChannel.transport==='smtp-relay'?'SMTP':'';
     notificationEl('notificationEmail').textContent = emailChannel.configured ? `PRÊT${emailTransport?' · '+emailTransport:''}` : 'À CONFIGURER';
