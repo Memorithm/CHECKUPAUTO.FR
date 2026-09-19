@@ -89,3 +89,9 @@ E-mail failures are typed before they reach `NotificationBroker` so the broker c
 - Permanent failures are retained in the idempotent ledger and the same business delivery is suppressed on later dispatch cycles instead of being sent repeatedly.
 
 The broker persists only the normalized failure class and a redacted diagnostic; raw recipients, message bodies, OAuth tokens and APNs tokens are not written to the notification ledger.
+
+## Mobile deadline source precedence
+
+The private mobile deadline registry records deadline provenance. device is the local/mobile fallback source; mercure is the authoritative server source. If any authoritative Mercure deadline exists for a registered installation, remote mobile dispatch selects only Mercure deadlines for that installation. Device-submitted rows remain dormant as a fallback and become eligible again only if the authoritative snapshot is explicitly removed.
+
+The public /api/mobile/reminders/sync path is restricted to device rows and cannot overwrite an authoritative row. sync_authoritative_deadlines() is internal-only and is not wired to a public HTTP route. A verified installation-to-Mercure vehicle binding is still required before this authoritative path can be populated for real customers.
