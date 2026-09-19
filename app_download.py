@@ -3,9 +3,11 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from urllib.parse import urlparse
 
 APP_STORE_ENV = "CYBERCHECK_IOS_APP_URL"
+TESTFLIGHT_ENV = "CYBERCHECK_IOS_TESTFLIGHT_URL"
 _CAMPAIGN = "ios-reminder-app"
 _ALLOWED_SOURCES = {
     "direct",
@@ -16,6 +18,7 @@ _ALLOWED_SOURCES = {
     "email",
     "admin-test",
 }
+_TESTFLIGHT_PATH = re.compile(r"^/join/[A-Za-z0-9_-]{4,64}/?$")
 
 
 def normalize_source(value: object) -> str:
@@ -23,19 +26,34 @@ def normalize_source(value: object) -> str:
     return source if source in _ALLOWED_SOURCES else "direct"
 
 
-def ios_app_store_url() -> str:
-    raw = os.environ.get(APP_STORE_ENV, "").strip()
+def _safe_distribution_url(raw: str, hostname: str, *, testflight: bool = False) -> str:
+    raw = raw.strip()
     if not raw or any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
         return ""
     try:
         parsed = urlparse(raw)
     except Exception:
         return ""
-    if parsed.scheme != "https" or (parsed.hostname or "").lower() != "apps.apple.com":
+    if parsed.scheme != "https" or (parsed.hostname or "").lower() != hostname:
         return ""
-    if parsed.username or parsed.password:
+    if parsed.username or parsed.password or parsed.fragment:
         return ""
+    if testflight:
+        if parsed.query or not _TESTFLIGHT_PATH.fullmatch(parsed.path or ""):
+            return ""
     return raw
+
+
+def ios_app_store_url() -> str:
+    return _safe_distribution_url(os.environ.get(APP_STORE_ENV, ""), "apps.apple.com")
+
+
+def ios_testflight_url() -> str:
+    return _safe_distribution_url(
+        os.environ.get(TESTFLIGHT_ENV, ""),
+        "testflight.apple.com",
+        testflight=True,
+    )
 
 
 def canonical_origin(config: dict) -> str:
@@ -52,13 +70,26 @@ def canonical_origin(config: dict) -> str:
 def status(config: dict) -> dict:
     origin = canonical_origin(config)
     store_url = ios_app_store_url()
+    testflight_url = ios_testflight_url()
+    if store_url:
+        channel = "app-store"
+        target_url = store_url
+    elif testflight_url:
+        channel = "testflight"
+        target_url = testflight_url
+    else:
+        channel = "pending"
+        target_url = ""
     return {
         "landingUrl": f"{origin}/app",
         "campaign": _CAMPAIGN,
         "ios": {
-            "available": bool(store_url),
+            "available": bool(target_url),
+            "channel": channel,
             "downloadPath": "/go/app",
             "appStoreUrl": store_url or None,
+            "testFlightUrl": testflight_url or None,
+            "targetUrl": target_url or None,
         },
         "sources": sorted(_ALLOWED_SOURCES),
     }
@@ -67,25 +98,38 @@ def status(config: dict) -> dict:
 def landing_html(config: dict, source: object, nonce: str) -> bytes:
     source = normalize_source(source)
     app = status(config)
-    available = bool(app["ios"]["available"])
+    ios = app["ios"]
+    channel = ios["channel"]
     origin = canonical_origin(config)
     canonical = f"{origin}/app"
-    robots = "index,follow" if available else "noindex,follow"
     nonce_attr = html.escape(str(nonce), quote=True)
     source_js = json.dumps(source, ensure_ascii=False)
-    if available:
+    if channel == "app-store":
+        robots = "index,follow"
         cta = (
             f'<a class="download" href="/go/app?src={html.escape(source, quote=True)}">'
             "Télécharger sur l’App Store →</a>"
         )
         state = "Disponible sur iPhone"
         note = "Téléchargez l’application Checkup Auto et activez les notifications."
+    elif channel == "testflight":
+        robots = "noindex,follow"
+        cta = (
+            f'<a class="download" href="/go/app?src={html.escape(source, quote=True)}">'
+            "Tester avec TestFlight →</a>"
+        )
+        state = "Bêta iPhone disponible"
+        note = (
+            "La version bêta est distribuée via TestFlight. Le même lien basculera "
+            "automatiquement vers l’App Store après publication."
+        )
     else:
-        cta = '<span class="download disabled" aria-disabled="true">Bientôt sur l’App Store</span>'
+        robots = "noindex,follow"
+        cta = '<span class="download disabled" aria-disabled="true">Bientôt disponible sur iPhone</span>'
         state = "Application iPhone en préparation"
         note = (
             "Cette adresse restera la même. Le téléchargement sera activé ici "
-            "dès la publication de l’application."
+            "dès l’ouverture de TestFlight ou la publication de l’application."
         )
     document = f"""<!doctype html>
 <html lang="fr">
