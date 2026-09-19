@@ -19,6 +19,7 @@ The project currently includes:
 - server-side ReferralWallet with pending/earned credit ledger and 5 EUR default reward per completed referred control;
 - deterministic ReminderEngine aligned with the iOS J-60/J-30/J-15/J-7/J-1 reminder policy;
 - privacy-preserving NotificationBroker with idempotent delivery ledger; raw recipient addresses and message bodies are not persisted.
+- governed Mercure due-date synchronisation feeding ReminderEngine and NotificationBroker, with incremental 730-day backfill and no persisted customer e-mail address.
 
 ## Local runtime
 

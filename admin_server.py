@@ -20,6 +20,7 @@ import review_followup as reviews
 import integration_hub as integrations
 import referral_engine as referrals
 import reminder_engine as reminders
+import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
 ROOT=Path(__file__).resolve().parent
 CONFIG=ROOT/'data/site-config.json'
@@ -225,6 +226,10 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     q=parse_qs(parsed.query); code=(q.get('code') or [''])[0]
     return self.send_json(referrals.account_summary(code))
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/reminders/status':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(reminder_dispatch.status())
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/reminders/plan':
    if not self.authorized(): return self.require_auth()
@@ -474,6 +479,9 @@ class Handler(SimpleHTTPRequestHandler):
     origin=(proto+'://'+host) if host else canonical_origin(c['seo']['canonicalUrl'])
     result['url']=origin+'/?bookingTest='+result['token']+'#reservation'
     return self.send_json({'ok':True,**result},201)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/reminders/process':
+   try: return self.send_json(reminder_dispatch.process_once())
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/admin/reviews/process':
    try: return self.send_json(reviews.process_once())
@@ -746,6 +754,6 @@ def validate_config(c):
  return out
 if __name__=='__main__':
  os.chdir(ROOT)
- analytics.init_db(); referrals.init_db(); notifications.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ analytics.init_db(); referrals.init_db(); notifications.init_db(); reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); reminder_dispatch.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()

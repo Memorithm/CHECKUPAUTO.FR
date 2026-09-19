@@ -11,11 +11,12 @@ async function loadReviewFollowup(){
   else if(d.nativeFavorableOnlyEmailEnabled===true)detail+=' Automatisme email Mercure détecté : CyberCheck le désactivera avant tout envoi.';
   else detail+=' Session Mercure opérationnelle.';
   detail+=d.mercureDeliveryDisabled?' Envoi Mercure verrouillé.':' ATTENTION : verrouillage envoi Mercure non confirmé.';
-  if(!d.mercureEmailFieldConfigured)detail+=' Champ email client Mercure à vérifier.';
+  if(d.mercureEmailSource)detail+=' Email client lu depuis le calendrier Mercure.';
+  else detail+=' Source email client Mercure indisponible.';
   if(!d.emailTransportConfigured)detail+=' Relais email Checkup Auto à configurer.';
   if(!d.reviewUrlConfigured)detail+=' Lien avis Google à configurer.';
   detail+=' '+(d.privacy||'');rf('reviewFollowupDetail').textContent=detail;
-  const ok=d.sessionConnected&&d.nativeFavorableOnlyEmailEnabled!==true&&d.mercureDeliveryDisabled&&d.mercureEmailFieldConfigured&&d.emailTransportConfigured&&d.reviewUrlConfigured;
+  const ok=d.sessionConnected&&d.nativeFavorableOnlyEmailEnabled!==true&&d.mercureDeliveryDisabled&&!!d.mercureEmailSource&&d.emailTransportConfigured&&d.reviewUrlConfigured;
   if(badge){badge.textContent=ok?'Actif':'En attente';badge.className='gsc-status '+(ok?'online':'warning')}
  }catch(e){if(badge){badge.textContent='Indisponible';badge.className='gsc-status offline'}rf('reviewFollowupDetail').textContent=String(e.message||e)}
 }
