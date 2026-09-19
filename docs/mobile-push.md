@@ -58,3 +58,11 @@ L'application consomme ce jeton via POST /api/mobile/claims/consume en présenta
 L'émission de claim reste volontairement interne : aucun endpoint HTTP ne permet d'appeler issue_vehicle_claim. Le canal de remise au client, par exemple un lien post-contrôle ou un QR personnalisé, doit être décidé séparément avant activation commerciale.
 
 Après un claim réussi, CyberCheck tente immédiatement de rapprocher le binding de l'inventaire privé ReminderEngine. Si une échéance Mercure vérifiée est disponible, elle devient la source autoritaire de l'installation ; sinon le fallback device reste en place. Une synchronisation horaire interne maintient ensuite ces échéances à jour.
+
+## Client iOS de claim préparé
+
+L'application contient maintenant un client de consommation du claim. Elle accepte uniquement la forme canonique HTTPS https://www.checkupauto.fr/app/claim avec le jeton placé dans le fragment, par exemple #token=... . Un jeton placé dans la query string, un domaine différent ou HTTP sont refusés. Le fragment n'est pas envoyé au serveur lors de la requête navigateur, ce qui évite de placer le claim dans les journaux HTTP usuels.
+
+Le client réenregistre d'abord l'identité d'installation puis appelle POST /api/mobile/claims/consume. La réponse attend exclusivement un bindingId UUID opaque. Aucun identifiant véhicule ou client Mercure n'est accepté comme résultat mobile.
+
+Cette prise en charge est actuellement préparatoire : ContentView sait traiter une URL reçue par SwiftUI, mais aucun Associated Domain, Universal Link ou schéma URL personnalisé n'est activé dans le projet. Aucun canal de remise de claim au client n'est donc activé par ce changement.

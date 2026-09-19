@@ -31,6 +31,7 @@ class IOSProjectManifestTest(unittest.TestCase):
             "Tests/MobileBootstrapTests.swift",
             "Tests/MobileDeadlineSyncTests.swift",
             "Tests/ReminderPlanTests.swift",
+            "Tests/VehicleClaimTests.swift",
         )
         for source in required:
             self.assertIn(source, self.text)

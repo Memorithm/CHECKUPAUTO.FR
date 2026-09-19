@@ -69,6 +69,9 @@ struct ContentView: View {
                     }
                 }
             }
+            .onOpenURL { url in
+                model.consumeVehicleClaim(url: url)
+            }
             .onReceive(NotificationCenter.default.publisher(for: DeviceRegistrationState.changedNotification)) { _ in
                 model.refreshRegistrationState()
             }
