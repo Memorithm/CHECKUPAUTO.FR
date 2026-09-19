@@ -227,6 +227,18 @@ final class AppModel: ObservableObject {
         guard !installationRegistrationSuppressed else { return }
         do {
             let response = try await AuthoritativeInventoryClient.fetch()
+            let stale = AuthoritativeInventoryReconciliation.remindersToRemove(
+                previous: authoritativeVehicles,
+                next: response.vehicles
+            )
+            for vehicle in stale {
+                await scheduler.removeAuthoritative(
+                    vehicle,
+                    leadDays: Array(
+                        Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays)
+                    )
+                )
+            }
             authoritativeVehicles = response.vehicles
             AuthoritativeInventoryStore.save(response.vehicles)
         } catch {

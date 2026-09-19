@@ -68,3 +68,54 @@ final class AuthoritativeInventoryTests: XCTestCase {
         XCTAssertTrue(AuthoritativeInventoryStore.load(defaults: defaults).isEmpty)
     }
 }
+
+extension AuthoritativeInventoryTests {
+    func testReconciliationRemovesDeletedBinding() {
+        let previous = [
+            AuthoritativeVehicleDeadline(
+                bindingId: "60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1",
+                dueDate: "2027-04-30"
+            )
+        ]
+        XCTAssertEqual(
+            AuthoritativeInventoryReconciliation.remindersToRemove(
+                previous: previous,
+                next: []
+            ),
+            previous
+        )
+    }
+
+    func testReconciliationRemovesReminderWhenDateBecomesUnknown() {
+        let binding = "60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1"
+        let previous = [
+            AuthoritativeVehicleDeadline(bindingId: binding, dueDate: "2027-04-30")
+        ]
+        let next = [
+            AuthoritativeVehicleDeadline(bindingId: binding, dueDate: nil)
+        ]
+        XCTAssertEqual(
+            AuthoritativeInventoryReconciliation.remindersToRemove(
+                previous: previous,
+                next: next
+            ),
+            previous
+        )
+    }
+
+    func testReconciliationKeepsBindingWhoseDateWillBeRescheduled() {
+        let binding = "60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1"
+        let previous = [
+            AuthoritativeVehicleDeadline(bindingId: binding, dueDate: "2027-04-30")
+        ]
+        let next = [
+            AuthoritativeVehicleDeadline(bindingId: binding, dueDate: "2027-05-15")
+        ]
+        XCTAssertTrue(
+            AuthoritativeInventoryReconciliation.remindersToRemove(
+                previous: previous,
+                next: next
+            ).isEmpty
+        )
+    }
+}
