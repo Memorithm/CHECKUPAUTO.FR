@@ -1,0 +1,36 @@
+name: CheckupAutoReminder
+options:
+  bundleIdPrefix: fr.checkupauto
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+targets:
+  CheckupAutoReminder:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Checkup Auto
+        CODE_SIGN_STYLE: Automatic
+    scheme:
+      testTargets:
+        - CheckupAutoReminderTests
+  CheckupAutoReminderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: CheckupAutoReminder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder.tests
+        GENERATE_INFOPLIST_FILE: YES

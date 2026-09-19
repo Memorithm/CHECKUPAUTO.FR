@@ -352,24 +352,16 @@ def disable_native_review_email_automation():
     return {'ok':True,'changed':True,'nativeFavorableOnlyEmailEnabled':False}
 
 def send_google_review_email(rendezvous_id):
-    rid=str(rendezvous_id or '').strip()
-    if not rid: raise ValueError('Identifiant rendez-vous requis')
-    s=_session()
-    r=_check_auth(s.post(BASE+'/admin/rdv_avis_google_email',data={'rendezvous_id':rid},timeout=20,allow_redirects=False))
-    if r.status_code not in (200,201):
-        detail=''
-        try:
-            payload=r.json()
-            if isinstance(payload,dict): detail=str(payload.get('error') or '')[:200]
-        except Exception: pass
-        raise RuntimeError(detail or f'Envoi email avis Google refusé ({r.status_code})')
-    return {'ok':True,'rendezVousId':rid,'providerStatus':r.status_code}
+    raise RuntimeError('Envoi email via Mercure désactivé par la politique Checkup Auto')
 
 def review_followup_rows(days=2):
     days=max(1,min(int(days),7))
     today=datetime.date.today()
     start=(today-datetime.timedelta(days=days-1)).isoformat()
     end=(today+datetime.timedelta(days=1)).isoformat()
+    email_field=str(os.environ.get('CYBERCHECK_MERCURE_CUSTOMER_EMAIL_FIELD','') or '').strip()
+    if email_field and (len(email_field)>80 or not email_field.replace('_','').isalnum()):
+        raise ValueError('Nom de champ email Mercure invalide')
     s=_session()
     rows=_appointments(s,start,end)
     r=_check_auth(s.get(BASE+'/admin/rendez-vous/json',params={'start':start,'end':end},timeout=30,allow_redirects=False))
@@ -392,5 +384,6 @@ def review_followup_rows(days=2):
           'honored':bool(row.get('est_honore')),
           'finished':bool(finished.get(rid)),
           'name':str(row.get('name') or '')[:120],
+          'email':str(row.get(email_field) or '').strip()[:254] if email_field else '',
         })
     return out

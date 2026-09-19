@@ -18,11 +18,13 @@ jobs:
       - name: Compile Python sources
         run: |
           python3 -m py_compile \
-            admin_server.py analytics_store.py booking_bridge.py booking_test.py geo_marketing.py \
+            admin_server.py analytics_store.py app_download.py app_download_test.py \
+            booking_bridge.py booking_test.py email_gateway.py email_gateway_test.py geo_marketing.py \
             gsc_client.py integration_hub.py mercure_admin_client.py mercure_public_client.py \
+            review_followup.py review_followup_policy_test.py \
             security_ai.py security_alerts.py security_behavior.py security_guard.py security_integrity.py
-      - name: Test integration hub
-        run: python3 integration_hub_test.py
+      - name: Run focused unit tests
+        run: python3 -m unittest app_download_test.py email_gateway_test.py review_followup_policy_test.py integration_hub_test.py
       - name: Check JavaScript syntax
         run: |
           node --check app.js
