@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 import email_gateway as email_transport
+import apns_gateway as push_transport
 
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
 DB = DATA_DIR / "notification-broker.sqlite3"
@@ -164,6 +165,55 @@ def send_email(
     return _public_result(row)
 
 
+
+def send_push(
+    device_token: str,
+    title: str,
+    body: str,
+    *,
+    category: str,
+    reference: str,
+    data: dict | None = None,
+) -> dict:
+    token = str(device_token or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32,400}", token) or len(token) % 2:
+        raise ValueError("Jeton APNs invalide")
+    category = _text(category, "Catégorie", 80)
+    reference = _text(reference, "Référence", 160)
+    key = _delivery_key("push", category, reference, token)
+    now = _now(); now_iso = now.isoformat(timespec="seconds")
+    init_db()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM notification_delivery WHERE idempotency_key=?", (key,)).fetchone()
+        if row and row["status"] == "sent":
+            return _public_result(row, already_sent=True)
+        if row and _lease_active(row, now):
+            return _public_result(row, in_flight=True)
+        if row is None:
+            db.execute(
+                """INSERT INTO notification_delivery(
+                   idempotency_key,channel,category,reference,recipient_hash,status,attempts,created_at,last_attempt_at
+                   ) VALUES(?,?,?,?,?,'delivering',1,?,?)""",
+                (key, "push", category, reference, _recipient_hash(token), now_iso, now_iso),
+            )
+        else:
+            db.execute(
+                "UPDATE notification_delivery SET status='delivering',attempts=attempts+1,last_attempt_at=?,last_error='' WHERE idempotency_key=?",
+                (now_iso, key),
+            )
+    try:
+        push_transport.send(token, title, body, data=data)
+    except Exception as exc:
+        with connect() as db:
+            db.execute("UPDATE notification_delivery SET status='failed',last_error=? WHERE idempotency_key=?", (_safe_error(exc), key))
+        raise
+    sent_at = _now_iso()
+    with connect() as db:
+        db.execute("UPDATE notification_delivery SET status='sent',sent_at=?,last_error='' WHERE idempotency_key=?", (sent_at, key))
+        row = db.execute("SELECT * FROM notification_delivery WHERE idempotency_key=?", (key,)).fetchone()
+    return _public_result(row)
+
 def status(limit: int = 20) -> dict:
     init_db()
     limit = max(1, min(int(limit), 100))
@@ -184,7 +234,7 @@ def status(limit: int = 20) -> dict:
         "ok": True,
         "channels": {
             "email": email_transport.transport_status(),
-            "push": {"configured": False, "transport": "apns", "state": "awaiting_credentials"},
+            "push": push_transport.status(),
         },
         "counts": counts,
         "recent": recent,

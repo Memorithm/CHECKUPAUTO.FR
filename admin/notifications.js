@@ -34,14 +34,17 @@ function renderNotificationRows(items) {
 async function loadNotificationStatus() {
   const state = notificationEl('notificationState');
   try {
-    const [brokerResponse, reminderResponse] = await Promise.all([
+    const [brokerResponse, reminderResponse, devicesResponse] = await Promise.all([
       fetch('/api/admin/notifications/status?limit=20', { cache: 'no-store' }),
       fetch('/api/admin/reminders/status', { cache: 'no-store' }),
+      fetch('/api/admin/mobile/devices/status', { cache: 'no-store' }),
     ]);
     const data = await brokerResponse.json();
     const reminder = await reminderResponse.json();
+    const devices = await devicesResponse.json();
     if (!brokerResponse.ok || data.ok === false) throw new Error(data.error || 'Statut indisponible');
     if (!reminderResponse.ok || reminder.ok === false) throw new Error(reminder.error || 'Relances indisponibles');
+    if (!devicesResponse.ok || devices.ok === false) throw new Error(devices.error || 'Appareils iOS indisponibles');
     const counts = data.counts || {};
     notificationEl('notificationSent').textContent = counts.sent || 0;
     notificationEl('notificationFailed').textContent = counts.failed || 0;
@@ -49,7 +52,8 @@ async function loadNotificationStatus() {
     const emailChannel=data.channels?.email||{};
     const emailTransport=emailChannel.transport==='gmail-api'?'GMAIL':emailChannel.transport==='smtp-relay'?'SMTP':'';
     notificationEl('notificationEmail').textContent = emailChannel.configured ? `PRÊT${emailTransport?' · '+emailTransport:''}` : 'À CONFIGURER';
-    notificationEl('notificationPush').textContent = data.channels?.push?.configured ? 'PRÊT' : 'À CONFIGURER';
+    notificationEl('notificationPush').textContent = data.channels?.push?.configured ? `PRÊT · ${(data.channels.push.environment || '').toUpperCase()}` : 'À CONFIGURER';
+    notificationEl('notificationDevices').textContent = devices.active || 0;
     notificationEl('notificationReminderInventory').textContent = reminder.inventory || 0;
     notificationEl('notificationReminderDue').textContent = reminder.eligibleNow || 0;
     notificationEl('notificationReminderBackfill').textContent = reminder.backfillComplete ? 'COMPLET' : 'EN COURS';

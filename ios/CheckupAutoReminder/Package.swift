@@ -15,14 +15,14 @@ let package = Package(
                 "AddVehicleView.swift", "AppModel.swift", "CheckupAutoReminderApp.swift",
                 "ContentView.swift", "ReminderScheduler.swift"
             ],
-            sources: ["Models.swift", "MobileBootstrap.swift"]
+            sources: ["Models.swift", "MobileBootstrap.swift", "DeviceRegistration.swift"]
         ),
         .testTarget(
             name: "CheckupAutoReminderTests",
             dependencies: ["CheckupAutoReminder"],
             path: "Tests",
             exclude: ["ReminderPlanSmoke.swift", "MobileBootstrapSmoke.swift"],
-            sources: ["ReminderPlanTests.swift", "MobileBootstrapTests.swift"]
+            sources: ["ReminderPlanTests.swift", "MobileBootstrapTests.swift", "DeviceRegistrationTests.swift"]
         )
     ]
 )

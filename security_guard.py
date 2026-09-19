@@ -26,7 +26,7 @@ _NOT_FOUND = defaultdict(deque)
 _PROBES = defaultdict(deque)
 _AUTH_FAIL = defaultdict(deque)
 _ENDPOINT_REQ = defaultdict(deque)
-_ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/api/events': 60, '/go/booking': 20, '/api/booking-test/create': 10, '/api/booking-test/remove': 10}
+_ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/api/events': 60, '/go/booking': 20, '/api/booking-test/create': 10, '/api/booking-test/remove': 10, '/api/mobile/devices/register': 12, '/api/mobile/devices/unregister': 12}
 _BANNED = {}
 _RISK = {}
 _STATE_WRITE = {}
@@ -41,7 +41,7 @@ _SENSITIVE_PATHS = (
 )
 _SENSITIVE_SUFFIXES = (
     '.bak', '.old', '.orig', '.save', '.swp', '.sql', '.sqlite', '.sqlite3',
-    '.pem', '.key', '.crt', '.p12', '.log', '.pyc', '.map', '~',
+    '.pem', '.key', '.p8', '.crt', '.p12', '.log', '.pyc', '.map', '~',
 )
 _QUERY_SIG = re.compile(
     r'(\.\./|%2e%2e|<script|%3cscript|union\s+select|sleep\s*\(|benchmark\s*\('

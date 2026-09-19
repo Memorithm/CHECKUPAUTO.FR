@@ -1,2 +1,5 @@
 requests==2.34.2
 google-auth==2.58.0
+
+cryptography==48.0.0
+httpx[http2]==0.28.1
