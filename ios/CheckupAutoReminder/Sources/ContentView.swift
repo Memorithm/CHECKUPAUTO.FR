@@ -47,7 +47,7 @@ struct ContentView: View {
                 }
 
                 Section("Réserver") {
-                    Link("Voir les créneaux Checkup Auto", destination: URL(string: "https://checkupauto.fr/#reservation")!)
+                    Link("Voir les créneaux Checkup Auto", destination: model.bookingURL)
                 }
 
                 if let message = model.errorMessage {

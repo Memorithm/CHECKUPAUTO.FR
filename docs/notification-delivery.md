@@ -54,3 +54,9 @@ CyberCheck reads the verified Mercure calendar schema and resolves `vehiculeId` 
 The dispatch policy is shared with the iOS core: J-60, J-30, J-15, J-7 and J-1 at 09:00 Europe/Paris. Delivery is routed exclusively through NotificationBroker. Its idempotency reference hashes the provider vehicle identifier before persistence.
 
 A recent Mercure window is refreshed on every cycle. Historical coverage is progressively backfilled in bounded 31-day chunks up to 730 days so the integration does not issue an unbounded burst of provider requests. Missing e-mail transport configuration prevents delivery but does not prevent due-date synchronization.
+
+## Mobile bootstrap policy
+
+The public endpoint `/api/mobile/bootstrap` exposes only non-secret mobile policy: reminder lead days, delivery hour and timezone, the public booking URL, the configured referral reward amount, and the public application landing/download state. It does not expose Mercure identifiers, customer data, OAuth material, APNs credentials or administration configuration.
+
+The iOS application validates schema version 1 and the reminder policy before applying it. If the endpoint is unavailable or invalid, the app keeps the baked-in safe defaults (J-60/J-30/J-15/J-7/J-1 at 09:00 Europe/Paris and the public Mercure booking URL). This removes duplicated mutable policy while preserving local reminders during a network outage.
