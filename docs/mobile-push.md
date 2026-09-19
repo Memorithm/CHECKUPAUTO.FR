@@ -76,3 +76,9 @@ Après un effacement confirmé, un tombstone local bloque la recréation automat
 Si la suppression serveur échoue, les données locales ne sont pas effacées et l'application demande de réessayer avec une connexion réseau. Si le serveur a confirmé la suppression mais que l'effacement du Trousseau échoue, le tombstone est déjà posé : l'application ne recrée pas silencieusement l'installation supprimée.
 
 Cette fonction supprime les données de l'installation CheckupAuto et les données locales de l'application. Elle ne modifie pas les données réglementaires conservées dans Mercure.
+
+## Inventaire autoritaire côté iPhone
+
+L'application peut lire POST /api/mobile/inventory avec son identité d'installation. La réponse ne contient que des bindingId UUID opaques et la date d'échéance autoritaire lorsqu'elle est disponible. Aucun vehicleId, clientId, clientKind, immatriculation ou donnée Mercure brute n'est exposé.
+
+La synchronisation autoritaire est indépendante du consentement APNs : un binding vérifié peut recevoir sa date serveur même lorsque l'utilisateur n'a pas activé les notifications push. Si le push distant n'est pas confirmé pour cet appareil, cette date autoritaire alimente le fallback local iOS. L'inventaire opaque vérifié est conservé localement pour permettre ce fallback hors ligne ; l'effacement complet de l'application le supprime avec le reste des données Checkup Auto.

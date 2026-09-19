@@ -197,9 +197,15 @@ class MobileDevicesTest(unittest.TestCase):
         self.assertEqual(target["due_date"], "2027-02-15")
         self.assertEqual(target["source"], devices.AUTHORITATIVE_DEADLINE_SOURCE)
 
-    def test_authoritative_sync_requires_active_registered_installation(self):
+    def test_authoritative_sync_requires_registered_installation_not_apns(self):
         with self.assertRaises(LookupError):
             devices.sync_authoritative_deadlines(self.install_id, [])
+        devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        result = devices.sync_authoritative_deadlines(self.install_id, [])
+        self.assertTrue(result["ok"])
 
     def test_deadline_sync_requires_registered_secret_and_unregister_purges(self):
         devices.register(self.payload())
@@ -243,6 +249,47 @@ class MobileDevicesTest(unittest.TestCase):
         self.assertEqual(state["deadlines"], 0)
         self.assertEqual(state["disabledByReason"]["apns:Unregistered"], 1)
         self.assertNotIn(self.token.encode(), devices.DB.read_bytes())
+
+    def test_authoritative_inventory_is_available_without_apns_and_is_opaque(self):
+        devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        binding = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        devices.sync_authoritative_deadlines(self.install_id, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+        }])
+        inventory = devices.bound_inventory({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(inventory["source"], devices.AUTHORITATIVE_DEADLINE_SOURCE)
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+        }])
+        raw = str(inventory)
+        self.assertNotIn("vehicle-77", raw)
+        self.assertNotIn("client-42", raw)
+        self.assertEqual(len(devices.registered_vehicle_bindings(self.install_id)), 1)
+        self.assertEqual(devices.active_vehicle_bindings(self.install_id), [])
+
+    def test_inventory_requires_installation_secret(self):
+        devices.register_installation({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        with self.assertRaises(PermissionError):
+            devices.bound_inventory({
+                "installationId": self.install_id,
+                "registrationSecret": "B" * 43,
+            })
 
     def test_vehicle_claim_can_bind_installation_before_apns_permission(self):
         devices.register_installation({

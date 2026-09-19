@@ -434,6 +434,52 @@ def active_vehicle_bindings(installation_id: str | None = None) -> list[dict]:
         return [dict(row) for row in db.execute(query, args)]
 
 
+def registered_vehicle_bindings(installation_id: str | None = None) -> list[dict]:
+    """Return verified bindings independently from APNs opt-in."""
+    init_db()
+    query = """SELECT b.binding_id,b.installation_id,b.vehicle_id,b.client_kind,b.client_id
+               FROM mobile_vehicle_binding b
+               JOIN mobile_device m ON m.installation_id=b.installation_id
+               WHERE 1=1"""
+    args: tuple = ()
+    if installation_id is not None:
+        query += " AND b.installation_id=?"
+        args = (_install_id(installation_id),)
+    query += " ORDER BY b.installation_id,b.binding_id"
+    with connect() as db:
+        return [dict(row) for row in db.execute(query, args)]
+
+
+def bound_inventory(payload: dict) -> dict:
+    """Return only opaque binding IDs and authoritative dates to the authenticated app."""
+    if not isinstance(payload, dict):
+        raise ValueError("payload invalide")
+    installation_id = _install_id(payload.get("installationId"))
+    secret_hash = _hash(_secret(payload.get("registrationSecret")))
+    init_db()
+    with connect() as db:
+        _authenticated_installation(db, installation_id, secret_hash)
+        rows = db.execute(
+            """SELECT b.binding_id,d.due_date
+               FROM mobile_vehicle_binding b
+               LEFT JOIN mobile_deadline d
+                 ON d.installation_id=b.installation_id
+                AND d.deadline_id=b.binding_id
+                AND d.source=?
+               WHERE b.installation_id=?
+               ORDER BY b.binding_id""",
+            (AUTHORITATIVE_DEADLINE_SOURCE, installation_id),
+        )
+        vehicles = [
+            {
+                "bindingId": str(row["binding_id"]),
+                "dueDate": str(row["due_date"]) if row["due_date"] else None,
+            }
+            for row in rows
+        ]
+    return {"ok": True, "vehicles": vehicles, "source": AUTHORITATIVE_DEADLINE_SOURCE}
+
+
 def sync_deadlines(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
@@ -521,12 +567,11 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
         device = db.execute(
-            """SELECT installation_id FROM mobile_device
-               WHERE installation_id=? AND disabled_at='' AND device_token<>''""",
+            "SELECT installation_id FROM mobile_device WHERE installation_id=?",
             (installation_id,),
         ).fetchone()
         if not device:
-            raise LookupError("installation mobile active introuvable")
+            raise LookupError("installation mobile introuvable")
 
         if parsed:
             placeholders = ",".join("?" for _ in parsed)

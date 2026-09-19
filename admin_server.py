@@ -495,6 +495,19 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json(result,200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/mobile/inventory':
+   try:
+    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+    payload=self._read_json()
+    mobile_devices.bound_inventory(payload)
+    try:
+     mobile_authoritative_sync.sync_installation(str(payload.get('installationId') or ''))
+    except Exception:
+     pass
+    return self.send_json(mobile_devices.bound_inventory(payload),200)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
   if path=='/api/mobile/reminders/sync':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
