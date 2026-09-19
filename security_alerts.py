@@ -183,7 +183,12 @@ def summary():
         open_count = db.execute('SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0').fetchone()['n']
         high = db.execute("SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0 AND level IN ('high','critical')").fetchone()['n']
         undelivered = db.execute("SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0 AND delivered=0 AND level IN ('high','critical')").fetchone()['n']
+        actionable = [dict(r) for r in db.execute('''SELECT id,created_at,level,kind,title,detail,fingerprint,acknowledged,delivered
+          FROM security_alerts
+          WHERE acknowledged=0 AND level IN ('high','critical')
+          ORDER BY id DESC LIMIT 50''')]
         latest = [dict(r) for r in db.execute('''SELECT id,created_at,level,kind,title,detail,fingerprint,acknowledged,delivered
           FROM security_alerts ORDER BY id DESC LIMIT 25''')]
-    return {'open':open_count,'highOrCritical':high,'undeliveredHighOrCritical':undelivered,'latest':latest,
+    return {'open':open_count,'highOrCritical':high,'undeliveredHighOrCritical':undelivered,
+            'actionable':actionable,'latest':latest,
             'webhookConfigured':bool(os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip())}
