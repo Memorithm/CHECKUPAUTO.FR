@@ -1,7 +1,9 @@
+import ast
 import datetime
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import ANY, patch
 
 _TMP = tempfile.TemporaryDirectory()
@@ -12,6 +14,17 @@ import mercure_admin_client as mercure
 
 
 class ReviewFollowupPolicyTest(unittest.TestCase):
+    def test_import_has_no_database_side_effect(self):
+        tree = ast.parse(Path("review_followup.py").read_text())
+        module_init_calls = [
+            node for node in tree.body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "init_db"
+        ]
+        self.assertEqual(module_init_calls, [])
+
     def test_mercure_email_sender_is_disabled(self):
         with self.assertRaises(RuntimeError):
             mercure.send_google_review_email("123")
