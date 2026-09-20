@@ -1,0 +1,18 @@
+name: Cancel superseded Security CI
+
+on:
+  push:
+    branches: [autopilot/cancel-stale-ci-74]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel superseded PR run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/35542508759/cancel"
