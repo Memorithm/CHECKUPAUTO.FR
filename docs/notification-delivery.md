@@ -92,6 +92,8 @@ Permanent failures have a governed lifecycle. A new permanent incident starts as
 
 ReminderEngine treats `PermanentDeliverySuppressed` as an existing governed condition rather than a new transport failure. Each dispatch cycle reports `permanentSuppressed` separately, so repeated suppression does not inflate the cycle failure counter while the underlying open incident continues to block NotificationBroker readiness until acknowledged or reconciled by a later successful delivery.
 
+For CT reminder e-mail incidents, the authenticated administration console can perform an on-demand privacy-safe reconciliation against the current Mercure customer record. The server compares the current recipient to the stored one-way recipient fingerprint and returns only `changed`, `unchanged`, `missing` or a bounded lookup state; neither address nor fingerprint is exposed. A retry is permitted only when the recipient has changed and the e-mail preflight is green. The retry reuses the original business reference, so a successful delivery automatically resolves the historical permanent incident without deleting its evidence.
+
 The broker persists only the normalized failure class and a redacted diagnostic; raw recipients, message bodies, OAuth tokens and APNs tokens are not written to the notification ledger.
 
 ## Mobile deadline source precedence

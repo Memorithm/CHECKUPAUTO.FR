@@ -260,6 +260,47 @@ def _reconcile_permanent_failures(db: sqlite3.Connection, channel: str, category
     return int(result.rowcount or 0)
 
 
+def _permanent_failure_row(incident_id: object) -> sqlite3.Row:
+    incident = str(incident_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32}", incident):
+        raise ValueError("incident_id_invalid")
+    init_db()
+    with connect() as db:
+        row = db.execute("""SELECT incident_id,channel,category,reference,recipient_hash,failure_class,
+          permanent_state,permanent_state_at,permanent_resolution,last_attempt_at,last_error
+          FROM notification_delivery WHERE incident_id=?""", (incident,)).fetchone()
+    if row is None or row["failure_class"] != "permanent":
+        raise LookupError("permanent_failure_not_found")
+    return row
+
+
+def permanent_failure_context(incident_id: object) -> dict:
+    """Return non-recipient context needed to govern a permanent incident."""
+    row = _permanent_failure_row(incident_id)
+    return {
+        "incidentId": row["incident_id"],
+        "channel": row["channel"],
+        "category": row["category"],
+        "reference": row["reference"],
+        "permanentState": row["permanent_state"] or "open",
+        "permanentStateAt": row["permanent_state_at"],
+        "permanentResolution": row["permanent_resolution"],
+    }
+
+
+def permanent_failure_recipient_state(incident_id: object, recipient: object) -> dict:
+    """Compare a current recipient with the failed one without exposing either hash."""
+    current = _text(recipient, "Destinataire", 512)
+    row = _permanent_failure_row(incident_id)
+    state = "unchanged" if _recipient_hash(current) == row["recipient_hash"] else "changed"
+    return {
+        "ok": True,
+        "incidentId": row["incident_id"],
+        "recipientState": state,
+        "permanentState": row["permanent_state"] or "open",
+    }
+
+
 def permanent_failure_action(incident_id: object, action: object) -> dict:
     incident = str(incident_id or "").strip().lower()
     requested = str(action or "").strip().lower()

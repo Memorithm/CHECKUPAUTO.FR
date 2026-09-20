@@ -588,6 +588,19 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     self._read_json(allow_empty=True); return self.send_json(notification_preflight.run())
    except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  if path=='/api/admin/notifications/permanent/recipient-check':
+   try:
+    payload=self._read_json(); return self.send_json(reminder_dispatch.permanent_recipient_check(payload.get('incidentId')))
+   except LookupError as exc: return self.send_json({'ok':False,'error':str(exc)},404)
+   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
+  if path=='/api/admin/notifications/permanent/retry':
+   try:
+    payload=self._read_json(); result=reminder_dispatch.permanent_recipient_retry(payload.get('incidentId'))
+    return self.send_json(result,200 if result.get('ok') else 409)
+   except LookupError as exc: return self.send_json({'ok':False,'error':str(exc)},404)
+   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
   if path=='/api/admin/notifications/permanent/action':
    try:
     payload=self._read_json(); return self.send_json(notifications.permanent_failure_action(payload.get('incidentId'),payload.get('action')))

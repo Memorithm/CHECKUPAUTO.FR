@@ -316,5 +316,31 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertIn("privacy", state)
 
 
+    @patch.object(broker.email_transport, "send_email")
+    def test_permanent_recipient_comparison_never_exposes_hash_or_recipient(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "recipient refused", transport="smtp-relay", status=554, reason="recipient_refused", permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "wrong@example.fr", "Rappel", "Message",
+                category="ct_due_reminder", reference="recipient-check",
+            )
+        incident = broker.status()["permanentFailures"][0]["incident_id"]
+        unchanged = broker.permanent_failure_recipient_state(incident, "wrong@example.fr")
+        changed = broker.permanent_failure_recipient_state(incident, "corrected@example.fr")
+        self.assertEqual(unchanged["recipientState"], "unchanged")
+        self.assertEqual(changed["recipientState"], "changed")
+        self.assertNotIn("recipient", str(unchanged).lower().replace("recipientstate", ""))
+        self.assertNotIn("wrong@example.fr", str(unchanged))
+        self.assertNotIn("corrected@example.fr", str(changed))
+        self.assertNotIn("hash", str(changed).lower())
+        context = broker.permanent_failure_context(incident)
+        self.assertEqual(context["reference"], "recipient-check")
+        self.assertNotIn("hash", str(context).lower())
+        self.assertNotIn("wrong@example.fr", str(context))
+
+
+
 if __name__ == "__main__":
     unittest.main()

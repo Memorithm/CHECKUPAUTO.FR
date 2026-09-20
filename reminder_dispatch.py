@@ -260,6 +260,102 @@ def _reference(row: dict) -> str:
     return f"ct-reminder:{vehicle_hash}:{row['due_date']}:j{row['days_before']}"
 
 
+def _target_for_reference(reference: object) -> dict | None:
+    ref = str(reference or "").strip()
+    if not ref:
+        return None
+    init_db()
+    with connect() as db:
+        rows = [dict(row) for row in db.execute(
+            "SELECT vehicle_id,client_kind,client_id,due_date,appointment_id FROM reminder_target"
+        )]
+    for row in rows:
+        for days_before in reminders.DEFAULT_LEAD_DAYS:
+            candidate = {**row, "days_before": int(days_before)}
+            if _reference(candidate) == ref:
+                return candidate
+    return None
+
+
+def _permanent_email_target(incident_id: object) -> tuple[dict, dict]:
+    context = notifications.permanent_failure_context(incident_id)
+    if context.get("channel") != "email" or context.get("category") != "ct_due_reminder":
+        raise ValueError("permanent_incident_not_reminder_email")
+    if context.get("permanentState") == "resolved":
+        raise ValueError("permanent_incident_already_resolved")
+    target = _target_for_reference(context.get("reference"))
+    if target is None:
+        raise LookupError("reminder_reference_not_found")
+    return context, target
+
+
+def permanent_recipient_check(incident_id: object) -> dict:
+    """Compare the current Mercure recipient with a permanent failure, without disclosing PII."""
+    context, target = _permanent_email_target(incident_id)
+    try:
+        recipient = mercure.customer_email(target["client_kind"], target["client_id"])
+    except Exception:
+        return {
+            "ok": False, "incidentId": context["incidentId"],
+            "recipientState": "lookup_failed", "retryEligible": False,
+        }
+    if not mail.valid_email(recipient):
+        return {
+            "ok": True, "incidentId": context["incidentId"],
+            "recipientState": "missing", "retryEligible": False,
+        }
+    comparison = notifications.permanent_failure_recipient_state(context["incidentId"], recipient)
+    changed = comparison.get("recipientState") == "changed"
+    return {
+        "ok": True, "incidentId": context["incidentId"],
+        "recipientState": comparison.get("recipientState", "unknown"),
+        "retryEligible": changed,
+    }
+
+
+def permanent_recipient_retry(incident_id: object) -> dict:
+    """Retry a reminder only when Mercure now resolves a different valid recipient."""
+    context, target = _permanent_email_target(incident_id)
+    try:
+        recipient = mercure.customer_email(target["client_kind"], target["client_id"])
+    except Exception:
+        return {"ok": False, "state": "recipient_lookup_failed", "retryEligible": False}
+    if not mail.valid_email(recipient):
+        return {"ok": False, "state": "recipient_missing", "retryEligible": False}
+    comparison = notifications.permanent_failure_recipient_state(context["incidentId"], recipient)
+    if comparison.get("recipientState") != "changed":
+        return {"ok": False, "state": "recipient_unchanged", "retryEligible": False}
+    try:
+        preflight = mail.preflight()
+    except Exception:
+        return {"ok": False, "state": "email_preflight_failed", "retryEligible": True}
+    if not bool(preflight.get("ok")):
+        return {
+            "ok": False, "state": "waiting_email_preflight", "retryEligible": True,
+            "preflightState": str(preflight.get("state") or "unknown"),
+        }
+    subject, text = _message(target["due_date"])
+    delivery = notifications.send_email(
+        recipient, subject, text,
+        category="ct_due_reminder", reference=context["reference"],
+    )
+    if delivery.get("deferred"):
+        return {
+            "ok": False, "state": "retry_deferred", "incidentId": context["incidentId"],
+            "recipientState": "changed", "retryEligible": True,
+            "retryAfterSeconds": int(delivery.get("retryAfterSeconds") or 0),
+        }
+    if delivery.get("inFlight"):
+        return {
+            "ok": False, "state": "retry_in_flight", "incidentId": context["incidentId"],
+            "recipientState": "changed", "retryEligible": True,
+        }
+    return {
+        "ok": True, "state": "resent", "incidentId": context["incidentId"],
+        "recipientState": "changed", "delivery": delivery,
+    }
+
+
 def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) -> dict:
     init_db()
     sync = sync_once(_local_now(now).date()) if do_sync else {"ok": True, "state": "skipped"}
