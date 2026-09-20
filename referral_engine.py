@@ -89,6 +89,17 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_referral_ledger_account
               ON referral_ledger(account_id, created_at);
+            CREATE TRIGGER IF NOT EXISTS trg_referral_ledger_nonnegative
+              BEFORE INSERT ON referral_ledger
+              WHEN NEW.amount_cents < 0
+               AND (
+                 SELECT COALESCE(SUM(amount_cents),0)
+                 FROM referral_ledger
+                 WHERE account_id=NEW.account_id
+               ) + NEW.amount_cents < 0
+            BEGIN
+              SELECT RAISE(ABORT, 'referral balance would be negative');
+            END;
             """
         )
     analytics.DB.chmod(0o600)
@@ -215,6 +226,7 @@ def complete_control(provider: str, external_id: object) -> dict | None:
         return None
     now = now_iso()
     with analytics.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             "SELECT * FROM referral_rewards WHERE provider=? AND external_id=?",
             (provider, external_id),
@@ -226,10 +238,18 @@ def complete_control(provider: str, external_id: object) -> dict | None:
         if row["status"] != "pending":
             return dict(row)
         reference = f"{provider}:{external_id}"
-        db.execute(
-            "UPDATE referral_rewards SET status='earned',updated_at=?,earned_at=? WHERE provider=? AND external_id=?",
+        changed = db.execute(
+            """UPDATE referral_rewards
+               SET status='earned',updated_at=?,earned_at=?
+               WHERE provider=? AND external_id=? AND status='pending'""",
             (now, now, provider, external_id),
         )
+        if changed.rowcount != 1:
+            updated = db.execute(
+                "SELECT * FROM referral_rewards WHERE provider=? AND external_id=?",
+                (provider, external_id),
+            ).fetchone()
+            return dict(updated) if updated else None
         db.execute(
             """INSERT OR IGNORE INTO referral_ledger(
                account_id,kind,amount_cents,reference,created_at,note
@@ -258,6 +278,7 @@ def cancel_pending(provider: str, external_id: object) -> dict | None:
         return None
     now = now_iso()
     with analytics.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             "SELECT * FROM referral_rewards WHERE provider=? AND external_id=?",
             (provider, external_id),
@@ -266,7 +287,9 @@ def cancel_pending(provider: str, external_id: object) -> dict | None:
             return None
         if row["status"] == "pending":
             db.execute(
-                "UPDATE referral_rewards SET status='cancelled',updated_at=?,cancelled_at=? WHERE provider=? AND external_id=?",
+                """UPDATE referral_rewards
+                   SET status='cancelled',updated_at=?,cancelled_at=?
+                   WHERE provider=? AND external_id=? AND status='pending'""",
                 (now, now, provider, external_id),
             )
         updated = db.execute(
@@ -285,6 +308,10 @@ def redeem(code: object, amount_cents: int, reference: object) -> dict:
         raise ValueError("Utilisation de cagnotte invalide")
     now = now_iso()
     with analytics.connect() as db:
+        # Serialize the read-check-write sequence across processes. SQLite
+        # otherwise allows concurrent callers to observe the same balance
+        # before either debit is committed.
+        db.execute("BEGIN IMMEDIATE")
         account = _account_by_code(db, code)
         if not account:
             raise ValueError("Code de parrainage inconnu")
