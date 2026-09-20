@@ -1,3 +1,5 @@
+import datetime
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,6 +37,19 @@ class IntegrationHubExternalErrorSanitizationTest(unittest.TestCase):
             ["analytics"],
         )
         return parse_qs(urlparse(auth["authorizationUrl"]).query)["state"][0]
+
+    def _install_refreshable_token(self):
+        payload = {
+            "access_token": "stale-access",
+            "refresh_token": "refresh-token",
+            "scope": "https://www.googleapis.com/auth/analytics.readonly",
+            "expires_at": (
+                datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(minutes=1)
+            ).isoformat(),
+        }
+        hub._atomic_json(hub.TOKEN_FILE, payload)
+        return payload
 
     def test_callback_provider_error_does_not_echo_external_text(self):
         external = "access_denied client@example.fr bearer-super-secret"
@@ -116,6 +131,61 @@ class IntegrationHubExternalErrorSanitizationTest(unittest.TestCase):
                 )
         self.assertFalse(hub.TOKEN_FILE.exists())
         self.assertTrue(hub.STATE_FILE.exists())
+
+    def test_refresh_malformed_json_is_sanitized_and_not_persisted(self):
+        original = self._install_refreshable_token()
+        response = Mock()
+        response.status_code = 200
+        response.json.side_effect = ValueError(
+            "client@example.fr bearer-refresh-secret"
+        )
+        with patch("integration_hub.requests.post", return_value=response):
+            with self.assertRaises(hub.IntegrationError) as caught:
+                hub.google_access_token(
+                    ["https://www.googleapis.com/auth/analytics.readonly"],
+                    force_refresh=True,
+                )
+        message = str(caught.exception)
+        self.assertEqual(message, "Réponse de rafraîchissement OAuth Google invalide.")
+        self.assertNotIn("client@example.fr", message)
+        self.assertNotIn("bearer-refresh-secret", message)
+        self.assertEqual(json.loads(hub.TOKEN_FILE.read_text()), original)
+
+    def test_refresh_without_new_access_token_cannot_reuse_stale_token(self):
+        original = self._install_refreshable_token()
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"expires_in": 3600}
+        with patch("integration_hub.requests.post", return_value=response):
+            with self.assertRaisesRegex(
+                hub.IntegrationError,
+                "nouveau jeton d’accès",
+            ):
+                hub.google_access_token(
+                    ["https://www.googleapis.com/auth/analytics.readonly"],
+                    force_refresh=True,
+                )
+        self.assertEqual(json.loads(hub.TOKEN_FILE.read_text()), original)
+
+    def test_refresh_invalid_expiry_is_sanitized_before_persistence(self):
+        original = self._install_refreshable_token()
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "access_token": "new-access",
+            "expires_in": "client@example.fr bearer-refresh-secret",
+        }
+        with patch("integration_hub.requests.post", return_value=response):
+            with self.assertRaises(hub.IntegrationError) as caught:
+                hub.google_access_token(
+                    ["https://www.googleapis.com/auth/analytics.readonly"],
+                    force_refresh=True,
+                )
+        message = str(caught.exception)
+        self.assertEqual(message, "Réponse de rafraîchissement OAuth Google invalide.")
+        self.assertNotIn("client@example.fr", message)
+        self.assertNotIn("bearer-refresh-secret", message)
+        self.assertEqual(json.loads(hub.TOKEN_FILE.read_text()), original)
 
 
 if __name__ == "__main__":
