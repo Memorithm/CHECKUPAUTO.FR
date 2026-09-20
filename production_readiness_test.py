@@ -192,6 +192,31 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertEqual(broker["remediation"]["code"], "restore_notification_broker")
 
 
+    def test_acknowledged_permanent_history_does_not_degrade_broker(self):
+        patches = healthy_patches()
+        patches[1] = mock.patch.object(readiness.notification_broker, "status", return_value={
+            "channels": {
+                "email": {"configured": True, "transport": "gmail-api"},
+                "push": {"configured": True},
+            },
+            "resilience": {
+                "circuitsOpen": 0,
+                "permanentFailures": 0,
+                "permanentFailureHistory": 2,
+                "permanentAcknowledged": 2,
+                "permanentResolved": 0,
+            },
+        })
+        result = self._run_with(patches)
+        broker = next(item for item in result["components"] if item["id"] == "notification_broker")
+        self.assertEqual(broker["state"], "ready")
+        self.assertEqual(broker["metrics"]["permanentFailures"], 0)
+        self.assertEqual(broker["metrics"]["permanentFailureHistory"], 2)
+        self.assertEqual(broker["metrics"]["permanentAcknowledged"], 2)
+        self.assertIn("acquitt", broker["detail"])
+        self.assertNotIn("notification_broker", result["criticalBlockers"])
+
+
     def test_configured_email_with_failed_preflight_blocks_activation(self):
         patches = healthy_patches()
         patches[2] = mock.patch.object(readiness.notification_preflight, "run", return_value={

@@ -223,6 +223,86 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertEqual(state["failureCounts"]["permanent"], 1)
         self.assertEqual(state["resilience"]["permanentFailures"], 1)
 
+    def test_init_db_migrates_legacy_permanent_failure_to_open_incident(self):
+        now = broker._now_iso()
+        with broker.connect() as db:
+            db.execute("""INSERT INTO notification_delivery(
+              idempotency_key,channel,category,reference,recipient_hash,status,attempts,created_at,last_attempt_at,
+              failure_class,incident_id,permanent_state,permanent_state_at,permanent_resolution
+              ) VALUES(?,?,?,?,?,'failed',1,?,?,'permanent','','','','')""",
+              ("legacy-permanent", "email", "control_reminder", "legacy-ref", "hash", now, now))
+        broker.init_db()
+        with broker.connect() as db:
+            row = db.execute("SELECT incident_id,permanent_state,permanent_state_at FROM notification_delivery WHERE idempotency_key='legacy-permanent'").fetchone()
+        self.assertRegex(row["incident_id"], r"^[0-9a-f]{32}$")
+        self.assertEqual(row["permanent_state"], "open")
+        self.assertEqual(row["permanent_state_at"], now)
+
+    @patch.object(broker.email_transport, "send_email")
+    def test_permanent_failure_can_be_acknowledged_and_reopened_without_deleting_evidence(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "recipient refused", transport="smtp-relay", status=554, reason="recipient_refused", permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "bad@example.fr", "Rappel", "Message",
+                category="control_reminder", reference="governed-permanent",
+            )
+        initial = broker.status()
+        incident = initial["permanentFailures"][0]["incident_id"]
+        self.assertEqual(initial["resilience"]["permanentFailures"], 1)
+        acknowledged = broker.permanent_failure_action(incident, "acknowledge")
+        self.assertEqual(acknowledged["permanentState"], "acknowledged")
+        state = broker.status()
+        self.assertEqual(state["resilience"]["permanentFailures"], 0)
+        self.assertEqual(state["resilience"]["permanentFailureHistory"], 1)
+        self.assertEqual(state["resilience"]["permanentAcknowledged"], 1)
+        with self.assertRaises(broker.PermanentDeliverySuppressed):
+            broker.send_email(
+                "bad@example.fr", "Rappel", "Message",
+                category="control_reminder", reference="governed-permanent",
+            )
+        reopened = broker.permanent_failure_action(incident, "reopen")
+        self.assertEqual(reopened["permanentState"], "open")
+        self.assertEqual(broker.status()["resilience"]["permanentFailures"], 1)
+        with broker.connect() as db:
+            row = db.execute("SELECT status,failure_class,last_error FROM notification_delivery WHERE incident_id=?", (incident,)).fetchone()
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual(row["failure_class"], "permanent")
+        self.assertIn("recipient_refused", row["last_error"])
+
+    @patch.object(broker.email_transport, "send_email")
+    def test_corrected_recipient_success_reconciles_previous_permanent_failure(self, send_email):
+        send_email.side_effect = [
+            broker.email_transport.EmailDeliveryError(
+                "recipient refused", transport="smtp-relay", status=554, reason="recipient_refused", permanent=True,
+            ),
+            {"ok": True},
+        ]
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "wrong@example.fr", "Rappel", "Message",
+                category="ct_due_reminder", reference="same-business-reference",
+            )
+        before = broker.status()
+        incident = before["permanentFailures"][0]["incident_id"]
+        result = broker.send_email(
+            "corrected@example.fr", "Rappel", "Message",
+            category="ct_due_reminder", reference="same-business-reference",
+        )
+        self.assertEqual(result["status"], "sent")
+        after = broker.status()
+        self.assertEqual(after["resilience"]["permanentFailures"], 0)
+        self.assertEqual(after["resilience"]["permanentFailureHistory"], 1)
+        self.assertEqual(after["resilience"]["permanentResolved"], 1)
+        resolved = next(item for item in after["permanentFailures"] if item["incident_id"] == incident)
+        self.assertEqual(resolved["permanent_state"], "resolved")
+        self.assertEqual(resolved["permanent_resolution"], "superseded_by_success")
+        with broker.connect() as db:
+            history = db.execute("SELECT status,failure_class FROM notification_delivery WHERE incident_id=?", (incident,)).fetchone()
+        self.assertEqual(history["status"], "failed")
+        self.assertEqual(history["failure_class"], "permanent")
+
     @patch.object(broker.email_transport, "transport_status", return_value={
         "configured": True, "transport": "gmail-api", "requested": "auto",
         "smtpAvailable": False, "gmailAvailable": True, "state": "ready", "error": "",

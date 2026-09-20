@@ -5,6 +5,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import uuid
 from pathlib import Path
 
 import email_gateway as email_transport
@@ -108,10 +109,20 @@ def init_db() -> None:
             ("failure_class", "TEXT NOT NULL DEFAULT ''"),
             ("next_attempt_at", "TEXT NOT NULL DEFAULT ''"),
             ("transport_key", "TEXT NOT NULL DEFAULT ''"),
+            ("incident_id", "TEXT NOT NULL DEFAULT ''"),
+            ("permanent_state", "TEXT NOT NULL DEFAULT ''"),
+            ("permanent_state_at", "TEXT NOT NULL DEFAULT ''"),
+            ("permanent_resolution", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 db.execute(f"ALTER TABLE notification_delivery ADD COLUMN {name} {ddl}")
+        db.execute("""UPDATE notification_delivery
+          SET permanent_state='open',
+              permanent_state_at=COALESCE(NULLIF(last_attempt_at,''),created_at),
+              incident_id=CASE WHEN incident_id='' THEN lower(hex(randomblob(16))) ELSE incident_id END
+          WHERE failure_class='permanent' AND permanent_state=''""")
         db.execute("CREATE INDEX IF NOT EXISTS idx_notification_status ON notification_delivery(status, sent_at)")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_incident ON notification_delivery(incident_id) WHERE incident_id<>''")
         db.execute("""CREATE TABLE IF NOT EXISTS notification_transport_health(
           transport_key TEXT PRIMARY KEY,
           consecutive_failures INTEGER NOT NULL DEFAULT 0,
@@ -226,6 +237,73 @@ def _record_transport_success(transport_key: str) -> None:
           (transport_key, now))
 
 
+def _record_delivery_failure(key: str, failure_class: str, diagnostic: str, next_at: str, now_iso: str) -> None:
+    with connect() as db:
+        if failure_class == "permanent":
+            db.execute("""UPDATE notification_delivery
+              SET status='failed',last_error=?,failure_class=?,next_attempt_at='',
+                  incident_id=CASE WHEN incident_id='' THEN ? ELSE incident_id END,
+                  permanent_state='open',permanent_state_at=?,permanent_resolution=''
+              WHERE idempotency_key=?""",
+              (diagnostic, failure_class, uuid.uuid4().hex, now_iso, key))
+        else:
+            db.execute("""UPDATE notification_delivery SET status='failed',last_error=?,failure_class=?,next_attempt_at=?
+              WHERE idempotency_key=?""", (diagnostic, failure_class, next_at, key))
+
+
+def _reconcile_permanent_failures(db: sqlite3.Connection, channel: str, category: str, reference: str, successful_key: str, sent_at: str) -> int:
+    result = db.execute("""UPDATE notification_delivery
+      SET permanent_state='resolved',permanent_state_at=?,permanent_resolution='superseded_by_success'
+      WHERE channel=? AND category=? AND reference=? AND idempotency_key<>?
+        AND failure_class='permanent' AND permanent_state IN ('open','acknowledged')""",
+      (sent_at, channel, category, reference, successful_key))
+    return int(result.rowcount or 0)
+
+
+def permanent_failure_action(incident_id: object, action: object) -> dict:
+    incident = str(incident_id or "").strip().lower()
+    requested = str(action or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32}", incident):
+        raise ValueError("incident_id_invalid")
+    if requested not in {"acknowledge", "reopen"}:
+        raise ValueError("action_invalid")
+    init_db()
+    now = _now_iso()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("""SELECT incident_id,channel,category,reference,last_attempt_at,last_error,
+          failure_class,permanent_state,permanent_state_at,permanent_resolution
+          FROM notification_delivery WHERE incident_id=?""", (incident,)).fetchone()
+        if row is None or row["failure_class"] != "permanent":
+            raise LookupError("permanent_failure_not_found")
+        current = str(row["permanent_state"] or "open")
+        if requested == "acknowledge":
+            if current == "resolved":
+                raise ValueError("resolved_failure_is_immutable")
+            target = "acknowledged"
+        else:
+            if current == "resolved":
+                raise ValueError("resolved_failure_is_immutable")
+            target = "open"
+        db.execute("""UPDATE notification_delivery SET permanent_state=?,permanent_state_at=?
+          WHERE incident_id=?""", (target, now, incident))
+        row = db.execute("""SELECT incident_id,channel,category,reference,last_attempt_at,last_error,
+          permanent_state,permanent_state_at,permanent_resolution
+          FROM notification_delivery WHERE incident_id=?""", (incident,)).fetchone()
+    return {
+        "ok": True,
+        "incidentId": row["incident_id"],
+        "channel": row["channel"],
+        "category": row["category"],
+        "reference": row["reference"],
+        "lastAttemptAt": row["last_attempt_at"],
+        "diagnostic": row["last_error"],
+        "permanentState": row["permanent_state"],
+        "permanentStateAt": row["permanent_state_at"],
+        "permanentResolution": row["permanent_resolution"],
+    }
+
+
 
 def _deferred_result(channel: str, category: str, reference: str, retry_after: int, row: sqlite3.Row | None = None) -> dict:
     return {
@@ -285,15 +363,15 @@ def send_email(
     except Exception as exc:
         failure_class = _classify_failure(exc)
         next_at, _ = _record_transport_failure(transport_key, failure_class, exc, now, attempt)
-        with connect() as db:
-            db.execute("""UPDATE notification_delivery SET status='failed',last_error=?,failure_class=?,next_attempt_at=?
-              WHERE idempotency_key=?""", (_safe_error(exc), failure_class, next_at, key))
+        _record_delivery_failure(key, failure_class, _safe_error(exc), next_at, now_iso)
         raise
     _record_transport_success(transport_key)
     sent_at = _now_iso()
     with connect() as db:
-        db.execute("""UPDATE notification_delivery SET status='sent',sent_at=?,last_error='',failure_class='',next_attempt_at=''
-          WHERE idempotency_key=?""", (sent_at, key))
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("""UPDATE notification_delivery SET status='sent',sent_at=?,last_error='',failure_class='',next_attempt_at='',
+          permanent_state='',permanent_state_at='',permanent_resolution='' WHERE idempotency_key=?""", (sent_at, key))
+        _reconcile_permanent_failures(db, "email", category, reference, key, sent_at)
         row = db.execute("SELECT * FROM notification_delivery WHERE idempotency_key=?", (key,)).fetchone()
     return _public_result(row)
 
@@ -359,15 +437,15 @@ def send_push(
     except Exception as exc:
         failure_class = _classify_failure(exc)
         next_at, _ = _record_transport_failure(transport_key, failure_class, exc, now, attempt)
-        with connect() as db:
-            db.execute("""UPDATE notification_delivery SET status='failed',last_error=?,failure_class=?,next_attempt_at=?
-              WHERE idempotency_key=?""", (_safe_error(exc), failure_class, next_at, key))
+        _record_delivery_failure(key, failure_class, _safe_error(exc), next_at, now_iso)
         raise
     _record_transport_success(transport_key)
     sent_at = _now_iso()
     with connect() as db:
-        db.execute("""UPDATE notification_delivery SET status='sent',sent_at=?,last_error='',failure_class='',next_attempt_at=''
-          WHERE idempotency_key=?""", (sent_at, key))
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("""UPDATE notification_delivery SET status='sent',sent_at=?,last_error='',failure_class='',next_attempt_at='',
+          permanent_state='',permanent_state_at='',permanent_resolution='' WHERE idempotency_key=?""", (sent_at, key))
+        _reconcile_permanent_failures(db, "push", category, reference, key, sent_at)
         row = db.execute("SELECT * FROM notification_delivery WHERE idempotency_key=?", (key,)).fetchone()
     return _public_result(row)
 
@@ -388,9 +466,19 @@ def status(limit: int = 20) -> dict:
             row["failure_class"]: int(row["n"])
             for row in db.execute("SELECT failure_class,COUNT(*) n FROM notification_delivery WHERE failure_class<>'' GROUP BY failure_class")
         }
+        permanent_counts = {
+            row["permanent_state"]: int(row["n"])
+            for row in db.execute("""SELECT permanent_state,COUNT(*) n FROM notification_delivery
+              WHERE failure_class='permanent' GROUP BY permanent_state""")
+        }
         recent = [dict(row) for row in db.execute(
-            """SELECT channel,category,reference,status,attempts,created_at,last_attempt_at,sent_at,last_error,failure_class,next_attempt_at
+            """SELECT channel,category,reference,status,attempts,created_at,last_attempt_at,sent_at,last_error,failure_class,next_attempt_at,
+                      permanent_state,permanent_state_at,permanent_resolution
                FROM notification_delivery ORDER BY COALESCE(sent_at,last_attempt_at,created_at) DESC LIMIT ?""", (limit,))]
+        permanent_rows = [dict(row) for row in db.execute(
+            """SELECT incident_id,channel,category,reference,last_attempt_at,last_error,permanent_state,permanent_state_at,permanent_resolution
+               FROM notification_delivery WHERE failure_class='permanent'
+               ORDER BY COALESCE(permanent_state_at,last_attempt_at,created_at) DESC LIMIT ?""", (limit,))]
         health_rows = [dict(row) for row in db.execute(
             "SELECT * FROM notification_transport_health ORDER BY transport_key")]
     transports = []
@@ -417,9 +505,13 @@ def status(limit: int = 20) -> dict:
             "baseBackoffSeconds": resilience.BASE_BACKOFF_SECONDS,
             "maxBackoffSeconds": resilience.MAX_BACKOFF_SECONDS,
             "circuitsOpen": sum(1 for item in transports if item["circuitOpen"]),
-            "permanentFailures": int(failure_counts.get("permanent", 0)),
+            "permanentFailures": int(permanent_counts.get("open", 0)),
+            "permanentFailureHistory": int(failure_counts.get("permanent", 0)),
+            "permanentAcknowledged": int(permanent_counts.get("acknowledged", 0)),
+            "permanentResolved": int(permanent_counts.get("resolved", 0)),
             "transports": transports,
         },
+        "permanentFailures": permanent_rows,
         "recent": recent,
         "privacy": "Les destinataires et le contenu des notifications ne sont pas persistés par le broker.",
     }

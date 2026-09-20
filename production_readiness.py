@@ -236,20 +236,31 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         resilience = broker.get("resilience") or {}
         circuits = int(resilience.get("circuitsOpen") or 0)
         permanent_failures = int(resilience.get("permanentFailures") or 0)
+        permanent_history = int(resilience.get("permanentFailureHistory") or permanent_failures)
+        permanent_acknowledged = int(resilience.get("permanentAcknowledged") or 0)
+        permanent_resolved = int(resilience.get("permanentResolved") or 0)
         broker_degraded = circuits > 0 or permanent_failures > 0
         if circuits and permanent_failures:
-            broker_detail = f"{circuits} circuit(s) ouvert(s), {permanent_failures} échec(s) permanent(s)"
+            broker_detail = f"{circuits} circuit(s) ouvert(s), {permanent_failures} échec(s) permanent(s) à traiter"
         elif circuits:
             broker_detail = f"{circuits} circuit(s) ouvert(s)"
         elif permanent_failures:
             broker_detail = f"{permanent_failures} échec(s) permanent(s) à traiter"
+        elif permanent_acknowledged:
+            broker_detail = f"Broker opérationnel · {permanent_acknowledged} incident(s) permanent(s) acquitté(s)"
         else:
             broker_detail = "Broker et ledger opérationnels"
         components.append(_component(
             "notification_broker", "NotificationBroker", "degraded" if broker_degraded else "ready",
             broker_detail,
             critical=True,
-            metrics={"circuitsOpen": circuits, "permanentFailures": permanent_failures},
+            metrics={
+                "circuitsOpen": circuits,
+                "permanentFailures": permanent_failures,
+                "permanentFailureHistory": permanent_history,
+                "permanentAcknowledged": permanent_acknowledged,
+                "permanentResolved": permanent_resolved,
+            },
         ))
         preflight, preflight_error = _safe("notification preflight", notification_preflight.run)
         channels = broker.get("channels") or {}

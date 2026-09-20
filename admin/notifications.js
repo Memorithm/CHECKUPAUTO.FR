@@ -79,6 +79,45 @@ function renderNotificationRows(items) {
   }
 }
 
+function renderPermanentFailures(items) {
+  const body = notificationEl('notificationPermanentRows');
+  if (!body) return;
+  body.replaceChildren();
+  if (!items.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 7;
+    cell.textContent = 'Aucun échec permanent enregistré';
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement('tr');
+    notificationCell(row, item.channel);
+    notificationCell(row, item.category);
+    notificationCell(row, item.reference);
+    notificationCell(row, item.permanent_state || 'open');
+    notificationCell(row, item.last_error || '—');
+    notificationCell(row, item.permanent_state_at || item.last_attempt_at || '—');
+    const actionCell = document.createElement('td');
+    if (item.permanent_state === 'open' || item.permanent_state === 'acknowledged') {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.dataset.incidentId = String(item.incident_id || '');
+      button.dataset.permanentAction = item.permanent_state === 'open' ? 'acknowledge' : 'reopen';
+      button.textContent = item.permanent_state === 'open' ? 'Acquitter' : 'Réouvrir';
+      button.disabled = !button.dataset.incidentId;
+      actionCell.appendChild(button);
+    } else {
+      actionCell.textContent = item.permanent_resolution === 'superseded_by_success' ? 'Réconcilié par succès' : '—';
+    }
+    row.appendChild(actionCell);
+    body.appendChild(row);
+  }
+}
+
 async function loadNotificationStatus() {
   const state = notificationEl('notificationState');
   try {
@@ -105,6 +144,8 @@ async function loadNotificationStatus() {
     const transportHealth=Array.isArray(resilience.transports)?resilience.transports:[];
     notificationEl('notificationTransient').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.transientFailures)||0),0);
     notificationEl('notificationPermanent').textContent = resilience.permanentFailures || 0;
+    notificationEl('notificationPermanentAcknowledged').textContent = resilience.permanentAcknowledged || 0;
+    notificationEl('notificationPermanentResolved').textContent = resilience.permanentResolved || 0;
     notificationEl('notificationConfigErrors').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.configurationFailures)||0),0);
     notificationEl('notificationCircuits').textContent = resilience.circuitsOpen || 0;
     renderTransportHealth(transportHealth);
@@ -137,6 +178,7 @@ async function loadNotificationStatus() {
       state.textContent = 'Broker opérationnel';
       state.className = 'gsc-status online';
     }
+    renderPermanentFailures(Array.isArray(data.permanentFailures) ? data.permanentFailures : []);
     renderNotificationRows(data.recent || []);
   } catch (error) {
     if (state) {
@@ -248,6 +290,17 @@ async function runNotificationPreflight() {
   }
 }
 
+async function updatePermanentFailure(incidentId, action) {
+  const response = await fetch('/api/admin/notifications/permanent/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ incidentId, action }),
+  });
+  const data = await response.json();
+  if (!response.ok || data.ok === false) throw new Error(data.error || 'Action impossible');
+  await loadNotificationStatus();
+}
+
 async function processRemindersNow() {
   const button = notificationEl('reminderProcess');
   if (button) button.disabled = true;
@@ -263,6 +316,16 @@ async function processRemindersNow() {
   }
 }
 
+notificationEl('notificationPermanentRows')?.addEventListener('click', async event => {
+  const button = event.target.closest('button[data-permanent-action]');
+  if (!button) return;
+  button.disabled = true;
+  try {
+    await updatePermanentFailure(button.dataset.incidentId || '', button.dataset.permanentAction || '');
+  } finally {
+    button.disabled = false;
+  }
+});
 notificationEl('notificationRefresh')?.addEventListener('click', loadNotificationStatus);
 notificationEl('notificationPreflight')?.addEventListener('click', runNotificationPreflight);
 notificationEl('reminderProcess')?.addEventListener('click', processRemindersNow);
