@@ -1,0 +1,87 @@
+name: iOS Core CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-and-xcode:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 30
+    env:
+      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
+      CHECKUPAUTO_MAC_USER: tarek
+    steps:
+      - uses: actions/checkout@v5
+      - name: Resolve authorized Mac SSH identity
+        run: |
+          set -euo pipefail
+          key=""
+          for candidate in \
+            /root/.ssh/checkupauto_macmini_ed25519 \
+            "$HOME/.ssh/checkupauto_macmini_ed25519" \
+            /opt/actions-runner/.ssh/checkupauto_macmini_ed25519; do
+            if [ -r "$candidate" ]; then
+              key="$candidate"
+              break
+            fi
+          done
+          if [ -z "$key" ]; then
+            key="$(find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \( -name '*macmini*' -o -name 'checkupauto*ed25519' \) -readable -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "$key" ]; then
+            echo '::error::authorized Mac mini SSH identity is not readable by the Actions runner'
+            exit 2
+          fi
+          printf '%s\n' "$key" > .ios-mac-key
+          chmod 600 .ios-mac-key
+      - name: Verify remote Apple toolchain
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            'sw_vers; xcodebuild -version; xcodegen --version; swift --version'
+      - name: Stage exact iOS source on Mac mini
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          remote_dir="/tmp/checkupauto-ios-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' "$remote_dir" > .ios-remote-dir
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
+          tar -czf - ios/CheckupAutoReminder | \
+            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xzf - -C '$remote_dir'"
+      - name: Run Swift package tests on Mac mini
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          remote_dir="$(cat .ios-remote-dir)"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "cd '$remote_dir/ios/CheckupAutoReminder' && swift package resolve && swift test --parallel"
+      - name: Generate Xcode project and run iOS simulator tests
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          remote_dir="$(cat .ios-remote-dir)"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
+      - name: Clean remote staging directory
+        if: always()
+        run: |
+          set -u
+          if [ -s .ios-remote-dir ] && [ -s .ios-mac-key ]; then
+            key="$(cat .ios-mac-key)"
+            remote_dir="$(cat .ios-remote-dir)"
+            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir'" || true
+          fi
