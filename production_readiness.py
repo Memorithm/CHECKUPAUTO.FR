@@ -343,12 +343,26 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
     if error:
         components.append(_failed("review_followup", "Relance avis Google", False, error))
     else:
-        review_ready = bool(reviews.get("emailTransportConfigured")) and bool(reviews.get("reviewUrlConfigured"))
+        review_transport_configured = bool(reviews.get("emailTransportConfigured"))
+        review_transport_ready = bool(reviews.get("emailTransportReady"))
+        review_url_ready = bool(reviews.get("reviewUrlConfigured"))
+        review_ready = review_transport_ready and review_url_ready
+        if review_ready:
+            review_state = "ready"
+            review_detail = "Relance neutre prête"
+        elif review_transport_configured and review_url_ready:
+            review_state = "degraded"
+            review_detail = "Transport e-mail configuré mais préflight non prêt"
+        else:
+            review_state = "configuration_required"
+            review_detail = "Transport e-mail et URL d’avis valides requis"
         components.append(_component(
-            "review_followup", "Relance avis Google", "ready" if review_ready else "configuration_required",
-            "Relance neutre prête" if review_ready else "Transport e-mail et URL d’avis requis",
+            "review_followup", "Relance avis Google", review_state, review_detail,
             critical=False,
-            metrics={"sentTotal": int(reviews.get("sentTotal") or 0)},
+            metrics={
+                "sentTotal": int(reviews.get("sentTotal") or 0),
+                "emailPreflightState": reviews.get("emailPreflightState") or "unknown",
+            },
         ))
 
     if seo_health is None:

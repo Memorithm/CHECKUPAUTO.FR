@@ -40,7 +40,7 @@ def healthy_patches():
         mock.patch.object(readiness.referral_engine, "list_accounts", return_value=[]),
         mock.patch.object(readiness.referral_engine, "configured_reward_cents", return_value=500),
         mock.patch.object(readiness.review_followup, "status", return_value={
-            "emailTransportConfigured": True, "reviewUrlConfigured": True, "sentTotal": 3,
+            "emailTransportConfigured": True, "emailTransportReady": True, "emailPreflightState": "ready", "reviewUrlConfigured": True, "sentTotal": 3,
         }),
         mock.patch.object(readiness.security_integrity, "posture", return_value={
             "ok": True, "vulnerabilities": {"count": 0},
@@ -94,7 +94,7 @@ class ProductionReadinessTest(unittest.TestCase):
             "oauthAuthorized": False, "connectors": [{"connected": False}],
         })
         patches[10] = mock.patch.object(readiness.review_followup, "status", return_value={
-            "emailTransportConfigured": False, "reviewUrlConfigured": False, "sentTotal": 0,
+            "emailTransportConfigured": False, "emailTransportReady": False, "emailPreflightState": "awaiting_configuration", "reviewUrlConfigured": False, "sentTotal": 0,
         })
         result = self._run_with(patches, {"totals": {"pass": 9, "warning": 7, "fail": 0}})
         states = {item["id"]: item["state"] for item in result["components"]}
@@ -167,6 +167,22 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertIn("email_delivery", result["criticalBlockers"])
         email = next(item for item in result["components"] if item["id"] == "email_delivery")
         self.assertEqual(email["metrics"]["preflightState"], "transport_unavailable")
+
+    def test_review_followup_is_degraded_when_mail_preflight_is_not_ready(self):
+        patches = healthy_patches()
+        patches[10] = mock.patch.object(readiness.review_followup, "status", return_value={
+            "emailTransportConfigured": True,
+            "emailTransportReady": False,
+            "emailPreflightState": "awaiting_credentials",
+            "reviewUrlConfigured": True,
+            "sentTotal": 0,
+        })
+        result = self._run_with(patches)
+        review = next(item for item in result["components"] if item["id"] == "review_followup")
+        self.assertEqual(review["state"], "degraded")
+        self.assertEqual(review["metrics"]["emailPreflightState"], "awaiting_credentials")
+        self.assertTrue(result["activationGate"]["allowed"])
+
 
     def test_probe_exception_is_degraded_without_leaking_message(self):
         patches = healthy_patches()

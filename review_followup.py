@@ -117,6 +117,17 @@ def process_once():
     if not transport_ready:
         return {'ok':False,'state':'waiting_email_transport','error':'Transport email Checkup Auto non configuré'}
     try:
+        email_preflight=mail.preflight()
+    except Exception:
+        return {'ok':False,'state':'email_preflight_failed','error':'Préflight transport e-mail impossible'}
+    if not bool(email_preflight.get('ok')):
+        return {
+            'ok':False,
+            'state':'waiting_email_preflight',
+            'error':'Transport email Checkup Auto non prêt',
+            'preflightState':str(email_preflight.get('state') or 'unknown'),
+        }
+    try:
         review_url=_review_url()
     except Exception as exc:
         return {'ok':False,'state':'invalid_review_url','error':str(exc)}
@@ -159,6 +170,14 @@ def status():
     if session.get('connected'):
         try: native=mercure.native_review_email_status()
         except Exception: pass
+    try:
+        review_url_configured=bool(_review_url())
+    except ValueError:
+        review_url_configured=False
+    try:
+        email_preflight=mail.preflight()
+    except Exception:
+        email_preflight={'ok':False,'state':'unavailable'}
     cutoff=(_now()-datetime.timedelta(hours=24)).isoformat(timespec='seconds')
     with connect() as db:
         sent24=db.execute("SELECT COUNT(*) n FROM review_followup WHERE sent_at>=?",(cutoff,)).fetchone()['n']
@@ -177,8 +196,10 @@ def status():
       'delivery':'notification_broker','mercureDeliveryDisabled':True,
       'notificationBroker':notifications.status(5),
       'emailTransportConfigured':mail.configured(),
+      'emailTransportReady':bool(email_preflight.get('ok')),
+      'emailPreflightState':str(email_preflight.get('state') or 'unknown'),
       'mercureEmailSource':'calendar_extendedProps.email',
-      'reviewUrlConfigured':bool(str(os.environ.get('CYBERCHECK_GOOGLE_REVIEW_URL','') or '').strip()),
+      'reviewUrlConfigured':review_url_configured,
       'sent24h':sent24,'sentTotal':sent_total,'permanentFailures':failed,'latest':latest,
       'privacy':'CyberCheck stores appointment id + delivery state only; customer email remains in Mercure'
     }
