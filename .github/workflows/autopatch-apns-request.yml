@@ -32,7 +32,7 @@ jobs:
           text = text.replace(old, new, 1)
 
           old = '''        self.token_invalid = self.status == 410 or self.reason in TOKEN_INVALID_REASONS\n        self.provider_error = self.reason in (PROVIDER_CONFIGURATION_REASONS | INTERNAL_CONFIGURATION_REASONS) or self.status in {403, 404, 405}\n        self.retryable = self.status in TRANSIENT_STATUS or self.reason in TRANSIENT_REASONS\n'''
-          new = '''        self.token_invalid = self.status == 410 or self.reason in TOKEN_INVALID_REASONS\n        self.provider_error = self.reason in (PROVIDER_CONFIGURATION_REASONS | INTERNAL_CONFIGURATION_REASONS) or self.status == 403\n        self.request_error = self.reason in REQUEST_REASONS or self.status in REQUEST_STATUS\n        self.retryable = self.status in TRANSIENT_STATUS or self.reason in TRANSIENT_REASONS\n'''
+          new = '''        self.token_invalid = self.status == 410 or self.reason in TOKEN_INVALID_REASONS\n        self.provider_error = self.reason in (PROVIDER_CONFIGURATION_REASONS | INTERNAL_CONFIGURATION_REASONS) or self.status == 403\n        self.request_error = self.reason in REQUEST_REASONS or (\n            self.status in REQUEST_STATUS and self.reason not in TRANSIENT_REASONS\n        )\n        self.retryable = self.status in TRANSIENT_STATUS or self.reason in TRANSIENT_REASONS\n'''
           if old not in text:
               raise SystemExit('APNSError classification anchor not found')
           text = text.replace(old, new, 1)
