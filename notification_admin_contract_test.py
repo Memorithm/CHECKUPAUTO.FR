@@ -29,6 +29,12 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("textContent", renderer)
         self.assertNotIn("innerHTML", renderer)
 
+    def test_admin_exposes_reminder_permanent_suppression_metric(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        self.assertIn('id="notificationReminderPermanentSuppressed"', html)
+        self.assertIn("reminder.lastProcess?.permanentSuppressed", javascript)
+
     def test_transport_health_renderer_uses_text_content(self):
         javascript = (ROOT / "admin" / "notifications.js").read_text()
         start = javascript.index("function renderTransportHealth")

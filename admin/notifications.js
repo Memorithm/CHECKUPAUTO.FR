@@ -165,6 +165,7 @@ async function loadNotificationStatus() {
     notificationEl('notificationMobileDeadlines').textContent = devices.deadlines || 0;
     notificationEl('notificationReminderInventory').textContent = reminder.inventory || 0;
     notificationEl('notificationReminderDue').textContent = reminder.eligibleNow || 0;
+    notificationEl('notificationReminderPermanentSuppressed').textContent = Number(reminder.lastProcess?.permanentSuppressed) || 0;
     notificationEl('notificationReminderBackfill').textContent = reminder.backfillComplete ? 'COMPLET' : 'EN COURS';
     const reminderState = notificationEl('notificationReminderState');
     if (reminderState) {

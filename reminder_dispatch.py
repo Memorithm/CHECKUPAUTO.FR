@@ -300,7 +300,7 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
         }
         _set_meta("last_process", json.dumps(result, separators=(",", ":")))
         return result
-    sent = already = deferred = failed = missing = in_flight = 0
+    sent = already = deferred = failed = missing = in_flight = permanent_suppressed = 0
     for row in eligible:
         try:
             recipient = mercure.customer_email(row["client_kind"], row["client_id"])
@@ -320,13 +320,17 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
                 deferred += 1
             else:
                 sent += 1
+        except notifications.PermanentDeliverySuppressed:
+            permanent_suppressed += 1
         except Exception:
             failed += 1
+    state = "partial_failure" if failed else ("active_with_permanent_suppressions" if permanent_suppressed else "active")
     result = {
         "ok": failed == 0,
-        "state": "active" if failed == 0 else "partial_failure",
+        "state": state,
         "eligible": len(eligible), "sent": sent, "alreadySent": already,
-        "inFlight": in_flight, "deferred": deferred, "missingRecipient": missing, "failed": failed,
+        "inFlight": in_flight, "deferred": deferred, "missingRecipient": missing,
+        "permanentSuppressed": permanent_suppressed, "failed": failed,
         "sync": sync,
     }
     _set_meta("last_process", json.dumps(result, separators=(",", ":")))
