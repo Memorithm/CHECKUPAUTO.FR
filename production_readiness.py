@@ -384,12 +384,13 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
     totals = seo_health.get("totals") or {}
     failures = int(totals.get("fail") or 0)
     warnings = int(totals.get("warning") or 0)
+    infos = int(totals.get("info") or 0)
     seo_state = "degraded" if failures else "configuration_required" if warnings else "ready"
     components.append(_component(
         "seo", "SEO", seo_state,
-        f"{failures} échec(s), {warnings} avertissement(s)",
+        f"{failures} échec(s), {warnings} avertissement(s), {infos} information(s)",
         critical=False,
-        metrics={"pass": int(totals.get("pass") or 0), "warning": warnings, "fail": failures},
+        metrics={"pass": int(totals.get("pass") or 0), "info": infos, "warning": warnings, "fail": failures},
     ))
 
     posture, error = _safe("Sentinel", security_integrity.posture)
