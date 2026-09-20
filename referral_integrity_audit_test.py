@@ -85,6 +85,18 @@ class ReferralIntegrityAuditTest(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(report["metrics"]["missingEarns"], 1)
 
+    def test_orphan_earn_is_detected(self):
+        account_id = self.account["id"]
+        with analytics.connect() as db:
+            db.execute(
+                """INSERT INTO referral_ledger(account_id,kind,amount_cents,reference,created_at,note)
+                   VALUES(?,?,?,?,?,?)""",
+                (account_id, "earn", 500, "reward:" + "0" * 64, referrals.now_iso(), "synthetic orphan"),
+            )
+        report = audit.status(analytics.DB)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["metrics"]["orphanEarns"], 1)
+
     def test_duplicate_legacy_and_modern_earn_is_detected(self):
         provider = "mercure-rdv"
         external_id = "double-credit"
