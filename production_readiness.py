@@ -6,6 +6,7 @@ import analytics_store
 import app_download
 import gsc_client
 import integration_hub
+import ios_release_preflight
 import mobile_claim_delivery
 import notification_broker
 import notification_preflight
@@ -73,6 +74,13 @@ _REMEDIATION = {
         "verify": "Le canal iOS doit être testflight ou app-store avec une URL Apple valide.",
         "target": "#readiness",
         "external": True,
+    },
+    "ios_release_preflight": {
+        "code": "complete_ios_release_preflight",
+        "summary": "Corriger le projet Release iOS, Associated Domains/AASA et la chaîne de distribution Apple.",
+        "verify": "Tous les contrôles du préflight iOS doivent être verts avant archive et publication.",
+        "target": "#readiness",
+        "external": False,
     },
     "ios_claim": {
         "code": "configure_ios_claim_domain",
@@ -301,6 +309,32 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             "Associated Domains prêt" if claim_ready else "Préfixe d’identifiant Apple requis",
             critical=False,
             metrics={"domain": claim.get("domain"), "claimPath": claim.get("claimPath")},
+        ))
+
+    release, error = _safe("préflight Release iOS", lambda: ios_release_preflight.status(config))
+    if error:
+        components.append(_failed("ios_release_preflight", "Préflight Release iOS", False, error))
+    else:
+        release_state = str(release.get("state") or "degraded")
+        if release_state not in _STATE_RANK:
+            release_state = "degraded"
+        details = {
+            "ready": "Projet iOS, AASA et distribution Apple cohérents",
+            "configuration_required": "Préfixe Apple requis pour valider AASA et le claim",
+            "blocked_external": "Projet iOS cohérent ; publication TestFlight ou App Store requise",
+            "degraded": "Configuration Release iOS incohérente",
+        }
+        failed_checks = [item.get("code") for item in release.get("checks") or [] if not item.get("ok")]
+        components.append(_component(
+            "ios_release_preflight", "Préflight Release iOS", release_state, details[release_state],
+            critical=False,
+            metrics={
+                "projectReady": bool(release.get("projectReady")),
+                "associationReady": bool(release.get("associationReady")),
+                "publicationReady": bool(release.get("publicationReady")),
+                "channel": release.get("channel") or "pending",
+                "failedChecks": failed_checks,
+            },
         ))
 
     integrations, error = _safe("IntegrationHub", lambda: integration_hub.status(gsc_client.credential_info()))

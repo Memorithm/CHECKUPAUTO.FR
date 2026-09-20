@@ -17,6 +17,21 @@ L'application synchronise au serveur uniquement un `deadlineId` UUID opaque et l
 
 Le bootstrap public indique si le push central est réellement actif. Tant qu'il ne l'est pas, les notifications locales restent le mécanisme de repli ; lorsqu'il est activé, l'application retire les notifications locales correspondantes afin d'éviter les doublons.
 
+## Préflight Release reproductible
+
+Avant d’ouvrir Xcode, le serveur peut contrôler de façon déterministe le bundle ID, la configuration Release APNs, les entitlements, Associated Domains/AASA, le préfixe Apple, `/app`, les supports QR et l’état TestFlight/App Store :
+
+```bash
+python3 -m unittest ios_release_preflight_test.py
+python3 - <<'PY'
+import json
+import ios_release_preflight
+print(json.dumps(ios_release_preflight.status({"seo":{"canonicalUrl":"https://www.checkupauto.fr/"}}), indent=2))
+PY
+```
+
+Les secrets de signature, APNs et OAuth restent exclusivement hors Git. Un préflight `degraded` signale une incohérence du projet ; `configuration_required` indique notamment un préfixe Apple manquant ; `blocked_external` signifie que le projet est cohérent mais qu’aucun canal TestFlight/App Store n’est encore publié.
+
 ## Première compilation sur le Mac mini
 
 Dans Terminal, depuis ce dossier :
