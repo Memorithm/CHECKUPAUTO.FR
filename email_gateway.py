@@ -24,6 +24,23 @@ GMAIL_TRANSIENT_REASONS = {
     "rateLimitExceeded",
     "userRateLimitExceeded",
 }
+GMAIL_PROVIDER_REASONS = GMAIL_TRANSIENT_REASONS | {
+    "authError",
+    "badRequest",
+    "domainPolicy",
+    "notFound",
+    "permissionDenied",
+}
+GMAIL_STATUS_REASON_MAP = {
+    "INVALID_ARGUMENT": "badRequest",
+    "UNAUTHENTICATED": "authError",
+    "PERMISSION_DENIED": "permissionDenied",
+    "RESOURCE_EXHAUSTED": "quotaExceeded",
+    "NOT_FOUND": "notFound",
+    "INTERNAL": "internalError",
+    "UNAVAILABLE": "backendError",
+    "DEADLINE_EXCEEDED": "backendError",
+}
 SMTP_CONFIGURATION_CODES = {530, 534, 535, 538}
 
 
@@ -368,9 +385,18 @@ def _send_smtp(cfg: SMTPConfig, to: str, subject: str, text: str, html: str = ""
     return {"ok": True, "channel": "email", "transport": "smtp-relay"}
 
 
-def _safe_reason(value: object) -> str:
+def _gmail_reason(value: object) -> str:
     raw = str(value or "")
-    return "".join(ch for ch in raw if ch.isalnum() or ch in "._-")[:80]
+    return raw if raw in GMAIL_PROVIDER_REASONS else ""
+
+
+def _gmail_status_reason(value: object) -> str:
+    return GMAIL_STATUS_REASON_MAP.get(str(value or ""), "")
+
+
+def _safe_retry_after(value: object) -> str:
+    raw = str(value or "").strip()
+    return raw if raw.isdigit() and len(raw) <= 10 else ""
 
 
 def _gmail_response_error(response) -> EmailDeliveryError:
@@ -382,12 +408,12 @@ def _gmail_response_error(response) -> EmailDeliveryError:
         if isinstance(error, dict):
             errors = error.get("errors")
             if isinstance(errors, list) and errors and isinstance(errors[0], dict):
-                reason = _safe_reason(errors[0].get("reason"))
+                reason = _gmail_reason(errors[0].get("reason"))
             if not reason:
-                reason = _safe_reason(error.get("status"))
+                reason = _gmail_status_reason(error.get("status"))
     except Exception:
         pass
-    retry_after = str(getattr(response, "headers", {}).get("Retry-After", "") or "")[:80]
+    retry_after = _safe_retry_after(getattr(response, "headers", {}).get("Retry-After", ""))
     retryable = status in GMAIL_TRANSIENT_STATUS or reason in GMAIL_TRANSIENT_REASONS
     configuration_error = status in {401, 403} and not retryable
     permanent = status >= 400 and not retryable and not configuration_error
@@ -406,7 +432,7 @@ def _gmail_response_error(response) -> EmailDeliveryError:
 
 def _google_token_error(exc: google_integration.IntegrationError) -> EmailDeliveryError:
     status = _smtp_code(getattr(exc, "status", 0))
-    retry_after = str(getattr(exc, "retry_after", "") or "")[:80]
+    retry_after = _safe_retry_after(getattr(exc, "retry_after", ""))
     retryable = bool(getattr(exc, "retryable", False)) or isinstance(exc.__cause__, requests.RequestException)
     return EmailDeliveryError(
         "Google OAuth temporairement indisponible" if retryable else "Google OAuth doit être reconfiguré",
