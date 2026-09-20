@@ -14,6 +14,7 @@ import mobile_claim_delivery
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "ios" / "CheckupAutoReminder" / "project.yml"
 ENTITLEMENTS = ROOT / "ios" / "CheckupAutoReminder" / "CheckupAutoReminder.entitlements"
+RELEASE_RUNNER = ROOT / "ios_release_runner.py"
 QR_SITE = ROOT / "assets" / "app" / "qr-site.svg"
 QR_CENTRE = ROOT / "assets" / "app" / "qr-centre.svg"
 CENTRE_POSTER = ROOT / "assets" / "app" / "centre-poster.svg"
@@ -145,6 +146,21 @@ def _asset_checks() -> list[dict]:
     return checks
 
 
+def _release_automation_check() -> dict:
+    try:
+        text = RELEASE_RUNNER.read_text(encoding="utf-8")
+    except OSError:
+        return _check("release_automation", False, "runner_unavailable")
+    required = (
+        'choices=("preflight", "test", "archive", "export")',
+        'release_guard(require_main=True)',
+        'validate_signed_entitlements(entitlements)',
+        'upload_requires_explicit_allow_upload',
+    )
+    ok = all(token in text for token in required)
+    return _check("release_automation", ok, RELEASE_RUNNER.name if ok else "runner_incomplete")
+
+
 def _association_check(config: dict) -> tuple[dict, dict]:
     state = mobile_claim_delivery.status(config)
     if not state.get("ready"):
@@ -183,6 +199,7 @@ def status(config: dict) -> dict:
             _check("associated_domains", False, "entitlements_unavailable"),
         ])
     checks.extend(_asset_checks())
+    checks.append(_release_automation_check())
 
     distribution = app_download.status(config)
     ios = distribution.get("ios") or {}

@@ -47,6 +47,19 @@ class IOSReleasePreflightTest(unittest.TestCase):
         self.assertFalse(result["publicationReady"])
         self.assertEqual(result["state"], "blocked_external")
 
+    def test_missing_release_runner_degrades_project_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing-runner.py"
+            with mock.patch.object(preflight, "RELEASE_RUNNER", missing), mock.patch.dict(os.environ, {
+                "CYBERCHECK_IOS_APP_IDENTIFIER_PREFIX": "ABCDEFGHIJ",
+                "CYBERCHECK_IOS_TESTFLIGHT_URL": "https://testflight.apple.com/join/AbC123xy",
+                "CYBERCHECK_IOS_APP_URL": "",
+            }, clear=False):
+                result = preflight.status(CONFIG)
+        self.assertFalse(result["projectReady"])
+        failures = {item["code"] for item in result["checks"] if not item["ok"]}
+        self.assertIn("release_automation", failures)
+
     def test_invalid_release_manifest_is_degraded(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "project.yml"

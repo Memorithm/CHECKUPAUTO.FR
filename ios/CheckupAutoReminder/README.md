@@ -32,6 +32,10 @@ PY
 
 Les secrets de signature, APNs et OAuth restent exclusivement hors Git. Un préflight `degraded` signale une incohérence du projet ; `configuration_required` indique notamment un préfixe Apple manquant ; `blocked_external` signifie que le projet est cohérent mais qu’aucun canal TestFlight/App Store n’est encore publié.
 
+## Runner Release macOS
+
+La chaîne automatisée `xcodegen → XCTest → archive signée → validation des entitlements → export` est documentée dans [`docs/ios-release.md`](../../docs/ios-release.md). Le runner `ios_release_runner.py` refuse toute Release réelle hors de `main`, sur un arbre sale ou sur un commit différent de `origin/main`, et garde tous les identifiants Apple hors Git.
+
 ## Première compilation sur le Mac mini
 
 Dans Terminal, depuis ce dossier :
