@@ -411,6 +411,8 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
     else:
         undelivered = int(alerts.get("undeliveredHighOrCritical") or 0)
         delivery = alerts.get("delivery") or {}
+        retry = delivery.get("retry") or {}
+        last_failure = retry.get("lastFailure") or {}
         delivery_ready = bool(delivery.get("ready"))
         delivery_state = str(delivery.get("state") or ("ready" if delivery_ready else "awaiting_webhook"))
         if not delivery_ready:
@@ -431,6 +433,11 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
                 "deliveryState": delivery_state,
                 "signed": bool(delivery.get("signed")),
                 "endpointHost": delivery.get("endpointHost"),
+                "retryEligible": int(retry.get("eligible") or 0),
+                "retryDeferred": int(retry.get("deferred") or 0),
+                "lastFailureReason": last_failure.get("reason"),
+                "lastFailureAt": last_failure.get("at"),
+                "nextAttemptAt": last_failure.get("nextAttemptAt"),
             },
         ))
 
