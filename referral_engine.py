@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
 import os
 import re
 import secrets
@@ -41,6 +42,19 @@ def normalize_code(value: object) -> str:
 
 def generate_code() -> str:
     return "CA-" + "".join(secrets.choice(_ALPHABET) for _ in range(8))
+
+
+def _reward_ledger_reference(provider: str, external_id: str) -> str:
+    """Build an opaque, unambiguous ledger id for one provider booking key."""
+    provider_bytes = str(provider).encode("utf-8")
+    external_bytes = str(external_id).encode("utf-8")
+    payload = (
+        len(provider_bytes).to_bytes(4, "big")
+        + provider_bytes
+        + len(external_bytes).to_bytes(4, "big")
+        + external_bytes
+    )
+    return "reward:" + hashlib.sha256(payload).hexdigest()
 
 
 def init_db() -> None:
@@ -237,7 +251,7 @@ def complete_control(provider: str, external_id: object) -> dict | None:
             return dict(row)
         if row["status"] != "pending":
             return dict(row)
-        reference = f"{provider}:{external_id}"
+        reference = _reward_ledger_reference(provider, external_id)
         changed = db.execute(
             """UPDATE referral_rewards
                SET status='earned',updated_at=?,earned_at=?
@@ -250,19 +264,22 @@ def complete_control(provider: str, external_id: object) -> dict | None:
                 (provider, external_id),
             ).fetchone()
             return dict(updated) if updated else None
-        db.execute(
-            """INSERT OR IGNORE INTO referral_ledger(
-               account_id,kind,amount_cents,reference,created_at,note
-               ) VALUES(?,?,?,?,?,?)""",
-            (
-                row["account_id"],
-                "earn",
-                int(row["reward_cents"]),
-                reference,
-                now,
-                "Contrôle réalisé via parrainage",
-            ),
-        )
+        try:
+            db.execute(
+                """INSERT INTO referral_ledger(
+                   account_id,kind,amount_cents,reference,created_at,note
+                   ) VALUES(?,?,?,?,?,?)""",
+                (
+                    row["account_id"],
+                    "earn",
+                    int(row["reward_cents"]),
+                    reference,
+                    now,
+                    "Contrôle réalisé via parrainage",
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise RuntimeError("Intégrité du crédit de parrainage incohérente") from exc
         updated = db.execute(
             "SELECT * FROM referral_rewards WHERE provider=? AND external_id=?",
             (provider, external_id),
