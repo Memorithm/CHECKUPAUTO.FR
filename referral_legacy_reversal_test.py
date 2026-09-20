@@ -86,6 +86,41 @@ class ReferralLegacyReversalTest(unittest.TestCase):
             [],
         )
 
+    def test_corrupt_opaque_earn_never_falls_back_to_legacy_reference(self):
+        provider, external_id = "mercure-rdv", "legacy-corrupt"
+        legacy_reference = self._legacy_earn(provider, external_id, "legacy-corrupt-token")
+        reward = referrals.reward_status(provider, external_id)
+        opaque_reference = referrals._reward_ledger_reference(provider, external_id)
+        with analytics.connect() as db:
+            db.execute(
+                """INSERT INTO referral_ledger(
+                   account_id,kind,amount_cents,reference,created_at,note
+                   ) VALUES(?,?,?,?,?,?)""",
+                (
+                    reward["account_id"],
+                    "earn",
+                    499,
+                    opaque_reference,
+                    referrals.now_iso(),
+                    "corrupt opaque credit",
+                ),
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "Intégrité du crédit"):
+            referrals.cancel_pending(provider, external_id)
+
+        self.assertEqual(referrals.reward_status(provider, external_id)["status"], "earned")
+        summary = referrals.account_summary(self.account["code"])
+        self.assertEqual(summary["balanceCents"], 999)
+        self.assertEqual(
+            [item for item in summary["ledger"] if item["kind"] == "reverse"],
+            [],
+        )
+        self.assertIn(
+            legacy_reference,
+            [item["reference"] for item in summary["ledger"] if item["kind"] == "earn"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
