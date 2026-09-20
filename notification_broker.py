@@ -113,6 +113,8 @@ def init_db() -> None:
             ("permanent_state", "TEXT NOT NULL DEFAULT ''"),
             ("permanent_state_at", "TEXT NOT NULL DEFAULT ''"),
             ("permanent_resolution", "TEXT NOT NULL DEFAULT ''"),
+            ("recipient_check_state", "TEXT NOT NULL DEFAULT ''"),
+            ("recipient_checked_at", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 db.execute(f"ALTER TABLE notification_delivery ADD COLUMN {name} {ddl}")
@@ -243,7 +245,8 @@ def _record_delivery_failure(key: str, failure_class: str, diagnostic: str, next
             db.execute("""UPDATE notification_delivery
               SET status='failed',last_error=?,failure_class=?,next_attempt_at='',
                   incident_id=CASE WHEN incident_id='' THEN ? ELSE incident_id END,
-                  permanent_state='open',permanent_state_at=?,permanent_resolution=''
+                  permanent_state='open',permanent_state_at=?,permanent_resolution='',
+                  recipient_check_state='',recipient_checked_at=''
               WHERE idempotency_key=?""",
               (diagnostic, failure_class, uuid.uuid4().hex, now_iso, key))
         else:
@@ -267,7 +270,8 @@ def _permanent_failure_row(incident_id: object) -> sqlite3.Row:
     init_db()
     with connect() as db:
         row = db.execute("""SELECT incident_id,channel,category,reference,recipient_hash,failure_class,
-          permanent_state,permanent_state_at,permanent_resolution,last_attempt_at,last_error
+          permanent_state,permanent_state_at,permanent_resolution,last_attempt_at,last_error,
+          recipient_check_state,recipient_checked_at
           FROM notification_delivery WHERE incident_id=?""", (incident,)).fetchone()
     if row is None or row["failure_class"] != "permanent":
         raise LookupError("permanent_failure_not_found")
@@ -285,6 +289,34 @@ def permanent_failure_context(incident_id: object) -> dict:
         "permanentState": row["permanent_state"] or "open",
         "permanentStateAt": row["permanent_state_at"],
         "permanentResolution": row["permanent_resolution"],
+        "recipientCheckState": row["recipient_check_state"],
+        "recipientCheckedAt": row["recipient_checked_at"],
+    }
+
+
+def record_permanent_recipient_check(incident_id: object, state: object) -> dict:
+    """Persist only a bounded recipient reconciliation state, never recipient data."""
+    incident = str(incident_id or "").strip().lower()
+    recipient_state = str(state or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32}", incident):
+        raise ValueError("incident_id_invalid")
+    if recipient_state not in {"changed", "unchanged", "missing", "lookup_failed"}:
+        raise ValueError("recipient_check_state_invalid")
+    init_db()
+    checked_at = _now_iso()
+    with connect() as db:
+        row = db.execute(
+            "SELECT failure_class FROM notification_delivery WHERE incident_id=?", (incident,)
+        ).fetchone()
+        if row is None or row["failure_class"] != "permanent":
+            raise LookupError("permanent_failure_not_found")
+        db.execute(
+            "UPDATE notification_delivery SET recipient_check_state=?,recipient_checked_at=? WHERE incident_id=?",
+            (recipient_state, checked_at, incident),
+        )
+    return {
+        "ok": True, "incidentId": incident,
+        "recipientState": recipient_state, "recipientCheckedAt": checked_at,
     }
 
 
@@ -293,10 +325,12 @@ def permanent_failure_recipient_state(incident_id: object, recipient: object) ->
     current = _text(recipient, "Destinataire", 512)
     row = _permanent_failure_row(incident_id)
     state = "unchanged" if _recipient_hash(current) == row["recipient_hash"] else "changed"
+    persisted = record_permanent_recipient_check(row["incident_id"], state)
     return {
         "ok": True,
         "incidentId": row["incident_id"],
         "recipientState": state,
+        "recipientCheckedAt": persisted["recipientCheckedAt"],
         "permanentState": row["permanent_state"] or "open",
     }
 
@@ -514,10 +548,11 @@ def status(limit: int = 20) -> dict:
         }
         recent = [dict(row) for row in db.execute(
             """SELECT channel,category,reference,status,attempts,created_at,last_attempt_at,sent_at,last_error,failure_class,next_attempt_at,
-                      permanent_state,permanent_state_at,permanent_resolution
+                      permanent_state,permanent_state_at,permanent_resolution,recipient_check_state,recipient_checked_at
                FROM notification_delivery ORDER BY COALESCE(sent_at,last_attempt_at,created_at) DESC LIMIT ?""", (limit,))]
         permanent_rows = [dict(row) for row in db.execute(
-            """SELECT incident_id,channel,category,reference,last_attempt_at,last_error,permanent_state,permanent_state_at,permanent_resolution
+            """SELECT incident_id,channel,category,reference,last_attempt_at,last_error,permanent_state,permanent_state_at,permanent_resolution,
+                      recipient_check_state,recipient_checked_at
                FROM notification_delivery WHERE failure_class='permanent'
                ORDER BY COALESCE(permanent_state_at,last_attempt_at,created_at) DESC LIMIT ?""", (limit,))]
         health_rows = [dict(row) for row in db.execute(

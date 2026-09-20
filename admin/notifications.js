@@ -119,9 +119,10 @@ function renderPermanentFailures(items) {
     notificationCell(row, item.permanent_state || 'open');
     const recipientCell = document.createElement('td');
     const incidentId = String(item.incident_id || '');
-    const recipientState = permanentRecipientStates.get(incidentId) || '';
+    const recipientState = permanentRecipientStates.get(incidentId) || item.recipient_check_state || '';
     const recipientLabel = document.createElement('span');
     recipientLabel.textContent = permanentRecipientLabel(recipientState);
+    if (item.recipient_checked_at) recipientLabel.title = `Dernière vérification ${item.recipient_checked_at}`;
     recipientCell.appendChild(recipientLabel);
     if ((item.permanent_state === 'open' || item.permanent_state === 'acknowledged') &&
         item.channel === 'email' && item.category === 'ct_due_reminder' && incidentId) {
