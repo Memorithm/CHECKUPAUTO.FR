@@ -178,10 +178,10 @@ async function loadSecurity(){
  }catch(e){if(badge){badge.textContent='Sentinel indisponible';badge.className='gsc-status offline'}throw e}
 }
 
-function healthLabel(status){return status==='pass'?'CONFORME':status==='fail'?'ERREUR':'À SURVEILLER'}
+function healthLabel(status){return status==='pass'?'CONFORME':status==='fail'?'ERREUR':status==='info'?'INFO':'À SURVEILLER'}
 async function loadSeoHealth(){
  const d=await ccApi('/api/admin/seo-health'),grid=cc('seoHealthGrid');grid.replaceChildren();
- ccText('healthPass',d.totals?.pass||0);ccText('healthWarning',d.totals?.warning||0);ccText('healthFail',d.totals?.fail||0);
+ ccText('healthPass',d.totals?.pass||0);ccText('healthInfo',d.totals?.info||0);ccText('healthWarning',d.totals?.warning||0);ccText('healthFail',d.totals?.fail||0);
  for(const item of d.checks||[]){
   const article=document.createElement('article');article.className='health-item '+item.status;
   const top=document.createElement('div'),name=document.createElement('strong'),badge=document.createElement('span'),detail=document.createElement('p');

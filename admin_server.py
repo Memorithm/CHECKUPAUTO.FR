@@ -710,9 +710,12 @@ def build_seo_health(c):
  complete=all(sd.get(k) for k in ('businessName','streetAddress','postalCode','locality','country'))
  add('schema','Schema.org LocalBusiness','pass' if complete else 'fail','Complet' if complete else 'Champs locaux manquants')
  add('sitemap','Sitemap XML','pass','Généré automatiquement depuis l’URL canonique')
- add('googlebot','Googlebot','pass' if indexing and cr.get('googlebot') else 'warning','Autorisé' if indexing and cr.get('googlebot') else ('Préférence autorisée, mais indexation globale coupée' if cr.get('googlebot') else 'Bloqué'))
- add('oai-search','OAI-SearchBot','pass' if indexing and cr.get('oaiSearchBot') else 'warning','Autorisé' if indexing and cr.get('oaiSearchBot') else ('Préférence autorisée, mais indexation globale coupée' if cr.get('oaiSearchBot') else 'Bloqué'))
- add('perplexity','PerplexityBot','pass' if indexing and cr.get('perplexityBot') else 'warning','Autorisé' if indexing and cr.get('perplexityBot') else ('Préférence autorisée, mais indexation globale coupée' if cr.get('perplexityBot') else 'Bloqué'))
+ def crawler_status(enabled):
+  if not indexing: return ('info','Préférence autorisée, mais indexation globale coupée') if enabled else ('info','Bloqué par préférence et par indexation globale')
+  return ('pass','Autorisé') if enabled else ('warning','Bloqué')
+ status_,detail=crawler_status(bool(cr.get('googlebot'))); add('googlebot','Googlebot',status_,detail)
+ status_,detail=crawler_status(bool(cr.get('oaiSearchBot'))); add('oai-search','OAI-SearchBot',status_,detail)
+ status_,detail=crawler_status(bool(cr.get('perplexityBot'))); add('perplexity','PerplexityBot',status_,detail)
  add('training-openai','GPTBot entraînement','pass' if not cr.get('gptBot') else 'warning','Bloqué' if not cr.get('gptBot') else 'Autorisé')
  add('training-anthropic','ClaudeBot entraînement','pass' if not cr.get('claudeBot') else 'warning','Bloqué' if not cr.get('claudeBot') else 'Autorisé')
  cred=gsc.credential_info(); add('gsc','Google Search Console','pass' if cred.get('configured') else 'warning',cred.get('clientEmail') or 'Identifiants non installés')
@@ -720,7 +723,7 @@ def build_seo_health(c):
  add('analytics','Mesure first-party','pass' if ac.get('enabled',True) else 'warning','Sans cookie / sans identifiant' if ac.get('enabled',True) else 'Désactivée')
  bs=booking.stats(30); has_flux=bool(bs.get('recent'))
  add('mercure','Mercure RDV confirmations','pass' if has_flux else 'warning',f"Flux HMAC reçu · {bs.get('confirmedBookings',0)} RDV confirmés sur 30 j" if has_flux else 'Bridge HMAC prêt · activation fournisseur encore requise')
- totals={k:sum(1 for x in checks if x['status']==k) for k in ('pass','warning','fail')}
+ totals={k:sum(1 for x in checks if x['status']==k) for k in ('pass','info','warning','fail')}
  return {'checks':checks,'totals':totals,'generatedAt':datetime.datetime.now().astimezone().isoformat(timespec='seconds')}
 
 def build_security_txt(c):
