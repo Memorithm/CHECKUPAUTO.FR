@@ -58,9 +58,12 @@ jobs:
         shell: bash
         run: |
           python3 -m compileall -q production_readiness.py production_readiness_request_failure_test.py
-          python3 -m unittest -q production_readiness_request_failure_test
+          python3 -m venv .patch-venv
+          .patch-venv/bin/python -m pip install --disable-pip-version-check -q -r requirements.txt
+          .patch-venv/bin/python -m unittest -q production_readiness_request_failure_test
           python3 scripts/precommit_security.py
           git diff --check
+          rm -rf .patch-venv
       - name: Commit patch
         shell: bash
         run: |
