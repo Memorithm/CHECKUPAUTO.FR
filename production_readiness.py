@@ -125,8 +125,8 @@ _REMEDIATION = {
     },
     "alert_delivery": {
         "code": "configure_alert_delivery",
-        "summary": "Configurer la livraison externe des alertes puis traiter les alertes hautes/critiques en attente.",
-        "verify": "undeliveredHighOrCritical doit revenir à 0.",
+        "summary": "Configurer un webhook HTTPS public signé HMAC, puis traiter les alertes hautes/critiques en attente.",
+        "verify": "Le relais doit être ready et undeliveredHighOrCritical doit revenir à 0.",
         "target": "#security",
         "external": True,
     },
@@ -410,12 +410,28 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         components.append(_failed("alert_delivery", "Alertes opérationnelles", False, alert_error))
     else:
         undelivered = int(alerts.get("undeliveredHighOrCritical") or 0)
+        delivery = alerts.get("delivery") or {}
+        delivery_ready = bool(delivery.get("ready"))
+        delivery_state = str(delivery.get("state") or ("ready" if delivery_ready else "awaiting_webhook"))
+        if not delivery_ready:
+            state = "configuration_required" if delivery_state in {"awaiting_webhook", "awaiting_signing_secret"} else "degraded"
+            detail = "Relais d’alertes externe à configurer" if state == "configuration_required" else "Relais d’alertes externe invalide ou indisponible"
+        elif undelivered:
+            state = "degraded"
+            detail = f"{undelivered} alerte(s) haute/critique encore à relayer"
+        else:
+            state = "ready"
+            detail = "Relais d’alertes externe prêt et aucune alerte haute/critique en attente"
         components.append(_component(
-            "alert_delivery", "Alertes opérationnelles",
-            "configuration_required" if undelivered else "ready",
-            f"{undelivered} alerte(s) haute/critique non livrée(s)" if undelivered else "Aucune alerte haute/critique en attente de livraison",
+            "alert_delivery", "Alertes opérationnelles", state, detail,
             critical=False,
-            metrics={"open": int(alerts.get("open") or 0), "undeliveredHighOrCritical": undelivered},
+            metrics={
+                "open": int(alerts.get("open") or 0),
+                "undeliveredHighOrCritical": undelivered,
+                "deliveryState": delivery_state,
+                "signed": bool(delivery.get("signed")),
+                "endpointHost": delivery.get("endpointHost"),
+            },
         ))
 
     counts = {state: 0 for state in _STATE_RANK}

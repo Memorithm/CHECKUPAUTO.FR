@@ -134,6 +134,7 @@ class SecurityAlertsAdminContractTest(unittest.TestCase):
         self.assertIn('alertData.actionable', source)
         self.assertIn('seen=new Set(actionable.map', source)
         self.assertIn("security-alert-actionable", source)
+        self.assertIn("alertData.delivery", source)
         self.assertIn("b.textContent='Acquitter'", source)
 
 if __name__ == '__main__':
