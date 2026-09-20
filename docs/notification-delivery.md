@@ -88,6 +88,8 @@ E-mail failures are typed before they reach `NotificationBroker` so the broker c
 - SMTP `4xx` replies are transient. Recipient `5xx` replies are permanent. Authentication and sender-configuration failures are configuration errors.
 - Permanent failures are retained in the idempotent ledger and the same business delivery is suppressed on later dispatch cycles instead of being sent repeatedly.
 
+Permanent failures have a governed lifecycle. A new permanent incident starts as `open` and blocks NotificationBroker readiness. An authenticated administrator may acknowledge it without deleting the original failed-delivery evidence; acknowledged history remains visible but no longer counts as an actionable blocker. The acknowledgement is reversible with a reopen action. A later successful delivery with the same channel, category and business reference but a corrected recipient automatically marks the older permanent incident `resolved` with `superseded_by_success`. Resolved incidents are immutable through the administration action endpoint. The administration surface uses an opaque random incident identifier and never exposes the recipient hash or the delivery idempotency key.
+
 The broker persists only the normalized failure class and a redacted diagnostic; raw recipients, message bodies, OAuth tokens and APNs tokens are not written to the notification ledger.
 
 ## Mobile deadline source precedence

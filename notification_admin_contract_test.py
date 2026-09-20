@@ -14,6 +14,21 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("resilience.permanentFailures", javascript)
         self.assertIn("renderTransportHealth(transportHealth)", javascript)
 
+    def test_admin_exposes_governed_permanent_failure_lifecycle(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        server = (ROOT / "admin_server.py").read_text()
+        self.assertIn('id="notificationPermanentAcknowledged"', html)
+        self.assertIn('id="notificationPermanentResolved"', html)
+        self.assertIn('id="notificationPermanentRows"', html)
+        self.assertIn("/api/admin/notifications/permanent/action", javascript)
+        self.assertIn("/api/admin/notifications/permanent/action", server)
+        start = javascript.index("function renderPermanentFailures")
+        end = javascript.index("async function loadNotificationStatus", start)
+        renderer = javascript[start:end]
+        self.assertIn("textContent", renderer)
+        self.assertNotIn("innerHTML", renderer)
+
     def test_transport_health_renderer_uses_text_content(self):
         javascript = (ROOT / "admin" / "notifications.js").read_text()
         start = javascript.index("function renderTransportHealth")
