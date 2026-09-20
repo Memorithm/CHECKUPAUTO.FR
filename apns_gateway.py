@@ -16,6 +16,7 @@ PROVIDER_CONFIGURATION_REASONS = {
     "ExpiredProviderToken", "Forbidden", "InvalidProviderToken", "MissingProviderToken",
     "MissingTopic", "TopicDisallowed",
 }
+INTERNAL_CONFIGURATION_REASONS = {"CredentialsMissing"}
 TRANSIENT_REASONS = {"InternalServerError", "ServiceUnavailable", "Shutdown", "TooManyRequests", "TooManyProviderTokenUpdates", "TransportError"}
 TRANSIENT_STATUS = {429, 500, 503}
 KNOWN_PROVIDER_REASONS = TOKEN_INVALID_REASONS | PROVIDER_CONFIGURATION_REASONS | TRANSIENT_REASONS | {
@@ -23,17 +24,21 @@ KNOWN_PROVIDER_REASONS = TOKEN_INVALID_REASONS | PROVIDER_CONFIGURATION_REASONS 
     "DuplicateHeaders", "IdleTimeout", "MethodNotAllowed", "MissingDeviceToken",
     "PayloadEmpty", "PayloadTooLarge",
 }
+KNOWN_ERROR_REASONS = KNOWN_PROVIDER_REASONS | INTERNAL_CONFIGURATION_REASONS
 UNKNOWN_PROVIDER_REASON = "UnknownProviderError"
 
 
 class APNSError(RuntimeError):
     def __init__(self, status: int, reason: str, *, apns_id: str = "", retry_after: str = ""):
         self.status = int(status)
-        self.reason = str(reason or "APNs error")[:120]
-        self.apns_id = str(apns_id or "")[:80]
-        self.retry_after = str(retry_after or "")[:80]
+        raw_reason = str(reason or "").strip()
+        self.reason = raw_reason if raw_reason in KNOWN_ERROR_REASONS else UNKNOWN_PROVIDER_REASON
+        raw_apns_id = str(apns_id or "").strip()
+        self.apns_id = raw_apns_id if re.fullmatch(r"[0-9A-Fa-f-]{1,80}", raw_apns_id) else ""
+        raw_retry_after = str(retry_after or "").strip()
+        self.retry_after = raw_retry_after if re.fullmatch(r"[0-9]{1,10}", raw_retry_after) else ""
         self.token_invalid = self.status == 410 or self.reason in TOKEN_INVALID_REASONS
-        self.provider_error = self.reason in PROVIDER_CONFIGURATION_REASONS or self.status in {403, 404, 405}
+        self.provider_error = self.reason in (PROVIDER_CONFIGURATION_REASONS | INTERNAL_CONFIGURATION_REASONS) or self.status in {403, 404, 405}
         self.retryable = self.status in TRANSIENT_STATUS or self.reason in TRANSIENT_REASONS
         super().__init__(f"APNs {self.status}: {self.reason}")
 
@@ -193,7 +198,7 @@ def send(
 ) -> dict:
     cfg = _config()
     if not status()["configured"]:
-        raise RuntimeError("APNs non configuré")
+        raise APNSError(0, "CredentialsMissing")
     try:
         import httpx
     except ImportError as exc:
