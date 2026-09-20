@@ -61,7 +61,11 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
             "email": "client@example.fr",
         }]
         env = {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://g.page/r/checkupauto/review"}
-        with patch.dict(os.environ, env, clear=True), patch.object(followup.mail, "configured", return_value=True):
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(followup.mail, "configured", return_value=True),
+            patch.object(followup.mail, "preflight", return_value={"ok": True, "state": "ready"}),
+        ):
             result = followup.process_once()
 
         self.assertTrue(result["ok"])
@@ -72,6 +76,46 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
         )
         mercure_send.assert_not_called()
         mark.assert_called_once_with("42", "sent")
+
+
+    @patch.object(followup.mercure, "review_followup_rows")
+    @patch.object(
+        followup.mercure,
+        "native_review_email_status",
+        return_value={"nativeFavorableOnlyEmailEnabled": False},
+    )
+    @patch.object(followup.mercure, "session_status", return_value={"connected": True})
+    def test_preflight_blocks_delivery_attempts_before_reading_recipients(self, _session, _native, rows):
+        env = {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://g.page/r/checkupauto/review"}
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch.object(followup.mail, "configured", return_value=True),
+            patch.object(followup.mail, "preflight", return_value={"ok": False, "state": "awaiting_credentials"}),
+            patch.object(followup.notifications, "send_email") as send_email,
+        ):
+            result = followup.process_once()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["state"], "waiting_email_preflight")
+        self.assertEqual(result["preflightState"], "awaiting_credentials")
+        rows.assert_not_called()
+        send_email.assert_not_called()
+
+    def test_status_rejects_invalid_review_url_and_reports_preflight_state(self):
+        followup.init_db()
+        with (
+            patch.dict(os.environ, {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://example.com/review"}, clear=True),
+            patch.object(followup.mercure, "session_status", return_value={"connected": False}),
+            patch.object(followup.mail, "configured", return_value=True),
+            patch.object(followup.mail, "preflight", return_value={"ok": False, "state": "provider_unavailable"}),
+            patch.object(followup.notifications, "status", return_value={}),
+        ):
+            result = followup.status()
+
+        self.assertFalse(result["reviewUrlConfigured"])
+        self.assertFalse(result["emailTransportReady"])
+        self.assertEqual(result["emailPreflightState"], "provider_unavailable")
+
 
 
 if __name__ == "__main__":
