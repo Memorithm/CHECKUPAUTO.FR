@@ -313,18 +313,18 @@ class Handler(SimpleHTTPRequestHandler):
     q=parse_qs(parsed.query); token=(q.get('token') or [''])[0]
     return self.send_json(booking_test.status(token))
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'booking_test_status_unavailable'},400)
   if path=='/api/booking/services':
    c=load_config(); return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':incentive_config(c)})
   if path=='/api/geo/coverage':
    try: return self.send_json(geo_marketing.coverage(load_config(),mercure_public.public_services()))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'geo_coverage_unavailable'},400)
   if path=='/api/geo/quote':
    try:
     q=parse_qs(parsed.query); city=(q.get('city') or q.get('postalCode') or [''])[0]
     return self.send_json(geo_marketing.quote(load_config(),city,mercure_public.public_services()))
    except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
-   except Exception as exc: return self.send_json({'ok':False,'error':'Calcul géographique indisponible','detail':str(exc)},502)
+   except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)
   if path=='/api/booking/availability':
    try:
     q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [datetime.date.today().isoformat()])[0]; c=load_config(); policy=incentive_config(c)
@@ -332,7 +332,7 @@ class Handler(SimpleHTTPRequestHandler):
     if requested>limit: raise ValueError(f"Date hors horizon de réservation ({policy['horizonDays']} jours)")
     result=mercure_public.availability(service,date); result['incentives']=policy; return self.send_json(result)
    except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
-   except Exception as exc: return self.send_json({'ok':False,'error':'Disponibilités temporairement indisponibles','detail':str(exc)},502)
+   except Exception: return self.send_json({'ok':False,'error':'booking_availability_unavailable'},502)
   if path=='/go/app':
    c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c); ios=app['ios']
    if not ios['available']: return self.send_redirect(f'/app?src={source}')
@@ -351,7 +351,7 @@ class Handler(SimpleHTTPRequestHandler):
      return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
     result=booking.create_intent(params,c['business']['bookingUrl']); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce; doc=booking.auto_submit_html(result['token'],service,nonce)
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'booking_request_failed'},400)
   if path.startswith('/api/admin/mercure/'):
    if not self.authorized(): return self.require_auth()
    try:
@@ -409,7 +409,7 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/app/status': return self.send_json(app_download.status(load_config()))
   if path=='/api/mobile/bootstrap':
    try: return self.send_json(mobile_bootstrap.status(load_config()))
-   except Exception as exc: return self.send_json({'ok':False,'error':'Configuration mobile indisponible','detail':str(exc)},500)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_bootstrap_unavailable'},500)
   if path=='/api/admin/config':
    if not self.authorized(): return self.require_auth()
    return self.send_json(load_config())
@@ -444,7 +444,7 @@ class Handler(SimpleHTTPRequestHandler):
     self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','https://rdv.checkupauto.fr')
     self.send_header('Vary','Origin'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data); return
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},401)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mercure_browser_confirmation_invalid'},400)
   if path=='/api/integrations/mercure/booking-confirmed':
    try:
     length=int(self.headers.get('Content-Length','0'))
@@ -453,35 +453,35 @@ class Handler(SimpleHTTPRequestHandler):
     if not booking.verify_signature(raw,self.headers.get('X-CyberCheck-Signature')):
      return self.send_json({'ok':False,'error':'invalid signature'},401)
     payload=json.loads(raw); return self.send_json(booking.apply_conversion(payload),200)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mercure_booking_confirmation_invalid'},400)
   if path=='/api/mobile/installations/register':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.register_installation(self._read_json()),201)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/installations/delete':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.delete_installation(self._read_json()),200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/devices/register':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.register(self._read_json()),201)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/devices/unregister':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.unregister(self._read_json()))
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/claims/consume':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
@@ -494,7 +494,7 @@ class Handler(SimpleHTTPRequestHandler):
      pass
     return self.send_json(result,200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/inventory':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
@@ -507,32 +507,32 @@ class Handler(SimpleHTTPRequestHandler):
      pass
     return self.send_json(mobile_devices.bound_inventory(payload),200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/reminders/sync':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.sync_deadlines(self._read_json()))
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/events':
    try:
     c=load_config(); cfg=c.get('analytics',{})
     if not cfg.get('enabled',True): return self.send_json({'ok':True,'disabled':True})
     payload=self._read_json(); result=analytics.record_event(payload,int(cfg.get('retentionDays',180)))
     return self.send_json(result,201)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'analytics_event_invalid'},400)
   if path=='/api/booking-test/create':
    try:
     payload=self._read_json(); result=booking_test.create_appointment(str(payload.get('token') or ''),str(payload.get('service') or ''),str(payload.get('date') or ''),str(payload.get('time') or ''))
     return self.send_json(result,201)
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'booking_test_request_invalid'},400)
   if path=='/api/booking-test/remove':
    try:
     payload=self._read_json(); return self.send_json(booking_test.remove_appointment(str(payload.get('token') or '')))
    except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'booking_test_request_invalid'},400)
   if path.startswith('/api/admin/'):
    if not self.authorized(): return self.require_auth()
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
