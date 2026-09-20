@@ -18,17 +18,26 @@ SECRET_PATTERNS = (
     ('service-account-key', re.compile(r'"private_key"\s*:\s*"-----BEGIN')),
     ('github-token', re.compile(r'\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b')),
     ('openai-key', re.compile(r'\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b')),
+    ('google-api-key', re.compile(r'\bAIza[0-9A-Za-z_-]{35}\b')),
+    ('google-oauth-client-secret', re.compile(r'\bGOCSPX-[0-9A-Za-z_-]{20,}\b')),
+    ('google-access-token', re.compile(r'\bya29\.[0-9A-Za-z_-]{20,}\b')),
     ('php-session', re.compile(r'PHPSESSID\s*[=:]\s*[A-Za-z0-9_-]{12,}', re.I)),
 )
+
+
 def tracked_files():
     out = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files'], text=True)
     return [x.strip() for x in out.splitlines() if x.strip()]
 
 
+def scan_text(rel, text):
+    return [f'{name}: {rel}' for name, pattern in SECRET_PATTERNS if pattern.search(text)]
+
+
 def scan():
     findings = []
     for rel in tracked_files():
-        if any(p.search(rel) for p in FORBIDDEN_PATHS):
+        if any(pattern.search(rel) for pattern in FORBIDDEN_PATHS):
             findings.append(f'forbidden-path: {rel}')
             continue
         path = ROOT / rel
@@ -42,10 +51,10 @@ def scan():
             text = raw.decode('utf-8')
         except UnicodeDecodeError:
             continue
-        for name, pattern in SECRET_PATTERNS:
-            if pattern.search(text):
-                findings.append(f'{name}: {rel}')
+        findings.extend(scan_text(rel, text))
     return findings
+
+
 def main():
     findings = scan()
     if findings:
