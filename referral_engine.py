@@ -103,21 +103,34 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_referral_ledger_account
               ON referral_ledger(account_id, created_at);
-            DROP TRIGGER IF EXISTS trg_referral_ledger_nonnegative;
-            CREATE TRIGGER trg_referral_ledger_nonnegative
-              BEFORE INSERT ON referral_ledger
-              WHEN NEW.amount_cents < 0
-               AND NEW.kind <> 'reverse'
-               AND (
-                 SELECT COALESCE(SUM(amount_cents),0)
-                 FROM referral_ledger
-                 WHERE account_id=NEW.account_id
-               ) + NEW.amount_cents < 0
-            BEGIN
-              SELECT RAISE(ABORT, 'referral balance would be negative');
-            END;
-            DROP TRIGGER IF EXISTS trg_referral_ledger_reverse_matches_earn;
-            CREATE TRIGGER trg_referral_ledger_reverse_matches_earn
+            """
+        )
+        trigger = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='trg_referral_ledger_nonnegative'"
+        ).fetchone()
+        trigger_sql = str(trigger["sql"] or "") if trigger else ""
+        if "NEW.kind <> 'reverse'" not in trigger_sql:
+            db.executescript(
+                """
+                BEGIN IMMEDIATE;
+                DROP TRIGGER IF EXISTS trg_referral_ledger_nonnegative;
+                CREATE TRIGGER trg_referral_ledger_nonnegative
+                  BEFORE INSERT ON referral_ledger
+                  WHEN NEW.amount_cents < 0
+                   AND NEW.kind <> 'reverse'
+                   AND (
+                     SELECT COALESCE(SUM(amount_cents),0)
+                     FROM referral_ledger
+                     WHERE account_id=NEW.account_id
+                   ) + NEW.amount_cents < 0
+                BEGIN
+                  SELECT RAISE(ABORT, 'referral balance would be negative');
+                END;
+                COMMIT;
+                """
+            )
+        db.execute(
+            """CREATE TRIGGER IF NOT EXISTS trg_referral_ledger_reverse_matches_earn
               BEFORE INSERT ON referral_ledger
               WHEN NEW.kind = 'reverse'
                AND NOT EXISTS(
@@ -129,8 +142,7 @@ def init_db() -> None:
                )
             BEGIN
               SELECT RAISE(ABORT, 'referral reversal must match earn');
-            END;
-            """
+            END"""
         )
     analytics.DB.chmod(0o600)
 
