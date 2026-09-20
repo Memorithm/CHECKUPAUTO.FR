@@ -287,7 +287,69 @@ def complete_control(provider: str, external_id: object) -> dict | None:
         return dict(updated)
 
 
+def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -> dict:
+    reference = _reward_ledger_reference(provider, external_id)
+    reward_cents = int(row["reward_cents"])
+    earned = db.execute(
+        """SELECT amount_cents FROM referral_ledger
+           WHERE account_id=? AND kind='earn' AND reference=?""",
+        (row["account_id"], reference),
+    ).fetchone()
+    if not earned or int(earned["amount_cents"]) != reward_cents:
+        raise RuntimeError("Intégrité du crédit de parrainage incohérente")
+    existing_reverse = db.execute(
+        """SELECT 1 FROM referral_ledger
+           WHERE account_id=? AND kind='reverse' AND reference=?""",
+        (row["account_id"], reference),
+    ).fetchone()
+    if existing_reverse:
+        raise RuntimeError("Intégrité de l'annulation de parrainage incohérente")
+    balance = int(
+        db.execute(
+            "SELECT COALESCE(SUM(amount_cents),0) balance FROM referral_ledger WHERE account_id=?",
+            (row["account_id"],),
+        ).fetchone()["balance"]
+    )
+    if balance < reward_cents:
+        raise ValueError("Solde de cagnotte insuffisant pour annuler ce parrainage")
+    try:
+        db.execute(
+            """INSERT INTO referral_ledger(
+               account_id,kind,amount_cents,reference,created_at,note
+               ) VALUES(?,?,?,?,?,?)""",
+            (
+                row["account_id"],
+                "reverse",
+                -reward_cents,
+                reference,
+                now,
+                "Crédit de parrainage annulé",
+            ),
+        )
+    except sqlite3.IntegrityError as exc:
+        raise RuntimeError("Intégrité de l'annulation de parrainage incohérente") from exc
+    changed = db.execute(
+        """UPDATE referral_rewards
+           SET status='reversed',updated_at=?,reversed_at=?
+           WHERE provider=? AND external_id=? AND status='earned'""",
+        (now, now, provider, external_id),
+    )
+    if changed.rowcount != 1:
+        raise RuntimeError("État de parrainage incohérent")
+    updated = db.execute(
+        "SELECT * FROM referral_rewards WHERE provider=? AND external_id=?",
+        (provider, external_id),
+    ).fetchone()
+    return dict(updated)
+
+
 def cancel_pending(provider: str, external_id: object) -> dict | None:
+    """Cancel a pending reward or reverse an earned reward after provider correction.
+
+    Mercure may correct a booking from completed to cancelled/no-show after the
+    reward was credited.  This transition is serialized with the wallet ledger
+    so the conversion status and referral balance cannot silently diverge.
+    """
     init_db()
     provider = str(provider or _PROVIDER).strip()[:60] or _PROVIDER
     external_id = str(external_id or "").strip()[:120]
@@ -302,13 +364,17 @@ def cancel_pending(provider: str, external_id: object) -> dict | None:
         ).fetchone()
         if not row:
             return None
+        if row["status"] == "earned":
+            return _reverse_earned_locked(db, row, provider, external_id, now)
         if row["status"] == "pending":
-            db.execute(
+            changed = db.execute(
                 """UPDATE referral_rewards
                    SET status='cancelled',updated_at=?,cancelled_at=?
                    WHERE provider=? AND external_id=? AND status='pending'""",
                 (now, now, provider, external_id),
             )
+            if changed.rowcount != 1:
+                raise RuntimeError("État de parrainage incohérent")
         updated = db.execute(
             "SELECT * FROM referral_rewards WHERE provider=? AND external_id=?",
             (provider, external_id),
@@ -403,6 +469,7 @@ def account_summary(code: object) -> dict:
             "earnedReferrals": counts.get("earned", 0),
             "pendingReferrals": counts.get("pending", 0),
             "cancelledReferrals": counts.get("cancelled", 0),
+            "reversedReferrals": counts.get("reversed", 0),
             "ledger": ledger,
         }
 
