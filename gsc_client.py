@@ -18,7 +18,7 @@ def credential_info():
     if CREDS.exists():
         data = json.loads(CREDS.read_text())
         return {'configured': True, 'mode': 'service_account', 'clientEmail': data.get('client_email'), 'projectId': data.get('project_id')}
-    if integrations.has_scopes(SCOPES):
+    if integrations.has_usable_scopes(SCOPES):
         info = integrations.oauth_client_info()
         return {'configured': True, 'mode': 'oauth', 'clientEmail': 'Compte Google OAuth', 'projectId': info.get('projectId')}
     return {'configured': False, 'mode': None, 'clientEmail': None, 'projectId': None}

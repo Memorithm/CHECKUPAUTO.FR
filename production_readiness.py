@@ -308,12 +308,26 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         components.append(_failed("google_integration", "IntegrationHub Google", False, error))
     else:
         oauth = bool(integrations.get("oauthAuthorized"))
+        oauth_health = integrations.get("oauthHealth") or {}
+        oauth_state = str(oauth_health.get("state") or ("ready" if oauth else "awaiting_authorization"))
         connected = sum(1 for item in integrations.get("connectors") or [] if item.get("connected"))
+        if oauth or connected:
+            google_state = "ready"
+            google_detail = f"{connected} connecteur(s) connecté(s)"
+        elif oauth_state in {"token_expired", "reauthorization_required", "oauth_client_missing"}:
+            google_state = "degraded"
+            google_detail = "Session OAuth Google à renouveler"
+        else:
+            google_state = "configuration_required"
+            google_detail = "OAuth Google non configuré"
         components.append(_component(
-            "google_integration", "IntegrationHub Google", "ready" if oauth or connected else "configuration_required",
-            f"{connected} connecteur(s) connecté(s)" if oauth or connected else "OAuth Google non configuré",
+            "google_integration", "IntegrationHub Google", google_state, google_detail,
             critical=False,
-            metrics={"oauthAuthorized": oauth, "connectedConnectors": connected},
+            metrics={
+                "oauthAuthorized": oauth,
+                "oauthState": oauth_state,
+                "connectedConnectors": connected,
+            },
         ))
 
     analytics, error = _safe("acquisition", lambda: analytics_store.summary(30))

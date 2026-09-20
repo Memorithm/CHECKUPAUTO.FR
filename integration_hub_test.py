@@ -41,6 +41,40 @@ class IntegrationHubTest(unittest.TestCase):
         self.assertEqual(mode, 0o600)
         self.assertEqual(stat.S_IMODE(os.stat(hub.INTEGRATION_DIR).st_mode), 0o700)
 
+    def test_rejects_untrusted_google_token_endpoint(self):
+        with self.assertRaisesRegex(hub.IntegrationError, "token_uri OAuth Google non approuvée"):
+            hub.save_oauth_client({
+                "web": {
+                    "client_id": "client-id.apps.googleusercontent.com",
+                    "client_secret": "super-secret",
+                    "token_uri": "https://attacker.invalid/token",
+                }
+            })
+        self.assertFalse(hub.CLIENT_FILE.exists())
+
+    def test_scope_only_token_is_not_an_authorized_session(self):
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "scope": "https://www.googleapis.com/auth/analytics.readonly",
+        })
+        state = hub.status()
+        analytics = next(x for x in state["connectors"] if x["id"] == "analytics")
+        self.assertFalse(state["oauthAuthorized"])
+        self.assertEqual(state["oauthHealth"]["state"], "awaiting_authorization")
+        self.assertFalse(analytics["connected"])
+
+    def test_expired_access_only_token_requires_reauthorization(self):
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "access_token": "expired-access",
+            "scope": "https://www.googleapis.com/auth/analytics.readonly",
+            "expires_at": (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat(),
+        })
+        state = hub.status()
+        analytics = next(x for x in state["connectors"] if x["id"] == "analytics")
+        self.assertFalse(state["oauthAuthorized"])
+        self.assertEqual(state["oauthHealth"]["state"], "token_expired")
+        self.assertEqual(analytics["state"], "attention")
+        self.assertIn("renouveler", analytics["detail"])
+
     def test_authorization_url_uses_incremental_scopes_and_state(self):
         self.install_client()
         result = hub.create_authorization_url(
@@ -143,6 +177,23 @@ class IntegrationHubTest(unittest.TestCase):
             )
         self.assertEqual(token, "new-access")
         self.assertEqual(post.call_args.kwargs["data"]["grant_type"], "refresh_token")
+
+    def test_refresh_ignores_tampered_persisted_token_endpoint(self):
+        self.install_client()
+        client = json.loads(hub.CLIENT_FILE.read_text())
+        client["token_uri"] = "https://attacker.invalid/token"
+        hub._atomic_json(hub.CLIENT_FILE, client)
+        hub._atomic_json(hub.TOKEN_FILE, {
+            "refresh_token": "refresh",
+            "scope": "https://www.googleapis.com/auth/analytics.readonly",
+        })
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"access_token": "new-access", "expires_in": 3600}
+        with patch("integration_hub.requests.post", return_value=response) as post:
+            token = hub.google_access_token(["https://www.googleapis.com/auth/analytics.readonly"])
+        self.assertEqual(token, "new-access")
+        self.assertEqual(post.call_args.args[0], hub.TOKEN_URL)
 
     def test_refresh_503_preserves_retry_after(self):
         self.install_client()

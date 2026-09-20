@@ -34,7 +34,7 @@ def healthy_patches():
         }),
         mock.patch.object(readiness.gsc_client, "credential_info", return_value={}),
         mock.patch.object(readiness.integration_hub, "status", return_value={
-            "oauthAuthorized": True, "connectors": [{"connected": True}],
+            "oauthAuthorized": True, "oauthHealth": {"state": "ready", "usable": True}, "connectors": [{"connected": True}],
         }),
         mock.patch.object(readiness.analytics_store, "summary", return_value={"pageViews": 7, "bookingClicks": 1}),
         mock.patch.object(readiness.referral_engine, "list_accounts", return_value=[]),
@@ -111,6 +111,20 @@ class ProductionReadinessTest(unittest.TestCase):
         email = next(item for item in result["components"] if item["id"] == "email_delivery")
         self.assertEqual(email["remediation"]["code"], "configure_email_transport")
         self.assertTrue(email["remediation"]["external"])
+
+    def test_stale_google_oauth_is_degraded_without_blocking_launch(self):
+        patches = healthy_patches()
+        patches[6] = mock.patch.object(readiness.integration_hub, "status", return_value={
+            "oauthAuthorized": False,
+            "oauthHealth": {"state": "token_expired", "usable": False},
+            "connectors": [{"connected": False}],
+        })
+        result = self._run_with(patches)
+        google = next(item for item in result["components"] if item["id"] == "google_integration")
+        self.assertEqual(google["state"], "degraded")
+        self.assertEqual(google["metrics"]["oauthState"], "token_expired")
+        self.assertTrue(result["activationGate"]["allowed"])
+
 
     def test_noncritical_blockers_do_not_close_activation_gate(self):
         patches = healthy_patches()
