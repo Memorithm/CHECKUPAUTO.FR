@@ -38,6 +38,8 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("/api/admin/notifications/permanent/retry", javascript)
         self.assertIn("/api/admin/notifications/permanent/recipient-check", server)
         self.assertIn("/api/admin/notifications/permanent/retry", server)
+        self.assertIn("item.recipient_check_state", javascript)
+        self.assertIn("item.recipient_checked_at", javascript)
         self.assertNotIn("recipient_hash", javascript)
         self.assertNotIn("recipient_hash", html)
 

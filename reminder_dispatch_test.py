@@ -169,6 +169,70 @@ class ReminderDispatchTest(unittest.TestCase):
         self.assertEqual(kwargs["reference"], reference)
         self.assertEqual(kwargs["category"], "ct_due_reminder")
 
+    @patch.object(dispatch.notifications, "record_permanent_recipient_check", return_value={
+        "ok": True, "incidentId": "d" * 32, "recipientState": "missing", "recipientCheckedAt": "2026-09-20T12:00:00+00:00",
+    })
+    @patch.object(dispatch.notifications, "permanent_failure_context")
+    @patch.object(dispatch.mercure, "customer_email", return_value="")
+    def test_permanent_recipient_check_persists_missing_state_without_pii(self, customer_email, context, record):
+        self.add_target(due="2026-09-20")
+        reference = dispatch._reference({
+            "vehicle_id": "vehicle-99", "due_date": "2026-09-20", "days_before": 1,
+        })
+        context.return_value = {
+            "incidentId": "d" * 32, "channel": "email", "category": "ct_due_reminder",
+            "reference": reference, "permanentState": "open",
+        }
+        result = dispatch.permanent_recipient_check("d" * 32)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["recipientState"], "missing")
+        self.assertFalse(result["retryEligible"])
+        record.assert_called_once_with("d" * 32, "missing")
+        self.assertNotIn("@", str(result))
+
+    @patch.object(dispatch.notifications, "record_permanent_recipient_check", return_value={
+        "ok": True, "incidentId": "e" * 32, "recipientState": "lookup_failed", "recipientCheckedAt": "2026-09-20T12:00:00+00:00",
+    })
+    @patch.object(dispatch.notifications, "permanent_failure_context")
+    @patch.object(dispatch.mercure, "customer_email", side_effect=RuntimeError("client@example.fr secret-token"))
+    def test_permanent_recipient_check_persists_bounded_lookup_failure(self, customer_email, context, record):
+        self.add_target(due="2026-09-20")
+        reference = dispatch._reference({
+            "vehicle_id": "vehicle-99", "due_date": "2026-09-20", "days_before": 1,
+        })
+        context.return_value = {
+            "incidentId": "e" * 32, "channel": "email", "category": "ct_due_reminder",
+            "reference": reference, "permanentState": "open",
+        }
+        result = dispatch.permanent_recipient_check("e" * 32)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["recipientState"], "lookup_failed")
+        record.assert_called_once_with("e" * 32, "lookup_failed")
+        self.assertNotIn("client@example.fr", str(result))
+        self.assertNotIn("secret-token", str(result))
+
+    @patch.object(dispatch, "permanent_recipient_check")
+    @patch.object(dispatch.notifications, "status")
+    def test_background_recipient_refresh_checks_unresolved_reminders_without_delivery(self, status, check):
+        status.return_value = {"permanentFailures": [
+            {"incident_id": "1" * 32, "channel": "email", "category": "ct_due_reminder", "permanent_state": "open"},
+            {"incident_id": "2" * 32, "channel": "email", "category": "ct_due_reminder", "permanent_state": "acknowledged"},
+            {"incident_id": "3" * 32, "channel": "push", "category": "ct_due_reminder", "permanent_state": "open"},
+            {"incident_id": "4" * 32, "channel": "email", "category": "ct_due_reminder", "permanent_state": "resolved"},
+        ]}
+        check.side_effect = [
+            {"ok": True, "recipientState": "unchanged"},
+            {"ok": True, "recipientState": "changed"},
+        ]
+        result = dispatch.refresh_permanent_recipient_checks()
+        self.assertEqual(result["checked"], 2)
+        self.assertEqual(result["unchanged"], 1)
+        self.assertEqual(result["changed"], 1)
+        self.assertEqual(result["skipped"], 2)
+        self.assertEqual(check.call_count, 2)
+        raw = dispatch._meta("last_permanent_recipient_refresh", "")
+        self.assertIn('"checked":2', raw)
+
     @patch.object(dispatch.notifications, "send_email")
     @patch.object(dispatch.notifications, "permanent_failure_recipient_state", return_value={
         "ok": True, "incidentId": "c" * 32, "recipientState": "unchanged", "permanentState": "open",

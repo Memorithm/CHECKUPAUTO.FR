@@ -295,22 +295,57 @@ def permanent_recipient_check(incident_id: object) -> dict:
     try:
         recipient = mercure.customer_email(target["client_kind"], target["client_id"])
     except Exception:
+        persisted = notifications.record_permanent_recipient_check(context["incidentId"], "lookup_failed")
         return {
             "ok": False, "incidentId": context["incidentId"],
-            "recipientState": "lookup_failed", "retryEligible": False,
+            "recipientState": "lookup_failed", "recipientCheckedAt": persisted["recipientCheckedAt"],
+            "retryEligible": False,
         }
     if not mail.valid_email(recipient):
+        persisted = notifications.record_permanent_recipient_check(context["incidentId"], "missing")
         return {
             "ok": True, "incidentId": context["incidentId"],
-            "recipientState": "missing", "retryEligible": False,
+            "recipientState": "missing", "recipientCheckedAt": persisted["recipientCheckedAt"],
+            "retryEligible": False,
         }
     comparison = notifications.permanent_failure_recipient_state(context["incidentId"], recipient)
     changed = comparison.get("recipientState") == "changed"
     return {
         "ok": True, "incidentId": context["incidentId"],
         "recipientState": comparison.get("recipientState", "unknown"),
+        "recipientCheckedAt": comparison.get("recipientCheckedAt", ""),
         "retryEligible": changed,
     }
+
+
+def refresh_permanent_recipient_checks(limit: int = 100) -> dict:
+    """Refresh unresolved CT reminder recipient state without attempting delivery."""
+    limit = max(1, min(int(limit), 250))
+    failures = notifications.status(limit=limit).get("permanentFailures") or []
+    counts = {"changed": 0, "unchanged": 0, "missing": 0, "lookup_failed": 0, "skipped": 0}
+    checked = 0
+    for item in failures:
+        if item.get("permanent_state") not in {"open", "acknowledged"}:
+            counts["skipped"] += 1
+            continue
+        if item.get("channel") != "email" or item.get("category") != "ct_due_reminder":
+            counts["skipped"] += 1
+            continue
+        incident = item.get("incident_id")
+        try:
+            result = permanent_recipient_check(incident)
+            state = str(result.get("recipientState") or "lookup_failed")
+        except (LookupError, ValueError):
+            counts["skipped"] += 1
+            continue
+        checked += 1
+        if state in counts:
+            counts[state] += 1
+        else:
+            counts["lookup_failed"] += 1
+    result = {"ok": True, "checked": checked, **counts}
+    _set_meta("last_permanent_recipient_refresh", json.dumps(result, separators=(",", ":")))
+    return result
 
 
 def permanent_recipient_retry(incident_id: object) -> dict:
@@ -444,6 +479,11 @@ def status(now: datetime.datetime | None = None) -> dict:
         last_process = json.loads(raw) if raw else None
     except Exception:
         last_process = None
+    recipient_refresh_raw = _meta("last_permanent_recipient_refresh", "")
+    try:
+        recipient_refresh = json.loads(recipient_refresh_raw) if recipient_refresh_raw else None
+    except Exception:
+        recipient_refresh = None
     cursor_raw = _meta("backfill_cursor_end", "")
     floor = today - datetime.timedelta(days=BACKFILL_DAYS)
     complete = False
@@ -461,6 +501,7 @@ def status(now: datetime.datetime | None = None) -> dict:
         "eligibleNow": len(_eligible(local)),
         "backfillCursorEnd": cursor_raw, "backfillComplete": complete,
         "lastProcess": last_process,
+        "permanentRecipientRefresh": recipient_refresh,
         "privacy": "CyberCheck conserve les identifiants techniques véhicule/client et la date d’échéance, jamais l’adresse email du client.",
     }
 
@@ -468,6 +509,10 @@ def _loop() -> None:
     while not _STOP.is_set():
         try:
             process_once()
+        except Exception:
+            pass
+        try:
+            refresh_permanent_recipient_checks()
         except Exception:
             pass
         if _STOP.wait(INTERVAL_SECONDS):

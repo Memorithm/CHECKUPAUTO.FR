@@ -331,15 +331,49 @@ class NotificationBrokerTest(unittest.TestCase):
         changed = broker.permanent_failure_recipient_state(incident, "corrected@example.fr")
         self.assertEqual(unchanged["recipientState"], "unchanged")
         self.assertEqual(changed["recipientState"], "changed")
-        self.assertNotIn("recipient", str(unchanged).lower().replace("recipientstate", ""))
+        self.assertEqual(
+            set(unchanged),
+            {"ok", "incidentId", "recipientState", "recipientCheckedAt", "permanentState"},
+        )
         self.assertNotIn("wrong@example.fr", str(unchanged))
         self.assertNotIn("corrected@example.fr", str(changed))
         self.assertNotIn("hash", str(changed).lower())
         context = broker.permanent_failure_context(incident)
         self.assertEqual(context["reference"], "recipient-check")
+        self.assertEqual(context["recipientCheckState"], "changed")
+        self.assertTrue(context["recipientCheckedAt"])
         self.assertNotIn("hash", str(context).lower())
         self.assertNotIn("wrong@example.fr", str(context))
+        persisted = broker.status()["permanentFailures"][0]
+        self.assertEqual(persisted["recipient_check_state"], "changed")
+        self.assertTrue(persisted["recipient_checked_at"])
+        self.assertNotIn("wrong@example.fr", str(persisted))
+        self.assertNotIn("corrected@example.fr", str(persisted))
 
+    @patch.object(broker.email_transport, "send_email")
+    def test_bounded_recipient_check_states_are_persisted_without_pii(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "recipient refused", transport="smtp-relay", status=554, reason="recipient_refused", permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "private@example.fr", "Rappel", "Message",
+                category="ct_due_reminder", reference="recipient-state-ledger",
+            )
+        incident = broker.status()["permanentFailures"][0]["incident_id"]
+        missing = broker.record_permanent_recipient_check(incident, "missing")
+        self.assertEqual(missing["recipientState"], "missing")
+        self.assertTrue(missing["recipientCheckedAt"])
+        with broker.connect() as db:
+            row = db.execute(
+                "SELECT recipient_check_state,recipient_checked_at FROM notification_delivery WHERE incident_id=?",
+                (incident,),
+            ).fetchone()
+        self.assertEqual(row["recipient_check_state"], "missing")
+        self.assertTrue(row["recipient_checked_at"])
+        self.assertNotIn(b"private@example.fr", broker.DB.read_bytes())
+        with self.assertRaises(ValueError):
+            broker.record_permanent_recipient_check(incident, "private@example.fr")
 
 
 if __name__ == "__main__":
