@@ -16,7 +16,7 @@ PROVIDER_CONFIGURATION_REASONS = {
     "ExpiredProviderToken", "Forbidden", "InvalidProviderToken", "MissingProviderToken",
     "MissingTopic", "TopicDisallowed",
 }
-INTERNAL_CONFIGURATION_REASONS = {"CredentialsMissing"}
+INTERNAL_CONFIGURATION_REASONS = {"CredentialsMissing", "RuntimeDependencyMissing", "SigningKeyInvalid"}
 TRANSIENT_REASONS = {"InternalServerError", "ServiceUnavailable", "Shutdown", "TooManyRequests", "TooManyProviderTokenUpdates", "TransportError"}
 TRANSIENT_STATUS = {429, 500, 503}
 KNOWN_PROVIDER_REASONS = TOKEN_INVALID_REASONS | PROVIDER_CONFIGURATION_REASONS | TRANSIENT_REASONS | {
@@ -202,7 +202,7 @@ def send(
     try:
         import httpx
     except ImportError as exc:
-        raise RuntimeError("httpx indisponible pour APNs") from exc
+        raise APNSError(0, "RuntimeDependencyMissing") from exc
     environment = str(environment or "sandbox").strip().lower()
     if environment not in {"sandbox", "production"}:
         raise ValueError("Environnement APNs invalide")
@@ -216,7 +216,13 @@ def send(
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(raw) > 4096:
         raise ValueError("payload APNs trop volumineux")
-    headers = {"authorization": f"bearer {_provider_token(cfg)}", "apns-topic": cfg["topic"],
+    try:
+        provider_token = _provider_token(cfg)
+    except APNSError:
+        raise
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        raise APNSError(0, "SigningKeyInvalid") from exc
+    headers = {"authorization": f"bearer {provider_token}", "apns-topic": cfg["topic"],
                "apns-push-type": "alert", "apns-priority": "10", "content-type": "application/json"}
     try:
         with httpx.Client(http2=True, timeout=12.0) as client:
