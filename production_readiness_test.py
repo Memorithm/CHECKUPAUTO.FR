@@ -173,6 +173,25 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertNotIn("SMTP", str(ctx.exception))
 
 
+    def test_permanent_notification_failures_degrade_critical_broker(self):
+        patches = healthy_patches()
+        patches[1] = mock.patch.object(readiness.notification_broker, "status", return_value={
+            "channels": {
+                "email": {"configured": True, "transport": "gmail-api"},
+                "push": {"configured": True},
+            },
+            "resilience": {"circuitsOpen": 0, "permanentFailures": 2},
+        })
+        result = self._run_with(patches)
+        broker = next(item for item in result["components"] if item["id"] == "notification_broker")
+        self.assertEqual(broker["state"], "degraded")
+        self.assertEqual(broker["metrics"]["permanentFailures"], 2)
+        self.assertIn("permanent", broker["detail"])
+        self.assertFalse(result["launchReady"])
+        self.assertIn("notification_broker", result["criticalBlockers"])
+        self.assertEqual(broker["remediation"]["code"], "restore_notification_broker")
+
+
     def test_configured_email_with_failed_preflight_blocks_activation(self):
         patches = healthy_patches()
         patches[2] = mock.patch.object(readiness.notification_preflight, "run", return_value={
