@@ -72,17 +72,41 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertEqual(result["attempts"], 2)
 
     @patch.object(broker.email_transport, "send_email")
-    def test_failure_diagnostics_redact_email_addresses(self, send_email):
-        send_email.side_effect = RuntimeError("relay refused client@example.fr")
+    def test_failure_diagnostics_never_persist_arbitrary_exception_text(self, send_email):
+        send_email.side_effect = RuntimeError("relay refused client@example.fr bearer-secret-123")
         with self.assertRaises(RuntimeError):
             broker.send_email(
                 "client@example.fr", "Rappel", "Message",
                 category="control_reminder", reference="rdv-redact",
             )
-        self.assertNotIn(b"client@example.fr", broker.DB.read_bytes())
+        raw = broker.DB.read_bytes()
+        self.assertNotIn(b"client@example.fr", raw)
+        self.assertNotIn(b"bearer-secret-123", raw)
         with broker.connect() as db:
             row = db.execute("SELECT last_error FROM notification_delivery").fetchone()
-        self.assertIn("[email]", row["last_error"])
+            health = db.execute("SELECT last_error FROM notification_transport_health").fetchone()
+        self.assertEqual(row["last_error"], "RuntimeError")
+        self.assertEqual(health["last_error"], "RuntimeError")
+
+    @patch.object(broker.email_transport, "send_email")
+    def test_typed_email_diagnostic_keeps_only_bounded_structured_fields(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "recipient client@example.fr rejected with secret=abc",
+            transport="smtp-relay", status=550, reason="recipient_refused", permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "client@example.fr", "Rappel", "Message",
+                category="control_reminder", reference="rdv-typed-diagnostic",
+            )
+        with broker.connect() as db:
+            row = db.execute("SELECT last_error FROM notification_delivery").fetchone()
+        self.assertEqual(
+            row["last_error"],
+            "EmailDeliveryError transport=smtp-relay class=permanent status=550 reason=recipient_refused",
+        )
+        self.assertNotIn("client@example.fr", row["last_error"])
+        self.assertNotIn("secret=abc", row["last_error"])
 
     @patch.object(broker.email_transport, "send_email")
     def test_active_delivery_lease_prevents_parallel_send(self, send_email):
