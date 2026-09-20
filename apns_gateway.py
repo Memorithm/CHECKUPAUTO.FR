@@ -18,6 +18,12 @@ PROVIDER_CONFIGURATION_REASONS = {
 }
 TRANSIENT_REASONS = {"InternalServerError", "ServiceUnavailable", "Shutdown", "TooManyRequests", "TooManyProviderTokenUpdates", "TransportError"}
 TRANSIENT_STATUS = {429, 500, 503}
+KNOWN_PROVIDER_REASONS = TOKEN_INVALID_REASONS | PROVIDER_CONFIGURATION_REASONS | TRANSIENT_REASONS | {
+    "BadCollapseId", "BadExpirationDate", "BadMessageId", "BadPath", "BadPriority",
+    "DuplicateHeaders", "IdleTimeout", "MethodNotAllowed", "MissingDeviceToken",
+    "PayloadEmpty", "PayloadTooLarge",
+}
+UNKNOWN_PROVIDER_REASON = "UnknownProviderError"
 
 
 class APNSError(RuntimeError):
@@ -97,7 +103,6 @@ def _provider_token(cfg: dict) -> str:
     return f"{header}.{claims}.{_b64(signature)}"
 
 
-
 def preflight() -> dict:
     """Validate APNs credentials locally without sending a push notification."""
     cfg = _config()
@@ -123,19 +128,38 @@ def preflight() -> dict:
         return {**static, "configured": False, "ready": False, "state": "invalid_configuration", "reason": "key_invalid", "keyValid": False}
     return {**static, "ready": True, "state": "ready", "reason": "local_signing_validated", "keyValid": True}
 
+
+def _provider_reason(value: object) -> str:
+    raw = str(value or "").strip()
+    return raw if raw in KNOWN_PROVIDER_REASONS else UNKNOWN_PROVIDER_REASON
+
+
+def _apns_id(value: object) -> str:
+    raw = str(value or "").strip()
+    if re.fullmatch(r"[0-9A-Fa-f-]{1,80}", raw):
+        return raw
+    return ""
+
+
+def _retry_after(value: object) -> str:
+    raw = str(value or "").strip()
+    return raw if re.fullmatch(r"[0-9]{1,10}", raw) else ""
+
+
 def _error_from_response(response) -> APNSError:
-    reason = "APNs error"
+    reason = UNKNOWN_PROVIDER_REASON
     try:
         payload = response.json()
         if isinstance(payload, dict):
-            reason = str(payload.get("reason") or reason)
+            reason = _provider_reason(payload.get("reason"))
     except Exception:
         pass
+    headers = getattr(response, "headers", {}) or {}
     return APNSError(
         response.status_code,
         reason,
-        apns_id=response.headers.get("apns-id", ""),
-        retry_after=response.headers.get("retry-after", ""),
+        apns_id=_apns_id(headers.get("apns-id", "")),
+        retry_after=_retry_after(headers.get("retry-after", "")),
     )
 
 
@@ -196,4 +220,4 @@ def send(
         raise APNSError(0, "TransportError") from exc
     if response.status_code != 200:
         raise _error_from_response(response)
-    return {"ok": True, "status": 200, "apnsId": response.headers.get("apns-id", "")}
+    return {"ok": True, "status": 200, "apnsId": _apns_id(response.headers.get("apns-id", ""))}
