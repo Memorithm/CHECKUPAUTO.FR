@@ -160,6 +160,15 @@ def _transport_mode() -> str:
     return mode
 
 
+def _configuration_error(transport: str) -> EmailDeliveryError:
+    return EmailDeliveryError(
+        "Configuration du transport e-mail invalide",
+        transport=transport,
+        reason="configuration",
+        configuration_error=True,
+    )
+
+
 def _gmail_sender() -> str:
     configured = str(google_integration.settings().get("gmailSender") or "").strip()
     return configured or _env("CYBERCHECK_GMAIL_FROM")
@@ -593,9 +602,15 @@ def preflight() -> dict:
     }
 
 def send_email(to: str, subject: str, text: str, html: str = "") -> dict:
-    mode = _transport_mode()
+    try:
+        mode = _transport_mode()
+    except ValueError as exc:
+        raise _configuration_error("email:none") from exc
     if mode in {"auto", "smtp"}:
-        cfg = load_config()
+        try:
+            cfg = load_config()
+        except ValueError as exc:
+            raise _configuration_error("smtp-relay") from exc
         if cfg is not None:
             return _send_smtp(cfg, to, subject, text, html)
         if mode == "smtp":
