@@ -102,15 +102,21 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
         send_email.assert_not_called()
 
     def test_status_rejects_invalid_review_url_and_reports_preflight_state(self):
-        followup.init_db()
-        with (
-            patch.dict(os.environ, {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://example.com/review"}, clear=True),
-            patch.object(followup.mercure, "session_status", return_value={"connected": False}),
-            patch.object(followup.mail, "configured", return_value=True),
-            patch.object(followup.mail, "preflight", return_value={"ok": False, "state": "provider_unavailable"}),
-            patch.object(followup.notifications, "status", return_value={}),
-        ):
-            result = followup.status()
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            with (
+                patch.object(followup, "DATA_DIR", data_dir),
+                patch.object(followup, "DB", data_dir / "review-followup.sqlite3"),
+            ):
+                followup.init_db()
+                with (
+                    patch.dict(os.environ, {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://example.com/review"}, clear=True),
+                    patch.object(followup.mercure, "session_status", return_value={"connected": False}),
+                    patch.object(followup.mail, "configured", return_value=True),
+                    patch.object(followup.mail, "preflight", return_value={"ok": False, "state": "provider_unavailable"}),
+                    patch.object(followup.notifications, "status", return_value={}),
+                ):
+                    result = followup.status()
 
         self.assertFalse(result["reviewUrlConfigured"])
         self.assertFalse(result["emailTransportReady"])
