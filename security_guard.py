@@ -16,7 +16,7 @@ from urllib.parse import unquote, urlsplit
 import security_behavior as behavior
 import security_alerts as alerts
 
-STATE_DIR = Path('/root/CyberCheckSecurity')
+STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
 SECRET_FILE = STATE_DIR / 'client-hmac-secret'
 _LOCK = threading.RLock()
