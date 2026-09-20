@@ -92,12 +92,15 @@ class APNSGatewayTest(unittest.TestCase):
         self.assertEqual(payload["data"], {"deadlineId": "opaque"})
 
     def test_notification_payload_rejects_unsafe_category(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(apns.APNSError) as ctx:
             apns._notification_payload(
                 "Titre",
                 "Corps",
                 notification_category="bad category/with spaces",
             )
+        self.assertEqual(ctx.exception.reason, "CategoryInvalid")
+        self.assertTrue(ctx.exception.request_error)
+        self.assertFalse(ctx.exception.retryable)
 
     def test_preflight_validates_p256_signing_key_without_push(self):
         from cryptography.hazmat.primitives import serialization
