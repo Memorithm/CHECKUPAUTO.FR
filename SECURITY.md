@@ -26,7 +26,7 @@ Rotate any credential immediately if it is ever committed. Removing a secret fro
 
 Behavioral fingerprints are daily pseudonymous hashes. Adaptive risk and active quarantines are persisted in `/root/CyberCheckSecurity/security.sqlite3`, so restarting the application does not clear an active defensive decision.
 
-High and critical alerts are persisted locally. If `CYBERCHECK_SECURITY_ALERT_WEBHOOK` is configured in `/root/CyberCheckPrivate/runtime.env`, undelivered high/critical alerts are retried automatically; `CYBERCHECK_SECURITY_ALERT_SECRET` optionally signs each payload with HMAC-SHA256.
+High and critical alerts are persisted locally. External delivery requires both a public HTTPS `CYBERCHECK_SECURITY_ALERT_WEBHOOK` and `CYBERCHECK_SECURITY_ALERT_SECRET` in `/root/CyberCheckPrivate/runtime.env`; every payload is signed with HMAC-SHA256. Failed deliveries persist a non-sensitive failure class and use exponential retry backoff (60 seconds up to 1 hour) instead of retrying continuously.
 
 The local AI model is advisory only. Deterministic Sentinel severity always remains authoritative, and model-proposed actions are filtered before display.
 ## Integrity approval after deployment
