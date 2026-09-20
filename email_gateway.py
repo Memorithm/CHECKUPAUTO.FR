@@ -89,6 +89,14 @@ def _local_smtp_host(host: str) -> bool:
         return False
 
 
+def _remote_smtp_authentication_missing(cfg: SMTPConfig) -> bool:
+    return (
+        not cfg.username
+        and not _local_smtp_host(cfg.host)
+        and not _bool_env("CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE")
+    )
+
+
 def valid_email(value: object) -> bool:
     raw = str(value or "").strip()
     if not raw or len(raw) > 254 or any(ord(ch) < 32 for ch in raw):
@@ -193,13 +201,18 @@ def transport_status() -> dict:
     elif requested in {"auto", "gmail"} and gmail_available:
         transport = "gmail-api"
     ready = transport is not None
+    state = "ready" if ready else "awaiting_configuration"
+    if transport == "smtp-relay":
+        cfg = load_config()
+        if cfg is not None and _remote_smtp_authentication_missing(cfg):
+            state = "awaiting_credentials"
     return {
         "configured": ready,
         "transport": transport or "none",
         "requested": requested,
         "smtpAvailable": smtp_available,
         "gmailAvailable": gmail_available,
-        "state": "ready" if ready else "awaiting_configuration",
+        "state": state,
         "error": config_error,
     }
 
@@ -333,6 +346,13 @@ def _close_smtp(client) -> None:
 
 def _send_smtp(cfg: SMTPConfig, to: str, subject: str, text: str, html: str = "") -> dict:
     message = _message(to, cfg.sender, subject, text, html)
+    if _remote_smtp_authentication_missing(cfg):
+        raise EmailDeliveryError(
+            "SMTP distant : authentification requise avant livraison",
+            transport="smtp-relay",
+            reason="authentication_required_for_remote_relay",
+            configuration_error=True,
+        )
     client = None
     try:
         client = _open_smtp(cfg)
@@ -466,11 +486,7 @@ def smtp_preflight() -> dict:
         return {"transport": "smtp-relay", "ready": False, "state": "invalid_configuration", "failureClass": "configuration", "status": 0, "reason": str(exc)[:120]}
     if cfg is None:
         return {"transport": "smtp-relay", "ready": False, "state": "awaiting_configuration", "failureClass": "configuration", "status": 0, "reason": "sender_missing"}
-    if (
-        not cfg.username
-        and not _local_smtp_host(cfg.host)
-        and not _bool_env("CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE")
-    ):
+    if _remote_smtp_authentication_missing(cfg):
         return {
             "transport": "smtp-relay",
             "ready": False,
