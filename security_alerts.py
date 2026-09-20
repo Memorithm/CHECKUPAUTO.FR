@@ -4,10 +4,13 @@ from pathlib import Path
 import datetime
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
+import socket
 import sqlite3
 import threading
+from urllib.parse import urlparse
 
 import requests
 
@@ -44,18 +47,58 @@ def init_db():
     DB.chmod(0o600)
 
 
-def _deliver(alert: dict):
+def _resolve_endpoint_ips(host: str, port: int) -> list[str]:
+    addresses = []
+    for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
+        address = item[4][0]
+        if address not in addresses:
+            addresses.append(address)
+    return addresses
+
+
+def delivery_status() -> dict:
     url = os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip()
-    if not url:
-        return False
-    raw = json.dumps(alert,ensure_ascii=False,separators=(',',':')).encode()
-    headers = {'Content-Type':'application/json','User-Agent':'CyberCheck-Sentinel/1.0'}
     secret = os.environ.get('CYBERCHECK_SECURITY_ALERT_SECRET','').strip()
-    if secret:
-        sig = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
-        headers['X-CyberCheck-Signature'] = 'sha256=' + sig
-    r = requests.post(url,data=raw,headers=headers,timeout=8)
+    if not url:
+        return {'configured': False, 'ready': False, 'state': 'awaiting_webhook', 'signed': False}
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        return {'configured': True, 'ready': False, 'state': 'invalid_endpoint', 'signed': bool(secret)}
+    try:
+        port = parsed.port or 443
+        addresses = _resolve_endpoint_ips(parsed.hostname, port)
+    except (OSError, ValueError):
+        return {'configured': True, 'ready': False, 'state': 'endpoint_unresolved', 'signed': bool(secret), 'endpointHost': parsed.hostname}
+    if not addresses:
+        return {'configured': True, 'ready': False, 'state': 'endpoint_unresolved', 'signed': bool(secret), 'endpointHost': parsed.hostname}
+    try:
+        public_only = all(ipaddress.ip_address(address).is_global for address in addresses)
+    except ValueError:
+        public_only = False
+    if not public_only:
+        return {'configured': True, 'ready': False, 'state': 'private_endpoint_rejected', 'signed': bool(secret), 'endpointHost': parsed.hostname}
+    if not secret:
+        return {'configured': True, 'ready': False, 'state': 'awaiting_signing_secret', 'signed': False, 'endpointHost': parsed.hostname}
+    return {'configured': True, 'ready': True, 'state': 'ready', 'signed': True, 'endpointHost': parsed.hostname}
+
+
+def _deliver(alert: dict):
+    status = delivery_status()
+    if not status['ready']:
+        return False
+    url = os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip()
+    raw = json.dumps(alert,ensure_ascii=False,separators=(',',':')).encode()
+    secret = os.environ.get('CYBERCHECK_SECURITY_ALERT_SECRET','').strip()
+    sig = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    headers = {
+        'Content-Type':'application/json',
+        'User-Agent':'CyberCheck-Sentinel/1.0',
+        'X-CyberCheck-Signature':'sha256=' + sig,
+    }
+    r = requests.post(url,data=raw,headers=headers,timeout=8,allow_redirects=False)
     r.raise_for_status()
+    if not 200 <= int(r.status_code) < 300:
+        return False
     return True
 
 def emit(level: str, kind: str, title: str, detail='', fingerprint='', metadata=None, dedup_key='', cooldown=900):
@@ -85,9 +128,9 @@ def emit(level: str, kind: str, title: str, detail='', fingerprint='', metadata=
 
 def retry_pending(limit=20):
     init_db()
-    url=os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip()
-    if not url:
-        return {'configured':False,'attempted':0,'delivered':0}
+    delivery = delivery_status()
+    if not delivery['ready']:
+        return {'configured':delivery['configured'],'ready':False,'state':delivery['state'],'attempted':0,'delivered':0}
     limit=max(1,min(int(limit),100)); attempted=0; delivered=0
     with sqlite3.connect(DB) as db:
         db.row_factory=sqlite3.Row
@@ -105,7 +148,7 @@ def retry_pending(limit=20):
                 delivered+=1
         except Exception:
             pass
-    return {'configured':True,'attempted':attempted,'delivered':delivered}
+    return {'configured':True,'ready':True,'state':'ready','attempted':attempted,'delivered':delivered}
 
 
 def _loop(interval):
@@ -189,6 +232,7 @@ def summary():
           ORDER BY id DESC LIMIT 50''')]
         latest = [dict(r) for r in db.execute('''SELECT id,created_at,level,kind,title,detail,fingerprint,acknowledged,delivered
           FROM security_alerts ORDER BY id DESC LIMIT 25''')]
+    delivery = delivery_status()
     return {'open':open_count,'highOrCritical':high,'undeliveredHighOrCritical':undelivered,
             'actionable':actionable,'latest':latest,
-            'webhookConfigured':bool(os.environ.get('CYBERCHECK_SECURITY_ALERT_WEBHOOK','').strip())}
+            'webhookConfigured':delivery['configured'],'delivery':delivery}

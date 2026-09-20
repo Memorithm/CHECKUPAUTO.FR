@@ -47,6 +47,7 @@ def healthy_patches():
         }),
         mock.patch.object(readiness.security_alerts, "summary", return_value={
             "open": 0, "undeliveredHighOrCritical": 0,
+            "delivery": {"configured": True, "ready": True, "state": "ready", "signed": True, "endpointHost": "alerts.example.test"},
         }),
     ]
 
