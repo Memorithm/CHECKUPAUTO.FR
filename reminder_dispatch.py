@@ -314,6 +314,8 @@ def permanent_recipient_check(incident_id: object) -> dict:
         "ok": True, "incidentId": context["incidentId"],
         "recipientState": comparison.get("recipientState", "unknown"),
         "recipientCheckedAt": comparison.get("recipientCheckedAt", ""),
+        "transitionedToChanged": bool(comparison.get("transitionedToChanged")),
+        "recipientChangeDetectedAt": comparison.get("recipientChangeDetectedAt", ""),
         "retryEligible": changed,
     }
 
@@ -322,7 +324,7 @@ def refresh_permanent_recipient_checks(limit: int = 100) -> dict:
     """Refresh unresolved CT reminder recipient state without attempting delivery."""
     limit = max(1, min(int(limit), 250))
     failures = notifications.status(limit=limit).get("permanentFailures") or []
-    counts = {"changed": 0, "unchanged": 0, "missing": 0, "lookup_failed": 0, "skipped": 0}
+    counts = {"changed": 0, "unchanged": 0, "missing": 0, "lookup_failed": 0, "newlyChanged": 0, "skipped": 0}
     checked = 0
     for item in failures:
         if item.get("permanent_state") not in {"open", "acknowledged"}:
@@ -335,6 +337,8 @@ def refresh_permanent_recipient_checks(limit: int = 100) -> dict:
         try:
             result = permanent_recipient_check(incident)
             state = str(result.get("recipientState") or "lookup_failed")
+            if bool(result.get("transitionedToChanged")):
+                counts["newlyChanged"] += 1
         except (LookupError, ValueError):
             counts["skipped"] += 1
             continue

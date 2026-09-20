@@ -221,13 +221,14 @@ class ReminderDispatchTest(unittest.TestCase):
             {"incident_id": "4" * 32, "channel": "email", "category": "ct_due_reminder", "permanent_state": "resolved"},
         ]}
         check.side_effect = [
-            {"ok": True, "recipientState": "unchanged"},
-            {"ok": True, "recipientState": "changed"},
+            {"ok": True, "recipientState": "unchanged", "transitionedToChanged": False},
+            {"ok": True, "recipientState": "changed", "transitionedToChanged": True},
         ]
         result = dispatch.refresh_permanent_recipient_checks()
         self.assertEqual(result["checked"], 2)
         self.assertEqual(result["unchanged"], 1)
         self.assertEqual(result["changed"], 1)
+        self.assertEqual(result["newlyChanged"], 1)
         self.assertEqual(result["skipped"], 2)
         self.assertEqual(check.call_count, 2)
         raw = dispatch._meta("last_permanent_recipient_refresh", "")

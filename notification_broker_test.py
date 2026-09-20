@@ -330,10 +330,14 @@ class NotificationBrokerTest(unittest.TestCase):
         unchanged = broker.permanent_failure_recipient_state(incident, "wrong@example.fr")
         changed = broker.permanent_failure_recipient_state(incident, "corrected@example.fr")
         self.assertEqual(unchanged["recipientState"], "unchanged")
+        self.assertFalse(unchanged["transitionedToChanged"])
         self.assertEqual(changed["recipientState"], "changed")
+        self.assertTrue(changed["transitionedToChanged"])
+        self.assertTrue(changed["recipientChangeDetectedAt"])
         self.assertEqual(
             set(unchanged),
-            {"ok", "incidentId", "recipientState", "recipientCheckedAt", "permanentState"},
+            {"ok", "incidentId", "recipientState", "recipientCheckedAt", "transitionedToChanged",
+             "recipientChangeDetectedAt", "permanentState"},
         )
         self.assertNotIn("wrong@example.fr", str(unchanged))
         self.assertNotIn("corrected@example.fr", str(changed))
@@ -342,13 +346,73 @@ class NotificationBrokerTest(unittest.TestCase):
         self.assertEqual(context["reference"], "recipient-check")
         self.assertEqual(context["recipientCheckState"], "changed")
         self.assertTrue(context["recipientCheckedAt"])
+        self.assertEqual(context["recipientChangeDetectedAt"], changed["recipientChangeDetectedAt"])
         self.assertNotIn("hash", str(context).lower())
         self.assertNotIn("wrong@example.fr", str(context))
         persisted = broker.status()["permanentFailures"][0]
         self.assertEqual(persisted["recipient_check_state"], "changed")
         self.assertTrue(persisted["recipient_checked_at"])
+        self.assertEqual(persisted["recipient_change_detected_at"], changed["recipientChangeDetectedAt"])
         self.assertNotIn("wrong@example.fr", str(persisted))
         self.assertNotIn("corrected@example.fr", str(persisted))
+
+    @patch.object(broker.email_transport, "send_email")
+    def test_recipient_change_transition_and_freshness_are_persistent_without_pii(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "recipient refused", transport="smtp-relay", status=554, reason="recipient_refused", permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "old@example.fr", "Rappel", "Message",
+                category="ct_due_reminder", reference="recipient-freshness",
+            )
+        incident = broker.status()["permanentFailures"][0]["incident_id"]
+        now = broker.datetime.datetime(2026, 9, 20, 13, 0, tzinfo=broker.datetime.timezone.utc)
+        with patch.object(broker, "_now", return_value=now):
+            first = broker.permanent_failure_recipient_state(incident, "new@example.fr")
+            second = broker.permanent_failure_recipient_state(incident, "new@example.fr")
+            status = broker.status()
+        self.assertTrue(first["transitionedToChanged"])
+        self.assertFalse(second["transitionedToChanged"])
+        self.assertEqual(first["recipientChangeDetectedAt"], second["recipientChangeDetectedAt"])
+        checks = status["resilience"]["recipientChecks"]
+        self.assertEqual(checks["tracked"], 1)
+        self.assertEqual(checks["changed"], 1)
+        self.assertEqual(checks["fresh"], 1)
+        self.assertEqual(checks["stale"], 0)
+        with broker.connect() as db:
+            db.execute(
+                "UPDATE notification_delivery SET recipient_checked_at=? WHERE incident_id=?",
+                ((now - broker.datetime.timedelta(seconds=broker.RECIPIENT_CHECK_STALE_SECONDS + 1)).isoformat(), incident),
+            )
+        with patch.object(broker, "_now", return_value=now):
+            stale = broker.status()["resilience"]["recipientChecks"]
+        self.assertEqual(stale["fresh"], 0)
+        self.assertEqual(stale["stale"], 1)
+        payload = str(broker.status())
+        self.assertNotIn("old@example.fr", payload)
+        self.assertNotIn("new@example.fr", payload)
+
+    @patch.object(broker.email_transport, "send_email")
+    def test_recipient_change_alert_clears_when_current_recipient_is_no_longer_changed(self, send_email):
+        send_email.side_effect = broker.email_transport.EmailDeliveryError(
+            "recipient refused", transport="smtp-relay", status=554, reason="recipient_refused", permanent=True,
+        )
+        with self.assertRaises(broker.email_transport.EmailDeliveryError):
+            broker.send_email(
+                "old@example.fr", "Rappel", "Message",
+                category="ct_due_reminder", reference="recipient-change-reset",
+            )
+        incident = broker.status()["permanentFailures"][0]["incident_id"]
+        changed = broker.permanent_failure_recipient_state(incident, "new@example.fr")
+        self.assertTrue(changed["recipientChangeDetectedAt"])
+        reverted = broker.permanent_failure_recipient_state(incident, "old@example.fr")
+        self.assertEqual(reverted["recipientState"], "unchanged")
+        self.assertFalse(reverted["transitionedToChanged"])
+        self.assertEqual(reverted["recipientChangeDetectedAt"], "")
+        row = broker.status()["permanentFailures"][0]
+        self.assertEqual(row["recipient_change_detected_at"], "")
+
 
     @patch.object(broker.email_transport, "send_email")
     def test_bounded_recipient_check_states_are_persisted_without_pii(self, send_email):
