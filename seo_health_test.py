@@ -9,6 +9,7 @@ from unittest import mock
 _PRIVATE = Path(tempfile.mkdtemp(prefix="cybercheck-seo-test-"))
 (_PRIVATE / "admin-password").write_text("unit-test-password\n")
 os.environ["CYBERCHECK_PRIVATE_DIR"] = str(_PRIVATE)
+os.environ["CYBERCHECK_SECURITY_DIR"] = str(_PRIVATE / "security")
 
 import admin_server
 
