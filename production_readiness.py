@@ -49,8 +49,8 @@ _REMEDIATION = {
     },
     "notification_broker": {
         "code": "restore_notification_broker",
-        "summary": "Fermer les circuits défaillants, traiter les échecs permanents et rétablir un rapprochement Mercure récent.",
-        "verify": "Aucun circuit ouvert, aucun échec permanent actif et aucun contrôle destinataire périmé ou en échec.",
+        "summary": "Fermer les circuits défaillants, traiter les échecs permanents ou de requête et rétablir un rapprochement Mercure récent.",
+        "verify": "Aucun circuit ouvert, aucun échec permanent ou de requête actif et aucun contrôle destinataire périmé ou en échec.",
         "target": "#notifications",
         "external": False,
     },
@@ -234,8 +234,10 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         ])
     else:
         resilience = broker.get("resilience") or {}
+        failure_counts = broker.get("failureCounts") or {}
         circuits = int(resilience.get("circuitsOpen") or 0)
         permanent_failures = int(resilience.get("permanentFailures") or 0)
+        request_failures = int(failure_counts.get("request") or 0)
         permanent_history = int(resilience.get("permanentFailureHistory") or permanent_failures)
         permanent_acknowledged = int(resilience.get("permanentAcknowledged") or 0)
         permanent_resolved = int(resilience.get("permanentResolved") or 0)
@@ -250,12 +252,16 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         recipient_reconciliation_degraded = recipient_tracked > 0 and (
             recipient_stale > 0 or recipient_lookup_failed > 0
         )
-        broker_degraded = circuits > 0 or permanent_failures > 0 or recipient_reconciliation_degraded
+        broker_degraded = (
+            circuits > 0 or permanent_failures > 0 or request_failures > 0 or recipient_reconciliation_degraded
+        )
         broker_issues = []
         if circuits:
             broker_issues.append(f"{circuits} circuit(s) ouvert(s)")
         if permanent_failures:
             broker_issues.append(f"{permanent_failures} échec(s) permanent(s) à traiter")
+        if request_failures:
+            broker_issues.append(f"{request_failures} échec(s) de requête non retentable(s) à corriger")
         if recipient_stale:
             broker_issues.append(f"{recipient_stale} contrôle(s) destinataire périmé(s)")
         if recipient_lookup_failed:
@@ -273,6 +279,7 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             metrics={
                 "circuitsOpen": circuits,
                 "permanentFailures": permanent_failures,
+                "requestFailures": request_failures,
                 "permanentFailureHistory": permanent_history,
                 "permanentAcknowledged": permanent_acknowledged,
                 "permanentResolved": permanent_resolved,
