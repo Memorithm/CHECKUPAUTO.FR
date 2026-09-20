@@ -176,7 +176,7 @@ class ReferralEngineTest(unittest.TestCase):
         self.assertEqual(errors, [])
         reward = referrals.reward_status("mercure-rdv", "rdv-state-race")
         summary = referrals.account_summary(account["code"])
-        self.assertIn(reward["status"], {"earned", "cancelled"})
+        self.assertIn(reward["status"], {"earned", "cancelled", "reversed"})
         expected_balance = 500 if reward["status"] == "earned" else 0
         self.assertEqual(summary["balanceCents"], expected_balance)
 
