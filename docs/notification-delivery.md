@@ -30,7 +30,7 @@ SMTP variables:
 - `CYBERCHECK_SMTP_HOST`: optional, defaults to `127.0.0.1`;
 - `CYBERCHECK_SMTP_PORT`: optional, defaults to 25 for local plain relay;
 - `CYBERCHECK_SMTP_MODE`: `plain`, `starttls` or `ssl`;
-- `CYBERCHECK_SMTP_USERNAME` and `CYBERCHECK_SMTP_PASSWORD`: optional authenticated relay credentials. They must be configured together and authentication is refused over `plain` mode, so credentials cannot be sent without TLS.
+- `CYBERCHECK_SMTP_USERNAME` and `CYBERCHECK_SMTP_PASSWORD`: authenticated relay credentials. They must be configured together and authentication is refused over `plain` mode, so credentials cannot be sent without TLS. Remote SMTP relays require authentication by default; only a deliberately IP-whitelisted relay may opt out with `CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE=1`.
 
 Gmail variables/settings:
 
@@ -44,7 +44,7 @@ OAuth client secrets and refresh tokens remain under `/root/CyberCheckPrivate/in
 
 The administration console exposes an explicit **Tester les transports** action backed by `/api/admin/notifications/preflight`. The check never sends a customer e-mail or an APNs notification. It returns normalized readiness states only and never returns passwords, OAuth tokens, APNs device tokens or the APNs private key.
 
-- SMTP opens the configured connection, negotiates TLS when requested, authenticates when runtime credentials are configured, executes `NOOP`, then closes the session.
+- SMTP opens the configured connection, negotiates TLS when requested, authenticates remote relays by default, validates the configured envelope sender with `MAIL FROM`, then executes `RSET`; it never issues `RCPT TO` or `DATA` and therefore creates no message.
 - Gmail validates the configured sender and `gmail.send` grant, then deliberately forces an OAuth refresh against Google's token endpoint. This verifies the current refresh grant/client credentials without creating a Gmail message.
 - APNs validates Key ID, Team ID and topic locally, parses the private `.p8` key as EC P-256, and proves that an ES256 provider JWT can be generated. It does not contact APNs and does not require a device token.
 
