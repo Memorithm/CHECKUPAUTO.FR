@@ -396,7 +396,7 @@ def create_authorization_url(base_url, connector_ids):
 
 def handle_oauth_callback(base_url, state, code, error=""):
     if error:
-        raise IntegrationError("Google a refusé l’autorisation : " + str(error))
+        raise IntegrationError("Google a refusé l’autorisation OAuth.")
     pending = _load(STATE_FILE)
     expected = str(pending.get("state") or "")
     if not expected or not state or not secrets.compare_digest(expected, str(state)):
@@ -426,12 +426,21 @@ def handle_oauth_callback(base_url, state, code, error=""):
     except requests.RequestException as exc:
         raise IntegrationError("Connexion au service OAuth Google impossible.") from exc
     if response.status_code >= 400:
-        try:
-            message = response.json().get("error_description") or response.json().get("error")
-        except Exception:
-            message = response.text[:300]
-        raise IntegrationError(f"Échange OAuth Google refusé : {message}")
-    incoming = response.json()
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google a refusé l’échange OAuth.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
+    try:
+        incoming = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse OAuth Google invalide.") from exc
+    if not isinstance(incoming, dict):
+        raise IntegrationError("Réponse OAuth Google invalide.")
+    if not incoming.get("access_token"):
+        raise IntegrationError("Google n’a pas retourné de jeton d’accès.")
     previous = _load(TOKEN_FILE)
     if not incoming.get("refresh_token") and previous.get("refresh_token"):
         incoming["refresh_token"] = previous["refresh_token"]
@@ -441,7 +450,11 @@ def handle_oauth_callback(base_url, state, code, error=""):
     now = datetime.datetime.now(datetime.timezone.utc)
     incoming["connected_at"] = now.isoformat()
     if incoming.get("expires_in"):
-        incoming["expires_at"] = (now + datetime.timedelta(seconds=max(0, int(incoming["expires_in"]) - 30))).isoformat()
+        try:
+            ttl = max(0, int(incoming["expires_in"]) - 30)
+        except (TypeError, ValueError) as exc:
+            raise IntegrationError("Réponse OAuth Google invalide.") from exc
+        incoming["expires_at"] = (now + datetime.timedelta(seconds=ttl)).isoformat()
     _atomic_json(TOKEN_FILE, incoming)
     if STATE_FILE.exists():
         STATE_FILE.unlink()
