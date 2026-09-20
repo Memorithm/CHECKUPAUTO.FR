@@ -123,6 +123,44 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
         self.assertEqual(result["emailPreflightState"], "provider_unavailable")
 
 
+    def test_failed_delivery_persists_only_sanitized_diagnostic(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        rows = [{
+            "id": "sensitive-42",
+            "dateRdv": (now - datetime.timedelta(hours=1)).isoformat(),
+            "honored": True,
+            "finished": True,
+            "name": "Client",
+            "email": "client@example.fr",
+        }]
+        leaked = "client@example.fr bearer_secret=SUPER-SECRET-VALUE"
+        env = {"CYBERCHECK_GOOGLE_REVIEW_URL": "https://g.page/r/checkupauto/review"}
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            with (
+                patch.object(followup, "DATA_DIR", data_dir),
+                patch.object(followup, "DB", data_dir / "review-followup.sqlite3"),
+                patch.dict(os.environ, env, clear=True),
+                patch.object(followup.mercure, "session_status", return_value={"connected": True, "state": "ready"}),
+                patch.object(followup.mercure, "native_review_email_status", return_value={"nativeFavorableOnlyEmailEnabled": False}),
+                patch.object(followup.mercure, "review_followup_rows", return_value=rows),
+                patch.object(followup.mail, "configured", return_value=True),
+                patch.object(followup.mail, "preflight", return_value={"ok": True, "state": "ready"}),
+                patch.object(followup.notifications, "send_email", side_effect=RuntimeError(leaked)),
+                patch.object(followup.notifications, "status", return_value={}),
+            ):
+                followup.init_db()
+                result = followup.process_once()
+                stored = followup._state("sensitive-42")
+                admin_status = followup.status()
+
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(stored["last_error"], "RuntimeError")
+        exposed = repr(admin_status) + repr(stored)
+        self.assertNotIn("client@example.fr", exposed)
+        self.assertNotIn("SUPER-SECRET-VALUE", exposed)
+
+
 
 if __name__ == "__main__":
     unittest.main()

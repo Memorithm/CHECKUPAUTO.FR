@@ -44,7 +44,7 @@ def _diagnostic_token(value: object, *, limit: int = 80) -> str:
     return raw if re.fullmatch(r"[A-Za-z0-9_.:-]+", raw) else ""
 
 
-def _safe_error(exc: Exception) -> str:
+def safe_delivery_error(exc: Exception) -> str:
     """Return a persistable diagnostic without arbitrary exception text or PII."""
     if isinstance(exc, email_transport.EmailDeliveryError):
         fields = [
@@ -66,6 +66,10 @@ def _safe_error(exc: Exception) -> str:
         return " ".join(fields)[:MAX_ERROR]
     name = _diagnostic_token(type(exc).__name__, limit=80)
     return (name or "DeliveryError")[:MAX_ERROR]
+
+
+# Backward-compatible private alias for older internal callers/tests.
+_safe_error = safe_delivery_error
 
 
 def _delivery_key(channel: str, category: str, reference: str, recipient: str) -> str:
