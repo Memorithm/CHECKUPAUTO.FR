@@ -1,4 +1,6 @@
+import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -74,6 +76,85 @@ class ReferralEngineTest(unittest.TestCase):
         self.assertEqual(summary["balanceCents"], 500)
         with self.assertRaises(ValueError):
             referrals.redeem(account["code"], 600, "control-2028")
+
+    def test_concurrent_redemptions_cannot_overdraw_wallet(self):
+        account = referrals.create_account("RACE-100")
+        referrals.record_pending(account["code"], "mercure-rdv", "rdv-race", "intent-race")
+        referrals.complete_control("mercure-rdv", "rdv-race")
+
+        barrier = threading.Barrier(2)
+        results = []
+        lock = threading.Lock()
+
+        def redeem(reference):
+            barrier.wait()
+            try:
+                result = referrals.redeem(account["code"], 400, reference)
+                outcome = ("ok", result["balanceCents"])
+            except ValueError as exc:
+                outcome = ("error", str(exc))
+            with lock:
+                results.append(outcome)
+
+        threads = [
+            threading.Thread(target=redeem, args=("race-a",)),
+            threading.Thread(target=redeem, args=("race-b",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(sum(1 for status, _ in results if status == "ok"), 1)
+        self.assertEqual(sum(1 for status, _ in results if status == "error"), 1)
+        self.assertEqual(referrals.account_summary(account["code"])["balanceCents"], 100)
+
+    def test_ledger_trigger_rejects_direct_negative_balance(self):
+        account = referrals.create_account("TRIGGER-1")
+        with analytics.connect() as db:
+            row = db.execute(
+                "SELECT id FROM referral_accounts WHERE code=?",
+                (account["code"],),
+            ).fetchone()
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    """INSERT INTO referral_ledger(
+                       account_id,kind,amount_cents,reference,created_at,note
+                       ) VALUES(?,?,?,?,?,?)""",
+                    (row["id"], "redeem", -100, "manual-overdraw", referrals.now_iso(), "test"),
+                )
+
+    def test_completion_and_cancellation_cannot_diverge_reward_and_ledger(self):
+        account = referrals.create_account("STATE-RACE")
+        referrals.record_pending(account["code"], "mercure-rdv", "rdv-state-race", "intent-state-race")
+        barrier = threading.Barrier(2)
+        errors = []
+        lock = threading.Lock()
+
+        def run(action):
+            barrier.wait()
+            try:
+                action("mercure-rdv", "rdv-state-race")
+            except Exception as exc:  # surfaced below so thread failures cannot be lost
+                with lock:
+                    errors.append(exc)
+
+        threads = [
+            threading.Thread(target=run, args=(referrals.complete_control,)),
+            threading.Thread(target=run, args=(referrals.cancel_pending,)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertEqual(errors, [])
+        reward = referrals.reward_status("mercure-rdv", "rdv-state-race")
+        summary = referrals.account_summary(account["code"])
+        self.assertIn(reward["status"], {"earned", "cancelled"})
+        expected_balance = 500 if reward["status"] == "earned" else 0
+        self.assertEqual(summary["balanceCents"], expected_balance)
 
     def test_unknown_referral_code_is_not_attributed(self):
         self.assertEqual(referrals.valid_code_or_empty("UNKNOWN-1"), "")
