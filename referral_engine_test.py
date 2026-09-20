@@ -47,6 +47,30 @@ class ReferralEngineTest(unittest.TestCase):
         self.assertEqual(summary["balanceCents"], 500)
         self.assertEqual(len([x for x in summary["ledger"] if x["kind"] == "earn"]), 1)
 
+    def test_earn_reference_cannot_collide_across_provider_external_id_boundaries(self):
+        account = referrals.create_account("BOUNDARY-1")
+        first_provider, first_external = "mercure:rdv", "42"
+        second_provider, second_external = "mercure", "rdv:42"
+        self.assertEqual(
+            f"{first_provider}:{first_external}",
+            f"{second_provider}:{second_external}",
+        )
+        referrals.record_pending(account["code"], first_provider, first_external, "intent-a")
+        referrals.record_pending(account["code"], second_provider, second_external, "intent-b")
+        referrals.complete_control(first_provider, first_external)
+        referrals.complete_control(second_provider, second_external)
+
+        summary = referrals.account_summary(account["code"])
+        earn_entries = [entry for entry in summary["ledger"] if entry["kind"] == "earn"]
+        self.assertEqual(summary["earnedReferrals"], 2)
+        self.assertEqual(summary["balanceCents"], 1000)
+        self.assertEqual(len(earn_entries), 2)
+        self.assertEqual(len({entry["reference"] for entry in earn_entries}), 2)
+        for entry in earn_entries:
+            self.assertRegex(entry["reference"], r"^reward:[0-9a-f]{64}$")
+            self.assertNotIn("mercure", entry["reference"])
+            self.assertNotIn("rdv", entry["reference"])
+
     def test_cancelled_booking_never_earns_credit(self):
         account = referrals.create_account("CLIENT-123")
         referrals.record_pending(account["code"], "mercure-rdv", "rdv-2", "intent-2")
