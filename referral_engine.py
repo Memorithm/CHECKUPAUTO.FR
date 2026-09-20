@@ -103,9 +103,11 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_referral_ledger_account
               ON referral_ledger(account_id, created_at);
-            CREATE TRIGGER IF NOT EXISTS trg_referral_ledger_nonnegative
+            DROP TRIGGER IF EXISTS trg_referral_ledger_nonnegative;
+            CREATE TRIGGER trg_referral_ledger_nonnegative
               BEFORE INSERT ON referral_ledger
               WHEN NEW.amount_cents < 0
+               AND NEW.kind <> 'reverse'
                AND (
                  SELECT COALESCE(SUM(amount_cents),0)
                  FROM referral_ledger
@@ -113,6 +115,20 @@ def init_db() -> None:
                ) + NEW.amount_cents < 0
             BEGIN
               SELECT RAISE(ABORT, 'referral balance would be negative');
+            END;
+            DROP TRIGGER IF EXISTS trg_referral_ledger_reverse_matches_earn;
+            CREATE TRIGGER trg_referral_ledger_reverse_matches_earn
+              BEFORE INSERT ON referral_ledger
+              WHEN NEW.kind = 'reverse'
+               AND NOT EXISTS(
+                 SELECT 1 FROM referral_ledger
+                 WHERE account_id=NEW.account_id
+                   AND kind='earn'
+                   AND reference=NEW.reference
+                   AND amount_cents=-NEW.amount_cents
+               )
+            BEGIN
+              SELECT RAISE(ABORT, 'referral reversal must match earn');
             END;
             """
         )
@@ -304,14 +320,6 @@ def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -
     ).fetchone()
     if existing_reverse:
         raise RuntimeError("Intégrité de l'annulation de parrainage incohérente")
-    balance = int(
-        db.execute(
-            "SELECT COALESCE(SUM(amount_cents),0) balance FROM referral_ledger WHERE account_id=?",
-            (row["account_id"],),
-        ).fetchone()["balance"]
-    )
-    if balance < reward_cents:
-        raise ValueError("Solde de cagnotte insuffisant pour annuler ce parrainage")
     try:
         db.execute(
             """INSERT INTO referral_ledger(
@@ -344,11 +352,12 @@ def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -
 
 
 def cancel_pending(provider: str, external_id: object) -> dict | None:
-    """Cancel a pending reward or reverse an earned reward after provider correction.
+    """Cancel pending credit or reverse an earned credit after provider correction.
 
-    Mercure may correct a booking from completed to cancelled/no-show after the
-    reward was credited.  This transition is serialized with the wallet ledger
-    so the conversion status and referral balance cannot silently diverge.
+    A provider can correct a completed appointment to cancelled/no-show after a
+    referral credit has already been spent. Reversal entries may therefore take
+    the wallet below zero: the debt remains visible and future redemptions stay
+    blocked until later earnings restore a positive balance.
     """
     init_db()
     provider = str(provider or _PROVIDER).strip()[:60] or _PROVIDER
