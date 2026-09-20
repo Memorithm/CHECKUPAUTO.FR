@@ -68,7 +68,6 @@ jobs:
           block = block.replace('   except Exception as exc:', '   except Exception:')
           text = text[:post_start] + block + text[post_end:]
 
-          # The second /api/admin/google/ block is the POST handler; locate it after do_POST.
           do_post = text.find(' def do_POST(self):')
           if do_post < 0:
               raise SystemExit('missing do_POST')
@@ -182,7 +181,7 @@ jobs:
                   )
                   self.assertNotIn('str(exc)', status)
 
-                  google_get, get_end = block(
+                  google_get, _ = block(
                       "  if path.startswith('/api/admin/google/'):",
                       "  if path.startswith('/p/'):",
                   )
@@ -218,7 +217,9 @@ jobs:
       - name: Validate generated patch
         run: |
           python3 -m compileall -q admin_server.py admin_google_error_sanitization_test.py
-          python3 admin_google_error_sanitization_test.py
+          python3 -m venv .patch-venv
+          .patch-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+          .patch-venv/bin/python admin_google_error_sanitization_test.py
           git diff --check
       - name: Commit generated hardening
         run: |
