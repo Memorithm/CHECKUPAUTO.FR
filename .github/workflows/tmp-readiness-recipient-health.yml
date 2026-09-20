@@ -11,22 +11,21 @@ permissions:
 jobs:
   patch:
     if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, internal]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install test dependencies
-        run: python -m pip install -r requirements.txt
+      - name: Create isolated Python test environment
+        run: |
+          python3 -m venv .tmp-readiness-venv
+          .tmp-readiness-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Apply guarded patch
-        run: python scripts/tmp_patch_readiness_recipient_health.py
+        run: python3 scripts/tmp_patch_readiness_recipient_health.py
       - name: Run focused readiness tests
-        run: python -m unittest production_readiness_test.py production_readiness_recipient_freshness_test.py
+        run: .tmp-readiness-venv/bin/python -m unittest production_readiness_test.py production_readiness_recipient_freshness_test.py
       - name: Remove temporary patch machinery
-        run: rm scripts/tmp_patch_readiness_recipient_health.py .github/workflows/tmp-readiness-recipient-health.yml
+        run: rm -rf .tmp-readiness-venv scripts/tmp_patch_readiness_recipient_health.py .github/workflows/tmp-readiness-recipient-health.yml
       - name: Commit validated patch
         run: |
           git config user.name 'MEMOPERF'
