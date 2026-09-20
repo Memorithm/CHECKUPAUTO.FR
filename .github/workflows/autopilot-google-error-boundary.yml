@@ -1,0 +1,231 @@
+name: Autopilot Google error boundary patch
+
+on:
+  push:
+    branches: [autopilot/google-admin-error-boundary]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Harden Google-facing exception boundaries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('admin_server.py')
+          text = path.read_text()
+
+          def edit_block(source, start, end, fn):
+              i = source.find(start)
+              if i < 0:
+                  raise SystemExit(f'missing start marker: {start}')
+              j = source.find(end, i)
+              if j < 0:
+                  raise SystemExit(f'missing end marker: {end}')
+              block = source[i:j]
+              changed = fn(block)
+              if changed == block:
+                  raise SystemExit(f'block unchanged: {start}')
+              return source[:i] + changed + source[j:]
+
+          text = edit_block(
+              text,
+              "  if path=='/api/integrations/google/oauth/callback':",
+              "  if path=='/api/admin/readiness':",
+              lambda block: block.replace("+esc(exc)+", "+'La connexion Google n’a pas pu être finalisée.'+")
+                                 .replace('   except Exception as exc:', '   except Exception:'),
+          )
+          text = edit_block(
+              text,
+              "  if path=='/api/admin/integrations/google/status':",
+              "  if path=='/api/admin/referrals/accounts':",
+              lambda block: block.replace("{'ok':False,'error':str(exc)}", "{'ok':False,'error':'google_integration_status_unavailable'}")
+                                 .replace('   except Exception as exc:', '   except Exception:'),
+          )
+          text = edit_block(
+              text,
+              "  if path.startswith('/api/admin/google/'):",
+              "  if path.startswith('/p/'):",
+              lambda block: block.replace("{'ok':False,'error':str(exc)}", "{'ok':False,'error':'google_search_console_unavailable'}")
+                                 .replace('   except Exception as exc:', '   except Exception:'),
+          )
+
+          post_start = text.find("  if path=='/api/admin/integrations/google/oauth-client':")
+          if post_start < 0:
+              raise SystemExit('missing POST Google integration block')
+          post_end = text.find("  if path=='/api/admin/mercure/login':", post_start)
+          if post_end < 0:
+              raise SystemExit('missing POST Google integration end marker')
+          block = text[post_start:post_end]
+          if block.count("{'ok':False,'error':str(exc)}") != 3:
+              raise SystemExit('unexpected POST Google integration exception count')
+          block = block.replace("{'ok':False,'error':str(exc)}", "{'ok':False,'error':'google_integration_request_failed'}")
+          block = block.replace('   except Exception as exc:', '   except Exception:')
+          text = text[:post_start] + block + text[post_end:]
+
+          # The second /api/admin/google/ block is the POST handler; locate it after do_POST.
+          do_post = text.find(' def do_POST(self):')
+          if do_post < 0:
+              raise SystemExit('missing do_POST')
+          google_post = text.find("  if path.startswith('/api/admin/google/'):", do_post)
+          google_post_end = text.find("  if path!='/api/admin/config':", google_post)
+          if google_post < 0 or google_post_end < 0:
+              raise SystemExit('missing POST Search Console block')
+          block = text[google_post:google_post_end]
+          if "{'ok':False,'error':str(exc)}" not in block:
+              raise SystemExit('POST Search Console exception boundary already changed unexpectedly')
+          block = block.replace("{'ok':False,'error':str(exc)}", "{'ok':False,'error':'google_search_console_request_failed'}")
+          block = block.replace('   except Exception as exc:', '   except Exception:')
+          text = text[:google_post] + block + text[google_post_end:]
+
+          do_delete = text.find(' def do_DELETE(self):')
+          delete_start = text.find("  if path=='/api/admin/integrations/google/oauth':", do_delete)
+          delete_end = text.find("  if path=='/api/admin/mercure/promo-slot':", delete_start)
+          if delete_start < 0 or delete_end < 0:
+              raise SystemExit('missing DELETE Google block')
+          block = text[delete_start:delete_end]
+          if block.count("{'ok':False,'error':str(exc)}") != 2:
+              raise SystemExit('unexpected DELETE Google exception count')
+          block = block.replace("{'ok':False,'error':str(exc)}", "{'ok':False,'error':'google_request_failed'}")
+          block = block.replace('   except Exception as exc:', '   except Exception:')
+          text = text[:delete_start] + block + text[delete_end:]
+
+          path.write_text(text)
+          PY
+      - name: Add regression tests
+        run: |
+          cat > admin_google_error_sanitization_test.py <<'PY'
+          import os
+          from pathlib import Path
+          import tempfile
+          import unittest
+          from unittest import mock
+
+          _PRIVATE = Path(tempfile.mkdtemp(prefix='cybercheck-google-boundary-test-'))
+          (_PRIVATE / 'admin-password').write_text('unit-test-password\n')
+          os.environ['CYBERCHECK_PRIVATE_DIR'] = str(_PRIVATE)
+          os.environ['CYBERCHECK_SECURITY_DIR'] = str(_PRIVATE / 'security')
+
+          import admin_server
+
+
+          class AdminGoogleErrorSanitizationTest(unittest.TestCase):
+              def _handler(self, path):
+                  handler = object.__new__(admin_server.Handler)
+                  handler.path = path
+                  handler.command = 'GET'
+                  handler._guard = lambda: True
+                  handler._request_origin = lambda: 'https://www.checkupauto.fr'
+                  return handler
+
+              def test_public_oauth_callback_never_renders_exception_text(self):
+                  marker = 'someone@example.invalid SENSITIVE_MARKER_7f3a'
+                  handler = self._handler('/api/integrations/google/oauth/callback?state=s&code=c')
+                  captured = {}
+                  handler.send_bytes = lambda data, ctype, status=200, cache='no-store': captured.update(
+                      data=data, ctype=ctype, status=status, cache=cache
+                  )
+                  with mock.patch.object(
+                      admin_server.integrations,
+                      'handle_oauth_callback',
+                      side_effect=RuntimeError(marker),
+                  ):
+                      admin_server.Handler.do_GET(handler)
+                  body = captured['data'].decode('utf-8')
+                  self.assertEqual(captured['status'], 400)
+                  self.assertNotIn('someone@example.invalid', body)
+                  self.assertNotIn('SENSITIVE_MARKER_7f3a', body)
+                  self.assertIn('La connexion Google n’a pas pu être finalisée.', body)
+
+              def test_google_integration_status_returns_bounded_error_code(self):
+                  marker = 'someone@example.invalid SENSITIVE_MARKER_7f3a'
+                  handler = self._handler('/api/admin/integrations/google/status')
+                  handler.authorized = lambda: True
+                  captured = {}
+                  handler.send_json = lambda obj, status=200: captured.update(obj=obj, status=status)
+                  with mock.patch.object(admin_server.gsc, 'credential_info', return_value={}), \
+                       mock.patch.object(admin_server.integrations, 'status', side_effect=RuntimeError(marker)):
+                      admin_server.Handler.do_GET(handler)
+                  self.assertEqual(captured['status'], 500)
+                  self.assertEqual(captured['obj'], {
+                      'ok': False,
+                      'error': 'google_integration_status_unavailable',
+                  })
+                  serialized = repr(captured['obj'])
+                  self.assertNotIn('someone@example.invalid', serialized)
+                  self.assertNotIn('SENSITIVE_MARKER_7f3a', serialized)
+
+              def test_google_endpoint_blocks_do_not_serialize_exception_text(self):
+                  source = Path('admin_server.py').read_text()
+
+                  def block(start, end, offset=0):
+                      begin = source.find(start, offset)
+                      self.assertGreaterEqual(begin, 0, start)
+                      finish = source.find(end, begin)
+                      self.assertGreaterEqual(finish, 0, end)
+                      return source[begin:finish], finish
+
+                  callback, _ = block(
+                      "  if path=='/api/integrations/google/oauth/callback':",
+                      "  if path=='/api/admin/readiness':",
+                  )
+                  self.assertNotIn('esc(exc)', callback)
+
+                  status, _ = block(
+                      "  if path=='/api/admin/integrations/google/status':",
+                      "  if path=='/api/admin/referrals/accounts':",
+                  )
+                  self.assertNotIn('str(exc)', status)
+
+                  google_get, get_end = block(
+                      "  if path.startswith('/api/admin/google/'):",
+                      "  if path.startswith('/p/'):",
+                  )
+                  self.assertNotIn('str(exc)', google_get)
+
+                  do_post = source.find(' def do_POST(self):')
+                  integration_post, _ = block(
+                      "  if path=='/api/admin/integrations/google/oauth-client':",
+                      "  if path=='/api/admin/mercure/login':",
+                      do_post,
+                  )
+                  self.assertNotIn('str(exc)', integration_post)
+
+                  google_post, _ = block(
+                      "  if path.startswith('/api/admin/google/'):",
+                      "  if path!='/api/admin/config':",
+                      do_post,
+                  )
+                  self.assertNotIn('str(exc)', google_post)
+
+                  do_delete = source.find(' def do_DELETE(self):')
+                  google_delete, _ = block(
+                      "  if path=='/api/admin/integrations/google/oauth':",
+                      "  if path=='/api/admin/mercure/promo-slot':",
+                      do_delete,
+                  )
+                  self.assertNotIn('str(exc)', google_delete)
+
+
+          if __name__ == '__main__':
+              unittest.main()
+          PY
+      - name: Validate generated patch
+        run: |
+          python3 -m compileall -q admin_server.py admin_google_error_sanitization_test.py
+          python3 admin_google_error_sanitization_test.py
+          git diff --check
+      - name: Commit generated hardening
+        run: |
+          git config user.name 'CHECKUPAUTO'
+          git config user.email 'contact@checkupauto.fr'
+          git rm .github/workflows/autopilot-google-error-boundary.yml
+          git add admin_server.py admin_google_error_sanitization_test.py
+          git diff --cached --check
+          git commit -m 'fix: bound Google admin exception diagnostics'
+          git push origin HEAD:autopilot/google-admin-error-boundary
