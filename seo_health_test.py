@@ -44,5 +44,23 @@ class SeoHealthTest(unittest.TestCase):
         self.assertEqual(by_key["perplexity"]["status"], "pass")
 
 
+    def test_sitemap_contains_public_pricing_page_but_not_unreleased_app(self):
+        xml = admin_server.build_sitemap(self.config)
+        self.assertIn('<loc>https://www.checkupauto.fr/</loc>', xml)
+        self.assertIn('<loc>https://www.checkupauto.fr/zone-tarifs</loc>', xml)
+        self.assertNotIn('<loc>https://www.checkupauto.fr/app</loc>', xml)
+        self.assertEqual(len(admin_server.sitemap_entries(self.config)), 2)
+
+    def test_sitemap_adds_app_only_after_app_store_release(self):
+        with mock.patch.dict(os.environ, {'CYBERCHECK_IOS_APP_URL': 'https://apps.apple.com/fr/app/checkup-auto/id1234567890'}, clear=False):
+            entries = admin_server.sitemap_entries(self.config)
+            self.assertEqual([item['loc'] for item in entries], [
+                'https://www.checkupauto.fr/',
+                'https://www.checkupauto.fr/zone-tarifs',
+                'https://www.checkupauto.fr/app',
+            ])
+
+
+
 if __name__ == "__main__":
     unittest.main()

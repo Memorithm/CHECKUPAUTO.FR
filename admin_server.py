@@ -709,7 +709,7 @@ def build_seo_health(c):
  add('opengraph','Image Open Graph','pass' if seo.get('ogImage') else 'fail',seo.get('ogImage') or 'Absente')
  complete=all(sd.get(k) for k in ('businessName','streetAddress','postalCode','locality','country'))
  add('schema','Schema.org LocalBusiness','pass' if complete else 'fail','Complet' if complete else 'Champs locaux manquants')
- add('sitemap','Sitemap XML','pass','Généré automatiquement depuis l’URL canonique')
+ add('sitemap','Sitemap XML','pass',f'{len(sitemap_entries(c))} URL(s) publique(s) déclarée(s)')
  def crawler_status(enabled):
   if not indexing: return ('info','Préférence autorisée, mais indexation globale coupée') if enabled else ('info','Bloqué par préférence et par indexation globale')
   return ('pass','Autorisé') if enabled else ('warning','Bloqué')
@@ -741,9 +741,23 @@ def build_robots(c):
   lines.append('')
  lines += ['User-agent: *','Allow: /','Disallow: /admin/','Disallow: /api/admin/','',f'Sitemap: {canonical_origin(canonical)}/sitemap.xml','']
  return '\n'.join(lines)
+def sitemap_entries(c):
+ origin=canonical_origin(c['seo']['canonicalUrl'])
+ rows=[
+  {'loc':origin+'/', 'changefreq':'weekly', 'priority':'1.0'},
+  {'loc':origin+'/zone-tarifs', 'changefreq':'weekly', 'priority':'0.8'},
+ ]
+ if app_download.status(c).get('ios',{}).get('channel')=='app-store':
+  rows.append({'loc':origin+'/app', 'changefreq':'monthly', 'priority':'0.6'})
+ return rows
 def build_sitemap(c):
- url=esc(c['seo']['canonicalUrl']); last=c['updatedAt'][:10]
- return f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{url}</loc><lastmod>{last}</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url></urlset>\n'
+ last=c['updatedAt'][:10]
+ rows=''.join(
+  '<url><loc>{}</loc><lastmod>{}</lastmod><changefreq>{}</changefreq><priority>{}</priority></url>'.format(
+   esc(item['loc']),last,item['changefreq'],item['priority'])
+  for item in sitemap_entries(c)
+ )
+ return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+rows+'</urlset>\n'
 def build_geo_pricing_page(c):
  services=mercure_public.public_services(); cov=geo_marketing.coverage(c,services); markets=cov.get('markets') or []
  canonical=canonical_origin(c['seo']['canonicalUrl'])+'/zone-tarifs'
