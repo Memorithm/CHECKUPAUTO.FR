@@ -43,6 +43,17 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertNotIn("recipient_hash", javascript)
         self.assertNotIn("recipient_hash", html)
 
+    def test_admin_exposes_recipient_freshness_and_correction_alert_without_pii(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        self.assertIn('id="notificationRecipientCorrections"', html)
+        self.assertIn('id="notificationRecipientChecksStale"', html)
+        self.assertIn('id="notificationRecipientAttention"', html)
+        self.assertIn("resilience.recipientChecks", javascript)
+        self.assertIn("recipient_change_detected_at", javascript)
+        self.assertIn("Aucun envoi automatique", javascript)
+        self.assertNotIn("recipient_hash", javascript)
+
     def test_admin_exposes_reminder_permanent_suppression_metric(self):
         html = (ROOT / "admin" / "index.html").read_text()
         javascript = (ROOT / "admin" / "notifications.js").read_text()

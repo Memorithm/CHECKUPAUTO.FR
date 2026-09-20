@@ -123,6 +123,7 @@ function renderPermanentFailures(items) {
     const recipientLabel = document.createElement('span');
     recipientLabel.textContent = permanentRecipientLabel(recipientState);
     if (item.recipient_checked_at) recipientLabel.title = `Dernière vérification ${item.recipient_checked_at}`;
+    if (item.recipient_change_detected_at) recipientLabel.title += `${recipientLabel.title ? ' · ' : ''}Correction détectée ${item.recipient_change_detected_at}`;
     recipientCell.appendChild(recipientLabel);
     if ((item.permanent_state === 'open' || item.permanent_state === 'acknowledged') &&
         item.channel === 'email' && item.category === 'ct_due_reminder' && incidentId) {
@@ -192,6 +193,21 @@ async function loadNotificationStatus() {
     notificationEl('notificationPermanent').textContent = resilience.permanentFailures || 0;
     notificationEl('notificationPermanentAcknowledged').textContent = resilience.permanentAcknowledged || 0;
     notificationEl('notificationPermanentResolved').textContent = resilience.permanentResolved || 0;
+    const recipientChecks=resilience.recipientChecks||{};
+    notificationEl('notificationRecipientCorrections').textContent = recipientChecks.changed || 0;
+    notificationEl('notificationRecipientChecksStale').textContent = recipientChecks.stale || 0;
+    const recipientAttention=notificationEl('notificationRecipientAttention');
+    if (recipientAttention) {
+      if ((Number(recipientChecks.changed)||0) > 0) {
+        recipientAttention.textContent = `ALERTE · ${Number(recipientChecks.changed)||0} correction(s) de destinataire détectée(s) dans Mercure. Aucun envoi automatique : utilisez le retry gouverné après préflight email.`;
+      } else if ((Number(recipientChecks.stale)||0) > 0) {
+        recipientAttention.textContent = `SURVEILLANCE · ${Number(recipientChecks.stale)||0} contrôle(s) destinataire périmé(s) ou non exécuté(s). Le worker doit les rafraîchir sans envoyer de message.`;
+      } else if ((Number(recipientChecks.tracked)||0) > 0) {
+        recipientAttention.textContent = 'Surveillance destinataire à jour · aucune correction Mercure détectée.';
+      } else {
+        recipientAttention.textContent = 'Aucun incident destinataire CT actif à surveiller.';
+      }
+    }
     notificationEl('notificationConfigErrors').textContent = transportHealth.reduce((sum,item)=>sum+(Number(item.configurationFailures)||0),0);
     notificationEl('notificationCircuits').textContent = resilience.circuitsOpen || 0;
     renderTransportHealth(transportHealth);

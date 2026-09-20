@@ -16,6 +16,7 @@ DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
 DB = DATA_DIR / "notification-broker.sqlite3"
 LEASE_SECONDS = 120
 MAX_ERROR = 300
+RECIPIENT_CHECK_STALE_SECONDS = 7200
 
 
 class PermanentDeliverySuppressed(RuntimeError):
@@ -115,6 +116,7 @@ def init_db() -> None:
             ("permanent_resolution", "TEXT NOT NULL DEFAULT ''"),
             ("recipient_check_state", "TEXT NOT NULL DEFAULT ''"),
             ("recipient_checked_at", "TEXT NOT NULL DEFAULT ''"),
+            ("recipient_change_detected_at", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 db.execute(f"ALTER TABLE notification_delivery ADD COLUMN {name} {ddl}")
@@ -246,7 +248,7 @@ def _record_delivery_failure(key: str, failure_class: str, diagnostic: str, next
               SET status='failed',last_error=?,failure_class=?,next_attempt_at='',
                   incident_id=CASE WHEN incident_id='' THEN ? ELSE incident_id END,
                   permanent_state='open',permanent_state_at=?,permanent_resolution='',
-                  recipient_check_state='',recipient_checked_at=''
+                  recipient_check_state='',recipient_checked_at='',recipient_change_detected_at=''
               WHERE idempotency_key=?""",
               (diagnostic, failure_class, uuid.uuid4().hex, now_iso, key))
         else:
@@ -271,7 +273,7 @@ def _permanent_failure_row(incident_id: object) -> sqlite3.Row:
     with connect() as db:
         row = db.execute("""SELECT incident_id,channel,category,reference,recipient_hash,failure_class,
           permanent_state,permanent_state_at,permanent_resolution,last_attempt_at,last_error,
-          recipient_check_state,recipient_checked_at
+          recipient_check_state,recipient_checked_at,recipient_change_detected_at
           FROM notification_delivery WHERE incident_id=?""", (incident,)).fetchone()
     if row is None or row["failure_class"] != "permanent":
         raise LookupError("permanent_failure_not_found")
@@ -291,6 +293,7 @@ def permanent_failure_context(incident_id: object) -> dict:
         "permanentResolution": row["permanent_resolution"],
         "recipientCheckState": row["recipient_check_state"],
         "recipientCheckedAt": row["recipient_checked_at"],
+        "recipientChangeDetectedAt": row["recipient_change_detected_at"],
     }
 
 
@@ -306,17 +309,27 @@ def record_permanent_recipient_check(incident_id: object, state: object) -> dict
     checked_at = _now_iso()
     with connect() as db:
         row = db.execute(
-            "SELECT failure_class FROM notification_delivery WHERE incident_id=?", (incident,)
+            "SELECT failure_class,recipient_check_state,recipient_change_detected_at FROM notification_delivery WHERE incident_id=?",
+            (incident,),
         ).fetchone()
         if row is None or row["failure_class"] != "permanent":
             raise LookupError("permanent_failure_not_found")
+        previous = str(row["recipient_check_state"] or "")
+        transitioned = recipient_state == "changed" and previous != "changed"
+        if recipient_state == "changed":
+            change_detected_at = checked_at if transitioned else str(row["recipient_change_detected_at"] or checked_at)
+        else:
+            change_detected_at = ""
         db.execute(
-            "UPDATE notification_delivery SET recipient_check_state=?,recipient_checked_at=? WHERE incident_id=?",
-            (recipient_state, checked_at, incident),
+            """UPDATE notification_delivery
+               SET recipient_check_state=?,recipient_checked_at=?,recipient_change_detected_at=?
+               WHERE incident_id=?""",
+            (recipient_state, checked_at, change_detected_at, incident),
         )
     return {
         "ok": True, "incidentId": incident,
         "recipientState": recipient_state, "recipientCheckedAt": checked_at,
+        "transitionedToChanged": transitioned, "recipientChangeDetectedAt": change_detected_at,
     }
 
 
@@ -331,6 +344,8 @@ def permanent_failure_recipient_state(incident_id: object, recipient: object) ->
         "incidentId": row["incident_id"],
         "recipientState": state,
         "recipientCheckedAt": persisted["recipientCheckedAt"],
+        "transitionedToChanged": bool(persisted.get("transitionedToChanged")),
+        "recipientChangeDetectedAt": persisted.get("recipientChangeDetectedAt", ""),
         "permanentState": row["permanent_state"] or "open",
     }
 
@@ -548,15 +563,52 @@ def status(limit: int = 20) -> dict:
         }
         recent = [dict(row) for row in db.execute(
             """SELECT channel,category,reference,status,attempts,created_at,last_attempt_at,sent_at,last_error,failure_class,next_attempt_at,
-                      permanent_state,permanent_state_at,permanent_resolution,recipient_check_state,recipient_checked_at
+                      permanent_state,permanent_state_at,permanent_resolution,recipient_check_state,recipient_checked_at,recipient_change_detected_at
                FROM notification_delivery ORDER BY COALESCE(sent_at,last_attempt_at,created_at) DESC LIMIT ?""", (limit,))]
         permanent_rows = [dict(row) for row in db.execute(
             """SELECT incident_id,channel,category,reference,last_attempt_at,last_error,permanent_state,permanent_state_at,permanent_resolution,
-                      recipient_check_state,recipient_checked_at
+                      recipient_check_state,recipient_checked_at,recipient_change_detected_at
                FROM notification_delivery WHERE failure_class='permanent'
                ORDER BY COALESCE(permanent_state_at,last_attempt_at,created_at) DESC LIMIT ?""", (limit,))]
+        recipient_rows = [dict(row) for row in db.execute(
+            """SELECT recipient_check_state,recipient_checked_at,recipient_change_detected_at
+               FROM notification_delivery
+               WHERE failure_class='permanent' AND permanent_state IN ('open','acknowledged')
+                 AND channel='email' AND category='ct_due_reminder'""")]
         health_rows = [dict(row) for row in db.execute(
             "SELECT * FROM notification_transport_health ORDER BY transport_key")]
+    recipient_checks = {
+        "tracked": len(recipient_rows), "fresh": 0, "stale": 0, "unchecked": 0,
+        "changed": 0, "unchanged": 0, "missing": 0, "lookupFailed": 0,
+        "staleAfterSeconds": RECIPIENT_CHECK_STALE_SECONDS,
+    }
+    for item in recipient_rows:
+        state = str(item.get("recipient_check_state") or "")
+        if state == "changed":
+            recipient_checks["changed"] += 1
+        elif state == "unchanged":
+            recipient_checks["unchanged"] += 1
+        elif state == "missing":
+            recipient_checks["missing"] += 1
+        elif state == "lookup_failed":
+            recipient_checks["lookupFailed"] += 1
+        checked_at = str(item.get("recipient_checked_at") or "")
+        if not checked_at:
+            recipient_checks["unchecked"] += 1
+            recipient_checks["stale"] += 1
+            continue
+        try:
+            checked = datetime.datetime.fromisoformat(checked_at)
+            if checked.tzinfo is None:
+                checked = checked.replace(tzinfo=datetime.timezone.utc)
+            age = max(0.0, (now - checked.astimezone(datetime.timezone.utc)).total_seconds())
+        except (TypeError, ValueError):
+            recipient_checks["stale"] += 1
+            continue
+        if age <= RECIPIENT_CHECK_STALE_SECONDS:
+            recipient_checks["fresh"] += 1
+        else:
+            recipient_checks["stale"] += 1
     transports = []
     for item in health_rows:
         retry = _seconds_until(str(item.get("open_until") or ""), now)
@@ -585,6 +637,7 @@ def status(limit: int = 20) -> dict:
             "permanentFailureHistory": int(failure_counts.get("permanent", 0)),
             "permanentAcknowledged": int(permanent_counts.get("acknowledged", 0)),
             "permanentResolved": int(permanent_counts.get("resolved", 0)),
+            "recipientChecks": recipient_checks,
             "transports": transports,
         },
         "permanentFailures": permanent_rows,
