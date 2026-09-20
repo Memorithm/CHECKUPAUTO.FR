@@ -118,5 +118,82 @@ class ReminderDispatchTest(unittest.TestCase):
         self.assertEqual(result["eligible"], 0)
 
 
+    @patch.object(dispatch.notifications, "permanent_failure_recipient_state", return_value={
+        "ok": True, "incidentId": "a" * 32, "recipientState": "changed", "permanentState": "open",
+    })
+    @patch.object(dispatch.notifications, "permanent_failure_context")
+    @patch.object(dispatch.mercure, "customer_email", return_value="corrected@example.fr")
+    def test_permanent_recipient_check_reports_change_without_pii(self, customer_email, context, compare):
+        self.add_target(due="2026-09-20")
+        reference = dispatch._reference({
+            "vehicle_id": "vehicle-99", "due_date": "2026-09-20", "days_before": 1,
+        })
+        context.return_value = {
+            "incidentId": "a" * 32, "channel": "email", "category": "ct_due_reminder",
+            "reference": reference, "permanentState": "open",
+        }
+        result = dispatch.permanent_recipient_check("a" * 32)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["recipientState"], "changed")
+        self.assertTrue(result["retryEligible"])
+        self.assertNotIn("corrected@example.fr", str(result))
+        self.assertNotIn("hash", str(result).lower())
+        customer_email.assert_called_once_with("account", "12")
+        compare.assert_called_once_with("a" * 32, "corrected@example.fr")
+
+    @patch.object(dispatch.notifications, "send_email", return_value={"ok": True, "status": "sent"})
+    @patch.object(dispatch.notifications, "permanent_failure_recipient_state", return_value={
+        "ok": True, "incidentId": "b" * 32, "recipientState": "changed", "permanentState": "open",
+    })
+    @patch.object(dispatch.notifications, "permanent_failure_context")
+    @patch.object(dispatch.mercure, "customer_email", return_value="corrected@example.fr")
+    @patch.object(dispatch.mail, "preflight", return_value={"ok": True, "state": "ready"})
+    def test_permanent_recipient_retry_requires_changed_recipient_and_green_preflight(
+        self, preflight, customer_email, context, compare, send_email
+    ):
+        self.add_target(due="2026-09-20")
+        reference = dispatch._reference({
+            "vehicle_id": "vehicle-99", "due_date": "2026-09-20", "days_before": 1,
+        })
+        context.return_value = {
+            "incidentId": "b" * 32, "channel": "email", "category": "ct_due_reminder",
+            "reference": reference, "permanentState": "open",
+        }
+        result = dispatch.permanent_recipient_retry("b" * 32)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "resent")
+        self.assertNotIn("corrected@example.fr", str(result))
+        send_email.assert_called_once()
+        args, kwargs = send_email.call_args
+        self.assertEqual(args[0], "corrected@example.fr")
+        self.assertEqual(kwargs["reference"], reference)
+        self.assertEqual(kwargs["category"], "ct_due_reminder")
+
+    @patch.object(dispatch.notifications, "send_email")
+    @patch.object(dispatch.notifications, "permanent_failure_recipient_state", return_value={
+        "ok": True, "incidentId": "c" * 32, "recipientState": "unchanged", "permanentState": "open",
+    })
+    @patch.object(dispatch.notifications, "permanent_failure_context")
+    @patch.object(dispatch.mercure, "customer_email", return_value="same@example.fr")
+    @patch.object(dispatch.mail, "preflight")
+    def test_permanent_recipient_retry_never_sends_when_recipient_is_unchanged(
+        self, preflight, customer_email, context, compare, send_email
+    ):
+        self.add_target(due="2026-09-20")
+        reference = dispatch._reference({
+            "vehicle_id": "vehicle-99", "due_date": "2026-09-20", "days_before": 1,
+        })
+        context.return_value = {
+            "incidentId": "c" * 32, "channel": "email", "category": "ct_due_reminder",
+            "reference": reference, "permanentState": "open",
+        }
+        result = dispatch.permanent_recipient_retry("c" * 32)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["state"], "recipient_unchanged")
+        preflight.assert_not_called()
+        send_email.assert_not_called()
+
+
+
 if __name__ == "__main__":
     unittest.main()

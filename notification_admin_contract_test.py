@@ -29,6 +29,18 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("textContent", renderer)
         self.assertNotIn("innerHTML", renderer)
 
+    def test_admin_exposes_privacy_safe_recipient_reconciliation(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        server = (ROOT / "admin_server.py").read_text()
+        self.assertIn("Destinataire Mercure", html)
+        self.assertIn("/api/admin/notifications/permanent/recipient-check", javascript)
+        self.assertIn("/api/admin/notifications/permanent/retry", javascript)
+        self.assertIn("/api/admin/notifications/permanent/recipient-check", server)
+        self.assertIn("/api/admin/notifications/permanent/retry", server)
+        self.assertNotIn("recipient_hash", javascript)
+        self.assertNotIn("recipient_hash", html)
+
     def test_admin_exposes_reminder_permanent_suppression_metric(self):
         html = (ROOT / "admin" / "index.html").read_text()
         javascript = (ROOT / "admin" / "notifications.js").read_text()

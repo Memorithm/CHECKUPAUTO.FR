@@ -1,4 +1,6 @@
 const notificationEl = id => document.getElementById(id);
+const permanentRecipientStates = new Map();
+let lastPermanentFailures = [];
 
 function notificationCell(row, value) {
   const cell = document.createElement('td');
@@ -79,25 +81,68 @@ function renderNotificationRows(items) {
   }
 }
 
+function permanentRecipientLabel(state) {
+  const labels = {
+    unchanged: 'INCHANGÉ',
+    changed: 'CORRIGÉ',
+    missing: 'ABSENT',
+    lookup_failed: 'MERCURE INDISPONIBLE',
+    recipient_lookup_failed: 'MERCURE INDISPONIBLE',
+    recipient_unchanged: 'INCHANGÉ',
+    waiting_email_preflight: 'CORRIGÉ · EMAIL NON PRÊT',
+    email_preflight_failed: 'CORRIGÉ · PRÉFLIGHT INDISPONIBLE',
+    retry_deferred: 'CORRIGÉ · RETRY DIFFÉRÉ',
+    retry_in_flight: 'CORRIGÉ · RETRY EN COURS',
+  };
+  return labels[state] || 'NON VÉRIFIÉ';
+}
+
 function renderPermanentFailures(items) {
+  lastPermanentFailures = Array.isArray(items) ? items : [];
   const body = notificationEl('notificationPermanentRows');
   if (!body) return;
   body.replaceChildren();
-  if (!items.length) {
+  if (!lastPermanentFailures.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 7;
+    cell.colSpan = 8;
     cell.textContent = 'Aucun échec permanent enregistré';
     row.appendChild(cell);
     body.appendChild(row);
     return;
   }
-  for (const item of items) {
+  for (const item of lastPermanentFailures) {
     const row = document.createElement('tr');
     notificationCell(row, item.channel);
     notificationCell(row, item.category);
     notificationCell(row, item.reference);
     notificationCell(row, item.permanent_state || 'open');
+    const recipientCell = document.createElement('td');
+    const incidentId = String(item.incident_id || '');
+    const recipientState = permanentRecipientStates.get(incidentId) || '';
+    const recipientLabel = document.createElement('span');
+    recipientLabel.textContent = permanentRecipientLabel(recipientState);
+    recipientCell.appendChild(recipientLabel);
+    if ((item.permanent_state === 'open' || item.permanent_state === 'acknowledged') &&
+        item.channel === 'email' && item.category === 'ct_due_reminder' && incidentId) {
+      const check = document.createElement('button');
+      check.type = 'button';
+      check.className = 'secondary';
+      check.dataset.recipientCheck = incidentId;
+      check.textContent = 'Vérifier';
+      recipientCell.appendChild(document.createTextNode(' '));
+      recipientCell.appendChild(check);
+      if (recipientState === 'changed' || recipientState === 'waiting_email_preflight' || recipientState === 'email_preflight_failed' || recipientState === 'retry_deferred' || recipientState === 'retry_in_flight') {
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'secondary';
+        retry.dataset.recipientRetry = incidentId;
+        retry.textContent = 'Retenter';
+        recipientCell.appendChild(document.createTextNode(' '));
+        recipientCell.appendChild(retry);
+      }
+    }
+    row.appendChild(recipientCell);
     notificationCell(row, item.last_error || '—');
     notificationCell(row, item.permanent_state_at || item.last_attempt_at || '—');
     const actionCell = document.createElement('td');
@@ -105,10 +150,10 @@ function renderPermanentFailures(items) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'secondary';
-      button.dataset.incidentId = String(item.incident_id || '');
+      button.dataset.incidentId = incidentId;
       button.dataset.permanentAction = item.permanent_state === 'open' ? 'acknowledge' : 'reopen';
       button.textContent = item.permanent_state === 'open' ? 'Acquitter' : 'Réouvrir';
-      button.disabled = !button.dataset.incidentId;
+      button.disabled = !incidentId;
       actionCell.appendChild(button);
     } else {
       actionCell.textContent = item.permanent_resolution === 'superseded_by_success' ? 'Réconcilié par succès' : '—';
@@ -291,6 +336,37 @@ async function runNotificationPreflight() {
   }
 }
 
+async function checkPermanentRecipient(incidentId) {
+  const response = await fetch('/api/admin/notifications/permanent/recipient-check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ incidentId }),
+  });
+  const data = await response.json();
+  const state = String(data.recipientState || data.error || 'lookup_failed');
+  permanentRecipientStates.set(incidentId, state);
+  renderPermanentFailures(lastPermanentFailures);
+  if (!response.ok && !data.recipientState) throw new Error(data.error || 'Vérification impossible');
+  return data;
+}
+
+async function retryPermanentRecipient(incidentId) {
+  const response = await fetch('/api/admin/notifications/permanent/retry', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ incidentId }),
+  });
+  const data = await response.json();
+  if (!response.ok || data.ok === false) {
+    permanentRecipientStates.set(incidentId, String(data.state || data.error || 'retry_blocked'));
+    renderPermanentFailures(lastPermanentFailures);
+    return data;
+  }
+  permanentRecipientStates.delete(incidentId);
+  await loadNotificationStatus();
+  return data;
+}
+
 async function updatePermanentFailure(incidentId, action) {
   const response = await fetch('/api/admin/notifications/permanent/action', {
     method: 'POST',
@@ -318,11 +394,16 @@ async function processRemindersNow() {
 }
 
 notificationEl('notificationPermanentRows')?.addEventListener('click', async event => {
-  const button = event.target.closest('button[data-permanent-action]');
+  const action = event.target.closest('button[data-permanent-action]');
+  const check = event.target.closest('button[data-recipient-check]');
+  const retry = event.target.closest('button[data-recipient-retry]');
+  const button = action || check || retry;
   if (!button) return;
   button.disabled = true;
   try {
-    await updatePermanentFailure(button.dataset.incidentId || '', button.dataset.permanentAction || '');
+    if (check) await checkPermanentRecipient(check.dataset.recipientCheck || '');
+    else if (retry) await retryPermanentRecipient(retry.dataset.recipientRetry || '');
+    else await updatePermanentFailure(action.dataset.incidentId || '', action.dataset.permanentAction || '');
   } finally {
     button.disabled = false;
   }
