@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import analytics_store as analytics
@@ -41,7 +42,7 @@ def _required_schema(db: sqlite3.Connection) -> None:
 
 def status(db_path: Path | None = None) -> dict:
     path = Path(db_path) if db_path is not None else Path(analytics.DB)
-    with _connect_readonly(path) as db:
+    with closing(_connect_readonly(path)) as db:
         _required_schema(db)
         rewards = [
             dict(row)
@@ -86,6 +87,7 @@ def status(db_path: Path | None = None) -> dict:
         "legacyEarns": 0,
         "ambiguousLegacyReferences": 0,
         "missingEarns": 0,
+        "orphanEarns": 0,
         "duplicateEarnReferences": 0,
         "amountMismatches": 0,
         "missingReversals": 0,
@@ -151,6 +153,9 @@ def status(db_path: Path | None = None) -> dict:
             metrics["unexpectedReversals"] += 1
 
     for row in ledger:
+        key = (str(row["account_id"]), str(row["kind"]), str(row["reference"]))
+        if str(row["kind"]) == "earn" and key not in recognized_earn_keys:
+            metrics["orphanEarns"] += 1
         if str(row["kind"]) != "reverse":
             continue
         earn_amount = ledger_map.get((str(row["account_id"]), "earn", str(row["reference"])))
@@ -160,6 +165,7 @@ def status(db_path: Path | None = None) -> dict:
     issue_keys = (
         "ambiguousLegacyReferences",
         "missingEarns",
+        "orphanEarns",
         "duplicateEarnReferences",
         "amountMismatches",
         "missingReversals",
