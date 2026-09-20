@@ -1,25 +1,7 @@
 name: iOS Core CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'ios/CheckupAutoReminder/**'
-      - 'ios_project_manifest_test.py'
-      - 'ios_release_preflight.py'
-      - 'ios_release_preflight_test.py'
-      - 'ios_release_runner.py'
-      - 'ios_release_runner_test.py'
-      - '.github/workflows/ios-core-ci.yml'
-  pull_request:
-    paths:
-      - 'ios/CheckupAutoReminder/**'
-      - 'ios_project_manifest_test.py'
-      - 'ios_release_preflight.py'
-      - 'ios_release_preflight_test.py'
-      - 'ios_release_runner.py'
-      - 'ios_release_runner_test.py'
-      - '.github/workflows/ios-core-ci.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
