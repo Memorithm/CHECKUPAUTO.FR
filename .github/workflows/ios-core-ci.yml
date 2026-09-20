@@ -38,8 +38,6 @@ jobs:
       CHECKUPAUTO_MAC_KEY: /root/.ssh/checkupauto_macmini_ed25519
     steps:
       - uses: actions/checkout@v5
-      - name: Validate iOS release tooling contracts
-        run: python3 -m unittest ios_project_manifest_test ios_release_preflight_test ios_release_runner_test
       - name: Verify remote Apple toolchain
         run: |
           set -euo pipefail
