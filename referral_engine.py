@@ -326,7 +326,9 @@ def _earned_reference_locked(db, row, provider: str, external_id: str, reward_ce
            WHERE account_id=? AND kind='earn' AND reference=?""",
         (row["account_id"], reference),
     ).fetchone()
-    if earned and int(earned["amount_cents"]) == reward_cents:
+    if earned:
+        if int(earned["amount_cents"]) != reward_cents:
+            raise RuntimeError("Intégrité du crédit de parrainage incohérente")
         return reference
 
     legacy_reference = _legacy_reward_ledger_reference(provider, external_id)
