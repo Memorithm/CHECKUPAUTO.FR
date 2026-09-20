@@ -34,10 +34,10 @@ class EmailGatewayTest(unittest.TestCase):
 
     @patch.dict(os.environ, {"CYBERCHECK_EMAIL_TRANSPORT": "gmail"}, clear=True)
     @patch.object(mail.google_integration, "settings", return_value={"gmailSender": "contact@checkupauto.fr"})
-    @patch.object(mail.google_integration, "has_scopes", return_value=True)
+    @patch.object(mail.google_integration, "has_usable_scopes", return_value=True)
     @patch.object(mail.google_integration, "google_access_token", return_value="access-token")
     @patch("email_gateway.requests.post")
-    def test_sends_through_gmail_api(self, post, access_token, has_scopes, settings):
+    def test_sends_through_gmail_api(self, post, access_token, has_usable_scopes, settings):
         response = Mock()
         response.status_code = 200
         response.json.return_value = {"id": "gmail-message-1"}
@@ -61,16 +61,16 @@ class EmailGatewayTest(unittest.TestCase):
 
     @patch.dict(os.environ, {"CYBERCHECK_EMAIL_TRANSPORT": "gmail"}, clear=True)
     @patch.object(mail.google_integration, "settings", return_value={"gmailSender": "contact@checkupauto.fr"})
-    @patch.object(mail.google_integration, "has_scopes", return_value=False)
-    def test_gmail_requires_authorized_scope(self, has_scopes, settings):
+    @patch.object(mail.google_integration, "has_usable_scopes", return_value=False)
+    def test_gmail_requires_authorized_scope(self, has_usable_scopes, settings):
         self.assertFalse(mail.configured())
         with self.assertRaisesRegex(RuntimeError, "Gmail Checkup Auto non configuré"):
             mail.send_email("client@example.fr", "Rappel", "Message")
 
     @patch.dict(os.environ, {"CYBERCHECK_EMAIL_TRANSPORT": "auto"}, clear=True)
     @patch.object(mail.google_integration, "settings", return_value={"gmailSender": "contact@checkupauto.fr"})
-    @patch.object(mail.google_integration, "has_scopes", return_value=True)
-    def test_status_reports_gmail_fallback_readiness(self, has_scopes, settings):
+    @patch.object(mail.google_integration, "has_usable_scopes", return_value=True)
+    def test_status_reports_gmail_fallback_readiness(self, has_usable_scopes, settings):
         state = mail.transport_status()
         self.assertTrue(state["configured"])
         self.assertEqual(state["transport"], "gmail-api")
@@ -86,10 +86,10 @@ class EmailGatewayTest(unittest.TestCase):
 
     @patch.dict(os.environ, {"CYBERCHECK_EMAIL_TRANSPORT": "gmail"}, clear=True)
     @patch.object(mail.google_integration, "settings", return_value={"gmailSender": "contact@checkupauto.fr"})
-    @patch.object(mail.google_integration, "has_scopes", return_value=True)
+    @patch.object(mail.google_integration, "has_usable_scopes", return_value=True)
     @patch.object(mail.google_integration, "google_access_token", return_value="access-token")
     @patch("email_gateway.requests.post")
-    def test_gmail_429_preserves_retry_after(self, post, access_token, has_scopes, settings):
+    def test_gmail_429_preserves_retry_after(self, post, access_token, has_usable_scopes, settings):
         response = Mock()
         response.status_code = 429
         response.headers = {"Retry-After": "120"}

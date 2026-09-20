@@ -153,12 +153,15 @@ def _client_payload(payload):
     client_secret = str(cfg.get("client_secret") or "").strip()
     if not client_id or not client_secret:
         raise IntegrationError("client_id et client_secret Google sont requis.")
+    token_uri = str(cfg.get("token_uri") or TOKEN_URL).strip()
+    if token_uri != TOKEN_URL:
+        raise IntegrationError("token_uri OAuth Google non approuvée.")
     return {
         "client_id": client_id,
         "client_secret": client_secret,
         "project_id": str(cfg.get("project_id") or "").strip(),
-        "auth_uri": str(cfg.get("auth_uri") or AUTH_URL),
-        "token_uri": str(cfg.get("token_uri") or TOKEN_URL),
+        "auth_uri": AUTH_URL,
+        "token_uri": TOKEN_URL,
     }
 
 
@@ -236,31 +239,100 @@ def _granted_scopes():
     return set()
 
 
+def _token_expiry(token):
+    raw = str((token or {}).get("expires_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        expiry = datetime.datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=datetime.timezone.utc)
+    return expiry.astimezone(datetime.timezone.utc)
+
+
+def oauth_health():
+    """Return a secret-free local assessment of the persisted Google OAuth session."""
+    token = _load(TOKEN_FILE)
+    client = oauth_client_info()
+    scopes = sorted(_granted_scopes())
+    has_access = bool(token.get("access_token"))
+    has_refresh = bool(token.get("refresh_token"))
+    expiry = _token_expiry(token)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cached_access_valid = bool(
+        has_access
+        and expiry is not None
+        and expiry > now + datetime.timedelta(seconds=30)
+    )
+    refreshable = bool(has_refresh and client.get("configured"))
+    usable = cached_access_valid or refreshable
+
+    if not has_access and not has_refresh:
+        state = "awaiting_authorization"
+    elif refreshable:
+        state = "ready"
+    elif cached_access_valid:
+        state = "ready_cached"
+    elif has_refresh and not client.get("configured"):
+        state = "oauth_client_missing"
+    elif has_access and expiry is None:
+        state = "reauthorization_required"
+    else:
+        state = "token_expired"
+
+    return {
+        "usable": usable,
+        "state": state,
+        "refreshable": refreshable,
+        "cachedAccessValid": cached_access_valid,
+        "scopeCount": len(scopes),
+    }
+
+
+def has_usable_scopes(required):
+    required = set(required or [])
+    return bool(oauth_health().get("usable")) and required.issubset(_granted_scopes())
+
+
 def status(legacy_search_console=None):
     legacy_search_console = legacy_search_console or {}
     scopes = _granted_scopes()
     cfg = settings()
     client = oauth_client_info()
-    token = _load(TOKEN_FILE)
+    health = oauth_health()
     rows = []
     for key, meta in CONNECTORS.items():
         required = set(meta.get("scopes") or [])
-        oauth_ok = bool(required) and required.issubset(scopes)
+        scope_granted = bool(required) and required.issubset(scopes)
+        oauth_ok = bool(health.get("usable")) and scope_granted
+        oauth_stale = scope_granted and not bool(health.get("usable"))
         extra_ok = True
         if meta.get("setting"):
             extra_ok = bool(cfg.get(meta["setting"]))
         if key == "search_console":
             legacy_ok = bool(legacy_search_console.get("configured"))
             connected = oauth_ok or legacy_ok
-            state = "connected" if connected else "available"
-            detail = "Compte de service Search Console actif" if legacy_ok and not oauth_ok else ("OAuth Google autorisé" if oauth_ok else "À connecter")
+            if connected:
+                state = "connected"
+                detail = "Compte de service Search Console actif" if legacy_ok and not oauth_ok else "OAuth Google autorisé"
+            elif oauth_stale:
+                state = "attention"
+                detail = "Autorisation OAuth présente · session à renouveler"
+            else:
+                state = "available"
+                detail = "À connecter"
         elif meta["mode"] == "api_key":
             connected = extra_ok
             state = "connected" if connected else "available"
             detail = "Clé API configurée" if connected else "Clé API requise"
         else:
             connected = oauth_ok and extra_ok
-            if oauth_ok and not extra_ok:
+            if oauth_stale:
+                state = "attention"
+                detail = "Autorisation OAuth présente · session à renouveler"
+            elif oauth_ok and not extra_ok:
                 state = "attention"
                 detail = "OAuth autorisé · paramètre complémentaire requis"
             else:
@@ -280,7 +352,8 @@ def status(legacy_search_console=None):
     return {
         "provider": "google",
         "oauthClient": client,
-        "oauthAuthorized": bool(token.get("refresh_token") or token.get("access_token")),
+        "oauthAuthorized": bool(health.get("usable")),
+        "oauthHealth": health,
         "grantedScopes": sorted(scopes),
         "settings": settings_info(),
         "connectors": rows,
@@ -340,7 +413,7 @@ def handle_oauth_callback(base_url, state, code, error=""):
     client = _load(CLIENT_FILE)
     try:
         response = requests.post(
-            client.get("token_uri") or TOKEN_URL,
+            TOKEN_URL,
             data={
                 "code": code,
                 "client_id": client["client_id"],
@@ -401,7 +474,7 @@ def google_access_token(required_scopes=None, *, force_refresh=False):
         raise IntegrationError("La connexion OAuth Google doit être renouvelée.")
     try:
         response = requests.post(
-            client.get("token_uri") or TOKEN_URL,
+            TOKEN_URL,
             data={
                 "client_id": client["client_id"],
                 "client_secret": client["client_secret"],

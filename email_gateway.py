@@ -150,7 +150,7 @@ def smtp_configured() -> bool:
 def gmail_configured() -> bool:
     try:
         sender = _gmail_sender()
-        return valid_email(sender) and google_integration.has_scopes([GMAIL_SEND_SCOPE])
+        return valid_email(sender) and google_integration.has_usable_scopes([GMAIL_SEND_SCOPE])
     except (OSError, google_integration.IntegrationError):
         return False
 

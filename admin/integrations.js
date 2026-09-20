@@ -12,6 +12,15 @@ function ihStatusClass(state){
   return state==='connected'?'online':state==='attention'?'warning':'offline';
 }
 
+function ihOauthHealthText(health={}){
+  const state=health.state||'awaiting_authorization';
+  if(health.usable)return health.refreshable?'OAuth renouvelable':'OAuth actif';
+  if(state==='token_expired')return 'jeton expiré';
+  if(state==='reauthorization_required')return 'réautorisation requise';
+  if(state==='oauth_client_missing')return 'client OAuth manquant';
+  return 'autorisation requise';
+}
+
 function ihRender(data){
   const badge=ih('integrationGoogleStatus');
   const rows=data.connectors||[];
@@ -20,10 +29,14 @@ function ihRender(data){
   badge.className='gsc-status '+(connected?'online':'warning');
 
   const client=data.oauthClient||{};
+  const oauthHealth=data.oauthHealth||{};
   ih('googleOAuthRedirectUri').textContent=data.redirectUri||'—';
   ih('googleOAuthIdentity').textContent=client.configured
-    ? `Client OAuth installé · ${client.projectId||'projet Google'} · …${client.clientIdSuffix||''}`
+    ? `Client OAuth installé · ${client.projectId||'projet Google'} · …${client.clientIdSuffix||''} · ${ihOauthHealthText(oauthHealth)}`
     : 'Aucun client OAuth Google installé.';
+  if(!oauthHealth.usable&&['token_expired','reauthorization_required','oauth_client_missing'].includes(oauthHealth.state)){
+    badge.className='gsc-status offline';
+  }
 
   const grid=ih('googleConnectorGrid');
   grid.replaceChildren();
