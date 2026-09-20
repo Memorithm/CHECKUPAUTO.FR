@@ -158,6 +158,33 @@ class EmailGatewayTest(unittest.TestCase):
         "CYBERCHECK_SMTP_MODE": "starttls",
     }, clear=True)
     @patch("email_gateway.smtplib.SMTP")
+    def test_remote_smtp_send_requires_credentials_before_network_io(self, smtp_cls):
+        with self.assertRaises(mail.EmailDeliveryError) as caught:
+            mail.send_email("client@example.fr", "Rappel", "Message")
+        self.assertTrue(caught.exception.configuration_error)
+        self.assertFalse(caught.exception.permanent)
+        self.assertEqual(caught.exception.reason, "authentication_required_for_remote_relay")
+        smtp_cls.assert_not_called()
+
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
+        "CYBERCHECK_SMTP_HOST": "smtp.example.fr",
+        "CYBERCHECK_SMTP_PORT": "587",
+        "CYBERCHECK_SMTP_MODE": "starttls",
+    }, clear=True)
+    def test_remote_smtp_status_reports_awaiting_credentials(self):
+        state = mail.transport_status()
+        self.assertTrue(state["configured"])
+        self.assertEqual(state["transport"], "smtp-relay")
+        self.assertEqual(state["state"], "awaiting_credentials")
+
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
+        "CYBERCHECK_SMTP_HOST": "smtp.example.fr",
+        "CYBERCHECK_SMTP_PORT": "587",
+        "CYBERCHECK_SMTP_MODE": "starttls",
+    }, clear=True)
+    @patch("email_gateway.smtplib.SMTP")
     def test_remote_smtp_preflight_requires_credentials_by_default(self, smtp_cls):
         state = mail.smtp_preflight()
         self.assertFalse(state["ready"])
