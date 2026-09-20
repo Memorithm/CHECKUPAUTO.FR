@@ -49,8 +49,8 @@ _REMEDIATION = {
     },
     "notification_broker": {
         "code": "restore_notification_broker",
-        "summary": "Fermer les circuits défaillants après correction du transport concerné.",
-        "verify": "Aucun circuit ouvert dans NotificationBroker.",
+        "summary": "Fermer les circuits défaillants et traiter les échecs permanents après correction du transport concerné.",
+        "verify": "Aucun circuit ouvert et aucun échec permanent dans NotificationBroker.",
         "target": "#notifications",
         "external": False,
     },
@@ -235,11 +235,21 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
     else:
         resilience = broker.get("resilience") or {}
         circuits = int(resilience.get("circuitsOpen") or 0)
+        permanent_failures = int(resilience.get("permanentFailures") or 0)
+        broker_degraded = circuits > 0 or permanent_failures > 0
+        if circuits and permanent_failures:
+            broker_detail = f"{circuits} circuit(s) ouvert(s), {permanent_failures} échec(s) permanent(s)"
+        elif circuits:
+            broker_detail = f"{circuits} circuit(s) ouvert(s)"
+        elif permanent_failures:
+            broker_detail = f"{permanent_failures} échec(s) permanent(s) à traiter"
+        else:
+            broker_detail = "Broker et ledger opérationnels"
         components.append(_component(
-            "notification_broker", "NotificationBroker", "degraded" if circuits else "ready",
-            f"{circuits} circuit(s) ouvert(s)" if circuits else "Broker et ledger opérationnels",
+            "notification_broker", "NotificationBroker", "degraded" if broker_degraded else "ready",
+            broker_detail,
             critical=True,
-            metrics={"circuitsOpen": circuits, "permanentFailures": int(resilience.get("permanentFailures") or 0)},
+            metrics={"circuitsOpen": circuits, "permanentFailures": permanent_failures},
         ))
         preflight, preflight_error = _safe("notification preflight", notification_preflight.run)
         channels = broker.get("channels") or {}
