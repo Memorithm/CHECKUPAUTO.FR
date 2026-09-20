@@ -96,6 +96,20 @@ class ReminderDispatchTest(unittest.TestCase):
         customer_email.assert_not_called()
         send_email.assert_not_called()
 
+    @patch.object(dispatch.notifications, "send_email", side_effect=dispatch.notifications.PermanentDeliverySuppressed("suppressed"))
+    @patch.object(dispatch.mercure, "customer_email", return_value="client@example.fr")
+    @patch.object(dispatch.mail, "preflight", return_value={"ok": True, "state": "ready"})
+    @patch.object(dispatch.mail, "configured", return_value=True)
+    def test_existing_permanent_failure_is_observed_without_counting_new_delivery_failure(self, _configured, _preflight, _email, send_email):
+        self.add_target()
+        now = datetime.datetime(2026, 9, 19, 12, 0, tzinfo=datetime.timezone.utc)
+        result = dispatch.process_once(now, do_sync=False)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "active_with_permanent_suppressions")
+        self.assertEqual(result["permanentSuppressed"], 1)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(send_email.call_count, 1)
+
     def test_before_nine_does_not_dispatch(self):
         self.add_target()
         now = datetime.datetime(2026, 9, 19, 6, 0, tzinfo=datetime.timezone.utc)
