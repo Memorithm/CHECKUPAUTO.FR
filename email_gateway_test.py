@@ -136,15 +136,51 @@ class EmailGatewayTest(unittest.TestCase):
         "CYBERCHECK_SMTP_PASSWORD": "runtime-only-secret",
     }, clear=True)
     @patch("email_gateway.smtplib.SMTP")
-    def test_smtp_preflight_validates_tls_auth_without_sending(self, smtp_cls):
+    def test_smtp_preflight_validates_tls_auth_and_sender_without_sending(self, smtp_cls):
         client = smtp_cls.return_value
-        client.noop.return_value = (250, b"OK")
+        client.mail.return_value = (250, b"Sender OK")
+        client.rset.return_value = (250, b"Reset OK")
         state = mail.smtp_preflight()
         self.assertTrue(state["ready"])
         self.assertTrue(state["tls"])
         self.assertTrue(state["authentication"])
+        self.assertTrue(state["senderValidated"])
         client.starttls.assert_called_once()
         client.login.assert_called_once_with("mailer-user", "runtime-only-secret")
+        client.mail.assert_called_once_with("rappel@checkupauto.fr")
+        client.rset.assert_called_once()
+        client.send_message.assert_not_called()
+
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
+        "CYBERCHECK_SMTP_HOST": "smtp.example.fr",
+        "CYBERCHECK_SMTP_PORT": "587",
+        "CYBERCHECK_SMTP_MODE": "starttls",
+    }, clear=True)
+    @patch("email_gateway.smtplib.SMTP")
+    def test_remote_smtp_preflight_requires_credentials_by_default(self, smtp_cls):
+        state = mail.smtp_preflight()
+        self.assertFalse(state["ready"])
+        self.assertEqual(state["state"], "awaiting_credentials")
+        self.assertEqual(state["reason"], "authentication_required_for_remote_relay")
+        smtp_cls.assert_not_called()
+
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr",
+        "CYBERCHECK_SMTP_HOST": "smtp.example.fr",
+        "CYBERCHECK_SMTP_PORT": "587",
+        "CYBERCHECK_SMTP_MODE": "starttls",
+        "CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE": "1",
+    }, clear=True)
+    @patch("email_gateway.smtplib.SMTP")
+    def test_explicit_remote_unauthenticated_override_is_preflighted(self, smtp_cls):
+        client = smtp_cls.return_value
+        client.mail.return_value = (250, b"Sender OK")
+        client.rset.return_value = (250, b"Reset OK")
+        state = mail.smtp_preflight()
+        self.assertTrue(state["ready"])
+        self.assertFalse(state["authentication"])
+        client.login.assert_not_called()
         client.send_message.assert_not_called()
 
     @patch.dict(os.environ, {

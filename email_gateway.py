@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.utils import parseaddr
@@ -72,6 +73,20 @@ class SMTPConfig:
 
 def _env(name: str) -> str:
     return str(os.environ.get(name, "") or "").strip()
+
+
+def _bool_env(name: str) -> bool:
+    return _env(name).lower() in {"1", "true", "yes", "on"}
+
+
+def _local_smtp_host(host: str) -> bool:
+    value = str(host or "").strip().lower()
+    if value in {"localhost", "localhost.localdomain"}:
+        return True
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
 
 
 def valid_email(value: object) -> bool:
@@ -444,20 +459,39 @@ def _preflight_failure(transport: str, exc: EmailDeliveryError) -> dict:
 
 
 def smtp_preflight() -> dict:
-    """Validate SMTP configuration/connectivity without sending a message."""
+    """Validate SMTP transport without sending DATA or creating a message."""
     try:
         cfg = load_config()
     except ValueError as exc:
         return {"transport": "smtp-relay", "ready": False, "state": "invalid_configuration", "failureClass": "configuration", "status": 0, "reason": str(exc)[:120]}
     if cfg is None:
         return {"transport": "smtp-relay", "ready": False, "state": "awaiting_configuration", "failureClass": "configuration", "status": 0, "reason": "sender_missing"}
+    if (
+        not cfg.username
+        and not _local_smtp_host(cfg.host)
+        and not _bool_env("CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE")
+    ):
+        return {
+            "transport": "smtp-relay",
+            "ready": False,
+            "state": "awaiting_credentials",
+            "failureClass": "configuration",
+            "status": 0,
+            "reason": "authentication_required_for_remote_relay",
+            "tls": cfg.mode in {"starttls", "ssl"},
+            "authentication": False,
+        }
     client = None
     try:
         client = _open_smtp(cfg)
-        code, _ = client.noop()
+        code, _ = client.mail(cfg.sender)
         code = _smtp_code(code)
         if code >= 400:
-            raise smtplib.SMTPResponseException(code, b"NOOP refused")
+            raise smtplib.SMTPResponseException(code, b"MAIL FROM refused")
+        reset_code, _ = client.rset()
+        reset_code = _smtp_code(reset_code)
+        if reset_code >= 400:
+            raise smtplib.SMTPResponseException(reset_code, b"RSET refused")
     except Exception as exc:
         return _preflight_failure("smtp-relay", _smtp_error(exc))
     finally:
@@ -468,9 +502,10 @@ def smtp_preflight() -> dict:
         "state": "ready",
         "failureClass": "",
         "status": 200,
-        "reason": "connection_validated",
+        "reason": "sender_envelope_validated",
         "tls": cfg.mode in {"starttls", "ssl"},
         "authentication": bool(cfg.username),
+        "senderValidated": True,
     }
 
 
