@@ -57,6 +57,10 @@ def _reward_ledger_reference(provider: str, external_id: str) -> str:
     return "reward:" + hashlib.sha256(payload).hexdigest()
 
 
+def _legacy_reward_ledger_reference(provider: str, external_id: str) -> str:
+    return f"{provider}:{external_id}"
+
+
 def init_db() -> None:
     with analytics.connect() as db:
         db.executescript(
@@ -315,16 +319,48 @@ def complete_control(provider: str, external_id: object) -> dict | None:
         return dict(updated)
 
 
-def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -> dict:
+def _earned_reference_locked(db, row, provider: str, external_id: str, reward_cents: int) -> str:
     reference = _reward_ledger_reference(provider, external_id)
-    reward_cents = int(row["reward_cents"])
     earned = db.execute(
         """SELECT amount_cents FROM referral_ledger
            WHERE account_id=? AND kind='earn' AND reference=?""",
         (row["account_id"], reference),
     ).fetchone()
-    if not earned or int(earned["amount_cents"]) != reward_cents:
+    if earned:
+        if int(earned["amount_cents"]) != reward_cents:
+            raise RuntimeError("Intégrité du crédit de parrainage incohérente")
+        return reference
+
+    legacy_reference = _legacy_reward_ledger_reference(provider, external_id)
+    legacy_earned = db.execute(
+        """SELECT amount_cents FROM referral_ledger
+           WHERE account_id=? AND kind='earn' AND reference=?""",
+        (row["account_id"], legacy_reference),
+    ).fetchone()
+    if not legacy_earned or int(legacy_earned["amount_cents"]) != reward_cents:
         raise RuntimeError("Intégrité du crédit de parrainage incohérente")
+
+    legacy_candidates = db.execute(
+        """SELECT provider,external_id FROM referral_rewards
+           WHERE account_id=? AND status IN ('earned','reversed')""",
+        (row["account_id"],),
+    ).fetchall()
+    matching = [
+        candidate
+        for candidate in legacy_candidates
+        if _legacy_reward_ledger_reference(candidate["provider"], candidate["external_id"])
+        == legacy_reference
+    ]
+    if len(matching) != 1 or (
+        matching[0]["provider"] != provider or matching[0]["external_id"] != external_id
+    ):
+        raise RuntimeError("Référence historique de parrainage ambiguë")
+    return legacy_reference
+
+
+def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -> dict:
+    reward_cents = int(row["reward_cents"])
+    reference = _earned_reference_locked(db, row, provider, external_id, reward_cents)
     existing_reverse = db.execute(
         """SELECT 1 FROM referral_ledger
            WHERE account_id=? AND kind='reverse' AND reference=?""",
