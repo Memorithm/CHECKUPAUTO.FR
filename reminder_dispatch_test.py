@@ -49,8 +49,9 @@ class ReminderDispatchTest(unittest.TestCase):
 
     @patch.object(dispatch.notifications, "send_email")
     @patch.object(dispatch.mercure, "customer_email", return_value="client@example.fr")
+    @patch.object(dispatch.mail, "preflight", return_value={"ok": True, "state": "ready"})
     @patch.object(dispatch.mail, "configured", return_value=True)
-    def test_sends_via_broker_without_persisting_email(self, _configured, _email, send_email):
+    def test_sends_via_broker_without_persisting_email(self, _configured, _preflight, _email, send_email):
         send_email.return_value = {"ok": True, "status": "sent"}
         self.add_target()
         now = datetime.datetime(2026, 9, 19, 12, 0, tzinfo=datetime.timezone.utc)
@@ -63,6 +64,37 @@ class ReminderDispatchTest(unittest.TestCase):
         with dispatch.connect() as db:
             columns = [row[1] for row in db.execute("PRAGMA table_info(reminder_target)")]
         self.assertNotIn("email", columns)
+
+
+    @patch.object(dispatch.notifications, "send_email")
+    @patch.object(dispatch.mercure, "customer_email", return_value="client@example.fr")
+    @patch.object(dispatch.mail, "preflight", return_value={"ok": False, "state": "awaiting_credentials"})
+    @patch.object(dispatch.mail, "configured", return_value=True)
+    def test_preflight_blocks_recipient_lookup_and_broker_delivery(self, _configured, _preflight, customer_email, send_email):
+        self.add_target()
+        now = datetime.datetime(2026, 9, 19, 12, 0, tzinfo=datetime.timezone.utc)
+        result = dispatch.process_once(now, do_sync=False)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "waiting_email_preflight")
+        self.assertEqual(result["preflightState"], "awaiting_credentials")
+        self.assertEqual(result["eligible"], 1)
+        customer_email.assert_not_called()
+        send_email.assert_not_called()
+
+    @patch.object(dispatch.notifications, "send_email")
+    @patch.object(dispatch.mercure, "customer_email", return_value="client@example.fr")
+    @patch.object(dispatch.mail, "preflight", side_effect=RuntimeError("provider details must not escape"))
+    @patch.object(dispatch.mail, "configured", return_value=True)
+    def test_preflight_exception_is_safe_and_does_not_resolve_recipient(self, _configured, _preflight, customer_email, send_email):
+        self.add_target()
+        now = datetime.datetime(2026, 9, 19, 12, 0, tzinfo=datetime.timezone.utc)
+        result = dispatch.process_once(now, do_sync=False)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["state"], "email_preflight_failed")
+        self.assertEqual(result["preflightState"], "unavailable")
+        self.assertNotIn("provider", str(result))
+        customer_email.assert_not_called()
+        send_email.assert_not_called()
 
     def test_before_nine_does_not_dispatch(self):
         self.add_target()

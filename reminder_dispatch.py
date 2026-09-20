@@ -278,6 +278,28 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
         result = {"ok": True, "state": "waiting_email_transport", "eligible": len(eligible), "sync": sync}
         _set_meta("last_process", json.dumps(result, separators=(",", ":")))
         return result
+    try:
+        email_preflight = mail.preflight()
+    except Exception:
+        result = {
+            "ok": False,
+            "state": "email_preflight_failed",
+            "eligible": len(eligible),
+            "preflightState": "unavailable",
+            "sync": sync,
+        }
+        _set_meta("last_process", json.dumps(result, separators=(",", ":")))
+        return result
+    if not bool(email_preflight.get("ok")):
+        result = {
+            "ok": True,
+            "state": "waiting_email_preflight",
+            "eligible": len(eligible),
+            "preflightState": str(email_preflight.get("state") or "unknown"),
+            "sync": sync,
+        }
+        _set_meta("last_process", json.dumps(result, separators=(",", ":")))
+        return result
     sent = already = deferred = failed = missing = in_flight = 0
     for row in eligible:
         try:
