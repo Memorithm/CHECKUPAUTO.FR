@@ -39,9 +39,33 @@ def _recipient_hash(recipient: str) -> str:
     return hashlib.sha256(recipient.strip().lower().encode("utf-8")).hexdigest()
 
 
+def _diagnostic_token(value: object, *, limit: int = 80) -> str:
+    raw = str(value or "").strip()[:limit]
+    return raw if re.fullmatch(r"[A-Za-z0-9_.:-]+", raw) else ""
+
+
 def _safe_error(exc: Exception) -> str:
-    raw = f"{type(exc).__name__}: {exc}"
-    return re.sub(r"[^\s<>]+@[^\s<>]+", "[email]", raw)[:MAX_ERROR]
+    """Return a persistable diagnostic without arbitrary exception text or PII."""
+    if isinstance(exc, email_transport.EmailDeliveryError):
+        fields = [
+            "EmailDeliveryError",
+            f"transport={_diagnostic_token(exc.transport, limit=40) or 'email'}",
+            f"class={_diagnostic_token(exc.failure_class, limit=24) or 'unknown'}",
+        ]
+        if int(exc.status or 0):
+            fields.append(f"status={int(exc.status)}")
+        reason = _diagnostic_token(exc.reason)
+        if reason:
+            fields.append(f"reason={reason}")
+        return " ".join(fields)[:MAX_ERROR]
+    if isinstance(exc, push_transport.APNSError):
+        fields = ["APNSError", f"status={int(exc.status or 0)}"]
+        reason = _diagnostic_token(exc.reason, limit=120)
+        if reason:
+            fields.append(f"reason={reason}")
+        return " ".join(fields)[:MAX_ERROR]
+    name = _diagnostic_token(type(exc).__name__, limit=80)
+    return (name or "DeliveryError")[:MAX_ERROR]
 
 
 def _delivery_key(channel: str, category: str, reference: str, recipient: str) -> str:
