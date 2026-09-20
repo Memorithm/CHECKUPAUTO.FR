@@ -212,9 +212,9 @@ class Handler(SimpleHTTPRequestHandler):
          '<meta http-equiv="refresh" content="0;url=/admin/#integrations"><title>Google connecté</title></head>'
          '<body><p>Connexion Google enregistrée. <a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode()
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
-   except Exception as exc:
+   except Exception:
     return self.send_bytes(('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">'
-      '<title>Connexion Google impossible</title></head><body><h1>Connexion Google impossible</h1><p>'+esc(exc)+'</p>'
+      '<title>Connexion Google impossible</title></head><body><h1>Connexion Google impossible</h1><p>'+'La connexion Google n’a pas pu être finalisée.'+'</p>'
       '<p><a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode(),'text/html; charset=utf-8',400,'no-store')
   if path=='/api/admin/readiness':
    if not self.authorized(): return self.require_auth()
@@ -227,7 +227,7 @@ class Handler(SimpleHTTPRequestHandler):
     result=integrations.status(gsc.credential_info())
     result['redirectUri']=self._request_origin()+'/api/integrations/google/oauth/callback'
     return self.send_json(result)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},500)
+   except Exception: return self.send_json({'ok':False,'error':'google_integration_status_unavailable'},500)
   if path=='/api/admin/referrals/accounts':
    if not self.authorized(): return self.require_auth()
    try:
@@ -379,7 +379,7 @@ class Handler(SimpleHTTPRequestHandler):
     if path=='/api/admin/google/performance':
      q=parse_qs(parsed.query); days=int(q.get('days',['28'])[0]); return self.send_json(gsc.performance(site,days))
     if path=='/api/admin/google/sitemaps': return self.send_json({'sitemaps':gsc.list_sitemaps(site)})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},502)
+   except Exception: return self.send_json({'ok':False,'error':'google_search_console_unavailable'},502)
   if path.startswith('/p/'):
    code=referrals.valid_code_or_empty(path[3:])
    if not code: return self.send_json({'error':'referral_not_found'},404)
@@ -558,18 +558,18 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/integrations/google/oauth-client':
    try:
     payload=self._read_json(); return self.send_json({'ok':True,'oauthClient':integrations.save_oauth_client(payload)})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'google_integration_request_failed'},400)
   if path=='/api/admin/integrations/google/settings':
    try:
     payload=self._read_json(); return self.send_json({'ok':True,'settings':integrations.save_settings(payload)})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'google_integration_request_failed'},400)
   if path=='/api/admin/integrations/google/oauth/start':
    try:
     payload=self._read_json(); connectors=payload.get('connectors') or []
     if not isinstance(connectors,list): raise ValueError('connectors doit être une liste')
     result=integrations.create_authorization_url(self._request_origin(),[str(x) for x in connectors])
     return self.send_json({'ok':True,**result})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'google_integration_request_failed'},400)
   if path=='/api/admin/mercure/login':
    try:
     payload=self._read_json(); result=mercure_admin.login(payload.get('username'),payload.get('password'))
@@ -686,7 +686,7 @@ class Handler(SimpleHTTPRequestHandler):
      if not isinstance(target,str) or not target.startswith('https://'): raise ValueError('inspection URL must use https')
      return self.send_json({'ok':True,'result':gsc.inspect_url(site,target)})
     return self.send_json({'error':'not_found'},404)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'google_search_console_request_failed'},400)
   if path!='/api/admin/config': return self.send_json({'error':'not_found'},404)
   try:
    current=load_config(); incoming=self._read_json(); validated=validate_config(incoming)
@@ -705,10 +705,10 @@ class Handler(SimpleHTTPRequestHandler):
   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
   if path=='/api/admin/integrations/google/oauth':
    try: return self.send_json({'ok':True,**integrations.revoke_oauth()})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'google_request_failed'},400)
   if path=='/api/admin/google/credentials':
    try: return self.send_json({'ok':True,'credentials':gsc.remove_credentials()})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception: return self.send_json({'ok':False,'error':'google_request_failed'},400)
   if path=='/api/admin/mercure/promo-slot':
    try:
     q=parse_qs(parsed.query); cid=(q.get('id') or [''])[0]
