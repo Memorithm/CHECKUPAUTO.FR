@@ -63,5 +63,24 @@ class MercureSchemaTest(unittest.TestCase):
         }])
 
 
+    @patch.object(mercure, "_session", side_effect=RuntimeError("client@example.fr bearer_secret=SUPER-SECRET-VALUE"))
+    def test_session_status_redacts_unexpected_exception_text(self, _session):
+        result = mercure.session_status()
+        self.assertFalse(result["connected"])
+        self.assertEqual(result["state"], "unexpected_error")
+        self.assertEqual(result["error"], "Session Mercure indisponible")
+        exposed = repr(result)
+        self.assertNotIn("client@example.fr", exposed)
+        self.assertNotIn("SUPER-SECRET-VALUE", exposed)
+
+    @patch.object(mercure, "_session", side_effect=requests.Timeout("https://mercure.invalid/?token=SECRET"))
+    def test_session_status_reports_bounded_timeout_state(self, _session):
+        result = mercure.session_status()
+        self.assertFalse(result["connected"])
+        self.assertEqual(result["state"], "timeout")
+        self.assertEqual(result["error"], "Session Mercure indisponible")
+        self.assertNotIn("SECRET", repr(result))
+
+
 if __name__ == "__main__":
     unittest.main()

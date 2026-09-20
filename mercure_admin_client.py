@@ -29,13 +29,32 @@ def _check_auth(response):
         raise MercureSessionError('Session Mercure expirée')
     return response
 
+def _session_error_state(exc):
+    if isinstance(exc, MercureSessionError):
+        return 'session_unavailable'
+    if isinstance(exc, requests.Timeout):
+        return 'timeout'
+    if isinstance(exc, requests.ConnectionError):
+        return 'connection_error'
+    if isinstance(exc, requests.RequestException):
+        return 'request_error'
+    if isinstance(exc, (json.JSONDecodeError, OSError, ValueError)):
+        return 'session_invalid'
+    return 'unexpected_error'
+
+
 def session_status():
     try:
         s = _session()
         r = _check_auth(s.get(BASE + '/admin/calendrier', timeout=20, allow_redirects=False))
-        return {'connected': r.status_code == 200, 'status': r.status_code}
+        connected = r.status_code == 200
+        return {'connected': connected, 'status': r.status_code, 'state': 'ready' if connected else 'http_error'}
     except Exception as exc:
-        return {'connected': False, 'error': str(exc)}
+        return {
+            'connected': False,
+            'state': _session_error_state(exc),
+            'error': 'Session Mercure indisponible',
+        }
 
 def _price(value):
     if value is None:

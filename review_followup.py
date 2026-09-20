@@ -161,7 +161,7 @@ def process_once():
                 deferred+=1; continue
             _mark(rid,'sent'); sent+=1
         except Exception as exc:
-            _mark(rid,'failed',type(exc).__name__+': '+str(exc)); failed+=1
+            _mark(rid,'failed',notifications.safe_delivery_error(exc)); failed+=1
     return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'deferred':deferred,'failed':failed,'missingRecipient':missing}
 
 def status():
