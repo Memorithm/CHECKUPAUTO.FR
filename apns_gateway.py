@@ -17,14 +17,22 @@ PROVIDER_CONFIGURATION_REASONS = {
     "MissingTopic", "TopicDisallowed",
 }
 INTERNAL_CONFIGURATION_REASONS = {"CredentialsMissing", "RuntimeDependencyMissing", "SigningKeyInvalid"}
-TRANSIENT_REASONS = {"InternalServerError", "ServiceUnavailable", "Shutdown", "TooManyRequests", "TooManyProviderTokenUpdates", "TransportError"}
-TRANSIENT_STATUS = {429, 500, 503}
-KNOWN_PROVIDER_REASONS = TOKEN_INVALID_REASONS | PROVIDER_CONFIGURATION_REASONS | TRANSIENT_REASONS | {
+PROVIDER_REQUEST_REASONS = {
     "BadCollapseId", "BadExpirationDate", "BadMessageId", "BadPath", "BadPriority",
-    "DuplicateHeaders", "IdleTimeout", "MethodNotAllowed", "MissingDeviceToken",
-    "PayloadEmpty", "PayloadTooLarge",
+    "DuplicateHeaders", "MethodNotAllowed", "MissingDeviceToken", "PayloadEmpty", "PayloadTooLarge",
 }
-KNOWN_ERROR_REASONS = KNOWN_PROVIDER_REASONS | INTERNAL_CONFIGURATION_REASONS
+INTERNAL_REQUEST_REASONS = {"CategoryInvalid", "EnvironmentInvalid", "PayloadInvalid"}
+TRANSIENT_REASONS = {
+    "IdleTimeout", "InternalServerError", "ServiceUnavailable", "Shutdown", "TooManyRequests",
+    "TooManyProviderTokenUpdates", "TransportError",
+}
+TRANSIENT_STATUS = {429, 500, 503}
+REQUEST_STATUS = {400, 404, 405, 413}
+KNOWN_PROVIDER_REASONS = (
+    TOKEN_INVALID_REASONS | PROVIDER_CONFIGURATION_REASONS | PROVIDER_REQUEST_REASONS | TRANSIENT_REASONS
+)
+KNOWN_ERROR_REASONS = KNOWN_PROVIDER_REASONS | INTERNAL_CONFIGURATION_REASONS | INTERNAL_REQUEST_REASONS
+REQUEST_REASONS = PROVIDER_REQUEST_REASONS | INTERNAL_REQUEST_REASONS
 UNKNOWN_PROVIDER_REASON = "UnknownProviderError"
 
 
@@ -38,7 +46,10 @@ class APNSError(RuntimeError):
         raw_retry_after = str(retry_after or "").strip()
         self.retry_after = raw_retry_after if re.fullmatch(r"[0-9]{1,10}", raw_retry_after) else ""
         self.token_invalid = self.status == 410 or self.reason in TOKEN_INVALID_REASONS
-        self.provider_error = self.reason in (PROVIDER_CONFIGURATION_REASONS | INTERNAL_CONFIGURATION_REASONS) or self.status in {403, 404, 405}
+        self.provider_error = self.reason in (PROVIDER_CONFIGURATION_REASONS | INTERNAL_CONFIGURATION_REASONS) or self.status == 403
+        self.request_error = self.reason in REQUEST_REASONS or (
+            self.status in REQUEST_STATUS and self.reason not in TRANSIENT_REASONS
+        )
         self.retryable = self.status in TRANSIENT_STATUS or self.reason in TRANSIENT_REASONS
         super().__init__(f"APNs {self.status}: {self.reason}")
 
@@ -179,12 +190,42 @@ def _notification_payload(
     category = str(notification_category or "").strip()
     if category:
         if len(category) > 64 or not re.fullmatch(r"[A-Za-z0-9._-]+", category):
-            raise ValueError("Catégorie APNs invalide")
+            raise APNSError(0, "CategoryInvalid")
         aps["category"] = category
     payload = {"aps": aps}
     if data:
         payload["data"] = data
     return payload
+
+
+def _environment_host(value: object) -> tuple[str, str]:
+    environment = str(value or "sandbox").strip().lower()
+    if environment not in {"sandbox", "production"}:
+        raise APNSError(0, "EnvironmentInvalid")
+    host = "https://api.push.apple.com" if environment == "production" else "https://api.sandbox.push.apple.com"
+    return environment, host
+
+
+def _encoded_payload(
+    title: str,
+    body: str,
+    *,
+    data: dict | None = None,
+    notification_category: str = "",
+) -> bytes:
+    payload = _notification_payload(
+        title,
+        body,
+        data=data,
+        notification_category=notification_category,
+    )
+    try:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise APNSError(0, "PayloadInvalid") from exc
+    if len(raw) > 4096:
+        raise APNSError(413, "PayloadTooLarge")
+    return raw
 
 
 def send(
@@ -196,6 +237,13 @@ def send(
     environment: str = "sandbox",
     notification_category: str = "",
 ) -> dict:
+    environment, host = _environment_host(environment)
+    raw = _encoded_payload(
+        title,
+        body,
+        data=data,
+        notification_category=notification_category,
+    )
     cfg = _config()
     if not status()["configured"]:
         raise APNSError(0, "CredentialsMissing")
@@ -203,19 +251,6 @@ def send(
         import httpx
     except ImportError as exc:
         raise APNSError(0, "RuntimeDependencyMissing") from exc
-    environment = str(environment or "sandbox").strip().lower()
-    if environment not in {"sandbox", "production"}:
-        raise ValueError("Environnement APNs invalide")
-    host = "https://api.push.apple.com" if environment == "production" else "https://api.sandbox.push.apple.com"
-    payload = _notification_payload(
-        title,
-        body,
-        data=data,
-        notification_category=notification_category,
-    )
-    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(raw) > 4096:
-        raise ValueError("payload APNs trop volumineux")
     try:
         provider_token = _provider_token(cfg)
     except APNSError:

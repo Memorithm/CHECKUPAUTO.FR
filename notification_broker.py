@@ -198,12 +198,17 @@ def _classify_failure(exc: Exception) -> str:
             return "permanent"
         if exc.provider_error:
             return "configuration"
+        if getattr(exc, "request_error", False):
+            return "request"
         if exc.retryable:
             return "transient"
     return "transient"
 
 
 def _record_transport_failure(transport_key: str, failure_class: str, exc: Exception, now: datetime.datetime, attempt: int) -> tuple[str, int]:
+    if failure_class == "request":
+        # Deterministic caller/payload faults are delivery evidence, not transport-health failures.
+        return "", 0
     now_iso = now.isoformat(timespec="seconds")
     retry_after = getattr(exc, "retry_after", "")
     delay = resilience.backoff_seconds(transport_key, attempt, retry_after=retry_after, now=now) if failure_class == "transient" else 0
