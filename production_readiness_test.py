@@ -49,6 +49,10 @@ def healthy_patches():
             "open": 0, "undeliveredHighOrCritical": 0,
             "delivery": {"configured": True, "ready": True, "state": "ready", "signed": True, "endpointHost": "alerts.example.test"},
         }),
+        mock.patch.object(readiness.ios_release_preflight, "status", return_value={
+            "state": "ready", "projectReady": True, "associationReady": True,
+            "publicationReady": True, "channel": "app-store", "checks": [],
+        }),
     ]
 
 
@@ -198,6 +202,24 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertEqual(review["metrics"]["emailPreflightState"], "awaiting_credentials")
         self.assertTrue(result["activationGate"]["allowed"])
 
+
+
+    def test_ios_release_preflight_surfaces_repository_mismatch(self):
+        patches = healthy_patches()
+        patches[-1] = mock.patch.object(readiness.ios_release_preflight, "status", return_value={
+            "state": "degraded", "projectReady": False, "associationReady": True,
+            "publicationReady": False, "channel": "pending",
+            "checks": [
+                {"code": "release_apns_environment", "ok": False},
+                {"code": "bundle_identifier", "ok": True},
+            ],
+        })
+        result = self._run_with(patches)
+        release = next(item for item in result["components"] if item["id"] == "ios_release_preflight")
+        self.assertEqual(release["state"], "degraded")
+        self.assertEqual(release["metrics"]["failedChecks"], ["release_apns_environment"])
+        self.assertFalse(release["critical"])
+        self.assertTrue(result["activationGate"]["allowed"])
 
     def test_probe_exception_is_degraded_without_leaking_message(self):
         patches = healthy_patches()
