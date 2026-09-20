@@ -509,17 +509,31 @@ def google_access_token(required_scopes=None, *, force_refresh=False):
             retry_after=response.headers.get("Retry-After", ""),
             retryable=status_code in {429, 500, 502, 503, 504},
         )
-    incoming = response.json()
+    try:
+        incoming = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse de rafraîchissement OAuth Google invalide.") from exc
+    if not isinstance(incoming, dict):
+        raise IntegrationError("Réponse de rafraîchissement OAuth Google invalide.")
+    if not incoming.get("access_token"):
+        raise IntegrationError("Google n’a pas retourné de nouveau jeton d’accès.")
+    expires_at_value = None
+    if incoming.get("expires_in"):
+        try:
+            ttl = max(0, int(incoming["expires_in"]) - 30)
+        except (TypeError, ValueError) as exc:
+            raise IntegrationError("Réponse de rafraîchissement OAuth Google invalide.") from exc
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expires_at_value = (now + datetime.timedelta(seconds=ttl)).isoformat()
     token.update(incoming)
     token["refresh_token"] = refresh
     if not token.get("scope"):
         token["scope"] = " ".join(sorted(_granted_scopes()))
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if incoming.get("expires_in"):
-        token["expires_at"] = (now + datetime.timedelta(seconds=max(0, int(incoming["expires_in"]) - 30))).isoformat()
+    if expires_at_value:
+        token["expires_at"] = expires_at_value
+    else:
+        token.pop("expires_at", None)
     _atomic_json(TOKEN_FILE, token)
-    if not token.get("access_token"):
-        raise IntegrationError("Google n’a pas retourné de jeton d’accès.")
     return token["access_token"]
 
 
