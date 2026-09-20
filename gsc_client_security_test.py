@@ -24,7 +24,7 @@ class GSCClientSecurityTest(unittest.TestCase):
         return {
             'type': 'service_account',
             'client_email': 'service@example.invalid',
-            'private_key': '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n',
+            'private_key': 'not-a-real-private-key',
             'token_uri': token_uri,
             'project_id': 'cybercheck-test',
         }
