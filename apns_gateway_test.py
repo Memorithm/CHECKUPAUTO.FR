@@ -22,7 +22,7 @@ class APNSGatewayTest(unittest.TestCase):
         self.assertTrue(error.token_invalid)
         self.assertFalse(error.retryable)
         self.assertFalse(error.provider_error)
-        self.assertEqual(error.apns_id, "id-1")
+        self.assertEqual(error.apns_id, "")
 
     def test_bad_device_token_is_terminal(self):
         error = apns._error_from_response(Response(400, "BadDeviceToken"))
@@ -50,6 +50,36 @@ class APNSGatewayTest(unittest.TestCase):
                 self.assertFalse(error.token_invalid)
                 self.assertEqual(error.retry_after, "60")
 
+    def test_unknown_provider_reason_is_bounded_and_external_text_is_not_exposed(self):
+        external = "client@example.fr bearer-super-secret"
+        error = apns._error_from_response(Response(400, external))
+        self.assertEqual(error.reason, apns.UNKNOWN_PROVIDER_REASON)
+        self.assertEqual(str(error), "APNs 400: UnknownProviderError")
+        self.assertNotIn("client@example.fr", str(error))
+        self.assertNotIn("bearer-super-secret", str(error))
+
+    def test_untrusted_apns_headers_are_not_exposed(self):
+        error = apns._error_from_response(Response(
+            503,
+            "ServiceUnavailable",
+            {
+                "apns-id": "client@example.fr-bearer-super-secret",
+                "retry-after": "bearer-super-secret",
+            },
+        ))
+        self.assertEqual(error.apns_id, "")
+        self.assertEqual(error.retry_after, "")
+        self.assertTrue(error.retryable)
+
+    def test_valid_apns_id_and_numeric_retry_after_are_preserved(self):
+        apns_id = "A1B2C3D4-1111-2222-3333-AABBCCDDEEFF"
+        error = apns._error_from_response(Response(
+            429,
+            "TooManyRequests",
+            {"apns-id": apns_id, "retry-after": "60"},
+        ))
+        self.assertEqual(error.apns_id, apns_id)
+        self.assertEqual(error.retry_after, "60")
 
     def test_notification_payload_carries_ios_action_category(self):
         payload = apns._notification_payload(
