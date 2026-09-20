@@ -200,9 +200,6 @@ def _classify_failure(exc: Exception) -> str:
             return "configuration"
         if exc.retryable:
             return "transient"
-    text = str(exc).lower()
-    if isinstance(exc, ValueError) or "non configur" in text or "aucun transport" in text:
-        return "configuration"
     return "transient"
 
 
