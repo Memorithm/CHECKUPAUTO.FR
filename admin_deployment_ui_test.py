@@ -21,6 +21,9 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertIn("/api/admin/deployment/status", script)
         self.assertIn("/api/admin/deployment/job", script)
         self.assertIn("/api/admin/deployment/update-status", script)
+        self.assertIn("deploymentSourceState", script)
+        self.assertIn("sourceBuildCapable", script)
+        self.assertIn("source_unavailable", script)
         self.assertIn("deploymentUpdateState", script)
         self.assertIn("deploymentRollbackCandidates", script)
         self.assertNotIn("credential.password", script)
@@ -59,10 +62,20 @@ class AdminDeploymentUITest(unittest.TestCase):
 
     def test_update_ui_exposes_remote_version_and_check_button(self):
         html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="deploymentSourceState"', html)
         self.assertIn('id="deploymentRemoteSha"', html)
         self.assertIn('id="deploymentUpdateState"', html)
         self.assertIn('id="deploymentCheckUpdate"', html)
         self.assertIn('id="deploymentRollbackCandidates"', html)
+
+    def test_packaged_source_ui_disables_install_and_update(self):
+        script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
+        self.assertIn("$('deploymentInstall').disabled = !sourceBuildCapable()", script)
+        self.assertIn(
+            "$('deploymentUpdate').disabled = !updateState.updateAvailable || !sourceBuildCapable()",
+            script,
+        )
+        self.assertIn("Source Git de build indisponible", script)
 
     def test_security_ci_checks_deployment_javascript(self):
         workflow = (ROOT / ".github" / "workflows" / "security-ci.yml").read_text(
