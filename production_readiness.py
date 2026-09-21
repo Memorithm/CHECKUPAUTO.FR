@@ -365,6 +365,7 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
                 "withdrawalFunctionBound": bool(compliance_summary.get("withdrawalFunctionBound")),
                 "dataSubjectExecutionBound": bool(compliance_summary.get("dataSubjectExecutionBound")),
                 "retentionEnforcementBound": bool(compliance_summary.get("retentionEnforcementBound")),
+                "retentionBlockerCount": int(compliance_summary.get("retentionBlockerCount") or 0),
                 "withdrawalPendingReceipts": int(compliance_summary.get("withdrawalPendingReceipts") or 0),
                 "overdueRightsRequests": overdue_rights,
                 "overdueIncidentNotifications": overdue_incidents,
