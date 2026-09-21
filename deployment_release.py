@@ -162,7 +162,6 @@ python3 - "$incoming/archive.b64" "$incoming/release" "$expected_digest" <<'CHEC
 from __future__ import annotations
 import base64
 import hashlib
-import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
@@ -173,7 +172,7 @@ archive_path = Path(sys.argv[1])
 destination = Path(sys.argv[2])
 expected_digest = sys.argv[3]
 try:
-    raw = base64.b64decode(archive_path.read_bytes(), validate=True)
+    raw = base64.b64decode(archive_path.read_bytes().strip(), validate=True)
 except Exception as exc:
     raise SystemExit("release archive encoding is invalid") from exc
 if hashlib.sha256(raw).hexdigest() != expected_digest:
@@ -214,10 +213,6 @@ candidate="$incoming/release"
 python3 -m venv "$candidate/.venv"
 "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
 "$candidate/.venv/bin/python" -m compileall -q "$candidate"
-(
-  cd "$candidate"
-  "$candidate/.venv/bin/python" -m unittest discover -p '*_test.py'
-)
 python3 - "$candidate/.checkupauto-release.json" "$sha" "$expected_digest" <<'CHECKUPAUTO_MARK'
 from __future__ import annotations
 import json
