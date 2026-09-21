@@ -193,6 +193,25 @@ python3 scripts/checkupauto-deployctl.py rollback \
 
 Les profils enregistrés conservent désormais explicitement une éventuelle `webRootPath` personnalisée lors de leur rechargement ; le contrôleur ne retombe plus silencieusement sur `public_html` pour une cible déjà enregistrée avec une autre racine Web.
 
+## Bootstrap du secret administrateur
+
+Lors d’une première installation sur un hébergement vierge, CheckupAuto doit disposer de `shared/private/admin-password` avant le démarrage Passenger et avant le contrôle Production Readiness.
+
+Depuis l’interface d’administration, le Deployment Center réutilise automatiquement le mot de passe administrateur du CheckupAuto courant. Il est transmis uniquement dans le flux SSH chiffré, n’est jamais placé dans les arguments de processus, n’est pas ajouté aux jobs ou à l’historique, et est écrit à distance en mode `0600` uniquement si le fichier n’existe pas déjà.
+
+Les mises à jour et rollback conservent le credential distant existant. Un fichier existant sous forme de symlink ou contenant une valeur invalide fait échouer l’activation.
+
+En mode CLI autonome, un secret initial peut être fourni via stdin :
+
+```bash
+printf '%s\n' "$CHECKUPAUTO_ADMIN_PASSWORD" |
+  python3 scripts/checkupauto-deployctl.py install \
+    --name production \
+    --known-hosts ~/.config/checkupauto-deployer/known_hosts \
+    --sha 0123456789abcdef0123456789abcdef01234567 \
+    --admin-password-stdin
+```
+
 ## Utilisation depuis l’administration
 
 Le panneau **Administration → Déploiement** permet de piloter le Deployment Center sans terminal :
