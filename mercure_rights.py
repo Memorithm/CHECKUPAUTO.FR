@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
+
 import mercure_admin_client as mercure
 
 
 CLIENT_KINDS = {"account", "free"}
+_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 def parse_subject_ref(value: object) -> tuple[str, str]:
@@ -11,17 +14,18 @@ def parse_subject_ref(value: object) -> tuple[str, str]:
 
     The rights engine persists only the SHA-256 of this raw reference. The
     ``kind:id`` value is supplied again by the operator when executing a request
-    and is re-verified against that hash before this adapter is called.
+    and is re-verified against that hash before this adapter is called. The
+    provider identifier keeps its original case and is limited to path-safe
+    characters already accepted by the mobile Mercure bindings.
     """
-    raw = str(value or "").strip().lower()
+    raw = str(value or "").strip()
     if raw.count(":") != 1:
         raise ValueError("subjectRef Mercure invalide")
-    client_kind, client_id = raw.split(":", 1)
+    client_kind_raw, client_id = raw.split(":", 1)
+    client_kind = client_kind_raw.strip().lower()
     if client_kind not in CLIENT_KINDS:
         raise ValueError("subjectRef Mercure invalide")
-    if not client_id.isascii() or not client_id.isdigit() or len(client_id) > 20:
-        raise ValueError("subjectRef Mercure invalide")
-    if int(client_id) <= 0:
+    if not _CLIENT_ID_RE.fullmatch(client_id):
         raise ValueError("subjectRef Mercure invalide")
     return client_kind, client_id
 
