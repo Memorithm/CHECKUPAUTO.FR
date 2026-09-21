@@ -413,6 +413,23 @@ def customer_email(client_kind, client_id):
     return _customer_contact(_session(),client_kind,client_id).get('email','')
 
 
+def privacy_customer_snapshot(client_kind, client_id):
+    """Read the provider boundary without inventing a write capability."""
+    kind=str(client_kind or '').strip().lower()
+    cid=str(client_id or '').strip()
+    if kind not in {'account','free'} or not cid:
+        raise ValueError('Identité Mercure invalide')
+    contact=_customer_contact(_session(),kind,cid)
+    return {
+      'clientKind':kind,
+      'clientId':cid,
+      'email':str(contact.get('email') or ''),
+      'telephone':str(contact.get('telephone') or ''),
+      'source':'mercure',
+      'mutationCapability':'manual_required',
+    }
+
+
 def vehicle_details(vehicle_id, session=None):
     vehicle_id=str(vehicle_id or '').strip()
     if not vehicle_id: raise ValueError('Identifiant véhicule requis')
