@@ -9,11 +9,13 @@ import uuid
 from pathlib import Path
 
 import compliance_store
+import mercure_rights
 import mobile_devices
 
 
 SUPPORTED_ADAPTERS = {
     "mobile_installation": ("access", "portability", "erasure"),
+    "mercure_customer_contact": ("access", "portability"),
 }
 
 
@@ -304,6 +306,28 @@ def execute(
                 "adapter": adapter,
                 "removed": data["removed"],
             }
+    elif adapter == "mercure_customer_contact":
+        data = mercure_rights.contact_snapshot(ref)
+        action = "export"
+        result = {
+            "ok": True,
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": adapter,
+            "format": "application/json",
+            "data": data,
+        }
+        evidence = {
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": adapter,
+            "partial": True,
+            "emailPresent": bool(data["contact"]["email"]),
+            "telephonePresent": bool(data["contact"]["telephone"]),
+            "exportHash": hashlib.sha256(
+                json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+        }
     else:  # pragma: no cover - guarded by SUPPORTED_ADAPTERS
         raise ValueError("adaptateur de droit non pris en charge")
 
@@ -357,6 +381,7 @@ def capability(db_path: Path | str | None = None) -> dict:
             "objection",
             "consent_withdrawal",
         ],
+        "partialSystemAdapters": ["mercure"],
         "remainingSystemAdapters": [
             "mercure",
             "notification_broker",
