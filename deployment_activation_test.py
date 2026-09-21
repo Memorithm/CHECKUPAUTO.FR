@@ -73,6 +73,28 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertNotIn("correct horse", script)
         self.assertNotIn("sudo ", script)
 
+
+    def test_initial_admin_secret_is_not_embedded_in_plain_text(self):
+        secret = "local-admin-secret-value"
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password=secret,
+        )
+        self.assertNotIn(secret, script)
+        self.assertIn("bootstrap_admin_credential", script)
+        self.assertIn("adminCredentialInitialized", script)
+        self.assertIn("atomic_write(password_path", script)
+        self.assertIn("0o600", script)
+
+    def test_invalid_initial_admin_secret_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "mot de passe admin"):
+            activation.remote_activation_script(
+                self.target(),
+                SHA,
+                admin_password="short",
+            )
+
     def test_parse_activation_output_is_bounded(self):
         result = activation._parse_activation_output(
             "\n".join([
@@ -124,12 +146,14 @@ class DeploymentActivationTest(unittest.TestCase):
             ]),
             stderr="",
         )
+        secret = "local-admin-secret-value"
         result = activation.activate_release(
             self.target(),
             self.ready_capabilities(),
             self.known_hosts,
             transport.SSHCredential(identity_file=str(self.key)),
             SHA,
+            admin_password=secret,
         )
         self.assertEqual(result.sha, SHA)
         command = run.call_args.args[0]
@@ -138,6 +162,8 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertIn("BatchMode=yes", joined)
         self.assertEqual(command[-2:], ["sh", "-s"])
         self.assertNotIn("password", joined.lower())
+        self.assertNotIn(secret, joined)
+        self.assertNotIn(secret, run.call_args.kwargs["input"])
 
     @mock.patch("deployment_activation.activate_release")
     def test_explicit_rollback_reuses_verified_activation_path(self, activate):
@@ -155,9 +181,14 @@ class DeploymentActivationTest(unittest.TestCase):
             self.known_hosts,
             transport.SSHCredential(identity_file=str(self.key)),
             PREVIOUS_SHA,
+            admin_password="local-admin-secret-value",
         )
         self.assertEqual(result, expected)
         self.assertEqual(activate.call_args.args[4], PREVIOUS_SHA)
+        self.assertEqual(
+            activate.call_args.kwargs["admin_password"],
+            "local-admin-secret-value",
+        )
 
     def test_invalid_release_sha_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "SHA"):
