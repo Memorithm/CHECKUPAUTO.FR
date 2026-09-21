@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import os
 import shlex
 import shutil
 import stat
 import subprocess
 import tempfile
-from typing import Mapping
+from typing import Iterator, Mapping
 
 from deployment_center import CapabilityReport, DeploymentTarget
 
@@ -210,17 +211,13 @@ def parse_probe(
     )
 
 
-def _run_password_ssh(
-    args: list[str],
-    remote_script: str,
-    password: str,
-    *,
-    timeout: int,
-) -> subprocess.CompletedProcess[str]:
+@contextmanager
+def _askpass_environment(password: str) -> Iterator[dict[str, str]]:
+    if not password or "\n" in password or "\r" in password:
+        raise ValueError("mot de passe SSH invalide")
     setsid = shutil.which("setsid")
     if not setsid:
         raise RuntimeError("setsid requis pour l authentification SSH par mot de passe")
-
     with tempfile.TemporaryDirectory(prefix="checkupauto-askpass-") as tmp:
         helper = Path(tmp) / "askpass.sh"
         helper.write_text(
@@ -235,14 +232,25 @@ def _run_password_ssh(
             "SSH_ASKPASS_REQUIRE": "force",
             "CHECKUPAUTO_SSH_PASSWORD": password,
         })
+        yield {"setsid": setsid, "env": env}
+
+
+def _run_password_ssh(
+    args: list[str],
+    remote_script: str,
+    password: str,
+    *,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    with _askpass_environment(password) as auth:
         return subprocess.run(
-            [setsid, "-w", *args, "sh", "-s"],
+            [auth["setsid"], "-w", *args, "sh", "-s"],
             input=remote_script,
             text=True,
             capture_output=True,
             timeout=timeout,
             check=False,
-            env=env,
+            env=auth["env"],
         )
 
 
@@ -295,3 +303,119 @@ def sanitized_connection(target: DeploymentTarget) -> Mapping[str, object]:
         "rootPath": target.root_path,
         "authMode": target.auth_mode,
     }
+
+def run_remote_script(
+    target: DeploymentTarget,
+    known_hosts: str | Path,
+    credential: SSHCredential,
+    script: str,
+    *,
+    timeout: int = 120,
+) -> str:
+    cred = credential.validate(target.auth_mode)
+    args = ssh_arguments(target, known_hosts, cred)
+    if target.auth_mode == "password":
+        result = _run_password_ssh(
+            args,
+            str(script),
+            cred.password,
+            timeout=timeout,
+        )
+    else:
+        result = subprocess.run(
+            [*args, "sh", "-s"],
+            input=str(script),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise RuntimeError("commande SSH distante échouée")
+    return result.stdout
+
+
+def _remote_path(value: str | Path) -> str:
+    raw = str(value or "").strip()
+    if not raw or any(ch.isspace() for ch in raw) or "\x00" in raw:
+        raise ValueError("chemin distant invalide")
+    path = PurePosixPath(raw)
+    if ".." in path.parts:
+        raise ValueError("chemin distant invalide")
+    if not re.fullmatch(r"[A-Za-z0-9._~/-]+", raw):
+        raise ValueError("chemin distant invalide")
+    return raw
+
+
+def scp_arguments(
+    target: DeploymentTarget,
+    known_hosts: str | Path,
+    credential: SSHCredential,
+) -> list[str]:
+    cred = credential.validate(target.auth_mode)
+    hosts = Path(known_hosts).expanduser()
+    if not hosts.is_file():
+        raise ValueError("fichier known_hosts absent")
+    args = [
+        "scp",
+        "-P",
+        str(target.port),
+        "-o",
+        "ConnectTimeout=12",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        f"UserKnownHostsFile={hosts}",
+        "-o",
+        "LogLevel=ERROR",
+    ]
+    if target.auth_mode == "key":
+        args.extend(["-o", "BatchMode=yes", "-i", cred.identity_file])
+    else:
+        args.extend([
+            "-o", "BatchMode=no",
+            "-o", "PreferredAuthentications=password,keyboard-interactive",
+            "-o", "PubkeyAuthentication=no",
+            "-o", "NumberOfPasswordPrompts=1",
+        ])
+    return args
+
+
+def upload_file(
+    target: DeploymentTarget,
+    known_hosts: str | Path,
+    credential: SSHCredential,
+    local_path: str | Path,
+    remote_path: str | Path,
+    *,
+    timeout: int = 120,
+) -> None:
+    source = Path(local_path)
+    if not source.is_file():
+        raise ValueError("fichier local à transférer introuvable")
+    remote = _remote_path(remote_path)
+    cred = credential.validate(target.auth_mode)
+    args = scp_arguments(target, known_hosts, cred)
+    destination = f"{target.username}@{target.host}:{remote}"
+
+    if target.auth_mode == "password":
+        with _askpass_environment(cred.password) as auth:
+            result = subprocess.run(
+                [auth["setsid"], "-w", *args, str(source), destination],
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+                env=auth["env"],
+            )
+    else:
+        result = subprocess.run(
+            [*args, str(source), destination],
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise RuntimeError("transfert SCP échoué")
+
