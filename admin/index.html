@@ -148,8 +148,18 @@ X-CyberCheck-Signature: sha256=HMAC_SHA256(secret, raw_body)
 </div>
 
 <div class="integration-box">
-<div class="panel-head compact"><div><h3>6 · Conservation & minimisation</h3><p class="hint">Politiques initiales documentées dans le code ; les suppressions effectives devront être reliées à chaque stockage métier concerné avant activation publique.</p></div></div>
-<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Données</th><th>Finalité</th><th>Base</th><th>Durée active</th><th>Déclencheur</th></tr></thead><tbody id="complianceRetentionRows"><tr><td colspan="5">Chargement…</td></tr></tbody></table></div>
+<div class="panel-head compact"><div><h3>6 · Conservation & minimisation</h3><p class="hint">Les purges automatiques n’utilisent que des durées documentées. Une classe sans politique validée reste bloquante ; aucune durée juridique n’est inventée.</p></div><span id="complianceRetentionState" class="gsc-status warning">Diagnostic…</span></div>
+<div class="promo-form-grid">
+<label>Classe de données<select id="complianceRetentionRule"></select></label>
+<label>Durée active en jours<input id="complianceRetentionDays" type="number" min="1" max="36500"></label>
+<label>Justification<textarea id="complianceRetentionJustification" rows="3" maxlength="1000" placeholder="Finalité, obligation légale, prescription, besoin opérationnel documenté…"></textarea></label>
+</div>
+<div class="incentive-service-row"><label><input id="complianceRetentionLegalReview" type="checkbox">Validation juridique confirmée</label><label><input id="complianceRetentionEnabled" type="checkbox" checked>Politique active</label><button type="button" id="complianceRetentionSave">Enregistrer la politique</button></div>
+<div class="button-row"><button type="button" id="complianceRetentionDryRun" class="secondary">Simuler les purges</button><button type="button" id="complianceRetentionPurge">Exécuter les purges prêtes</button></div>
+<p class="hint">L’exécution réelle exige une confirmation explicite. Les classes non configurées ou dont le purger n’est pas implémenté sont ignorées et restent bloqueuses pour le readiness.</p>
+<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Classe</th><th>Stockage</th><th>Durée</th><th>Déclencheur</th><th>État</th><th>Justification</th></tr></thead><tbody id="complianceRetentionRows"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div>
+<h4>Preuves de purge récentes</h4>
+<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Date</th><th>Règle</th><th>Mode</th><th>Supprimés</th><th>Cutoff</th><th>Empreinte</th></tr></thead><tbody id="complianceRetentionAuditRows"><tr><td colspan="6">Aucune exécution.</td></tr></tbody></table></div>
 </div>
 
 <div class="integration-box">
