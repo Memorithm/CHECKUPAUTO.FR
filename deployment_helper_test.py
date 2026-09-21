@@ -36,7 +36,10 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('Memorithm/CHECKUPAUTO.FR', self.helper)
         self.assertIn('[[ "$(git branch --show-current)" == "main" ]]', self.helper)
         self.assertIn('git status --porcelain=v1', self.helper)
-        self.assertIn('git fetch --quiet --no-tags origin main', self.helper)
+        self.assertIn(
+            'git fetch --quiet --no-tags origin refs/heads/main:refs/remotes/origin/main',
+            self.helper,
+        )
         self.assertIn('[[ "$REMOTE_HEAD" == "$EXPECTED" ]]', self.helper)
 
     def test_deployment_can_only_fast_forward(self):
@@ -63,6 +66,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('systemctl is-active --quiet "$SERVICE"', self.helper)
         self.assertIn('http://127.0.0.1:8765/', self.helper)
         self.assertIn('flock -n 9', self.helper)
+        self.assertIn('/run/cybercheck-deploy.lock', self.helper)
 
     def test_installer_creates_root_owned_helper_and_narrow_sudoers_rule(self):
         self.assertIn('install -o root -g root -m 0755 "$HELPER_SOURCE" "$HELPER_TARGET"', self.installer)
