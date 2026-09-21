@@ -118,6 +118,25 @@ class DeploymentActivationTest(unittest.TestCase):
                 admin_password="short",
             )
 
+    def test_update_backup_precedes_switch_and_cleanup_follows_verification(self):
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password="local-admin-secret-value",
+        )
+        self.assertIn("checkupauto-update-safety.py", script)
+        self.assertIn('"backup"', script)
+        self.assertIn('"cleanup"', script)
+        self.assertIn("backupSnapshot", script)
+        self.assertIn("prunedReleaseCount", script)
+        backup = script.index('run_update_safety(\n        "backup"')
+        switch = script.index("switch_current(release)")
+        verify = script.index("probe_http(probe_name, probe_value)")
+        cleanup = script.index('run_update_safety(\n        "cleanup"')
+        self.assertLess(backup, switch)
+        self.assertLess(switch, verify)
+        self.assertLess(verify, cleanup)
+
     def test_parse_activation_output_is_bounded(self):
         result = activation._parse_activation_output(
             "\n".join([
