@@ -27,6 +27,7 @@ jobs:
         run: |
           node --check app.js
           node --check admin/admin.js
+          node --check admin/mfa.js
           node --check admin/control-center.js
           node --check admin/gsc-admin.js
           node --check admin/readiness.js
