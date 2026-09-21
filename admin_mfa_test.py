@@ -57,8 +57,8 @@ class AdminMFATest(unittest.TestCase):
 
     def test_pending_qr_contains_svg_without_exposing_secret_to_disk(self):
         mfa.begin_enrollment(now=1000)
-        png = mfa.pending_qr_png()
-        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+        svg = mfa.pending_qr_svg()
+        self.assertIn(b"<svg", svg)
         files = {p.name for p in mfa._mfa_dir().iterdir()}
         self.assertEqual(files, {"totp-pending.json"})
 
