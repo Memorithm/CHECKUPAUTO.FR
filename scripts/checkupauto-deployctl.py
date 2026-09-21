@@ -59,6 +59,10 @@ def _adapter_available() -> bool:
     )
 
 
+def _shared_tick_available() -> bool:
+    return (ROOT / "scripts" / "checkupauto-shared-tick.py").is_file()
+
+
 def cmd_profiles(_args) -> int:
     print(json.dumps(provider_profiles(), ensure_ascii=False, indent=2))
     return 0
@@ -110,6 +114,7 @@ def _probe(name: str, known_hosts: str):
         known_hosts,
         credential,
         passenger_wsgi_adapter=_adapter_available(),
+        shared_host_tick=_shared_tick_available(),
     )
     return target, capabilities
 
@@ -129,6 +134,7 @@ def cmd_probe(args) -> int:
             "writableRoot": capabilities.writable_root,
             "freeDiskMb": capabilities.free_disk_mb,
             "passengerWsgiAdapter": capabilities.passenger_wsgi_adapter,
+            "sharedHostTick": capabilities.shared_host_tick,
         },
     }, ensure_ascii=False, indent=2))
     return 0
