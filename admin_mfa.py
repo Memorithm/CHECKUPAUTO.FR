@@ -463,6 +463,9 @@ def confirm_enrollment(
     if not verify_totp(pending["secret"], code, now=instant):
         raise PermissionError("code TOTP invalide")
 
+    recovery = _new_recovery_codes()
+    _write_recovery(recovery)
+    _rotate_session_key()
     _atomic_write(
         _secret_path(),
         (pending["secret"] + "\n").encode("ascii"),
@@ -472,9 +475,6 @@ def confirm_enrollment(
     except FileNotFoundError:
         pass
 
-    recovery = _new_recovery_codes()
-    _write_recovery(recovery)
-    _rotate_session_key()
     token = issue_session(now=instant)
     return {
         "sessionToken": token,
