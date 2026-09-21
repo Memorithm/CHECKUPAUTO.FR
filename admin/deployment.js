@@ -282,9 +282,16 @@
       currentJobTimer = setTimeout(() => pollJob(id).catch(showError), 2000);
     } else {
       const shortSha = (job.result?.sha || job.sha || '').slice(0, 12);
-      setMessage(job.state === 'succeeded'
-        ? ('Déploiement terminé sur ' + shortSha + '.')
-        : 'Le déploiement a échoué. Relance un diagnostic avant de réessayer.');
+      if (job.state === 'succeeded') {
+        setMessage('Déploiement terminé sur ' + shortSha + '.');
+      } else if (job.state === 'waiting_external') {
+        setMessage(
+          'Release ' + shortSha +
+          ' prête sur l’hébergement. Bascule DNS/SSL requise avant activation publique.'
+        );
+      } else {
+        setMessage('Le déploiement a échoué. Relance un diagnostic avant de réessayer.');
+      }
     }
   }
 
