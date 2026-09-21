@@ -82,6 +82,20 @@ class AdminMFATest(unittest.TestCase):
         self.assertEqual(mfa._secret_path().stat().st_mode & 0o777, 0o600)
         self.assertEqual(mfa._session_key_path().stat().st_mode & 0o777, 0o600)
 
+    def test_failed_recovery_persistence_does_not_activate_mfa(self):
+        started = mfa.begin_enrollment(now=1000)
+        code = mfa.totp_at(started["secret"], 1030)
+        with mock.patch.object(
+            mfa,
+            "_write_recovery",
+            side_effect=OSError("disk full"),
+        ):
+            with self.assertRaises(OSError):
+                mfa.confirm_enrollment(code, now=1030)
+        self.assertFalse(mfa.configured())
+        self.assertFalse(mfa._secret_path().exists())
+        self.assertTrue(mfa._pending_path().exists())
+
     def test_recovery_code_is_single_use(self):
         started = mfa.begin_enrollment(now=1000)
         enrolled = mfa.confirm_enrollment(
