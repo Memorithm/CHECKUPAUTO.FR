@@ -46,8 +46,15 @@ function render(){
  $('#complianceDocType').dataset.current=selected;fillDocument(selected);
  const cookies=snapshot.cookies?.registry||[];
  $('#complianceCookieRows').innerHTML=cookies.length?cookies.map(row=>'<tr><td>'+esc(row.key)+'</td><td>'+esc(row.provider)+'</td><td>'+esc(row.category)+'</td><td>'+(row.essential?'Exempté/nécessaire':'Consentement')+'</td><td>'+(row.enabled?'Actif':'Inactif')+'</td><td>'+esc(row.durationDays)+' j</td></tr>').join(''):'<tr><td colspan="6">Aucun traceur enregistré. La mesure actuelle reste cookieless.</td></tr>';
- const rights=snapshot.rightsRequests||[];
- $('#complianceRightsRows').innerHTML=rights.length?rights.map(row=>'<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'</td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+((row.status==='closed'||row.status==='rejected')?'—':'<button type="button" class="compact-action compliance-close-right" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
+ const rights=snapshot.rightsRequests||[],audit=snapshot.rightsExecutionAudit||[];
+ $('#complianceRightsRows').innerHTML=rights.length?rights.map(row=>{
+  const executed=audit.filter(item=>item.requestId===row.id);
+  const execText=executed.length?executed.map(item=>esc(item.adapter)+' / '+esc(item.action)).join('<br>'):'Aucun adaptateur exécuté';
+  const actions=(row.status==='closed'||row.status==='rejected')?'—':
+   '<button type="button" class="compact-action compliance-execute-right" data-id="'+esc(row.id)+'">Exécuter</button> '+
+   '<button type="button" class="compact-action compliance-bind-right" data-id="'+esc(row.id)+'">Lier Mercure</button>';
+  return '<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'<br><small>'+execText+'</small></td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+actions+'</td></tr>';
+ }).join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
  const incidents=snapshot.incidents||[];
  $('#complianceIncidentRows').innerHTML=incidents.length?incidents.map(row=>'<tr><td>'+esc(row.riskLevel)+'</td><td>'+esc(row.status)+(row.notificationOverdue?' · DÉLAI DÉPASSÉ':'')+'</td><td>'+esc(row.summary)+'</td><td>'+new Date(row.detectedAt).toLocaleString('fr-FR')+'</td><td>'+(row.cnilDueAt?new Date(row.cnilDueAt).toLocaleString('fr-FR'):'—')+'</td><td>'+(row.status==='closed'?'—':'<button type="button" class="compact-action compliance-close-incident" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucun incident enregistré.</td></tr>';
  const retention=snapshot.retentionPolicies||[];
@@ -57,7 +64,36 @@ function render(){
   const pub=docs.find(x=>x.type===type&&x.status==='published');
   return '<tr><td><a href="'+esc(m.slug)+'" target="_blank" rel="noopener">'+esc(m.label)+'</a></td><td>'+(pub?esc(pub.version):'—')+'</td><td>'+(pub?'PUBLIÉ':'MANQUANT')+'</td><td>'+(pub?esc(pub.contentHash.slice(0,16)):'—')+'</td></tr>';
  }).join('');
- document.querySelectorAll('.compliance-close-right').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/compliance/request-status',{id:b.dataset.id,status:'closed'});await load()}catch(e){setMessage(e.message,true)}});
+ document.querySelectorAll('.compliance-execute-right').forEach(b=>b.onclick=async()=>{
+  try{
+   const result=await api('/api/admin/compliance/request-execute',{
+    id:b.dataset.id,
+    adapter:$('#complianceRightAdapter').value,
+    subjectRef:$('#complianceRightExecutionRef').value,
+    purpose:$('#complianceRightPurpose').value
+   });
+   const data=result.execution?.data;
+   if(data){
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='checkupauto-rgpd-'+b.dataset.id+'-'+($('#complianceRightAdapter').value||'export')+'.json';
+    document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+   }
+   $('#complianceRightExecutionRef').value='';
+   await load();setMessage(data?'Export généré et téléchargé.':'Adaptateur RGPD exécuté.');
+  }catch(e){setMessage(e.message,true)}
+ });
+ document.querySelectorAll('.compliance-bind-right').forEach(b=>b.onclick=async()=>{
+  try{
+   await api('/api/admin/compliance/request-bind-mercure',{
+    id:b.dataset.id,
+    installationId:$('#complianceRightBindingInstallation').value,
+    mercureSubjectRef:$('#complianceRightBindingMercure').value
+   });
+   $('#complianceRightBindingInstallation').value='';$('#complianceRightBindingMercure').value='';
+   await load();setMessage('Liaison mobile → Mercure prouvée et enregistrée sans référence brute.');
+  }catch(e){setMessage(e.message,true)}
+ });
  document.querySelectorAll('.compliance-close-incident').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/compliance/incident-status',{id:b.dataset.id,status:'closed'});await load()}catch(e){setMessage(e.message,true)}});
 }
 async function load(){setMessage('Chargement de la conformité…');snapshot=await api('/api/admin/compliance');render();setMessage('Registre de conformité chargé.')}
