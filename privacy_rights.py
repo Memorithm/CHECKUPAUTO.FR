@@ -928,6 +928,28 @@ def complete_manual_step(
     return {"ok": True, "requestId": row["request_id"], "steps": steps(row["request_id"], db_path)}
 
 
+def reject_request(
+    request_id: object,
+    *,
+    reason_code: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    row = _request_row(request_id, db_path)
+    code = str(reason_code or "").strip()
+    if not code or len(code) > 120:
+        raise ValueError("reasonCode requis")
+    result = compliance_store.set_rights_request_status(row["request_id"], "rejected", db_path)
+    _clear_locator(row["request_id"])
+    compliance_operations.record_audit_evidence(
+        "rights_request",
+        row["request_id"],
+        "reject",
+        {"reasonCodeHash": hashlib.sha256(code.encode("utf-8")).hexdigest()},
+        db_path,
+    )
+    return {**result, "locatorCleared": True}
+
+
 def complete_request(request_id: object, db_path: Path | str | None = None) -> dict:
     row = _request_row(request_id, db_path)
     current = steps(row["request_id"], db_path)
