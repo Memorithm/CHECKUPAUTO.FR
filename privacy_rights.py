@@ -159,13 +159,11 @@ def create_request(payload: dict, db_path: Path | str | None = None) -> dict:
         if len(str(key)) > 80 or len(str(value)) > 1000:
             raise ValueError("rectification invalide")
 
-    request = compliance_store.create_rights_request(
-        {
-            "type": request_type,
-            "subjectRef": subject_ref,
-            "notes": payload.get("notes"),
-        },
-        db_path,
+    request = compliance_store.create_rights_request_hashed(
+        request_type,
+        suppression.identity_hash(kind, subject_ref),
+        notes=str(payload.get("notes") or ""),
+        db_path=db_path,
     )
     stamp = _now_iso()
     init_db(db_path)
