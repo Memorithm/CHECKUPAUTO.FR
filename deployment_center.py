@@ -205,6 +205,7 @@ def assess(target: DeploymentTarget, capabilities: CapabilityReport) -> dict[str
             capabilities.passenger_wsgi_adapter,
             "adaptateur WSGI CheckupAuto",
         )
+        check("cron", capabilities.cron, "cron")
         check(
             "shared_host_tick",
             capabilities.shared_host_tick,
@@ -245,6 +246,7 @@ def installation_layout(target: DeploymentTarget, release_sha: str) -> dict[str,
         "data": f"{root}/shared/data",
         "private": f"{root}/shared/private",
         "security": f"{root}/shared/security",
+        "integrity": f"{root}/shared/integrity",
         "logs": f"{root}/shared/logs",
     }
 
