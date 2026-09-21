@@ -126,7 +126,7 @@ class AdminMFATest(unittest.TestCase):
         self.assertIn("HttpOnly", cookie)
         self.assertIn("Secure", cookie)
         self.assertIn("SameSite=Strict", cookie)
-        self.assertIn("Path=/admin", cookie)
+        self.assertIn("Path=/api/admin", cookie)
         token = mfa.token_from_cookie(cookie)
         self.assertEqual(token, enrolled["sessionToken"])
 
