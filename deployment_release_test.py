@@ -23,6 +23,7 @@ class DeploymentReleaseTest(unittest.TestCase):
         (self.repo / "requirements.txt").write_text("\n", encoding="utf-8")
         (self.repo / "passenger_wsgi.py").write_text("application = object()\n", encoding="utf-8")
         (self.repo / "scripts" / "checkupauto-shared-tick.py").write_text("print('tick')\n", encoding="utf-8")
+        (self.repo / "scripts" / "checkupauto-update-safety.py").write_text("print('safe')\n", encoding="utf-8")
         (self.repo / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(
@@ -67,12 +68,12 @@ class DeploymentReleaseTest(unittest.TestCase):
         bundle = release.build_release_bundle(self.repo, self.sha)
         self.assertEqual(bundle.sha, self.sha)
         self.assertEqual(bundle.sha256, hashlib.sha256(bundle.archive).hexdigest())
-        self.assertEqual(bundle.file_count, 4)
+        self.assertEqual(bundle.file_count, 5)
         with tarfile.open(fileobj=io.BytesIO(bundle.archive), mode="r:") as archive:
             names = {member.name for member in archive.getmembers() if member.isfile()}
         self.assertEqual(
             names,
-            {"app.py", "passenger_wsgi.py", "requirements.txt", "scripts/checkupauto-shared-tick.py"},
+            {"app.py", "passenger_wsgi.py", "requirements.txt", "scripts/checkupauto-shared-tick.py", "scripts/checkupauto-update-safety.py"},
         )
 
     @mock.patch("deployment_release._validate_archive", return_value=1)
@@ -147,6 +148,7 @@ class DeploymentReleaseTest(unittest.TestCase):
         self.assertIn("unsupported archive member", script)
         self.assertIn("python3 -m venv", script)
         self.assertIn("compileall -q", script)
+        self.assertIn("checkupauto-update-safety.py", script)
         self.assertIn("mv \"$candidate\" \"$release\"", script)
         self.assertNotIn("public_html/shared", script)
         self.assertNotIn("sudo ", script)

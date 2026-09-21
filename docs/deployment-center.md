@@ -247,3 +247,19 @@ Le bouton **Mettre à jour** n’est activé que dans l’état `update_availabl
 
 Les candidats de rollback affichés par l’administration proviennent uniquement des répertoires distants dont le SHA, le marqueur et l’empreinte de release ont déjà été vérifiés ; un SHA arbitraire saisi par l’interface reste ensuite revalidé côté serveur avant activation.
 
+## Sauvegardes avant mise à jour
+
+Avant toute bascule d'une installation existante — mise à jour ou rollback — le Deployment Center crée un snapshot privé sous `shared/backups`.
+
+Les bases SQLite détectées dans `shared/data` et `shared/security` sont copiées avec l'API SQLite backup puis contrôlées par `PRAGMA quick_check`. Le fichier `site-config.json`, lorsqu'il existe, est également copié avec son empreinte SHA-256. Si cette sauvegarde échoue, le lien `current` n'est pas modifié.
+
+Après validation HTTPS de l'instance exacte et passage du Production Readiness, une rétention bornée est appliquée :
+
+- 5 releases vérifiées au maximum ; la release active et la release précédente sont toujours conservées ;
+- 12 snapshots de sauvegarde vérifiés ;
+- suppression des répertoires de staging `.incoming-*` abandonnés depuis plus de 24 heures ;
+- aucune suppression automatique d'un répertoire de release dont le marqueur n'est pas vérifié.
+
+Le snapshot et les compteurs de nettoyage sont ajoutés à `deployment-history.jsonl`. Un échec de nettoyage après une activation déjà vérifiée n'annule pas la release ; il reste visible dans l'historique pour correction ultérieure.
+
+Pour préserver les rollbacks vers des releases historiques, l'activation peut exécuter le helper de sécurité d'update depuis la release cible ou, si elle est trop ancienne pour le contenir, depuis la release actuellement active.

@@ -169,6 +169,41 @@ def bootstrap_admin_credential() -> bool:
     return True
 
 
+def run_update_safety(action: str, *arguments: str) -> dict:
+    candidates = [release]
+    if previous_release is not None and previous_release != release:
+        candidates.append(previous_release)
+    runtime = None
+    for candidate in candidates:
+        helper = candidate / "scripts" / "checkupauto-update-safety.py"
+        python = candidate / ".venv" / "bin" / "python"
+        if helper.is_file() and python.is_file():
+            runtime = (python, helper)
+            break
+    if runtime is None:
+        fail("update safety helper missing")
+    python, helper = runtime
+    proc = subprocess.run(
+        [str(python), str(helper), action, *[str(value) for value in arguments]],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=180,
+    )
+    if proc.returncode != 0:
+        fail("update safety operation failed")
+    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not lines:
+        fail("update safety response missing")
+    try:
+        payload = json.loads(lines[-1])
+    except Exception:
+        fail("update safety response invalid")
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        fail("update safety response invalid")
+    return payload
+
+
 def cron_snapshot() -> tuple[bool, str]:
     proc = subprocess.run(["crontab", "-l"], text=True, capture_output=True, check=False)
     if proc.returncode == 0:
@@ -328,6 +363,20 @@ if current.is_symlink():
 elif current.exists():
     fail("current path is unmanaged")
 
+backup_result = {
+    "ok": True,
+    "snapshot": "",
+    "databaseCount": 0,
+    "fileCount": 0,
+}
+if previous_release is not None:
+    backup_result = run_update_safety(
+        "backup",
+        "--private-root", str(private_root),
+        "--from-sha", previous_sha,
+        "--to-sha", sha,
+    )
+
 admin_credential_initialized = bootstrap_admin_credential()
 had_htaccess = htaccess.exists()
 old_htaccess = htaccess.read_bytes() if had_htaccess else b""
@@ -394,6 +443,23 @@ finally:
     except Exception:
         print("deployment target probe cleanup failed", file=sys.stderr)
 
+cleanup_result = {
+    "ok": False,
+    "keptReleaseCount": 0,
+    "prunedReleaseCount": 0,
+    "prunedBackupCount": 0,
+    "prunedIncomingCount": 0,
+}
+try:
+    cleanup_result = run_update_safety(
+        "cleanup",
+        "--private-root", str(private_root),
+        "--current-sha", sha,
+        "--previous-sha", previous_sha,
+    )
+except Exception:
+    print("post-activation retention cleanup failed", file=sys.stderr)
+
 history = shared_logs / "deployment-history.jsonl"
 record = {
     "schemaVersion": 1,
@@ -403,6 +469,13 @@ record = {
     "activationAllowed": allowed,
     "blockerCount": blocker_count,
     "adminCredentialInitialized": admin_credential_initialized,
+    "backupSnapshot": str(backup_result.get("snapshot") or ""),
+    "backupDatabaseCount": int(backup_result.get("databaseCount") or 0),
+    "backupFileCount": int(backup_result.get("fileCount") or 0),
+    "retentionCleanupOk": bool(cleanup_result.get("ok")),
+    "prunedReleaseCount": int(cleanup_result.get("prunedReleaseCount") or 0),
+    "prunedBackupCount": int(cleanup_result.get("prunedBackupCount") or 0),
+    "prunedIncomingCount": int(cleanup_result.get("prunedIncomingCount") or 0),
     "activatedAt": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
 }
 with history.open("a", encoding="utf-8") as handle:
