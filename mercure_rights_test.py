@@ -7,16 +7,22 @@ import mercure_rights
 class MercureRightsTest(unittest.TestCase):
     def test_subject_reference_accepts_only_bounded_customer_identifiers(self):
         self.assertEqual(mercure_rights.parse_subject_ref("account:12"), ("account", "12"))
-        self.assertEqual(mercure_rights.parse_subject_ref("free:34"), ("free", "34"))
+        self.assertEqual(
+            mercure_rights.parse_subject_ref("ACCOUNT:Client-12_A"),
+            ("account", "Client-12_A"),
+        )
+        self.assertEqual(mercure_rights.parse_subject_ref("free:client.34"), ("free", "client.34"))
         for value in (
             "",
             "account",
-            "account:0",
-            "account:-1",
+            "account:",
             "account:12/../../admin",
             "account:12?token=x",
+            "account:12#fragment",
+            "account:client id",
+            "account:client:12",
             "other:12",
-            "free:123456789012345678901",
+            "free:" + ("a" * 129),
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 mercure_rights.parse_subject_ref(value)

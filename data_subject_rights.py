@@ -11,6 +11,7 @@ from pathlib import Path
 import compliance_store
 import mercure_rights
 import mobile_devices
+import rights_subject_bindings
 
 
 SUPPORTED_ADAPTERS = {
@@ -78,10 +79,23 @@ def _request(request_id: str, db_path: Path | str | None = None) -> sqlite3.Row:
     return row
 
 
-def _verify_subject(row: sqlite3.Row, subject_ref: str) -> None:
+def _verify_subject(
+    row: sqlite3.Row,
+    subject_ref: str,
+    adapter: str,
+    db_path: Path | str | None = None,
+) -> None:
     digest = hashlib.sha256(subject_ref.encode("utf-8")).hexdigest()
-    if not hmac.compare_digest(str(row["subject_ref_hash"]), digest):
-        raise PermissionError("référence du demandeur refusée")
+    if hmac.compare_digest(str(row["subject_ref_hash"]), digest):
+        return
+    if rights_subject_bindings.is_bound(
+        str(row["request_id"]),
+        adapter,
+        subject_ref,
+        db_path,
+    ):
+        return
+    raise PermissionError("référence du demandeur refusée")
 
 
 def _adapter_executed(request_id: str, adapter: str, db_path: Path | str | None = None) -> bool:
@@ -244,6 +258,21 @@ def _audit_execution(
     return execution_id
 
 
+def bind_mercure_from_mobile(
+    request_id: object,
+    installation_id: object,
+    mercure_subject_ref: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    rid = _request_id(request_id)
+    return rights_subject_bindings.bind_mercure_from_mobile(
+        rid,
+        installation_id,
+        mercure_subject_ref,
+        db_path,
+    )
+
+
 def execute(
     request_id: object,
     subject_ref: object,
@@ -259,7 +288,7 @@ def execute(
     if str(row["status"]) not in {"open", "in_progress"}:
         raise RuntimeError("demande non exécutable")
     ref = str(subject_ref or "").strip()
-    _verify_subject(row, ref)
+    _verify_subject(row, ref, adapter, db_path)
     request_type = str(row["request_type"])
     if request_type not in SUPPORTED_ADAPTERS[adapter]:
         raise NotImplementedError("type de droit non pris en charge par cet adaptateur")
@@ -372,6 +401,8 @@ def capability(db_path: Path | str | None = None) -> dict:
         },
         "rawSubjectReferencePersisted": False,
         "subjectReferenceReverifiedAtExecution": True,
+        "crossStoreSubjectBindings": True,
+        "subjectBindingProvenance": ["mobile_vehicle_binding"],
         "partialExecutionClosesRequest": False,
         "auditStoresEvidenceHashOnly": True,
         "executionCount": execution_count,

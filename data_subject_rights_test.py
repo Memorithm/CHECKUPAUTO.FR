@@ -190,6 +190,96 @@ class DataSubjectRightsTest(unittest.TestCase):
         self.assertNotIn("+33102030405", exposed_audit)
 
     @patch.object(rights.mercure_rights, "contact_snapshot")
+    def test_unbound_cross_store_subject_is_refused_before_provider_call(self, snapshot):
+        request = self.request("access")
+        with self.assertRaises(PermissionError):
+            rights.execute(
+                request["id"],
+                "account:client-1",
+                adapter="mercure_customer_contact",
+                db_path=self.compliance_db,
+            )
+        snapshot.assert_not_called()
+        self.assertEqual(rights.audit_rows(self.compliance_db), [])
+        self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "open")
+
+    @patch.object(rights.mercure_rights, "contact_snapshot")
+    def test_verified_mobile_binding_allows_same_request_to_execute_mercure(self, snapshot):
+        subject_ref = "account:client-1"
+        request = self.request("access")
+        binding = rights.bind_mercure_from_mobile(
+            request["id"],
+            self.installation_id,
+            subject_ref,
+            self.compliance_db,
+        )
+        self.assertTrue(binding["bound"])
+        self.assertEqual(binding["provenance"], "mobile_vehicle_binding")
+        self.assertFalse(binding["rawSubjectReferencePersisted"])
+        self.assertNotIn(self.installation_id, repr(binding))
+        self.assertNotIn(subject_ref, repr(binding))
+        binding_rows = rights.rights_subject_bindings.rows(self.compliance_db)
+        self.assertEqual(len(binding_rows), 1)
+        self.assertEqual(binding_rows[0]["adapter"], "mercure_customer_contact")
+        self.assertEqual(len(binding_rows[0]["evidenceHash"]), 64)
+        self.assertNotIn(self.installation_id, repr(binding_rows))
+        self.assertNotIn(subject_ref, repr(binding_rows))
+
+        rights.execute(
+            request["id"],
+            self.installation_id,
+            adapter="mobile_installation",
+            db_path=self.compliance_db,
+        )
+        snapshot.return_value = {
+            "provider": "mercure",
+            "subject": {"clientKind": "account", "clientId": "client-1"},
+            "contact": {"email": "client@example.fr", "telephone": "+33102030405"},
+            "coverage": {"contact": True, "vehicles": False, "appointments": False, "billing": False},
+            "partial": True,
+        }
+        result = rights.execute(
+            request["id"],
+            subject_ref,
+            adapter="mercure_customer_contact",
+            db_path=self.compliance_db,
+        )
+        snapshot.assert_called_once_with(subject_ref)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["requestComplete"])
+        self.assertEqual(result["requestStatus"], "in_progress")
+        self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "in_progress")
+        audit = rights.audit_rows(self.compliance_db)
+        self.assertEqual(len(audit), 2)
+        self.assertEqual(
+            {row["adapter"] for row in audit},
+            {"mobile_installation", "mercure_customer_contact"},
+        )
+
+    def test_binding_rejects_unproven_mercure_customer(self):
+        request = self.request("access")
+        with self.assertRaisesRegex(PermissionError, "liaison Mercure non prouvée"):
+            rights.bind_mercure_from_mobile(
+                request["id"],
+                self.installation_id,
+                "account:other-client",
+                self.compliance_db,
+            )
+        self.assertEqual(rights.rights_subject_bindings.rows(self.compliance_db), [])
+
+    def test_binding_rejects_wrong_primary_installation(self):
+        request = self.request("access")
+        wrong_installation = "61cf7ccf-4297-41f4-b76b-c0bd44dbe3d1"
+        with self.assertRaisesRegex(PermissionError, "référence du demandeur refusée"):
+            rights.bind_mercure_from_mobile(
+                request["id"],
+                wrong_installation,
+                "account:client-1",
+                self.compliance_db,
+            )
+        self.assertEqual(rights.rights_subject_bindings.rows(self.compliance_db), [])
+
+    @patch.object(rights.mercure_rights, "contact_snapshot")
     def test_mercure_erasure_remains_unimplemented_and_does_not_call_provider(self, snapshot):
         subject_ref = "free:34"
         request = self.request("erasure", subject_ref)
@@ -230,6 +320,8 @@ class DataSubjectRightsTest(unittest.TestCase):
         )
         self.assertFalse(state["rawSubjectReferencePersisted"])
         self.assertTrue(state["subjectReferenceReverifiedAtExecution"])
+        self.assertTrue(state["crossStoreSubjectBindings"])
+        self.assertEqual(state["subjectBindingProvenance"], ["mobile_vehicle_binding"])
         self.assertFalse(state["partialExecutionClosesRequest"])
         self.assertIn("mercure", state["partialSystemAdapters"])
         self.assertIn("mercure", state["remainingSystemAdapters"])
