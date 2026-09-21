@@ -200,6 +200,71 @@ class DeploymentAdminTest(unittest.TestCase):
         args = update_status.call_args.args
         self.assertEqual(args[3], SHA)
 
+    @mock.patch.object(admin.deployment_source, "desired_sha", return_value="b" * 40)
+    @mock.patch.object(admin.deployment_update, "update_status")
+    @mock.patch.object(admin, "_source_state")
+    def test_github_remote_update_uses_remote_desired_sha(self, source_state, update_status, desired_sha):
+        admin.save_target(self.payload())
+        admin._known_hosts_path().parent.mkdir(parents=True, exist_ok=True)
+        admin._known_hosts_path().write_text(
+            "[ssh.example.net]:5022 ssh-ed25519 AAAATEST\n",
+            encoding="utf-8",
+        )
+        source_state.return_value = source.DeploymentSourceState(
+            mode="github_remote",
+            sha=SHA,
+            build_capable=True,
+            reason="remote",
+        )
+        update_status.return_value = {
+            "schemaVersion": 1,
+            "state": "update_available",
+            "installed": True,
+            "deployedSha": SHA,
+            "desiredSha": "b" * 40,
+            "updateAvailable": True,
+            "releases": [],
+            "rollbackCandidates": [],
+        }
+        result = admin.update_status("production")
+        self.assertTrue(result["updateAvailable"])
+        self.assertEqual(update_status.call_args.args[3], "b" * 40)
+        desired_sha.assert_called_once_with(admin.ROOT)
+
+    @mock.patch.object(admin.github_source, "configure_source")
+    def test_save_update_source_never_returns_token(self, configure):
+        configure.return_value = {
+            "repository": "Memorithm/CHECKUPAUTO.FR",
+            "branch": "main",
+            "tokenConfigured": True,
+        }
+        token = "github_pat_" + "A" * 40
+        result = admin.save_update_source({
+            "repository": "Memorithm/CHECKUPAUTO.FR",
+            "branch": "main",
+            "token": token,
+        })
+        self.assertTrue(result["source"]["tokenConfigured"])
+        self.assertNotIn(token, str(result))
+        configure.assert_called_once_with(
+            "Memorithm/CHECKUPAUTO.FR",
+            "main",
+            token=token,
+        )
+
+    @mock.patch.object(admin.github_source, "latest_sha", return_value="c" * 40)
+    @mock.patch.object(admin.github_source, "public_status")
+    def test_update_source_test_returns_only_public_status_and_sha(self, public_status, latest):
+        public_status.return_value = {
+            "provider": "github",
+            "repository": "Memorithm/CHECKUPAUTO.FR",
+            "branch": "main",
+            "tokenConfigured": True,
+        }
+        result = admin.test_update_source()
+        self.assertEqual(result["latestSha"], "c" * 40)
+        self.assertNotIn("tokenValue", str(result))
+
     @mock.patch.object(admin.executor, "execute_deployment")
     @mock.patch.object(admin, "_source_state")
     def test_start_job_is_async_and_persists_sanitized_result(self, source_state, execute):
