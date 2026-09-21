@@ -13,7 +13,7 @@ let package = Package(
             path: "Sources",
             exclude: [
                 "AddVehicleView.swift", "AppModel.swift", "CheckupAutoReminderApp.swift",
-                "ContentView.swift", "ReminderScheduler.swift"
+                "ContentView.swift", "ReminderScheduler.swift", "PrivacyInfo.xcprivacy"
             ],
             sources: ["Models.swift", "NotificationRouting.swift", "MobileAPI.swift", "MobileBootstrap.swift", "DeviceRegistration.swift", "MobileDeadlineSync.swift", "VehicleClaim.swift", "AuthoritativeInventory.swift"]
         ),
