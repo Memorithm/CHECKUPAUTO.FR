@@ -148,9 +148,15 @@ def create_intent(params, booking_url):
     if not path.startswith('/'): path='/'
     service=analytics.clean(params.get('service'),100)
     referral_code=referrals.valid_code_or_empty(params.get('referralCode'))
+    preferred_date=analytics.clean(params.get('preferredDate'),10)
+    preferred_time=analytics.clean(params.get('preferredTime'),8)
+    if preferred_date:
+        datetime.date.fromisoformat(preferred_date)
+    if preferred_time and not re.fullmatch(r'\d{2}:\d{2}',preferred_time):
+        raise ValueError('preferredTime invalid')
     with analytics.connect() as db:
-        db.execute('INSERT INTO booking_intents(token,created_at,source,campaign,device,path,service,referral_code) VALUES(?,?,?,?,?,?,?,?)',
-                   (token,created,source,campaign,device,path,service,referral_code))
+        db.execute('INSERT INTO booking_intents(token,created_at,source,campaign,device,path,service,referral_code,preferred_date,preferred_time) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                   (token,created,source,campaign,device,path,service,referral_code,preferred_date,preferred_time))
         db.execute("INSERT INTO events(occurred_at,event,path,source,campaign,device,referrer_host,service) VALUES(?,?,?,?,?,?,?,?)",
                    (created,'booking_click',path,source,campaign,device,'',service))
     parts=urlsplit(booking_url)
