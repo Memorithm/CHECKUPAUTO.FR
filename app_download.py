@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 APP_STORE_ENV = "CYBERCHECK_IOS_APP_URL"
 TESTFLIGHT_ENV = "CYBERCHECK_IOS_TESTFLIGHT_URL"
 _CAMPAIGN = "ios-reminder-app"
+_CANONICAL_ORIGIN = "https://www.checkupauto.fr"
 _ALLOWED_SOURCES = {
     "direct",
     "site",
@@ -66,14 +67,22 @@ def ios_testflight_url() -> str:
 
 
 def canonical_origin(config: dict) -> str:
-    raw = str((config.get("seo") or {}).get("canonicalUrl") or "https://checkupauto.fr/")
+    raw = str((config.get("seo") or {}).get("canonicalUrl") or "").strip()
     try:
         parsed = urlparse(raw)
-    except Exception:
-        return "https://checkupauto.fr"
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        return "https://checkupauto.fr"
-    return f"{parsed.scheme}://{parsed.netloc}"
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
+    except (TypeError, ValueError):
+        return _CANONICAL_ORIGIN
+    if (
+        parsed.scheme != "https"
+        or hostname != "www.checkupauto.fr"
+        or port not in (None, 443)
+        or parsed.username
+        or parsed.password
+    ):
+        return _CANONICAL_ORIGIN
+    return _CANONICAL_ORIGIN
 
 
 def status(config: dict) -> dict:
