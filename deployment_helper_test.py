@@ -1,3 +1,4 @@
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -26,8 +27,10 @@ class DeploymentHelperContractTest(unittest.TestCase):
     def test_helper_is_root_only_and_accepts_one_full_sha(self):
         self.assertIn('[[ "${EUID}" -eq 0 ]]', self.helper)
         self.assertIn('[[ "$#" -eq 1 ]]', self.helper)
-        self.assertIn('^[[0-9a-f]', self.helper.replace("[0-9a-f]", "[[0-9a-f]", 1))
-        self.assertIn('{40}$', self.helper)
+        self.assertRegex(
+            self.helper,
+            re.compile(r'\[\[ "\$EXPECTED" =~ \^\[0-9a-f\]\{40\}\$ \]\]'),
+        )
 
     def test_helper_pins_repository_and_current_main(self):
         self.assertIn('Memorithm/CHECKUPAUTO.FR', self.helper)
@@ -50,7 +53,9 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertLess(backup, merge)
         self.assertLess(quick_check, merge)
         self.assertIn('SQLite format 3\\x00', self.helper)
-        self.assertIn('"sha256": digest', self.helper)
+        self.assertIn('if not manifest:', self.helper)
+        self.assertIn('"sha256": digest.hexdigest()', self.helper)
+        self.assertIn('handle.read(16)', self.helper)
 
     def test_deployment_rebaselines_and_checks_service_health(self):
         self.assertIn('rebaseline-integrity.sh', self.helper)
