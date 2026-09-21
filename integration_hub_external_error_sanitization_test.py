@@ -25,6 +25,7 @@ class IntegrationHubExternalErrorSanitizationTest(unittest.TestCase):
                 "client_secret": "private-client-secret",
                 "project_id": "cybercheck-test",
                 "token_uri": hub.TOKEN_URL,
+                "redirect_uris": ["https://www.checkupauto.fr/api/integrations/google/oauth/callback"],
             }
         })
 

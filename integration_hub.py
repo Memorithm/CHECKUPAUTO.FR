@@ -143,12 +143,23 @@ def _atomic_json(path, payload):
             os.unlink(tmp)
 
 
+def _web_redirect_uris(client):
+    if not isinstance(client, dict) or client.get("client_type") != "web":
+        return set()
+    raw = client.get("redirect_uris")
+    if not isinstance(raw, list):
+        return set()
+    return {str(value).strip() for value in raw if isinstance(value, str) and value.strip()}
+
+
 def _client_payload(payload):
     if not isinstance(payload, dict):
         raise IntegrationError("Le fichier OAuth Google est invalide.")
-    cfg = payload.get("web") or payload.get("installed") or payload
+    cfg = payload.get("web")
     if not isinstance(cfg, dict):
-        raise IntegrationError("Le fichier OAuth Google est invalide.")
+        if isinstance(payload.get("installed"), dict):
+            raise IntegrationError("Utilisez un client OAuth Google de type Application Web.")
+        raise IntegrationError("Le fichier OAuth Google doit contenir une configuration web.")
     client_id = str(cfg.get("client_id") or "").strip()
     client_secret = str(cfg.get("client_secret") or "").strip()
     if not client_id or not client_secret:
@@ -156,12 +167,28 @@ def _client_payload(payload):
     token_uri = str(cfg.get("token_uri") or TOKEN_URL).strip()
     if token_uri != TOKEN_URL:
         raise IntegrationError("token_uri OAuth Google non approuvée.")
+    raw_redirects = cfg.get("redirect_uris")
+    if not isinstance(raw_redirects, list):
+        raise IntegrationError("Le client OAuth Google Web doit déclarer ses URI de redirection.")
+    redirect_uris = []
+    for value in raw_redirects:
+        if not isinstance(value, str):
+            raise IntegrationError("URI de redirection OAuth Google invalide.")
+        uri = value.strip()
+        if not uri or len(uri) > 2048:
+            raise IntegrationError("URI de redirection OAuth Google invalide.")
+        if uri not in redirect_uris:
+            redirect_uris.append(uri)
+    if not redirect_uris:
+        raise IntegrationError("Le client OAuth Google Web doit déclarer ses URI de redirection.")
     return {
         "client_id": client_id,
         "client_secret": client_secret,
         "project_id": str(cfg.get("project_id") or "").strip(),
         "auth_uri": AUTH_URL,
         "token_uri": TOKEN_URL,
+        "client_type": "web",
+        "redirect_uris": redirect_uris,
     }
 
 
@@ -173,8 +200,11 @@ def save_oauth_client(payload):
 
 def oauth_client_info():
     cfg = _load(CLIENT_FILE)
+    redirects = _web_redirect_uris(cfg)
     return {
         "configured": bool(cfg.get("client_id") and cfg.get("client_secret")),
+        "webClientVerified": bool(redirects),
+        "redirectUriCount": len(redirects),
         "clientIdSuffix": cfg.get("client_id", "")[-18:] if cfg.get("client_id") else None,
         "projectId": cfg.get("project_id") or None,
     }
@@ -373,6 +403,11 @@ def create_authorization_url(base_url, connector_ids):
     if not scopes:
         raise IntegrationError("Aucun service OAuth sélectionné.")
     redirect_uri = base_url.rstrip("/") + "/api/integrations/google/oauth/callback"
+    allowed_redirects = _web_redirect_uris(client)
+    if not allowed_redirects:
+        raise IntegrationError("Réimportez un client OAuth Google de type Application Web.")
+    if redirect_uri not in allowed_redirects:
+        raise IntegrationError("L’URI de redirection OAuth CheckupAuto n’est pas autorisée dans le client Google.")
     state = secrets.token_urlsafe(32)
     expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)
     _atomic_json(STATE_FILE, {
@@ -411,6 +446,8 @@ def handle_oauth_callback(base_url, state, code, error=""):
     if pending.get("redirect_uri") != redirect_uri:
         raise IntegrationError("URI de redirection OAuth incohérente.")
     client = _load(CLIENT_FILE)
+    if redirect_uri not in _web_redirect_uris(client):
+        raise IntegrationError("Le client OAuth Google Web ne permet pas cette URI de redirection.")
     try:
         response = requests.post(
             TOKEN_URL,
