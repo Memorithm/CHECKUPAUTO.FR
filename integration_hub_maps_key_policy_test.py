@@ -36,6 +36,7 @@ class IntegrationHubMapsKeyPolicyTest(unittest.TestCase):
         self.assertFalse(row["connected"])
         self.assertEqual(row["state"], "attention")
         self.assertEqual(row["verification"], "unverified")
+        self.assertEqual(row["verificationSource"], "configuration")
         self.assertIn("vérification distante non exécutée", row["detail"])
         self.assertNotIn("test-maps-api-key", str(row))
 
@@ -45,6 +46,7 @@ class IntegrationHubMapsKeyPolicyTest(unittest.TestCase):
             row = self._maps_row(hub.status({}, "https://www.checkupauto.fr"))
         get.assert_not_called()
         self.assertEqual(row["verification"], "unverified")
+        self.assertEqual(row["verificationSource"], "configuration")
 
     def test_settings_info_exposes_only_key_presence(self):
         hub.save_settings({"mapsApiKey": "test-maps-api-key"})
