@@ -121,6 +121,14 @@ def _upsert(rows: list[dict], source_window_end: object = "") -> int:
         vehicle_id = str(row.get("vehicleId") or "").strip()
         if not vehicle_id or len(vehicle_id) > 128 or any(ch.isspace() for ch in vehicle_id):
             raise ValueError("vehicleId invalide")
+        client_kind = str(row.get("clientKind") or "").strip()
+        client_id = str(row.get("clientId") or "").strip()
+        privacy_kind = "mercure_account" if client_kind == "account" else "mercure_free"
+        if privacy.any_suppressed(
+            [(privacy_kind, client_id), ("vehicle", vehicle_id)],
+            "all_processing",
+        ):
+            continue
         grouped.setdefault(vehicle_id, []).append(row)
 
     applied = 0
@@ -168,14 +176,6 @@ def _upsert(rows: list[dict], source_window_end: object = "") -> int:
                 continue
 
             row = representative
-            client_kind = str(row.get("clientKind") or "").strip()
-            client_id = str(row.get("clientId") or "").strip()
-            privacy_kind = "mercure_account" if client_kind == "account" else "mercure_free"
-            if privacy.any_suppressed(
-                [(privacy_kind, client_id), ("vehicle", vehicle_id)],
-                "all_processing",
-            ):
-                continue
             cursor = db.execute(
                 """INSERT INTO reminder_target(
                      vehicle_id,client_kind,client_id,due_date,appointment_id,
