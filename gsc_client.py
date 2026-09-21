@@ -49,6 +49,15 @@ def _read_service_account():
     return data, False
 
 
+def _oauth_info_if_usable():
+    try:
+        if not integrations.has_usable_scopes(SCOPES):
+            return None
+        return integrations.oauth_client_info()
+    except OSError:
+        return None
+
+
 def credential_info():
     data, static_invalid = _read_service_account()
     if data is not None:
@@ -59,13 +68,13 @@ def credential_info():
             'projectId': data.get('project_id'),
             'serviceAccountInvalid': False,
         }
-    if integrations.has_usable_scopes(SCOPES):
-        info = integrations.oauth_client_info()
+    oauth_info = _oauth_info_if_usable()
+    if oauth_info is not None:
         return {
             'configured': True,
             'mode': 'oauth',
             'clientEmail': 'Compte Google OAuth',
-            'projectId': info.get('projectId'),
+            'projectId': oauth_info.get('projectId'),
             'serviceAccountInvalid': static_invalid,
         }
     if static_invalid:
