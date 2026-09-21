@@ -120,6 +120,12 @@ $('#complianceCookieSave')?.addEventListener('click',async()=>{
   });await load();setMessage('Registre des traceurs mis à jour.');
  }catch(e){setMessage(e.message,true)}
 });
+$('#complianceRightType')?.addEventListener('change',e=>{
+ const purpose=$('#complianceRightPurpose');
+ if(!purpose)return;
+ if(e.target.value==='consent_withdrawal')purpose.value='direct_marketing';
+ else if(!['objection','consent_withdrawal'].includes(e.target.value))purpose.value='all_processing';
+});
 $('#complianceRightCreate')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/request',{type:$('#complianceRightType').value,subjectKind:$('#complianceRightSubjectKind').value,purpose:$('#complianceRightPurpose').value,subjectRef:$('#complianceRightRef').value,notes:$('#complianceRightNotes').value});$('#complianceRightRef').value='';$('#complianceRightNotes').value='';await load();setMessage('Demande RGPD enregistrée avec échéance à un mois et identifiant placé dans le coffre privé.')}catch(e){setMessage(e.message,true)}
 });
