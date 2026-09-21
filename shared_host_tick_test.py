@@ -46,6 +46,7 @@ class SharedHostTickTest(unittest.TestCase):
                 (module.mobile_reminder_dispatch, "process_once"),
                 (module.review_followup, "process_once"),
                 (module.withdrawal_service, "dispatch_pending"),
+                (module.retention_enforcement, "process_once"),
                 (module.security_alerts, "retry_pending"),
             ]
             for owner, name in functions:
@@ -57,7 +58,7 @@ class SharedHostTickTest(unittest.TestCase):
                 result = module.tick()
 
             self.assertTrue(result["ok"])
-            self.assertEqual(len(result["tasks"]), 7)
+            self.assertEqual(len(result["tasks"]), 8)
             module.admin_server.initialize_runtime.assert_called_once_with(background=False)
             for owner, name in functions:
                 getattr(owner, name).assert_called_once_with()
@@ -76,6 +77,7 @@ class SharedHostTickTest(unittest.TestCase):
                 mock.patch.object(module.mobile_reminder_dispatch, "process_once", return_value={"ok": True}),
                 mock.patch.object(module.review_followup, "process_once", return_value={"ok": True}),
                 mock.patch.object(module.withdrawal_service, "dispatch_pending", return_value={"ok": True}),
+                mock.patch.object(module.retention_enforcement, "process_once", return_value={"ok": True}),
                 mock.patch.object(module.security_alerts, "retry_pending", return_value={"ok": True}),
             ]
             for patcher in patches:
