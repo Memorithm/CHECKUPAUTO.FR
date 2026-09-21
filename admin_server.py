@@ -30,6 +30,7 @@ import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
 import notification_preflight as notification_preflight
 import production_readiness as production_readiness
+import deployment_admin as deployment_admin
 import site_config_store as site_config_store
 ROOT=Path(__file__).resolve().parent
 USER='admin'
@@ -252,6 +253,17 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     c=load_config(); return self.send_json(production_readiness.status(c,build_seo_health(c)))
    except Exception as exc: return self.send_json({'ok':False,'error':'readiness_unavailable'},500)
+  if path=='/api/admin/deployment/status':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(deployment_admin.status())
+   except Exception: return self.send_json({'ok':False,'error':'deployment_status_unavailable'},500)
+  if path=='/api/admin/deployment/job':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); job_id=(q.get('id') or [''])[0]
+    return self.send_json({'ok':True,'job':deployment_admin.job(job_id)})
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_job_not_found'},404)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_job_unavailable'},500)
   if path=='/api/admin/integrations/google/status':
    if not self.authorized(): return self.require_auth()
    try:
@@ -571,6 +583,44 @@ class Handler(SimpleHTTPRequestHandler):
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  if path=='/api/admin/deployment/target':
+   try: return self.send_json(deployment_admin.save_target(self._read_json()),201)
+   except ValueError: return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_target_unavailable'},500)
+  if path=='/api/admin/deployment/hostkey/scan':
+   try:
+    payload=self._read_json(); return self.send_json(deployment_admin.scan_host_keys(str(payload.get('name') or '')))
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_hostkey_scan_failed'},502)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_hostkey_unavailable'},500)
+  if path=='/api/admin/deployment/hostkey/trust':
+   try:
+    payload=self._read_json()
+    return self.send_json(deployment_admin.trust_host_key(str(payload.get('name') or ''),str(payload.get('fingerprint') or '')))
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_hostkey_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_hostkey_changed'},409)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_hostkey_unavailable'},500)
+  if path=='/api/admin/deployment/probe':
+   try:
+    payload=self._read_json(); return self.send_json(deployment_admin.probe(str(payload.get('name') or '')))
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_probe_failed'},409)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_probe_unavailable'},500)
+  if path=='/api/admin/deployment/plan':
+   try:
+    payload=self._read_json()
+    return self.send_json({'ok':True,'plan':deployment_admin.plan(str(payload.get('name') or ''),str(payload.get('sha') or ''))})
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_plan_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_probe_failed'},409)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_plan_unavailable'},500)
+  if path=='/api/admin/deployment/job':
+   try:
+    payload=self._read_json()
+    record=deployment_admin.start_job(str(payload.get('name') or ''),str(payload.get('action') or ''),sha=str(payload.get('sha') or ''))
+    return self.send_json({'ok':True,'job':record},202)
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_job_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_job_conflict'},409)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_job_unavailable'},500)
   if path=='/api/admin/mobile/claims/issue':
    try:
     payload=self._read_json(); claim=mobile_claim_delivery.issue_for_vehicle(load_config(),payload.get('vehicleId'),payload.get('ttlSeconds'))
@@ -736,6 +786,12 @@ class Handler(SimpleHTTPRequestHandler):
   parsed=urlparse(self.path); path=parsed.path
   if not self.authorized(): return self.require_auth()
   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
+  if path=='/api/admin/deployment/target':
+   try:
+    q=parse_qs(parsed.query); name=(q.get('name') or [''])[0]
+    return self.send_json(deployment_admin.delete_target(name))
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_target_unavailable'},500)
   if path=='/api/admin/integrations/google/oauth':
    try: return self.send_json({'ok':True,**integrations.revoke_oauth()})
    except Exception: return self.send_json({'ok':False,'error':'google_request_failed'},400)
