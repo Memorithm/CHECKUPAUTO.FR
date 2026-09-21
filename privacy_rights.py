@@ -641,6 +641,8 @@ def export_subject(
     provider_error = ""
     try:
         export["stores"]["mercure"] = _mercure_snapshot(kind, ref)
+        if export["stores"]["mercure"] is None and kind != "installation":
+            provider_error = "provider_identity_lookup_required"
     except Exception:
         export["stores"]["mercure"] = None
         provider_error = "provider_lookup_unavailable"
