@@ -5,6 +5,7 @@ from pathlib import Path
 import compliance_operations
 import compliance_store
 import withdrawal_service
+import privacy_rights
 
 
 def snapshot(db_path: Path | str | None = None) -> dict:
@@ -18,6 +19,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     """
     result = compliance_store.admin_snapshot(db_path)
     withdrawal = withdrawal_service.status(db_path)
+    rights_execution = privacy_rights.snapshot(db_path)
     operations = compliance_operations.snapshot(db_path)
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
@@ -47,7 +49,9 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["withdrawalManualMatchRequired"] = int(withdrawal.get("manualMatchRequired") or 0)
     # Phase-2 fail-closed controls. These become true only when the executable
     # cross-store rights and retention engines are implemented and evidenced.
-    summary["dataSubjectExecutionBound"] = False
+    summary["dataSubjectExecutionBound"] = bool(
+        (rights_execution.get("capability") or {}).get("bound")
+    )
     summary["retentionEnforcementBound"] = False
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
@@ -69,4 +73,5 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["summary"] = summary
     result["operations"] = operations
     result["withdrawal"] = withdrawal
+    result["rightsExecution"] = rights_execution
     return result
