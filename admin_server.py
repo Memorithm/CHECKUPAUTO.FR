@@ -94,7 +94,7 @@ def render_legal_document(doc,c):
  for paragraph in str(doc.get('body') or '').split('\n\n'):
   paragraph=paragraph.strip()
   if not paragraph: continue
-  chunks.append('<p>'+esc(paragraph).replace('\\n','<br>')+'</p>')
+  chunks.append('<p>'+esc(paragraph).replace('\n','<br>')+'</p>')
  body=''.join(chunks)
  published=esc(doc.get('publishedAt') or '')
  version=esc(doc.get('version') or '')
