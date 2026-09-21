@@ -1,0 +1,81 @@
+name: iOS validate automation
+
+on:
+  push:
+    branches: [automation/ios-validate-20260921-1322]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 30
+    env:
+      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
+      CHECKUPAUTO_MAC_USER: tarek
+      CHECKUPAUTO_MAIN_SHA: 4f0c1a4f610c7813ab2356779cb17045e09b5119
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CHECKUPAUTO_MAIN_SHA }}
+      - name: Resolve secret-backed Mac identity
+        env:
+          CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
+            echo '::error::CHECKUPAUTO_MAC_SSH_KEY is not configured'
+            exit 2
+          fi
+          key="$RUNNER_TEMP/checkupauto-mac-key"
+          umask 077
+          printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$key"
+          chmod 600 "$key"
+          printf '%s\n' "$key" > .ios-mac-key
+      - name: Verify Mac toolchain
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            'sw_vers; xcodebuild -version; xcodegen --version; swift --version'
+      - name: Stage exact main iOS source
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          remote_dir="/tmp/checkupauto-ios-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' "$remote_dir" > .ios-remote-dir
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
+          tar -czf - ios/CheckupAutoReminder ios_release_runner.py | \
+            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xzf - -C '$remote_dir'"
+      - name: Run Swift package tests
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          remote_dir="$(cat .ios-remote-dir)"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "cd '$remote_dir/ios/CheckupAutoReminder' && swift package resolve && swift test --parallel"
+      - name: Run iOS simulator tests
+        run: |
+          set -euo pipefail
+          key="$(cat .ios-mac-key)"
+          remote_dir="$(cat .ios-remote-dir)"
+          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
+      - name: Clean ephemeral Mac staging
+        if: always()
+        run: |
+          set -u
+          key="$(cat .ios-mac-key 2>/dev/null || true)"
+          if [ -n "$key" ] && [ -s .ios-remote-dir ]; then
+            remote_dir="$(cat .ios-remote-dir)"
+            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir'" || true
+          fi
+          [ -n "$key" ] && rm -f "$key" || true
+          rm -f .ios-mac-key .ios-remote-dir
