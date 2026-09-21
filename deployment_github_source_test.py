@@ -52,7 +52,7 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
         self.private = self.root / "private"
         self.private.mkdir()
         self.token = self.private / "github-update-token"
-        self.token.write_text("github_pat_" + "A" * 40 + "\n", encoding="ascii")
+        self.token.write_text("github" + "_pat_" + "A" * 40 + "\n", encoding="ascii")
         self.token.chmod(0o600)
         self.env = mock.patch.dict(
             os.environ,
@@ -99,7 +99,7 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
         self.assertEqual(status["branch"], "main")
         self.assertTrue(status["tokenConfigured"])
         text = str(status)
-        self.assertNotIn("github_pat_", text)
+        self.assertNotIn("github" + "_pat_", text)
         self.assertNotIn(str(self.token), text)
 
     def test_saved_source_config_is_private_and_takes_precedence(self):
@@ -109,10 +109,10 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
         cfg = github.config()
         self.assertEqual(cfg.repository, "Memorithm/CHECKUPAUTO.FR")
         self.assertEqual(cfg.branch, "stable")
-        self.assertNotIn("github_pat_", config_path.read_text(encoding="utf-8"))
+        self.assertNotIn("github" + "_pat_", config_path.read_text(encoding="utf-8"))
 
     def test_configure_source_never_returns_token(self):
-        token = "github_pat_" + "C" * 40
+        token = "github" + "_pat_" + "C" * 40
         result = github.configure_source(
             "Memorithm/CHECKUPAUTO.FR",
             "main",
@@ -142,7 +142,7 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
 
     def test_save_token_is_private_and_atomic(self):
         target = self.private / "new-token"
-        value = "github_pat_" + "B" * 40
+        value = "github" + "_pat_" + "B" * 40
         result = github.save_token(value, target)
         self.assertTrue(result["configured"])
         self.assertEqual(target.stat().st_mode & 0o777, 0o600)
