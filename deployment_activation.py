@@ -464,7 +464,7 @@ if previous_release is not None:
     )
 
 admin_credential_initialized = bootstrap_admin_credential()
-update_source_provisioned = bootstrap_update_source()
+update_source_provisioned = False
 had_htaccess = htaccess.exists()
 old_htaccess = htaccess.read_bytes() if had_htaccess else b""
 old_htaccess_mode = (htaccess.stat().st_mode & 0o777) if had_htaccess else 0o644
@@ -500,6 +500,7 @@ try:
     switch_current(release)
     touch_restart(release)
     state, allowed, blocker_count = probe_http(probe_name, probe_value)
+    update_source_provisioned = bootstrap_update_source()
 except Exception as activation_error:
     rollback_failed = False
     try:
