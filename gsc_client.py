@@ -1,5 +1,6 @@
 from pathlib import Path
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 import datetime
 import json
 import os
@@ -15,6 +16,7 @@ SCOPES = ['https://www.googleapis.com/auth/webmasters']
 WEBMASTERS = 'https://www.googleapis.com/webmasters/v3'
 INSPECTION = 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
+REPORTING_TZ = ZoneInfo('America/Los_Angeles')
 CREDS = Path('/root/.config/cybercheck/gsc-service-account.json')
 
 
@@ -180,9 +182,16 @@ def _analytics_query(site_url, start, end, dimensions=None, row_limit=25):
     return _request('POST', url, json=body)
 
 
+def reporting_today(now=None):
+    current = now or datetime.datetime.now(datetime.timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=datetime.timezone.utc)
+    return current.astimezone(REPORTING_TZ).date()
+
+
 def performance(site_url, days=28):
     days = max(1, min(int(days), 90))
-    end = datetime.date.today() - datetime.timedelta(days=1)
+    end = reporting_today() - datetime.timedelta(days=1)
     start = end - datetime.timedelta(days=days - 1)
     start_s, end_s = start.isoformat(), end.isoformat()
     summary_rows = _analytics_query(site_url, start_s, end_s, row_limit=1).get('rows', [])
