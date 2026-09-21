@@ -325,7 +325,7 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     q=parse_qs(parsed.query); city=(q.get('city') or q.get('postalCode') or [''])[0]
     return self.send_json(geo_marketing.quote(load_config(),city,mercure_public.public_services()))
-   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except ValueError: return self.send_json({'ok':False,'error':'geo_quote_invalid'},400)
    except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)
   if path=='/api/booking/availability':
    try:
@@ -333,7 +333,7 @@ class Handler(SimpleHTTPRequestHandler):
     requested=datetime.date.fromisoformat(date); limit=datetime.date.today()+datetime.timedelta(days=int(policy['horizonDays']))
     if requested>limit: raise ValueError(f"Date hors horizon de réservation ({policy['horizonDays']} jours)")
     result=mercure_public.availability(service,date); result['incentives']=policy; return self.send_json(result)
-   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except ValueError: return self.send_json({'ok':False,'error':'booking_availability_invalid'},400)
    except Exception: return self.send_json({'ok':False,'error':'booking_availability_unavailable'},502)
   if path=='/go/app':
    c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c); ios=app['ios']
