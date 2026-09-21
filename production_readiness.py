@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import analytics_store
 import app_download
+import compliance_admin
 import gsc_client
 import integration_hub
 import ios_release_preflight
@@ -89,6 +90,13 @@ _REMEDIATION = {
         "verify": "Le QR claim doit annoncer ready=true.",
         "target": "#notifications",
         "external": True,
+    },
+    "compliance": {
+        "code": "complete_compliance_controls",
+        "summary": "Compléter les contrôles RGPD et de contractualisation avant activation publique.",
+        "verify": "Le Compliance Center doit retourner readyForPublicContracting=true et operationalRegistersReady=true.",
+        "target": "#compliance",
+        "external": False,
     },
     "google_integration": {
         "code": "authorize_google",
@@ -285,6 +293,41 @@ def _google_integration_component(integrations: dict) -> dict:
 
 def status(config: dict, seo_health: dict | None = None) -> dict:
     components: list[dict] = [_public_site(config)]
+
+    compliance_state, compliance_error = _safe("compliance", compliance_admin.snapshot)
+    if compliance_error:
+        components.append(_failed("compliance", "Conformité RGPD & ventes", True, compliance_error))
+    else:
+        compliance_summary = compliance_state.get("summary") or {}
+        compliance_ready = bool(compliance_summary.get("readyForPublicContracting"))
+        operational_ready = bool(compliance_summary.get("operationalRegistersReady"))
+        overdue_rights = int(compliance_summary.get("overdueRightsRequests") or 0)
+        overdue_incidents = int(compliance_summary.get("overdueIncidentNotifications") or 0)
+        operational_blockers = list(compliance_summary.get("operationalBlockers") or [])
+        if compliance_ready:
+            state = "ready"
+            detail = "Contrôles RGPD et contractualisation publique prêts"
+        elif overdue_rights or overdue_incidents or operational_blockers:
+            state = "degraded"
+            detail = "Contrôles de conformité opérationnelle à résoudre avant activation publique"
+        else:
+            state = "configuration_required"
+            detail = "Identité, documents, CGV finale ou fonction de rétractation à compléter"
+        components.append(_component(
+            "compliance", "Conformité RGPD & ventes", state, detail,
+            critical=True,
+            metrics={
+                "identityComplete": bool(compliance_summary.get("identityComplete")),
+                "publishedDocuments": int(compliance_summary.get("publishedDocuments") or 0),
+                "requiredDocuments": int(compliance_summary.get("requiredDocuments") or 0),
+                "checkoutAcceptanceBound": bool(compliance_summary.get("checkoutAcceptanceBound")),
+                "withdrawalFunctionBound": bool(compliance_summary.get("withdrawalFunctionBound")),
+                "overdueRightsRequests": overdue_rights,
+                "overdueIncidentNotifications": overdue_incidents,
+                "operationalRegistersReady": operational_ready,
+                "operationalBlockerCount": len(operational_blockers),
+            },
+        ))
 
     reminder, error = _safe("reminder", reminder_dispatch.status)
     if error:
