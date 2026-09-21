@@ -558,12 +558,14 @@ def start_job(
         "finishedAt": "",
     }
     _write_job(record)
+    response = dict(record)
+    worker_record = dict(record)
     thread = threading.Thread(
         target=_run_job,
-        args=(record, lock_handle, str(name), action, selected_sha),
+        args=(worker_record, lock_handle, str(name), action, selected_sha),
         daemon=True,
         name=f"CheckupAutoDeploy-{record['id'][:8]}",
     )
     with _JOB_THREAD_LOCK:
         thread.start()
-    return record
+    return response
