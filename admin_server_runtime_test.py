@@ -84,6 +84,7 @@ class AdminServerRuntimeTest(unittest.TestCase):
             "booking_test",
             "reviews",
             "withdrawals",
+            "retention_enforcement",
             "security",
             "security_alerts",
             "competitive",
@@ -124,6 +125,7 @@ class AdminServerRuntimeTest(unittest.TestCase):
         self.assertEqual(modules["security"].init_db.call_count, 1)
         self.assertEqual(modules["reviews"].init_db.call_count, 1)
         self.assertEqual(modules["withdrawals"].init_db.call_count, 1)
+        self.assertEqual(modules["retention_enforcement"].init_db.call_count, 1)
 
         with mock.patch.object(ns["os"], "chdir"):
             result = fn(background=True)
