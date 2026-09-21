@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import compliance_store
 import data_subject_rights as rights
@@ -53,9 +54,9 @@ class DataSubjectRightsTest(unittest.TestCase):
         mobile_devices.DATA_DIR, mobile_devices.DB = self.old_mobile_dir, self.old_mobile_db
         self.tmp.cleanup()
 
-    def request(self, request_type):
+    def request(self, request_type, subject_ref=None):
         return compliance_store.create_rights_request(
-            {"type": request_type, "subjectRef": self.installation_id},
+            {"type": request_type, "subjectRef": subject_ref or self.installation_id},
             self.compliance_db,
         )
 
@@ -156,6 +157,53 @@ class DataSubjectRightsTest(unittest.TestCase):
         self.assertEqual(result["data"]["device"]["environment"], "sandbox")
         self.assertFalse(result["requestComplete"])
 
+    @patch.object(rights.mercure_rights, "contact_snapshot")
+    def test_mercure_contact_access_is_partial_and_audit_does_not_expose_subject_data(self, snapshot):
+        subject_ref = "account:12"
+        snapshot.return_value = {
+            "provider": "mercure",
+            "subject": {"clientKind": "account", "clientId": "12"},
+            "contact": {"email": "client@example.fr", "telephone": "+33102030405"},
+            "coverage": {"contact": True, "vehicles": False, "appointments": False, "billing": False},
+            "partial": True,
+        }
+        request = self.request("access", subject_ref)
+        result = rights.execute(
+            request["id"],
+            subject_ref,
+            adapter="mercure_customer_contact",
+            db_path=self.compliance_db,
+        )
+        snapshot.assert_called_once_with(subject_ref)
+        self.assertEqual(result["format"], "application/json")
+        self.assertEqual(result["data"]["provider"], "mercure")
+        self.assertTrue(result["data"]["partial"])
+        self.assertEqual(result["requestStatus"], "in_progress")
+        self.assertFalse(result["requestComplete"])
+        audit = rights.audit_rows(self.compliance_db)
+        self.assertEqual(len(audit), 1)
+        self.assertEqual(audit[0]["adapter"], "mercure_customer_contact")
+        self.assertEqual(audit[0]["action"], "export")
+        exposed_audit = repr(audit)
+        self.assertNotIn(subject_ref, exposed_audit)
+        self.assertNotIn("client@example.fr", exposed_audit)
+        self.assertNotIn("+33102030405", exposed_audit)
+
+    @patch.object(rights.mercure_rights, "contact_snapshot")
+    def test_mercure_erasure_remains_unimplemented_and_does_not_call_provider(self, snapshot):
+        subject_ref = "free:34"
+        request = self.request("erasure", subject_ref)
+        with self.assertRaises(NotImplementedError):
+            rights.execute(
+                request["id"],
+                subject_ref,
+                adapter="mercure_customer_contact",
+                db_path=self.compliance_db,
+            )
+        snapshot.assert_not_called()
+        self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "open")
+        self.assertEqual(rights.audit_rows(self.compliance_db), [])
+
     def test_unimplemented_right_stays_open(self):
         request = self.request("rectification")
         with self.assertRaises(NotImplementedError):
@@ -176,9 +224,14 @@ class DataSubjectRightsTest(unittest.TestCase):
             state["supportedAdapters"]["mobile_installation"],
             ["access", "portability", "erasure"],
         )
+        self.assertEqual(
+            state["supportedAdapters"]["mercure_customer_contact"],
+            ["access", "portability"],
+        )
         self.assertFalse(state["rawSubjectReferencePersisted"])
         self.assertTrue(state["subjectReferenceReverifiedAtExecution"])
         self.assertFalse(state["partialExecutionClosesRequest"])
+        self.assertIn("mercure", state["partialSystemAdapters"])
         self.assertIn("mercure", state["remainingSystemAdapters"])
 
 
