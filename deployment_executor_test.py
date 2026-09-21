@@ -75,6 +75,7 @@ class DeploymentExecutorTest(unittest.TestCase):
             self.credential,
             self.root,
             SHA,
+            admin_password="local-admin-secret-value",
         )
 
         self.assertEqual(result.action, "update")
@@ -89,6 +90,10 @@ class DeploymentExecutorTest(unittest.TestCase):
         self.assertTrue(probe.call_args.kwargs["shared_host_tick"])
         self.assertEqual(stage.call_args.args[5], SHA)
         self.assertEqual(activate.call_args.args[4], SHA)
+        self.assertEqual(
+            activate.call_args.kwargs["admin_password"],
+            "local-admin-secret-value",
+        )
 
     @mock.patch("deployment_executor.release.stage_release")
     @mock.patch("deployment_executor.transport.probe_target")
@@ -133,6 +138,7 @@ class DeploymentExecutorTest(unittest.TestCase):
             self.credential,
             self.root,
             PREVIOUS_SHA,
+            admin_password="local-admin-secret-value",
         )
         self.assertEqual(result.action, "rollback")
         self.assertEqual(result.sha, PREVIOUS_SHA)
@@ -141,6 +147,10 @@ class DeploymentExecutorTest(unittest.TestCase):
         self.assertEqual(result.blocker_count, 2)
         stage.assert_not_called()
         self.assertEqual(rollback.call_args.args[4], PREVIOUS_SHA)
+        self.assertEqual(
+            rollback.call_args.kwargs["admin_password"],
+            "local-admin-secret-value",
+        )
 
     @mock.patch("deployment_executor.transport.probe_target")
     def test_missing_local_runtime_contract_blocks_shared_host(self, probe):
