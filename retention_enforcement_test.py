@@ -23,10 +23,11 @@ class RetentionEnforcementTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.old_env = {
             key: os.environ.get(key)
-            for key in ("CYBERCHECK_DATA_DIR", "CYBERCHECK_PRIVATE_DIR")
+            for key in ("CYBERCHECK_DATA_DIR", "CYBERCHECK_PRIVATE_DIR", "CYBERCHECK_SECURITY_DIR")
         }
         os.environ["CYBERCHECK_DATA_DIR"] = str(self.root)
         os.environ["CYBERCHECK_PRIVATE_DIR"] = str(self.root / "private")
+        os.environ["CYBERCHECK_SECURITY_DIR"] = str(self.root / "security")
         self.addCleanup(self._restore_env)
 
         import security_alerts
