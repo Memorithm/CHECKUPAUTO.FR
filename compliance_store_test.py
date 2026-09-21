@@ -118,13 +118,54 @@ class ComplianceStoreTest(unittest.TestCase):
         self.assertEqual(receipt["contentHash"], terms["contentHash"])
         self.assertEqual(receipt["contractRef"], "order-123")
 
-    def test_summary_never_claims_checkout_binding_before_provider_integration(self):
+    def test_checkout_acceptance_requires_current_terms_and_finalizes_to_contract(self):
+        self.publish_required_documents()
+        terms = compliance.published_document("terms", self.db)
+        with self.assertRaises(ValueError):
+            compliance.record_checkout_acceptance(
+                "booking-token",
+                terms_version=terms["version"],
+                terms_content_hash=terms["contentHash"],
+                accepted=False,
+                reviewed=True,
+                db_path=self.db,
+            )
+        with self.assertRaises(ValueError):
+            compliance.record_checkout_acceptance(
+                "booking-token",
+                terms_version=terms["version"],
+                terms_content_hash="0" * 64,
+                accepted=True,
+                reviewed=True,
+                db_path=self.db,
+            )
+        acceptance = compliance.record_checkout_acceptance(
+            "booking-token",
+            terms_version=terms["version"],
+            terms_content_hash=terms["contentHash"],
+            accepted=True,
+            reviewed=True,
+            immediate_performance=True,
+            db_path=self.db,
+        )
+        self.assertEqual(acceptance["termsVersion"], terms["version"])
+        self.assertTrue(acceptance["reviewed"])
+        first = compliance.finalize_checkout_acceptance("booking-token", "browser-123", db_path=self.db)
+        final = compliance.finalize_checkout_acceptance("booking-token", "mercure-456", db_path=self.db)
+        self.assertEqual(first["documentVersion"], terms["version"])
+        self.assertEqual(final["contractRef"], "mercure-456")
+        self.assertTrue(final["immediatePerformance"])
+        with compliance.connect(self.db) as db:
+            row = db.execute("SELECT booking_token_hash FROM checkout_acceptance_intents").fetchone()
+        self.assertNotEqual(row["booking_token_hash"], "booking-token")
+
+    def test_summary_claims_checkout_binding_but_stays_blocked_by_withdrawal(self):
         self.complete_identity()
         self.publish_required_documents()
         summary = compliance.summary(self.db)
         self.assertTrue(summary["identityComplete"])
         self.assertEqual(summary["publishedDocuments"], len(compliance.DOCUMENT_TYPES))
-        self.assertFalse(summary["checkoutAcceptanceBound"])
+        self.assertTrue(summary["checkoutAcceptanceBound"])
         self.assertFalse(summary["withdrawalFunctionBound"])
         self.assertFalse(summary["readyForPublicContracting"])
 
