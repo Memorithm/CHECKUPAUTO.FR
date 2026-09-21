@@ -70,7 +70,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('if not manifest:', self.helper)
         self.assertIn('"sha256": digest.hexdigest()', self.helper)
         self.assertIn('handle.read(16)', self.helper)
-        self.assertGreaterEqual(self.helper.count("/usr/bin/python3 - <<'PY'"), 2)
+        self.assertGreaterEqual(self.helper.count("/usr/bin/python3 - <<'PY'"), 3)
 
     def test_post_update_root_code_is_data_only_and_health_failure_stops_service(self):
         merge = self.helper.index('git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"')
@@ -78,6 +78,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertLess(merge, baseline)
         self.assertNotIn('bash "$ROOT/deploy/rebaseline-integrity.sh"', self.helper)
         self.assertNotIn('import security_integrity', self.helper)
+        self.assertNotIn('import production_readiness', self.helper)
         self.assertIn('/usr/bin/python3 - <<\'PY\'', self.helper)
         self.assertIn('systemctl stop "$SERVICE"', self.helper)
         self.assertIn('systemctl start "$SERVICE"', self.helper)
@@ -87,6 +88,20 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('http://127.0.0.1:8765/', self.helper)
         self.assertIn('flock -n 9', self.helper)
         self.assertIn('/run/cybercheck-deploy.lock', self.helper)
+
+    def test_authenticated_readiness_is_verified_after_health_without_secret_logging(self):
+        self.assertIn('readonly READINESS_URL="http://127.0.0.1:8765/api/admin/readiness"', self.helper)
+        self.assertIn('readonly ADMIN_PASSWORD_FILE="/root/CyberCheckPrivate/admin-password"', self.helper)
+        self.assertIn('base64.b64encode(f"admin:{password}".encode("utf-8"))', self.helper)
+        self.assertIn('"Authorization": f"Basic {authorization}"', self.helper)
+        self.assertIn('payload.get("schemaVersion")', self.helper)
+        self.assertIn('payload.get("activationGate")', self.helper)
+        self.assertIn('CRITICAL_BLOCKER_COUNT={len(blockers)}', self.helper)
+        self.assertNotIn('print(blockers)', self.helper)
+        post_probe = self.helper.rindex('if ! readiness_probe; then')
+        health_gate = self.helper.rindex('if [[ "$healthy" -ne 1 ]]; then')
+        self.assertLess(health_gate, post_probe)
+        self.assertIn('authenticated readiness probe failed after deployment; service stopped fail-closed', self.helper)
 
     def test_installer_creates_root_owned_helper_and_narrow_sudoers_rule(self):
         self.assertIn('install -o root -g root -m 0755 "$HELPER_SOURCE" "$HELPER_TARGET"', self.installer)
