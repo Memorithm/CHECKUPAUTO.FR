@@ -46,8 +46,22 @@ function render(){
  $('#complianceDocType').dataset.current=selected;fillDocument(selected);
  const cookies=snapshot.cookies?.registry||[];
  $('#complianceCookieRows').innerHTML=cookies.length?cookies.map(row=>'<tr><td>'+esc(row.key)+'</td><td>'+esc(row.provider)+'</td><td>'+esc(row.category)+'</td><td>'+(row.essential?'Exempté/nécessaire':'Consentement')+'</td><td>'+(row.enabled?'Actif':'Inactif')+'</td><td>'+esc(row.durationDays)+' j</td></tr>').join(''):'<tr><td colspan="6">Aucun traceur enregistré. La mesure actuelle reste cookieless.</td></tr>';
- const rights=snapshot.rightsRequests||[];
- $('#complianceRightsRows').innerHTML=rights.length?rights.map(row=>'<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'</td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+((row.status==='closed'||row.status==='rejected')?'—':'<button type="button" class="compact-action compliance-close-right" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
+ const rights=snapshot.rightsRequests||[],rightExec=snapshot.rightsExecution?.requests||{};
+ $('#complianceRightsRows').innerHTML=rights.length?rights.map(row=>{
+  const execution=rightExec[row.id]||{},steps=execution.steps||[];
+  const manual=steps.filter(step=>step.status==='manual_required'||step.status==='failed');
+  const stepText=steps.length?steps.map(step=>esc(step.store)+'/'+esc(step.action)+' : '+esc(step.status)).join('<br>'):'Non exécutée';
+  let actions='—';
+  if(row.status!=='closed'&&row.status!=='rejected'){
+   const buttons=[];
+   buttons.push('<button type="button" class="compact-action compliance-execute-right" data-id="'+esc(row.id)+'">'+((row.type==='access'||row.type==='portability')?'Générer export':'Exécuter')+'</button>');
+   manual.forEach(step=>buttons.push('<button type="button" class="compact-action compliance-manual-right" data-id="'+esc(row.id)+'" data-store="'+esc(step.store)+'" data-action="'+esc(step.action)+'">Prouver '+esc(step.store)+'</button>'));
+   if(steps.length&&!manual.length)buttons.push('<button type="button" class="compact-action compliance-complete-right" data-id="'+esc(row.id)+'">Clôturer</button>');
+   actions=buttons.join(' ');
+  }
+  const identity=(execution.subjectKind?esc(execution.subjectKind)+' · ':'')+esc(row.subjectRefHash);
+  return '<tr><td>'+esc(row.type)+'</td><td>'+identity+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'<br><small>'+stepText+'</small></td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+actions+'</td></tr>';
+ }).join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
  const incidents=snapshot.incidents||[];
  $('#complianceIncidentRows').innerHTML=incidents.length?incidents.map(row=>'<tr><td>'+esc(row.riskLevel)+'</td><td>'+esc(row.status)+(row.notificationOverdue?' · DÉLAI DÉPASSÉ':'')+'</td><td>'+esc(row.summary)+'</td><td>'+new Date(row.detectedAt).toLocaleString('fr-FR')+'</td><td>'+(row.cnilDueAt?new Date(row.cnilDueAt).toLocaleString('fr-FR'):'—')+'</td><td>'+(row.status==='closed'?'—':'<button type="button" class="compact-action compliance-close-incident" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucun incident enregistré.</td></tr>';
  const retention=snapshot.retentionPolicies||[];
@@ -57,7 +71,29 @@ function render(){
   const pub=docs.find(x=>x.type===type&&x.status==='published');
   return '<tr><td><a href="'+esc(m.slug)+'" target="_blank" rel="noopener">'+esc(m.label)+'</a></td><td>'+(pub?esc(pub.version):'—')+'</td><td>'+(pub?'PUBLIÉ':'MANQUANT')+'</td><td>'+(pub?esc(pub.contentHash.slice(0,16)):'—')+'</td></tr>';
  }).join('');
- document.querySelectorAll('.compliance-close-right').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/compliance/request-status',{id:b.dataset.id,status:'closed'});await load()}catch(e){setMessage(e.message,true)}});
+ document.querySelectorAll('.compliance-execute-right').forEach(b=>b.onclick=async()=>{
+  try{
+   const result=await api('/api/admin/compliance/request-execute',{id:b.dataset.id});
+   const exported=result.execution?.export;
+   if(exported){
+    const blob=new Blob([JSON.stringify(exported,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='checkupauto-rgpd-'+b.dataset.id+'.json';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+   }
+   await load();setMessage(exported?'Export RGPD généré localement.':'Exécution RGPD mise à jour.');
+  }catch(e){setMessage(e.message,true)}
+ });
+ document.querySelectorAll('.compliance-manual-right').forEach(b=>b.onclick=async()=>{
+  const evidence=window.prompt('Référence de preuve de l’action manuelle (ticket, identifiant interne, référence opérateur) :','');
+  if(!evidence)return;
+  try{
+   await api('/api/admin/compliance/request-manual-step',{id:b.dataset.id,store:b.dataset.store,action:b.dataset.action,evidenceCode:evidence});
+   await load();setMessage('Preuve manuelle enregistrée sous forme hachée.');
+  }catch(e){setMessage(e.message,true)}
+ });
+ document.querySelectorAll('.compliance-complete-right').forEach(b=>b.onclick=async()=>{
+  try{await api('/api/admin/compliance/request-complete',{id:b.dataset.id});await load();setMessage('Demande clôturée ; identifiant brut supprimé du coffre privé.')}catch(e){setMessage(e.message,true)}
+ });
  document.querySelectorAll('.compliance-close-incident').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/compliance/incident-status',{id:b.dataset.id,status:'closed'});await load()}catch(e){setMessage(e.message,true)}});
 }
 async function load(){setMessage('Chargement de la conformité…');snapshot=await api('/api/admin/compliance');render();setMessage('Registre de conformité chargé.')}
@@ -85,7 +121,7 @@ $('#complianceCookieSave')?.addEventListener('click',async()=>{
  }catch(e){setMessage(e.message,true)}
 });
 $('#complianceRightCreate')?.addEventListener('click',async()=>{
- try{await api('/api/admin/compliance/request',{type:$('#complianceRightType').value,subjectRef:$('#complianceRightRef').value,notes:$('#complianceRightNotes').value});$('#complianceRightRef').value='';$('#complianceRightNotes').value='';await load();setMessage('Demande RGPD enregistrée avec échéance à un mois.')}catch(e){setMessage(e.message,true)}
+ try{await api('/api/admin/compliance/request',{type:$('#complianceRightType').value,subjectKind:$('#complianceRightSubjectKind').value,purpose:$('#complianceRightPurpose').value,subjectRef:$('#complianceRightRef').value,notes:$('#complianceRightNotes').value});$('#complianceRightRef').value='';$('#complianceRightNotes').value='';await load();setMessage('Demande RGPD enregistrée avec échéance à un mois et identifiant placé dans le coffre privé.')}catch(e){setMessage(e.message,true)}
 });
 $('#complianceIncidentCreate')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/incident',{riskLevel:$('#complianceIncidentRisk').value,summary:$('#complianceIncidentSummary').value,notes:$('#complianceIncidentNotes').value});$('#complianceIncidentSummary').value='';$('#complianceIncidentNotes').value='';await load();setMessage('Incident enregistré.')}catch(e){setMessage(e.message,true)}
