@@ -487,8 +487,8 @@ class Handler(SimpleHTTPRequestHandler):
   if path in compliance.SLUG_TO_DOCUMENT:
    doc=compliance.public_document_for_path(path)
    if path=='/retractation':
-    origin=canonical_origin(load_config()['seo']['canonicalUrl'])
-    return self.send_bytes(withdrawals.render_page(doc,canonical_origin=origin),'text/html; charset=utf-8',cache='no-cache')
+    cfg=load_config(); origin=canonical_origin(cfg['seo']['canonicalUrl'])
+    return self.send_bytes(withdrawals.render_page(doc,canonical_origin=origin,indexing_enabled=bool(cfg['seo'].get('indexingEnabled'))),'text/html; charset=utf-8',cache='no-cache')
    if not doc:
     return self.send_bytes(b'Document juridique non publie','text/plain; charset=utf-8',404,'no-store')
    return self.send_bytes(render_legal_document(doc,load_config()),'text/html; charset=utf-8',cache='no-cache')
@@ -552,7 +552,7 @@ class Handler(SimpleHTTPRequestHandler):
    except ValueError:
     return self.send_bytes(b'Declaration de retractation invalide','text/plain; charset=utf-8',400,'no-store')
    except Exception:
-    return self.send_bytes(b'Declaration enregistree mais confirmation indisponible','text/plain; charset=utf-8',503,'no-store')
+    return self.send_bytes(b'Service de retractation temporairement indisponible','text/plain; charset=utf-8',503,'no-store')
   if path=='/api/compliance/withdrawal':
    try:
     if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
