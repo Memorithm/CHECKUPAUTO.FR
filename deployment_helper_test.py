@@ -44,7 +44,10 @@ class DeploymentHelperContractTest(unittest.TestCase):
 
     def test_deployment_can_only_fast_forward(self):
         self.assertIn('git merge-base --is-ancestor "$CURRENT" "$EXPECTED"', self.helper)
-        self.assertIn('git merge --ff-only "$EXPECTED"', self.helper)
+        self.assertIn(
+            'git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"',
+            self.helper,
+        )
         self.assertNotIn('git reset --hard', self.helper)
         self.assertNotIn('git checkout -f', self.helper)
         self.assertNotIn('git push --force', self.helper)
@@ -52,7 +55,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
     def test_verified_sqlite_backup_happens_before_git_mutation(self):
         backup = self.helper.index('source.backup(target)')
         quick_check = self.helper.index('PRAGMA quick_check')
-        merge = self.helper.index('git merge --ff-only "$EXPECTED"')
+        merge = self.helper.index('git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"')
         self.assertLess(backup, merge)
         self.assertLess(quick_check, merge)
         self.assertIn('SQLite format 3\\x00', self.helper)
@@ -60,10 +63,17 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('"sha256": digest.hexdigest()', self.helper)
         self.assertIn('handle.read(16)', self.helper)
 
-    def test_deployment_rebaselines_and_checks_service_health(self):
-        self.assertIn('rebaseline-integrity.sh', self.helper)
-        self.assertIn('systemctl restart "$SERVICE"', self.helper)
+    def test_post_update_root_code_is_data_only_and_service_is_checked(self):
+        merge = self.helper.index('git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"')
+        baseline = self.helper.index('ast.literal_eval(node.value)')
+        self.assertLess(merge, baseline)
+        self.assertNotIn('bash "$ROOT/deploy/rebaseline-integrity.sh"', self.helper)
+        self.assertNotIn('import security_integrity', self.helper)
+        self.assertIn('/usr/bin/python3 - <<\'PY\'', self.helper)
+        self.assertIn('systemctl stop "$SERVICE"', self.helper)
+        self.assertIn('systemctl start "$SERVICE"', self.helper)
         self.assertIn('systemctl is-active --quiet "$SERVICE"', self.helper)
+        self.assertIn('/root/CyberCheckIntegrity', self.helper)
         self.assertIn('http://127.0.0.1:8765/', self.helper)
         self.assertIn('flock -n 9', self.helper)
         self.assertIn('/run/cybercheck-deploy.lock', self.helper)
