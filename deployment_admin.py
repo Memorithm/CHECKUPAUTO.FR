@@ -14,6 +14,7 @@ import uuid
 
 import deployment_center as center
 import deployment_executor as executor
+import deployment_github_source as github_source
 import deployment_source as deployment_source
 import deployment_transport as transport
 import deployment_update as deployment_update
@@ -126,8 +127,13 @@ def status() -> dict:
         "source": {
             "mode": source.mode,
             "sha": source.sha,
+            "desiredSha": (
+                deployment_source.desired_sha(ROOT)
+                if source.build_capable else source.sha
+            ),
             "buildCapable": source.build_capable,
             "reason": source.reason,
+            "remote": github_source.public_status(),
         },
         "knownHostsConfigured": _known_hosts_path().is_file(),
         "jobs": list_jobs(12),
@@ -414,11 +420,14 @@ def update_status(name: str) -> dict:
             "releases": releases,
             "rollbackCandidates": rollback,
         }
+    desired = deployment_source.desired_sha(ROOT)
+    if not desired:
+        raise RuntimeError("SHA de mise à jour indisponible")
     result = deployment_update.update_status(
         target,
         _known_hosts_path(),
         credential,
-        source.sha,
+        desired,
         ROOT,
         timeout=30,
     )
@@ -442,9 +451,14 @@ def plan(name: str, sha: str = "") -> dict:
         passenger_wsgi_adapter=report["capabilities"]["passengerWsgiAdapter"],
         shared_host_tick=report["capabilities"]["sharedHostTick"],
     )
+    desired = str(sha or "").strip().lower()
+    if not desired:
+        desired = deployment_source.desired_sha(ROOT)
+    if not desired:
+        raise RuntimeError("SHA de release indisponible")
     return center.installation_plan(
         target,
-        sha or _current_sha(),
+        desired,
         capabilities,
     )
 
@@ -602,7 +616,7 @@ def start_job(
         raise RuntimeError("source de build indisponible pour install/update")
     selected_sha = str(sha or "").strip().lower()
     if action in {"install", "update"} and not selected_sha:
-        selected_sha = source.sha
+        selected_sha = deployment_source.desired_sha(ROOT)
     if not re.fullmatch(r"[0-9a-f]{40}", selected_sha):
         raise ValueError("SHA de release invalide")
 
