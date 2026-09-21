@@ -216,13 +216,17 @@ def record_terms_acceptance(payload):
     created=datetime.datetime.fromisoformat(intent['created_at'].replace('Z','+00:00'))
     if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=48):
         raise ValueError('attribution token expired')
+    requirements=_checkout_requirements(ccid)
+    immediate=payload.get('immediatePerformance') is True
+    if requirements['requiresImmediatePerformance'] and not immediate:
+        raise ValueError('early performance acknowledgement required')
     return compliance.record_checkout_acceptance(
         ccid,
         terms_version=payload.get('termsVersion'),
         terms_content_hash=payload.get('termsContentHash'),
         accepted=payload.get('accepted') is True,
         reviewed=payload.get('reviewed') is True,
-        immediate_performance=payload.get('immediatePerformance') is True,
+        immediate_performance=immediate,
         source='checkout_review',
     )
 
