@@ -79,7 +79,7 @@ mkdir "$BACKUP_DIR"
 chmod 0700 "$BACKUP_DIR"
 export BACKUP_DIR CURRENT EXPECTED ROOT
 
-"$ROOT/.venv/bin/python" - <<'PY'
+/usr/bin/python3 - <<'PY'
 from __future__ import annotations
 import datetime as dt
 import hashlib
