@@ -37,6 +37,7 @@ import compliance_store as compliance
 import compliance_admin as compliance_admin
 import data_subject_rights as data_subject_rights
 import withdrawal_service as withdrawals
+import retention_enforcement as retention_enforcement
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -724,6 +725,16 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/compliance/cookie':
    try: return self.send_json({'ok':True,'cookie':compliance.upsert_cookie(self._read_json())})
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_invalid'},400)
+  if path=='/api/admin/compliance/retention-policy':
+   try: return self.send_json({'ok':True,'policy':retention_enforcement.save_policy(self._read_json())})
+   except Exception: return self.send_json({'ok':False,'error':'retention_policy_invalid'},400)
+  if path=='/api/admin/compliance/retention-run':
+   try:
+    payload=self._read_json(); dry=bool(payload.get('dryRun',True))
+    if not dry and str(payload.get('confirm') or '')!='PURGE':
+     return self.send_json({'ok':False,'error':'retention_purge_confirmation_required'},409)
+    return self.send_json({'ok':True,'retentionRun':retention_enforcement.run_once(dry_run=dry)})
+   except Exception: return self.send_json({'ok':False,'error':'retention_run_failed'},400)
   if path=='/api/admin/compliance/request':
    try: return self.send_json({'ok':True,'request':compliance.create_rights_request(self._read_json())},201)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
@@ -1199,7 +1210,7 @@ def initialize_runtime(*,background=True):
    os.chdir(ROOT)
    analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db()
    reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); reviews.init_db()
-   withdrawals.init_db(); security.init_db(); security_alerts.init_db()
+   withdrawals.init_db(); retention_enforcement.init_db(); security.init_db(); security_alerts.init_db()
    competitive.seed_public_baseline(); competitive.seed_review_baseline()
    _RUNTIME_CORE_READY=True
   if background and not _RUNTIME_BACKGROUND_READY:
