@@ -36,19 +36,24 @@ def _private_dir() -> Path:
     ).expanduser()
 
 
+def _deployment_state_dir() -> Path:
+    raw = str(os.environ.get("CYBERCHECK_DEPLOYMENT_STATE_DIR") or "").strip()
+    return Path(raw).expanduser() if raw else _private_dir() / "deployment"
+
+
 def _vault_root() -> Path:
     raw = str(os.environ.get("CYBERCHECK_DEPLOYMENT_VAULT") or "").strip()
-    return Path(raw).expanduser() if raw else _private_dir() / "deployment-vault"
+    return Path(raw).expanduser() if raw else _deployment_state_dir() / "vault"
 
 
 def _known_hosts_path() -> Path:
     raw = str(os.environ.get("CYBERCHECK_DEPLOYMENT_KNOWN_HOSTS") or "").strip()
-    return Path(raw).expanduser() if raw else _private_dir() / "deployment-known_hosts"
+    return Path(raw).expanduser() if raw else _deployment_state_dir() / "known_hosts"
 
 
 def _jobs_dir() -> Path:
     raw = str(os.environ.get("CYBERCHECK_DEPLOYMENT_JOBS_DIR") or "").strip()
-    return Path(raw).expanduser() if raw else _private_dir() / "deployment-jobs"
+    return Path(raw).expanduser() if raw else _deployment_state_dir() / "jobs"
 
 
 def _vault() -> DeploymentVault:
