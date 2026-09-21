@@ -121,10 +121,16 @@ X-CyberCheck-Signature: sha256=HMAC_SHA256(secret, raw_body)
 </div>
 
 <div class="integration-box">
-<div class="panel-head compact"><div><h3>4 · Exercice des droits RGPD</h3><p class="hint">La référence du demandeur est immédiatement hachée ; aucune adresse e-mail brute n’est stockée dans ce registre. L’échéance est calculée à un mois calendaire.</p></div></div>
-<div class="promo-form-grid"><label>Droit<select id="complianceRightType"><option value="access">Accès</option><option value="rectification">Rectification</option><option value="erasure">Effacement</option><option value="restriction">Limitation</option><option value="portability">Portabilité</option><option value="objection">Opposition</option><option value="consent_withdrawal">Retrait du consentement</option></select></label><label>Référence interne / e-mail à hacher<input id="complianceRightRef" maxlength="240"></label><label>Note interne<input id="complianceRightNotes" maxlength="2000"></label></div>
+<div class="panel-head compact"><div><h3>4 · Exercice des droits RGPD</h3><p class="hint">La référence brute est conservée uniquement dans un coffre privé le temps d’exécuter la demande. Le registre principal n’en conserve qu’une empreinte ; le coffre est purgé à la clôture. L’échéance est calculée à un mois calendaire.</p></div></div>
+<div class="promo-form-grid">
+<label>Droit<select id="complianceRightType"><option value="access">Accès</option><option value="rectification">Rectification</option><option value="erasure">Effacement</option><option value="restriction">Limitation</option><option value="portability">Portabilité</option><option value="objection">Opposition</option><option value="consent_withdrawal">Retrait du consentement</option></select></label>
+<label>Identifiant<select id="complianceRightSubjectKind"><option value="email">E-mail</option><option value="mercure_account">Client Mercure avec compte</option><option value="mercure_free">Client Mercure libre</option><option value="vehicle">Véhicule</option><option value="installation">Installation mobile</option><option value="contract">Contrat / rendez-vous</option><option value="phone">Téléphone</option></select></label>
+<label>Finalité<select id="complianceRightPurpose"><option value="all_processing">Tous les traitements concernés</option><option value="direct_marketing">Prospection commerciale</option><option value="review_request">Demande d’avis Google</option><option value="reminders">Rappels contrôle technique</option></select></label>
+<label>Référence du demandeur<input id="complianceRightRef" maxlength="240"></label>
+<label>Note interne<input id="complianceRightNotes" maxlength="2000"></label>
+</div>
 <button type="button" id="complianceRightCreate">Enregistrer la demande</button>
-<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Droit</th><th>Référence hachée</th><th>État</th><th>Reçue</th><th>Échéance</th><th>Action</th></tr></thead><tbody id="complianceRightsRows"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div>
+<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Droit</th><th>Identité pseudonymisée</th><th>État / exécution</th><th>Reçue</th><th>Échéance</th><th>Action</th></tr></thead><tbody id="complianceRightsRows"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div>
 </div>
 
 <div class="integration-box">
