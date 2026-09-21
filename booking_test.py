@@ -6,6 +6,7 @@ import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
 
 TTL_MINUTES=60
+ACCESS_DENIED='booking_test_forbidden'
 
 
 def _now():
@@ -39,9 +40,9 @@ def _session(token, require_ready=False):
     init_db(); h=_hash(token)
     with analytics.connect() as db:
         row=db.execute('SELECT * FROM booking_test_sessions WHERE token_hash=?',(h,)).fetchone()
-    if not row: raise PermissionError('Session de test inconnue')
+    if not row: raise PermissionError(ACCESS_DENIED)
     exp=datetime.datetime.fromisoformat(row['expires_at'].replace('Z','+00:00'))
-    if _now()>exp: raise PermissionError('Session de test expirée')
+    if _now()>exp: raise PermissionError(ACCESS_DENIED)
     if require_ready and row['status']!='ready': raise ValueError('Un rendez-vous test existe déjà dans cette session')
     return dict(row)
 
