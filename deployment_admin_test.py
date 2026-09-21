@@ -25,6 +25,12 @@ class DeploymentAdminTest(unittest.TestCase):
             "CYBERCHECK_DEPLOYMENT_JOBS_DIR": str(self.private / "jobs"),
         }, clear=False)
         self.env.start()
+        self.private.mkdir(parents=True, exist_ok=True)
+        (self.private / "admin-password").write_text(
+            "local-admin-secret-value\n",
+            encoding="utf-8",
+        )
+        (self.private / "admin-password").chmod(0o600)
 
     def tearDown(self):
         self.env.stop()
@@ -187,7 +193,22 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertEqual(state["result"]["sha"], SHA)
         self.assertNotIn("releasePath", state["result"])
         self.assertNotIn("secret-value", str(state))
+        self.assertNotIn("local-admin-secret-value", str(state))
         execute.assert_called_once()
+        self.assertEqual(
+            execute.call_args.kwargs["admin_password"],
+            "local-admin-secret-value",
+        )
+
+    def test_local_admin_credential_must_be_private_and_valid(self):
+        path = self.private / "admin-password"
+        self.assertEqual(admin._local_admin_password(), "local-admin-secret-value")
+        path.write_text("short\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "credential admin local invalide"):
+            admin._local_admin_password()
+        path.unlink()
+        with self.assertRaisesRegex(RuntimeError, "credential admin local indisponible"):
+            admin._local_admin_password()
 
     def test_execution_lock_rejects_parallel_job(self):
         admin.save_target(self.payload())

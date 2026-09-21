@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import base64
 import re
 import shlex
 import subprocess
@@ -15,6 +16,9 @@ _PREVIOUS_SHA_PREFIX = "CHECKUPAUTO_PREVIOUS_SHA="
 _READINESS_STATE_PREFIX = "CHECKUPAUTO_READINESS_STATE="
 _ACTIVATION_ALLOWED_PREFIX = "CHECKUPAUTO_ACTIVATION_ALLOWED="
 _BLOCKER_COUNT_PREFIX = "CHECKUPAUTO_BLOCKER_COUNT="
+_ADMIN_PASSWORD_MIN = 12
+_ADMIN_PASSWORD_MAX = 256
+_ADMIN_PASSWORD_PLACEHOLDER = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,15 @@ def _release_sha(value: object) -> str:
     return sha
 
 
+def _admin_password(value: object) -> str:
+    raw = str(value or "")
+    if not (_ADMIN_PASSWORD_MIN <= len(raw) <= _ADMIN_PASSWORD_MAX):
+        raise ValueError("mot de passe admin de déploiement invalide")
+    if "\n" in raw or "\r" in raw or "\x00" in raw:
+        raise ValueError("mot de passe admin de déploiement invalide")
+    return raw
+
+
 def remote_activation_program() -> str:
     return r'''from __future__ import annotations
 import base64
@@ -48,6 +61,7 @@ from urllib import request
 BEGIN = "# BEGIN CHECKUPAUTO DEPLOYMENT CENTER"
 END = "# END CHECKUPAUTO DEPLOYMENT CENTER"
 ALLOWED_READINESS_STATES = {"ready", "configuration_required", "blocked_external", "degraded"}
+BOOTSTRAP_ADMIN_PASSWORD_B64 = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
 
 root_rel, web_rel, sha, domain = sys.argv[1:5]
 home = Path.home().resolve()
@@ -124,6 +138,34 @@ def atomic_write(path: Path, content: bytes, mode: int) -> None:
             temporary.unlink()
         except FileNotFoundError:
             pass
+
+
+def bootstrap_admin_credential() -> bool:
+    password_path = shared_private / "admin-password"
+    if password_path.is_symlink():
+        fail("admin credential symlink refused")
+    if password_path.exists():
+        if not password_path.is_file():
+            fail("admin credential path invalid")
+        password = password_path.read_text(encoding="utf-8").strip()
+        if not (12 <= len(password) <= 256) or "\n" in password or "\r" in password or "\x00" in password:
+            fail("admin credential invalid")
+        os.chmod(password_path, 0o600)
+        return False
+
+    if not BOOTSTRAP_ADMIN_PASSWORD_B64:
+        fail("initial admin credential missing")
+    try:
+        password = base64.b64decode(
+            BOOTSTRAP_ADMIN_PASSWORD_B64.encode("ascii"),
+            validate=True,
+        ).decode("utf-8")
+    except Exception:
+        fail("initial admin credential invalid")
+    if not (12 <= len(password) <= 256) or "\n" in password or "\r" in password or "\x00" in password:
+        fail("initial admin credential invalid")
+    atomic_write(password_path, (password + "\n").encode("utf-8"), 0o600)
+    return True
 
 
 def cron_snapshot() -> tuple[bool, str]:
@@ -278,6 +320,7 @@ if current.is_symlink():
 elif current.exists():
     fail("current path is unmanaged")
 
+admin_credential_initialized = bootstrap_admin_credential()
 had_htaccess = htaccess.exists()
 old_htaccess = htaccess.read_bytes() if had_htaccess else b""
 old_htaccess_mode = (htaccess.stat().st_mode & 0o777) if had_htaccess else 0o644
@@ -339,6 +382,7 @@ record = {
     "readinessState": state,
     "activationAllowed": allowed,
     "blockerCount": blocker_count,
+    "adminCredentialInitialized": admin_credential_initialized,
     "activatedAt": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
 }
 with history.open("a", encoding="utf-8") as handle:
@@ -355,17 +399,31 @@ print("CHECKUPAUTO_BLOCKER_COUNT=" + str(blocker_count))
 '''
 
 
-def remote_activation_script(target: DeploymentTarget, release_sha: str) -> str:
+def remote_activation_script(
+    target: DeploymentTarget,
+    release_sha: str,
+    *,
+    admin_password: str = "",
+) -> str:
     sha = _release_sha(release_sha)
     if not target.web_root_path:
         raise ValueError("l activation mutualisée exige une racine web distincte")
+    encoded = ""
+    if admin_password:
+        encoded = base64.b64encode(
+            _admin_password(admin_password).encode("utf-8")
+        ).decode("ascii")
     args = " ".join([
         shlex.quote(target.root_path),
         shlex.quote(target.web_root_path),
         sha,
         shlex.quote(target.domain),
     ])
-    return "python3 - " + args + " <<'CHECKUPAUTO_ACTIVATE'\n" + remote_activation_program() + "\nCHECKUPAUTO_ACTIVATE\n"
+    program = remote_activation_program().replace(
+        _ADMIN_PASSWORD_PLACEHOLDER,
+        encoded,
+    )
+    return "python3 - " + args + " <<'CHECKUPAUTO_ACTIVATE'\n" + program + "\nCHECKUPAUTO_ACTIVATE\n"
 
 
 def _parse_activation_output(output: str, expected_sha: str) -> ActivationResult:
@@ -413,12 +471,17 @@ def activate_release(
     credential: transport.SSHCredential,
     release_sha: str,
     *,
+    admin_password: str = "",
     timeout: int = 180,
 ) -> ActivationResult:
     readiness = assess(target, capabilities)
     if not readiness["ok"]:
         raise RuntimeError("cible de déploiement non prête")
-    script = remote_activation_script(target, release_sha)
+    script = remote_activation_script(
+        target,
+        release_sha,
+        admin_password=admin_password,
+    )
     cred = credential.validate(target.auth_mode)
     args = transport.ssh_arguments(target, known_hosts, cred)
     if target.auth_mode == "password":
@@ -444,6 +507,7 @@ def rollback_release(
     credential: transport.SSHCredential,
     release_sha: str,
     *,
+    admin_password: str = "",
     timeout: int = 180,
 ) -> ActivationResult:
     return activate_release(
@@ -452,5 +516,6 @@ def rollback_release(
         known_hosts,
         credential,
         release_sha,
+        admin_password=admin_password,
         timeout=timeout,
     )

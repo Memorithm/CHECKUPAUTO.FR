@@ -61,6 +61,33 @@ def _stored_context(name: str):
     return target, credential
 
 
+def _deployment_admin_password(args) -> str:
+    if getattr(args, "admin_password_stdin", False):
+        password = sys.stdin.readline().rstrip("\r\n")
+    else:
+        explicit = str(
+            os.environ.get("CYBERCHECK_DEPLOY_ADMIN_PASSWORD_FILE") or ""
+        ).strip()
+        if explicit:
+            path = Path(explicit).expanduser()
+        else:
+            private = Path(
+                os.environ.get(
+                    "CYBERCHECK_PRIVATE_DIR",
+                    "/root/CyberCheckPrivate",
+                )
+            ).expanduser()
+            path = private / "admin-password"
+        if not path.is_file() or path.is_symlink():
+            return ""
+        password = path.read_text(encoding="utf-8").strip()
+    if not password:
+        return ""
+    if not (12 <= len(password) <= 256) or "\n" in password or "\r" in password or "\x00" in password:
+        raise ValueError("mot de passe admin de déploiement invalide")
+    return password
+
+
 def _adapter_available() -> bool:
     return (
         (ROOT / "passenger_wsgi.py").is_file()
@@ -185,6 +212,7 @@ def _cmd_deploy(args, action: str) -> int:
         credential,
         ROOT,
         args.sha,
+        admin_password=_deployment_admin_password(args),
     )
     print(json.dumps(_result_payload(result), ensure_ascii=False, indent=2))
     return 0
@@ -206,6 +234,7 @@ def cmd_rollback(args) -> int:
         credential,
         ROOT,
         args.sha,
+        admin_password=_deployment_admin_password(args),
     )
     print(json.dumps(_result_payload(result), ensure_ascii=False, indent=2))
     return 0
@@ -251,6 +280,11 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--name", required=True)
         command.add_argument("--known-hosts", required=True)
         command.add_argument("--sha", required=True)
+        command.add_argument(
+            "--admin-password-stdin",
+            action="store_true",
+            help="lire le mot de passe admin CheckupAuto sur stdin",
+        )
         command.set_defaults(func=handler)
     return root
 

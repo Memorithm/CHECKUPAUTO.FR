@@ -56,6 +56,18 @@ class DeploymentCLIExecutionTest(unittest.TestCase):
                 self.assertEqual(args.command, command)
                 self.assertEqual(args.sha, SHA)
 
+
+    def test_admin_password_stdin_is_not_part_of_parser_values(self):
+        args = self.cli.parser().parse_args([
+            "install",
+            "--name", "production",
+            "--known-hosts", "/tmp/known_hosts",
+            "--sha", SHA,
+            "--admin-password-stdin",
+        ])
+        self.assertTrue(args.admin_password_stdin)
+        self.assertNotIn("local-admin-secret-value", str(vars(args)))
+
     def test_result_payload_does_not_expose_remote_release_path(self):
         result = executor.DeploymentExecutionResult(
             action="update",
@@ -93,8 +105,10 @@ class DeploymentCLIExecutionTest(unittest.TestCase):
             "--name", "production",
             "--known-hosts", "/tmp/known_hosts",
             "--sha", SHA,
+            "--admin-password-stdin",
         ])
         output = io.StringIO()
+        secret = "local-admin-secret-value"
         with mock.patch.object(
             self.cli,
             "_stored_context",
@@ -103,11 +117,20 @@ class DeploymentCLIExecutionTest(unittest.TestCase):
             self.cli,
             "execute_deployment",
             return_value=result,
-        ) as execute, contextlib.redirect_stdout(output):
+        ) as execute, mock.patch.object(
+            self.cli.sys,
+            "stdin",
+            io.StringIO(secret + "\n"),
+        ), contextlib.redirect_stdout(output):
             status = args.func(args)
         self.assertEqual(status, 0)
         self.assertEqual(execute.call_args.args[0], "update")
         self.assertEqual(execute.call_args.args[5], SHA)
+        self.assertEqual(
+            execute.call_args.kwargs["admin_password"],
+            secret,
+        )
+        self.assertNotIn(secret, output.getvalue())
         payload = json.loads(output.getvalue())
         self.assertEqual(payload["sha"], SHA)
         self.assertTrue(payload["readiness"]["activationAllowed"])

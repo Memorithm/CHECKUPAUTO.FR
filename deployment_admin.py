@@ -36,6 +36,16 @@ def _private_dir() -> Path:
     ).expanduser()
 
 
+def _local_admin_password() -> str:
+    path = _private_dir() / "admin-password"
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("credential admin local indisponible")
+    password = path.read_text(encoding="utf-8").strip()
+    if not (12 <= len(password) <= 256) or "\n" in password or "\r" in password or "\x00" in password:
+        raise RuntimeError("credential admin local invalide")
+    return password
+
+
 def _deployment_state_dir() -> Path:
     raw = str(os.environ.get("CYBERCHECK_DEPLOYMENT_STATE_DIR") or "").strip()
     return Path(raw).expanduser() if raw else _private_dir() / "deployment"
@@ -503,6 +513,7 @@ def _run_job(
         record["startedAt"] = _now()
         _write_job(record)
         target, credential = _load_target(name)
+        admin_password = _local_admin_password()
         if action in {"install", "update"}:
             result = executor.execute_deployment(
                 action,
@@ -511,6 +522,7 @@ def _run_job(
                 credential,
                 ROOT,
                 sha,
+                admin_password=admin_password,
             )
         else:
             result = executor.execute_rollback(
@@ -519,6 +531,7 @@ def _run_job(
                 credential,
                 ROOT,
                 sha,
+                admin_password=admin_password,
             )
         record["state"] = "succeeded"
         record["result"] = _result_payload(result)
