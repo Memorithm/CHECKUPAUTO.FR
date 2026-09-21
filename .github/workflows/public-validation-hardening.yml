@@ -1,0 +1,53 @@
+name: Apply public validation error hardening
+
+on:
+  push:
+    branches:
+      - automation/public-validation-error-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Bound public validation diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('admin_server.py')
+          source = path.read_text()
+          replacements = {
+              "except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)\n   except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)":
+              "except ValueError: return self.send_json({'ok':False,'error':'geo_quote_invalid'},400)\n   except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)",
+              "except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)\n   except Exception: return self.send_json({'ok':False,'error':'booking_availability_unavailable'},502)":
+              "except ValueError: return self.send_json({'ok':False,'error':'booking_availability_invalid'},400)\n   except Exception: return self.send_json({'ok':False,'error':'booking_availability_unavailable'},502)",
+          }
+          for old, new in replacements.items():
+              if source.count(old) != 1:
+                  raise SystemExit(f'expected exactly one validation boundary for: {old[-80:]}')
+              source = source.replace(old, new, 1)
+          path.write_text(source)
+
+          test = Path('public_validation_error_boundary_test.py')
+          test.write_text('''from pathlib import Path\nimport unittest\n\n\nclass PublicValidationErrorBoundaryTest(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n        cls.source = Path("admin_server.py").read_text()\n\n    def _block(self, start, end):\n        begin = self.source.find(start)\n        self.assertGreaterEqual(begin, 0, start)\n        finish = self.source.find(end, begin)\n        self.assertGreaterEqual(finish, 0, end)\n        return self.source[begin:finish]\n\n    def test_geo_quote_validation_is_bounded(self):\n        block = self._block("  if path=='/api/geo/quote':", "  if path=='/api/booking/availability':")\n        self.assertIn("'error':'geo_quote_invalid'", block)\n        self.assertNotIn("'error':str(exc)", block)\n\n    def test_booking_availability_validation_is_bounded(self):\n        block = self._block("  if path=='/api/booking/availability':", "  if path=='/go/app':")\n        self.assertIn("'error':'booking_availability_invalid'", block)\n        self.assertNotIn("'error':str(exc)", block)\n\n    def test_codes_are_stable_non_sensitive_identifiers(self):\n        for code in ('geo_quote_invalid', 'booking_availability_invalid'):\n            self.assertRegex(code, r'^[a-z0-9_]+$')\n            self.assertLessEqual(len(code), 40)\n\n\nif __name__ == '__main__':\n    unittest.main()\n''')
+          Path('.github/workflows/public-validation-hardening.yml').unlink()
+          PY
+      - name: Validate targeted patch
+        run: |
+          python3 -m unittest public_validation_error_boundary_test.py admin_public_error_sanitization_test.py
+          python3 -m py_compile admin_server.py
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: bound public validation error diagnostics'
+          git push origin HEAD:${GITHUB_REF_NAME}
