@@ -158,4 +158,37 @@ CYBERCHECK_GSC_CREDENTIALS_PATH=$HOME/.checkupauto/shared/private/gsc-service-ac
 CYBERCHECK_SITE_CONFIG_PATH=$HOME/.checkupauto/shared/data/site-config.json
 ```
 
-Le chantier restant pour le « un clic » est l'exécuteur distant `install/update/rollback` : transfert de la release vers la racine privée, création du venv, installation des dépendances, configuration du point d'entrée Passenger dans la racine Web et du CRON, health-check avant bascule du lien privé `current`, puis rollback automatique en cas d'échec.
+## Installation, mise à jour et rollback en une commande
+
+Les commandes `install` et `update` exécutent la même chaîne vérifiée : nouveau probe SSH, validation des capacités, création d'une archive depuis le SHA Git exact, staging dans une release privée neuve, création du venv et installation des dépendances, compilation Python, activation atomique, configuration Passenger/CRON puis vérification HTTPS et Production Readiness. La release active n'est pas modifiée si le staging échoue ; une erreur pendant l'activation déclenche le rollback automatique décrit dans `docs/deployment-activation.md`.
+
+Le SHA doit être un commit exact déjà présent dans le dépôt Git local :
+
+```bash
+python3 scripts/checkupauto-deployctl.py install \
+  --name production \
+  --known-hosts ~/.config/checkupauto-deployer/known_hosts \
+  --sha 0123456789abcdef0123456789abcdef01234567
+```
+
+Pour une mise à jour, la commande est identique à l'exception du verbe :
+
+```bash
+python3 scripts/checkupauto-deployctl.py update \
+  --name production \
+  --known-hosts ~/.config/checkupauto-deployer/known_hosts \
+  --sha 89abcdef0123456789abcdef0123456789abcdef
+```
+
+Le résultat JSON ne restitue ni credential, ni chemin privé de release. Il fournit le SHA activé, le SHA précédent, l'empreinte de l'archive, le nombre de fichiers et l'état Production Readiness borné.
+
+Un rollback explicite ne reconstruit ni ne retransfère de code : il ne peut cibler qu'une release déjà staged et vérifiée sur l'hébergeur, puis réutilise exactement le même chemin d'activation et de contrôle post-bascule :
+
+```bash
+python3 scripts/checkupauto-deployctl.py rollback \
+  --name production \
+  --known-hosts ~/.config/checkupauto-deployer/known_hosts \
+  --sha 0123456789abcdef0123456789abcdef01234567
+```
+
+Les profils enregistrés conservent désormais explicitement une éventuelle `webRootPath` personnalisée lors de leur rechargement ; le contrôleur ne retombe plus silencieusement sur `public_html` pour une cible déjà enregistrée avec une autre racine Web.
