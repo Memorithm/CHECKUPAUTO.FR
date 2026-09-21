@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import deployment_activation as activation
+import deployment_github_source as github_source
 import deployment_release as release
 import deployment_transport as transport
 import deployment_update as deployment_update
@@ -143,6 +144,7 @@ def execute_deployment(
         credential,
         staged.sha,
         admin_password=admin_password,
+        update_source=github_source.bootstrap_material(),
         timeout=activation_timeout,
     )
     if activated.sha != staged.sha:
