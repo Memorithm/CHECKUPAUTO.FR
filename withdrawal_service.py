@@ -60,7 +60,7 @@ def init_db(db_path: Path | str | None = None) -> None:
               submitted_at TEXT NOT NULL,
               declaration_hash TEXT NOT NULL,
               contract_match INTEGER NOT NULL,
-              contract_accepted_at TEXT NOT NULL DEFAULT '',
+              contract_concluded_at TEXT NOT NULL DEFAULT '',
               standard_deadline_at TEXT NOT NULL DEFAULT '',
               standard_deadline_passed INTEGER NOT NULL DEFAULT 0,
               immediate_performance_requested INTEGER NOT NULL DEFAULT 0,
@@ -81,10 +81,13 @@ def _contract_receipt(contract_ref: str, db_path: Path | str | None = None):
     compliance_store.init_db(db_path)
     with compliance_store.connect(db_path) as db:
         return db.execute(
-            """SELECT contract_ref,accepted_at,immediate_performance
-               FROM consent_receipts
-               WHERE contract_ref=? AND purpose='contract_terms' AND document_type='terms'
-               ORDER BY accepted_at DESC LIMIT 1""",
+            """SELECT r.contract_ref,r.accepted_at,r.immediate_performance,
+                      COALESCE(NULLIF(i.finalized_at,''),r.accepted_at) AS concluded_at
+               FROM consent_receipts r
+               LEFT JOIN checkout_acceptance_intents i
+                 ON i.finalized_contract_ref=r.contract_ref
+               WHERE r.contract_ref=? AND r.purpose='contract_terms' AND r.document_type='terms'
+               ORDER BY r.accepted_at DESC LIMIT 1""",
             (contract_ref,),
         ).fetchone()
 
@@ -134,7 +137,7 @@ def submit(payload: dict, db_path: Path | str | None = None, *, dispatch: bool =
     deadline_passed = False
     immediate = False
     if matched:
-        accepted_at = str(matched["accepted_at"] or "")
+        accepted_at = str(matched["concluded_at"] or matched["accepted_at"] or "")
         immediate = bool(matched["immediate_performance"])
         try:
             accepted = datetime.datetime.fromisoformat(accepted_at.replace("Z", "+00:00"))
@@ -166,7 +169,7 @@ def submit(payload: dict, db_path: Path | str | None = None, *, dispatch: bool =
             """INSERT INTO withdrawal_requests(
               request_id,contract_ref,contract_ref_hash,first_name,last_name,
               receipt_email,receipt_email_hash,submitted_at,declaration_hash,
-              contract_match,contract_accepted_at,standard_deadline_at,
+              contract_match,contract_concluded_at,standard_deadline_at,
               standard_deadline_passed,immediate_performance_requested
             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
