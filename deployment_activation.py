@@ -82,6 +82,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import secrets
@@ -93,6 +94,7 @@ BEGIN = "# BEGIN CHECKUPAUTO DEPLOYMENT CENTER"
 END = "# END CHECKUPAUTO DEPLOYMENT CENTER"
 ALLOWED_READINESS_STATES = {"ready", "configuration_required", "blocked_external", "degraded"}
 BOOTSTRAP_ADMIN_PASSWORD_B64 = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
+BOOTSTRAP_UPDATE_SOURCE_B64 = "__CHECKUPAUTO_UPDATE_SOURCE_B64__"
 
 root_rel, web_rel, sha, domain = sys.argv[1:5]
 home = Path.home().resolve()
@@ -196,6 +198,60 @@ def bootstrap_admin_credential() -> bool:
     if not (12 <= len(password) <= 256) or "\n" in password or "\r" in password or "\x00" in password:
         fail("initial admin credential invalid")
     atomic_write(password_path, (password + "\n").encode("utf-8"), 0o600)
+    return True
+
+
+def bootstrap_update_source() -> bool:
+    if not BOOTSTRAP_UPDATE_SOURCE_B64:
+        return False
+    try:
+        raw = base64.b64decode(
+            BOOTSTRAP_UPDATE_SOURCE_B64.encode("ascii"),
+            validate=True,
+        )
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        fail("update source bootstrap invalid")
+    if not isinstance(payload, dict):
+        fail("update source bootstrap invalid")
+    repository = str(payload.get("repository") or "").strip()
+    branch = str(payload.get("branch") or "").strip()
+    token = str(payload.get("token") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repository):
+        fail("update source repository invalid")
+    if (
+        not re.fullmatch(r"[A-Za-z0-9._/-]{1,160}", branch)
+        or branch.startswith("/")
+        or branch.endswith("/")
+        or ".." in Path(branch).parts
+    ):
+        fail("update source branch invalid")
+    if not re.fullmatch(r"[A-Za-z0-9_\-\.]{20,500}", token):
+        fail("update source token invalid")
+
+    config_path = shared_private / "github-update-source.json"
+    token_path = shared_private / "github-update-token"
+    for path in (config_path, token_path):
+        if path.is_symlink():
+            fail("update source path symlink refused")
+        if path.exists() and not path.is_file():
+            fail("update source path invalid")
+
+    config = {
+        "schemaVersion": 1,
+        "repository": repository,
+        "branch": branch,
+    }
+    atomic_write(
+        config_path,
+        (json.dumps(config, sort_keys=True) + "\n").encode("utf-8"),
+        0o600,
+    )
+    atomic_write(
+        token_path,
+        (token + "\n").encode("ascii"),
+        0o600,
+    )
     return True
 
 
