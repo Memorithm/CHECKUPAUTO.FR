@@ -212,6 +212,22 @@ printf '%s\n' "$CHECKUPAUTO_ADMIN_PASSWORD" |
     --admin-password-stdin
 ```
 
+## Migration avant bascule DNS/SSL
+
+Une première installation peut être préparée avant que le domaine public ne pointe vers le nouvel hébergement.
+
+Le Deployment Center stage d'abord la release privée, crée son environnement Python et vérifie les prérequis. Avant toute modification de `.htaccess`, du lien `current` ou du CRON, il place un nonce aléatoire temporaire dans la racine Web cible et tente de le relire via `https://<domaine>/...`.
+
+Si cette preuve publique ne revient pas sur la cible exacte :
+
+- la release staged est conservée ;
+- la release active éventuelle n'est pas modifiée ;
+- aucun nouveau `.htaccess`, lien `current` ou CRON n'est activé ;
+- le job passe à l'état `waiting_external` ;
+- l'interface indique qu'une bascule DNS/SSL est requise.
+
+Après propagation DNS et disponibilité du certificat TLS, relancer **Installer** ou **Mettre à jour** réutilise la release déjà vérifiée et poursuit l'activation. Une fois la preuve d'instance obtenue, le contrôle HTTP et Production Readiness complet reste obligatoire.
+
 ## Utilisation depuis l’administration
 
 Le panneau **Administration → Déploiement** permet de piloter le Deployment Center sans terminal :
