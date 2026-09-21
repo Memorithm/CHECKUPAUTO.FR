@@ -309,19 +309,21 @@ class RetentionEnforcementTest(unittest.TestCase):
         self.assertEqual(resolved_old, 0)
         self.assertEqual(new_alert, 1)
 
-    def test_referral_ledger_stays_blocked_until_compaction_preserves_balances(self):
-        retention.save_policy({
+    def test_referral_ledger_is_ready_once_compaction_policy_is_confirmed(self):
+        saved = retention.save_policy({
             "ruleId": "referral_ledger",
             "activeDays": 3650,
             "justification": "Conservation comptable et contestation du programme de parrainage.",
             "legalReviewConfirmed": True,
             "enabled": True,
         }, self.db)
+        self.assertTrue(saved["ready"])
         with mock.patch.object(retention.site_config_store, "load", return_value=self._site_config()):
             state = retention.status(self.db)
-        blockers = {item["ruleId"]: item["reason"] for item in state["blockers"]}
-        self.assertFalse(state["bound"])
-        self.assertEqual(blockers["referral_ledger"], "purger_implementation_required")
+        referral_blockers = [
+            item for item in state["blockers"] if item["ruleId"] == "referral_ledger"
+        ]
+        self.assertEqual(referral_blockers, [])
 
     def test_cron_process_reports_policy_blockers_without_failing_tick(self):
         with mock.patch.object(retention.site_config_store, "load", return_value=self._site_config()):
