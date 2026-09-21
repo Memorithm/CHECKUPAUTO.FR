@@ -141,10 +141,17 @@ def _clear_locator(request_id: str) -> None:
 def create_request(payload: dict, db_path: Path | str | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("demande invalide")
+    request_type = str(payload.get("type") or "").strip()
+    if request_type not in compliance_store.RIGHT_TYPES:
+        raise ValueError("type de droit invalide")
     kind, subject_ref = suppression.normalize(payload.get("subjectKind"), payload.get("subjectRef"))
     purpose = str(payload.get("purpose") or "all_processing").strip()
     if purpose not in REQUEST_PURPOSES:
         raise ValueError("finalité de droit invalide")
+    if request_type not in {"objection", "consent_withdrawal"}:
+        purpose = "all_processing"
+    elif request_type == "consent_withdrawal" and purpose not in {"direct_marketing", "review_request"}:
+        raise ValueError("le retrait du consentement doit viser un traitement fondé sur le consentement")
     rectification = payload.get("rectification") or {}
     if not isinstance(rectification, dict) or len(rectification) > 20:
         raise ValueError("rectification invalide")
@@ -154,7 +161,7 @@ def create_request(payload: dict, db_path: Path | str | None = None) -> dict:
 
     request = compliance_store.create_rights_request(
         {
-            "type": payload.get("type"),
+            "type": request_type,
             "subjectRef": subject_ref,
             "notes": payload.get("notes"),
         },
