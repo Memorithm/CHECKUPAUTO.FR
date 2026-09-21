@@ -1,4 +1,5 @@
 import datetime
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,7 +7,16 @@ from unittest.mock import Mock, patch
 
 import requests
 
-import places_competitive_sync as places
+_IMPORT_DATA = tempfile.TemporaryDirectory()
+_PREVIOUS_DATA_DIR = os.environ.get("CYBERCHECK_DATA_DIR")
+os.environ["CYBERCHECK_DATA_DIR"] = _IMPORT_DATA.name
+try:
+    import places_competitive_sync as places
+finally:
+    if _PREVIOUS_DATA_DIR is None:
+        os.environ.pop("CYBERCHECK_DATA_DIR", None)
+    else:
+        os.environ["CYBERCHECK_DATA_DIR"] = _PREVIOUS_DATA_DIR
 
 
 class PlacesCompetitiveSyncTest(unittest.TestCase):
