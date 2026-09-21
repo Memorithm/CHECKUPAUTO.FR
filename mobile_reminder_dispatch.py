@@ -9,6 +9,7 @@ import apns_gateway
 import mobile_devices
 import notification_broker as notifications
 import reminder_engine as reminders
+import privacy_suppression as privacy
 
 INTERVAL_SECONDS = 3600
 IOS_CONTROL_DUE_CATEGORY = "CHECKUPAUTO_CT_DUE"
@@ -72,9 +73,12 @@ def process_once(now: datetime.datetime | None = None) -> dict:
     if not transport.get("configured"):
         return {"ok": True, "state": "waiting_apns_credentials", "eligible": len(eligible), "sent": 0}
 
-    sent = already = in_flight = deferred = failed = retired = transient = provider_failures = 0
+    sent = already = in_flight = deferred = failed = retired = transient = provider_failures = privacy_suppressed = 0
     for row in eligible:
         try:
+            if privacy.is_suppressed("installation",row["installation_id"],"ct_reminder"):
+                privacy_suppressed += 1
+                continue
             title, body = _message(row["due_date"], row["days_before"])
             delivery = notifications.send_push(
                 row["device_token"], title, body,
@@ -117,6 +121,8 @@ def process_once(now: datetime.datetime | None = None) -> dict:
         state = "provider_failure"
     elif failed:
         state = "partial_failure"
+    elif privacy_suppressed:
+        state = "active_with_privacy_suppressions"
     elif retired:
         state = "active_tokens_retired"
     elif deferred:
@@ -132,6 +138,7 @@ def process_once(now: datetime.datetime | None = None) -> dict:
         "retiredTokens": retired,
         "transientFailures": transient,
         "providerFailures": provider_failures,
+        "privacySuppressed": privacy_suppressed,
         "failed": failed,
     }
 
