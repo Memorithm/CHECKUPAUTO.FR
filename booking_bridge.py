@@ -1,6 +1,6 @@
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-import datetime, hashlib, hmac, json, os, secrets, unicodedata, html
+import datetime, hashlib, hmac, json, os, re, secrets, unicodedata, html
 from zoneinfo import ZoneInfo
 import analytics_store as analytics
 import referral_engine as referrals
