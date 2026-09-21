@@ -8,6 +8,7 @@ import deployment_center as center
 import deployment_executor as executor
 import deployment_release as release
 import deployment_transport as transport
+import deployment_update as deployment_update
 
 
 SHA = "a" * 40
@@ -51,9 +52,22 @@ class DeploymentExecutorTest(unittest.TestCase):
 
     @mock.patch("deployment_executor.activation.activate_release")
     @mock.patch("deployment_executor.release.stage_release")
+    @mock.patch("deployment_executor.deployment_update.classify_update")
+    @mock.patch("deployment_executor.deployment_update.read_remote_state")
     @mock.patch("deployment_executor.transport.probe_target")
-    def test_update_probes_stages_then_activates_exact_sha(self, probe, stage, activate):
+    def test_update_probes_stages_then_activates_exact_sha(
+        self, probe, read_remote, classify_update, stage, activate
+    ):
         probe.return_value = self.ready_capabilities()
+        read_remote.return_value = deployment_update.RemoteDeploymentState(
+            installed=True,
+            deployed_sha=PREVIOUS_SHA,
+            releases=(deployment_update.RemoteRelease(PREVIOUS_SHA, 100),),
+        )
+        classify_update.return_value = {
+            "state": "update_available",
+            "updateAvailable": True,
+        }
         stage.return_value = release.StageResult(
             sha=SHA,
             release_path=f"/home/checkup/.checkupauto/releases/{SHA}",
@@ -86,6 +100,8 @@ class DeploymentExecutorTest(unittest.TestCase):
         self.assertEqual(result.file_count, 123)
         self.assertTrue(result.activation_allowed)
         probe.assert_called_once()
+        read_remote.assert_called_once()
+        classify_update.assert_called_once()
         self.assertTrue(probe.call_args.kwargs["passenger_wsgi_adapter"])
         self.assertTrue(probe.call_args.kwargs["shared_host_tick"])
         self.assertEqual(stage.call_args.args[5], SHA)
@@ -118,6 +134,57 @@ class DeploymentExecutorTest(unittest.TestCase):
                 self.root,
                 SHA,
             )
+        stage.assert_not_called()
+
+    @mock.patch("deployment_executor.release.stage_release")
+    @mock.patch("deployment_executor.deployment_update.read_remote_state")
+    @mock.patch("deployment_executor.transport.probe_target")
+    def test_install_refuses_already_installed_target(self, probe, read_remote, stage):
+        probe.return_value = self.ready_capabilities()
+        read_remote.return_value = deployment_update.RemoteDeploymentState(
+            installed=True,
+            deployed_sha=PREVIOUS_SHA,
+            releases=(deployment_update.RemoteRelease(PREVIOUS_SHA, 100),),
+        )
+        with self.assertRaisesRegex(RuntimeError, "déjà installée"):
+            executor.execute_deployment(
+                "install",
+                self.target,
+                self.known_hosts,
+                self.credential,
+                self.root,
+                SHA,
+            )
+        stage.assert_not_called()
+
+    @mock.patch("deployment_executor.release.stage_release")
+    @mock.patch("deployment_executor.deployment_update.classify_update")
+    @mock.patch("deployment_executor.deployment_update.read_remote_state")
+    @mock.patch("deployment_executor.transport.probe_target")
+    def test_update_refuses_unsafe_remote_states(
+        self, probe, read_remote, classify_update, stage
+    ):
+        probe.return_value = self.ready_capabilities()
+        read_remote.return_value = deployment_update.RemoteDeploymentState(
+            installed=True,
+            deployed_sha=PREVIOUS_SHA,
+            releases=(deployment_update.RemoteRelease(PREVIOUS_SHA, 100),),
+        )
+        for state in ("up_to_date", "remote_ahead", "diverged", "not_installed"):
+            with self.subTest(state=state):
+                classify_update.return_value = {
+                    "state": state,
+                    "updateAvailable": False,
+                }
+                with self.assertRaisesRegex(RuntimeError, "non autorisée"):
+                    executor.execute_deployment(
+                        "update",
+                        self.target,
+                        self.known_hosts,
+                        self.credential,
+                        self.root,
+                        SHA,
+                    )
         stage.assert_not_called()
 
     @mock.patch("deployment_executor.activation.rollback_release")
