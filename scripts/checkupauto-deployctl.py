@@ -269,11 +269,6 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--known-hosts", required=True)
         if name == "plan":
             command.add_argument("--sha", required=True)
-        command.add_argument(
-            "--admin-password-stdin",
-            action="store_true",
-            help="lire le mot de passe admin CheckupAuto sur stdin",
-        )
         command.set_defaults(func=handler)
 
     for name, handler in (
@@ -285,6 +280,11 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--name", required=True)
         command.add_argument("--known-hosts", required=True)
         command.add_argument("--sha", required=True)
+        command.add_argument(
+            "--admin-password-stdin",
+            action="store_true",
+            help="lire le mot de passe admin CheckupAuto sur stdin",
+        )
         command.set_defaults(func=handler)
     return root
 
