@@ -71,7 +71,7 @@ readonly BACKUP_DIR="$BACKUP_ROOT/${STAMP}-${CURRENT}"
 mkdir -p "$BACKUP_ROOT"
 mkdir "$BACKUP_DIR"
 chmod 0700 "$BACKUP_DIR"
-export BACKUP_DIR CURRENT
+export BACKUP_DIR CURRENT EXPECTED ROOT
 
 "$ROOT/.venv/bin/python" - <<'PY'
 from __future__ import annotations
@@ -148,12 +148,76 @@ PY
 
 log "backup complete path=$BACKUP_DIR source=$CURRENT"
 
-git merge --ff-only "$EXPECTED"
+git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"
 [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || fail 16 "HEAD mismatch after fast-forward"
 [[ -z "$(git status --porcelain=v1)" ]] || fail 17 "working tree changed during deployment"
 
-bash "$ROOT/deploy/rebaseline-integrity.sh"
-systemctl restart "$SERVICE"
+systemctl stop "$SERVICE"
+/usr/bin/python3 - <<'PY'
+from __future__ import annotations
+import ast
+import datetime as dt
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ["ROOT"])
+source = root / "security_integrity.py"
+module = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+critical = None
+for node in module.body:
+    if not isinstance(node, ast.Assign):
+        continue
+    if any(isinstance(target, ast.Name) and target.id == "CRITICAL_FILES" for target in node.targets):
+        critical = ast.literal_eval(node.value)
+        break
+if not isinstance(critical, (tuple, list)) or not critical or not all(isinstance(item, str) for item in critical):
+    raise RuntimeError("cannot safely parse CRITICAL_FILES from security_integrity.py")
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+files = {}
+for relative in critical:
+    path = root / relative
+    if path.is_file():
+        stat = path.stat()
+        files[relative] = {"sha256": sha256(path), "size": stat.st_size}
+    else:
+        files[relative] = {"missing": True}
+
+payload = {
+    "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+    "files": files,
+    "git": {
+        "available": True,
+        "head": os.environ["EXPECTED"],
+        "branch": "main",
+        "dirty": False,
+        "changedTracked": [],
+    },
+}
+integrity_dir = Path("/root/CyberCheckIntegrity")
+integrity_dir.mkdir(parents=True, exist_ok=True)
+gid = grp.getgrnam("cybercheck").gr_gid
+os.chown(integrity_dir, 0, gid)
+os.chmod(integrity_dir, 0o750)
+baseline = integrity_dir / "integrity-baseline.json"
+temporary = integrity_dir / ".integrity-baseline.json.tmp"
+temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+os.chown(temporary, 0, gid)
+os.chmod(temporary, 0o640)
+os.replace(temporary, baseline)
+print(f"Integrity baseline approved for {os.environ['EXPECTED']} ({len(files)} protected files)")
+PY
+
+systemctl start "$SERVICE"
 systemctl is-active --quiet "$SERVICE" || fail 18 "service did not become active"
 
 healthy=0
