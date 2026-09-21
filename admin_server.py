@@ -225,8 +225,8 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/integrations/google/status':
    if not self.authorized(): return self.require_auth()
    try:
-    result=integrations.status(gsc.credential_info())
-    result['redirectUri']=self._request_origin()+'/api/integrations/google/oauth/callback'
+    origin=self._request_origin(); result=integrations.status(gsc.credential_info(),origin)
+    result['redirectUri']=integrations.oauth_redirect_uri(origin)
     return self.send_json(result)
    except Exception: return self.send_json({'ok':False,'error':'google_integration_status_unavailable'},500)
   if path=='/api/admin/referrals/accounts':

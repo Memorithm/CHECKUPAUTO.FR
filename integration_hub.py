@@ -192,18 +192,27 @@ def _client_payload(payload):
     }
 
 
+def oauth_redirect_uri(base_url):
+    base = str(base_url or "").strip().rstrip("/")
+    if not base:
+        return ""
+    return base + "/api/integrations/google/oauth/callback"
+
+
 def save_oauth_client(payload):
     clean = _client_payload(payload)
     _atomic_json(CLIENT_FILE, clean)
     return oauth_client_info()
 
 
-def oauth_client_info():
+def oauth_client_info(base_url=""):
     cfg = _load(CLIENT_FILE)
     redirects = _web_redirect_uris(cfg)
+    expected_redirect = oauth_redirect_uri(base_url)
     return {
         "configured": bool(cfg.get("client_id") and cfg.get("client_secret")),
         "webClientVerified": bool(redirects),
+        "redirectUriAllowed": bool(expected_redirect and expected_redirect in redirects),
         "redirectUriCount": len(redirects),
         "clientIdSuffix": cfg.get("client_id", "")[-18:] if cfg.get("client_id") else None,
         "projectId": cfg.get("project_id") or None,
@@ -326,11 +335,11 @@ def has_usable_scopes(required):
     return bool(oauth_health().get("usable")) and required.issubset(_granted_scopes())
 
 
-def status(legacy_search_console=None):
+def status(legacy_search_console=None, base_url=""):
     legacy_search_console = legacy_search_console or {}
     scopes = _granted_scopes()
     cfg = settings()
-    client = oauth_client_info()
+    client = oauth_client_info(base_url)
     health = oauth_health()
     rows = []
     for key, meta in CONNECTORS.items():
@@ -402,7 +411,7 @@ def create_authorization_url(base_url, connector_ids):
                 scopes.append(scope)
     if not scopes:
         raise IntegrationError("Aucun service OAuth sélectionné.")
-    redirect_uri = base_url.rstrip("/") + "/api/integrations/google/oauth/callback"
+    redirect_uri = oauth_redirect_uri(base_url)
     allowed_redirects = _web_redirect_uris(client)
     if not allowed_redirects:
         raise IntegrationError("Réimportez un client OAuth Google de type Application Web.")
@@ -442,7 +451,7 @@ def handle_oauth_callback(base_url, state, code, error=""):
         raise IntegrationError("État OAuth Google invalide.") from exc
     if expires < datetime.datetime.now(datetime.timezone.utc):
         raise IntegrationError("La demande OAuth Google a expiré.")
-    redirect_uri = base_url.rstrip("/") + "/api/integrations/google/oauth/callback"
+    redirect_uri = oauth_redirect_uri(base_url)
     if pending.get("redirect_uri") != redirect_uri:
         raise IntegrationError("URI de redirection OAuth incohérente.")
     client = _load(CLIENT_FILE)
