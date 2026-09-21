@@ -214,6 +214,7 @@ candidate="$incoming/release"
 [ -f "$candidate/requirements.txt" ] || { echo 'requirements.txt missing from release' >&2; exit 21; }
 [ -f "$candidate/passenger_wsgi.py" ] || { echo 'Passenger entrypoint missing from release' >&2; exit 22; }
 [ -f "$candidate/scripts/checkupauto-shared-tick.py" ] || { echo 'shared scheduler missing from release' >&2; exit 23; }
+[ -f "$candidate/scripts/checkupauto-update-safety.py" ] || { echo 'update safety helper missing from release' >&2; exit 24; }
 python3 -m venv "$candidate/.venv"
 "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
 "$candidate/.venv/bin/python" -m compileall -q "$candidate"
