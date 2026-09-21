@@ -14,6 +14,7 @@ from deployment_center import DeploymentTarget
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _STATE_PREFIX = "CHECKUPAUTO_UPDATE_STATE_B64="
 _MAX_RELEASES = 24
+_MAX_BACKUPS = 24
 
 
 @dataclass(frozen=True)
@@ -23,10 +24,21 @@ class RemoteRelease:
 
 
 @dataclass(frozen=True)
+class RemoteBackup:
+    snapshot: str
+    created_at: str
+    from_sha: str
+    to_sha: str
+    database_count: int
+    file_count: int
+
+
+@dataclass(frozen=True)
 class RemoteDeploymentState:
     installed: bool
     deployed_sha: str
     releases: tuple[RemoteRelease, ...]
+    backups: tuple[RemoteBackup, ...] = ()
 
 
 def _release_sha(value: object) -> str:
@@ -64,10 +76,12 @@ SHA_RE = re.compile(r"^[0-9a-f]{{40}}$")
 ROOT_REL = {root_json}
 PREFIX = {prefix_json}
 MAX_RELEASES = {_MAX_RELEASES}
+MAX_BACKUPS = {_MAX_BACKUPS}
 
 home = Path.home().resolve()
 private_root = (home / ROOT_REL).resolve()
 releases_root = (private_root / "releases").resolve()
+backup_root = (private_root / "shared" / "backups").resolve()
 current = private_root / "current"
 
 
@@ -125,11 +139,66 @@ if current.is_symlink():
     if resolved is not None and under(resolved, releases_root) and marker(resolved) is not None:
         deployed = resolved.name
 
+backups = []
+if backup_root.is_dir() and under(backup_root, private_root):
+    for child in backup_root.iterdir():
+        if child.is_symlink() or not child.is_dir():
+            continue
+        try:
+            resolved = child.resolve(strict=True)
+        except OSError:
+            continue
+        if not under(resolved, backup_root):
+            continue
+        manifest = resolved / "manifest.json"
+        if manifest.is_symlink() or not manifest.is_file():
+            continue
+        try:
+            item = json.loads(manifest.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        from_sha = str(item.get("fromSha") or "").lower()
+        to_sha = str(item.get("toSha") or "").lower()
+        created_at = str(item.get("createdAt") or "")
+        databases = item.get("databases")
+        files = item.get("files")
+        if (
+            item.get("schemaVersion") != 1
+            or not SHA_RE.fullmatch(from_sha)
+            or not SHA_RE.fullmatch(to_sha)
+            or not created_at
+            or len(created_at) > 80
+            or not isinstance(databases, list)
+            or not isinstance(files, list)
+            or len(databases) > 128
+            or len(files) > 128
+        ):
+            continue
+        try:
+            mtime = int(resolved.stat().st_mtime)
+        except OSError:
+            mtime = 0
+        backups.append({{
+            "snapshot": child.name[:160],
+            "createdAt": created_at,
+            "fromSha": from_sha,
+            "toSha": to_sha,
+            "databaseCount": len(databases),
+            "fileCount": len(files),
+            "mtime": mtime,
+        }})
+
+backups.sort(key=lambda item: (item["mtime"], item["snapshot"]), reverse=True)
+for item in backups:
+    item.pop("mtime", None)
+backups = backups[:MAX_BACKUPS]
+
 payload = {{
     "schemaVersion": 1,
     "installed": bool(deployed),
     "deployedSha": deployed,
     "releases": rows,
+    "backups": backups,
 }}
 encoded = base64.b64encode(
     json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -183,10 +252,58 @@ def _parse_remote_state(output: str) -> RemoteDeploymentState:
         releases.append(RemoteRelease(sha=sha, mtime=mtime_int))
     if deployed and deployed not in seen:
         raise RuntimeError("release active absente de l inventaire distant")
+
+    raw_backups = payload.get("backups", [])
+    if not isinstance(raw_backups, list) or len(raw_backups) > _MAX_BACKUPS:
+        raise RuntimeError("inventaire de sauvegardes distant invalide")
+    backups = []
+    backup_names = set()
+    for item in raw_backups:
+        if not isinstance(item, dict):
+            raise RuntimeError("inventaire de sauvegardes distant invalide")
+        snapshot = str(item.get("snapshot") or "")
+        created_at = str(item.get("createdAt") or "")
+        from_sha = str(item.get("fromSha") or "").lower()
+        to_sha = str(item.get("toSha") or "").lower()
+        database_count = item.get("databaseCount")
+        file_count = item.get("fileCount")
+        if (
+            not snapshot
+            or len(snapshot) > 160
+            or snapshot in backup_names
+            or "/" in snapshot
+            or "\\" in snapshot
+            or snapshot in {".", ".."}
+            or not created_at
+            or len(created_at) > 80
+            or not _SHA_RE.fullmatch(from_sha)
+            or not _SHA_RE.fullmatch(to_sha)
+            or isinstance(database_count, bool)
+            or isinstance(file_count, bool)
+        ):
+            raise RuntimeError("inventaire de sauvegardes distant invalide")
+        try:
+            database_count = int(database_count)
+            file_count = int(file_count)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("inventaire de sauvegardes distant invalide") from exc
+        if not (0 <= database_count <= 128 and 0 <= file_count <= 128):
+            raise RuntimeError("inventaire de sauvegardes distant invalide")
+        backup_names.add(snapshot)
+        backups.append(RemoteBackup(
+            snapshot=snapshot,
+            created_at=created_at,
+            from_sha=from_sha,
+            to_sha=to_sha,
+            database_count=database_count,
+            file_count=file_count,
+        ))
+
     return RemoteDeploymentState(
         installed=bool(payload["installed"]),
         deployed_sha=deployed,
         releases=tuple(releases),
+        backups=tuple(backups),
     )
 
 
@@ -277,6 +394,9 @@ def classify_update(
         "desiredSha": desired,
         "updateAvailable": update_available,
         "releases": [asdict(item) for item in remote.releases],
+        "backups": [asdict(item) for item in remote.backups],
+        "backupCount": len(remote.backups),
+        "latestBackup": asdict(remote.backups[0]) if remote.backups else None,
         "rollbackCandidates": rollback,
     }
 
