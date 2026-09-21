@@ -30,10 +30,13 @@ function ihRender(data){
 
   const client=data.oauthClient||{};
   const oauthHealth=data.oauthHealth||{};
-  const webClientReady=Boolean(client.webClientVerified);
+  const webClientReady=Boolean(client.webClientVerified&&client.redirectUriAllowed);
   ih('googleOAuthRedirectUri').textContent=data.redirectUri||'—';
   if(client.configured&&webClientReady){
     ih('googleOAuthIdentity').textContent=`Client OAuth Web vérifié · ${client.projectId||'projet Google'} · …${client.clientIdSuffix||''} · ${ihOauthHealthText(oauthHealth)}`;
+  }else if(client.configured&&client.webClientVerified){
+    ih('googleOAuthIdentity').textContent=`Client OAuth Web · callback CheckupAuto non autorisé · ${ihOauthHealthText(oauthHealth)}`;
+    badge.className='gsc-status warning';
   }else if(client.configured){
     ih('googleOAuthIdentity').textContent=`Client OAuth historique · ${ihOauthHealthText(oauthHealth)} · réimporter un client Google « Application Web »`;
     badge.className='gsc-status warning';

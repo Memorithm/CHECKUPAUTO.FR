@@ -9,9 +9,11 @@ class AdminIntegrationsWebOAuthUiTest(unittest.TestCase):
 
     def test_admin_surfaces_web_client_verification(self):
         self.assertIn("client.webClientVerified", self.source)
+        self.assertIn("client.redirectUriAllowed", self.source)
         self.assertIn("Client OAuth Web vérifié", self.source)
         self.assertIn("Client OAuth historique", self.source)
         self.assertIn("Application Web", self.source)
+        self.assertIn("callback CheckupAuto non autorisé", self.source)
 
     def test_new_authorization_is_disabled_until_web_client_is_verified(self):
         compact = "".join(self.source.split())

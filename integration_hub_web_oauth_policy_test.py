@@ -65,6 +65,19 @@ class IntegrationHubWebOAuthPolicyTest(unittest.TestCase):
         self.assertEqual(info["redirectUriCount"], 1)
         self.assertNotIn("client_secret", info)
 
+    def test_status_distinguishes_web_shape_from_exact_callback_authorization(self):
+        hub.save_oauth_client(self.web_client(["https://other.example/api/integrations/google/oauth/callback"]))
+        client = hub.status({}, "https://www.checkupauto.fr")["oauthClient"]
+        self.assertTrue(client["webClientVerified"])
+        self.assertFalse(client["redirectUriAllowed"])
+        self.assertEqual(client["redirectUriCount"], 1)
+
+    def test_status_marks_exact_checkupauto_callback_allowed(self):
+        hub.save_oauth_client(self.web_client())
+        client = hub.status({}, "https://www.checkupauto.fr")["oauthClient"]
+        self.assertTrue(client["webClientVerified"])
+        self.assertTrue(client["redirectUriAllowed"])
+
     def test_authorization_uses_exact_registered_callback(self):
         hub.save_oauth_client(self.web_client())
         result = hub.create_authorization_url("https://www.checkupauto.fr", ["analytics"])

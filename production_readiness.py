@@ -401,7 +401,13 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             },
         ))
 
-    integrations, error = _safe("IntegrationHub", lambda: integration_hub.status(gsc_client.credential_info()))
+    google_canonical = str((config.get("seo") or {}).get("canonicalUrl") or "").strip()
+    google_parsed = urlparse(google_canonical)
+    google_origin = f"{google_parsed.scheme}://{google_parsed.netloc}" if google_parsed.scheme and google_parsed.netloc else ""
+    integrations, error = _safe(
+        "IntegrationHub",
+        lambda: integration_hub.status(gsc_client.credential_info(), google_origin),
+    )
     if error:
         components.append(_failed("google_integration", "IntegrationHub Google", False, error))
     else:
@@ -410,11 +416,12 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         oauth_state = str(oauth_health.get("state") or ("ready" if oauth else "awaiting_authorization"))
         oauth_client = integrations.get("oauthClient") or {}
         web_client_verified = bool(oauth_client.get("webClientVerified"))
+        redirect_uri_allowed = bool(oauth_client.get("redirectUriAllowed"))
         redirect_uri_count = int(oauth_client.get("redirectUriCount") or 0)
         connected = sum(1 for item in integrations.get("connectors") or [] if item.get("connected"))
-        if oauth and not web_client_verified:
+        if oauth and not redirect_uri_allowed:
             google_state = "degraded"
-            google_detail = "OAuth actif · client Application Web à réimporter avant toute réautorisation"
+            google_detail = "OAuth actif · callback CheckupAuto à autoriser dans le client Application Web"
         elif oauth or connected:
             google_state = "ready"
             google_detail = f"{connected} connecteur(s) connecté(s)"
@@ -431,6 +438,7 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
                 "oauthAuthorized": oauth,
                 "oauthState": oauth_state,
                 "webClientVerified": web_client_verified,
+                "redirectUriAllowed": redirect_uri_allowed,
                 "redirectUriCount": redirect_uri_count,
                 "connectedConnectors": connected,
             },
