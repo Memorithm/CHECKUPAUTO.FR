@@ -20,6 +20,9 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertIn("$('deploymentPassword').value = ''", script)
         self.assertIn("/api/admin/deployment/status", script)
         self.assertIn("/api/admin/deployment/job", script)
+        self.assertIn("/api/admin/deployment/update-status", script)
+        self.assertIn("deploymentUpdateState", script)
+        self.assertIn("deploymentRollbackCandidates", script)
         self.assertNotIn("credential.password", script)
         self.assertNotIn("target.password", script)
 
@@ -46,12 +49,20 @@ class AdminDeploymentUITest(unittest.TestCase):
             "/api/admin/deployment/hostkey/trust",
             "/api/admin/deployment/probe",
             "/api/admin/deployment/plan",
+            "/api/admin/deployment/update-status",
             "/api/admin/deployment/job",
         ):
             self.assertGreater(
                 post_source.index("if path=='" + route + "':"),
                 origin,
             )
+
+    def test_update_ui_exposes_remote_version_and_check_button(self):
+        html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="deploymentRemoteSha"', html)
+        self.assertIn('id="deploymentUpdateState"', html)
+        self.assertIn('id="deploymentCheckUpdate"', html)
+        self.assertIn('id="deploymentRollbackCandidates"', html)
 
     def test_security_ci_checks_deployment_javascript(self):
         workflow = (ROOT / ".github" / "workflows" / "security-ci.yml").read_text(

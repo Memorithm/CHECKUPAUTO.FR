@@ -613,6 +613,13 @@ class Handler(SimpleHTTPRequestHandler):
    except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_plan_invalid'},400)
    except RuntimeError: return self.send_json({'ok':False,'error':'deployment_probe_failed'},409)
    except Exception: return self.send_json({'ok':False,'error':'deployment_plan_unavailable'},500)
+  if path=='/api/admin/deployment/update-status':
+   try:
+    payload=self._read_json()
+    return self.send_json({'ok':True,'update':deployment_admin.update_status(str(payload.get('name') or ''))})
+   except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_update_status_failed'},409)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_update_status_unavailable'},500)
   if path=='/api/admin/deployment/job':
    try:
     payload=self._read_json()

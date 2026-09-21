@@ -3,6 +3,7 @@
 
   const $ = (id) => document.getElementById(id);
   let state = {profiles: {}, targets: [], currentSha: '', jobs: []};
+  let updateState = null;
   let currentJobTimer = null;
 
   async function api(path, options = {}) {
@@ -100,6 +101,7 @@
     $('deploymentIdentityFile').value = '';
     updateAuthFields();
     applyProfileDefaults(false);
+    resetUpdateState();
   }
 
   function updateAuthFields() {
@@ -134,6 +136,7 @@
     populateProfiles();
     populateTargets();
     renderJobs(state.jobs || []);
+    resetUpdateState();
     setMessage('Deployment Center prêt.');
   }
 
@@ -241,6 +244,78 @@
     setMessage(plan.assessment?.ok ? 'Plan prêt pour activation.' : 'Plan bloqué par le diagnostic.');
   }
 
+  function resetUpdateState() {
+    updateState = null;
+    $('deploymentRemoteSha').textContent = '—';
+    $('deploymentUpdateState').textContent = 'Non vérifiée';
+    $('deploymentUpdateDetail').textContent = 'Version distante non vérifiée.';
+    $('deploymentUpdate').disabled = true;
+    const candidates = $('deploymentRollbackCandidates');
+    if (candidates) candidates.replaceChildren();
+  }
+
+  function renderUpdateState(result) {
+    updateState = result || {};
+    const deployed = updateState.deployedSha || '';
+    $('deploymentRemoteSha').textContent = deployed ? deployed.slice(0, 12) : 'Non installée';
+
+    const labels = {
+      not_installed: 'Non installée',
+      up_to_date: 'À jour',
+      update_available: 'Disponible',
+      remote_ahead: 'Cible en avance',
+      diverged: 'Divergence'
+    };
+    $('deploymentUpdateState').textContent = labels[updateState.state] || 'Inconnue';
+    $('deploymentUpdate').disabled = !updateState.updateAvailable;
+
+    const candidates = $('deploymentRollbackCandidates');
+    candidates.replaceChildren();
+    (updateState.rollbackCandidates || []).forEach((sha) => {
+      const option = document.createElement('option');
+      option.value = sha;
+      option.label = sha.slice(0, 12);
+      candidates.append(option);
+    });
+
+    const releaseCount = (updateState.releases || []).length;
+    if (updateState.state === 'update_available') {
+      $('deploymentUpdateDetail').textContent =
+        'Mise à jour disponible : ' + deployed.slice(0, 12) + ' → ' +
+        (updateState.desiredSha || '').slice(0, 12) + '. ' +
+        releaseCount + ' release(s) vérifiée(s) disponible(s) pour rollback.';
+    } else if (updateState.state === 'up_to_date') {
+      $('deploymentUpdateDetail').textContent =
+        'La cible exécute déjà la version locale courante. ' +
+        releaseCount + ' release(s) vérifiée(s) conservée(s).';
+    } else if (updateState.state === 'not_installed') {
+      $('deploymentUpdateDetail').textContent =
+        'Aucune release active détectée : utilise Installer.';
+    } else if (updateState.state === 'remote_ahead') {
+      $('deploymentUpdateDetail').textContent =
+        'La cible distante est plus récente que le checkout local. Mise à jour bloquée.';
+    } else {
+      $('deploymentUpdateDetail').textContent =
+        'Historique Git divergent : mise à jour automatique bloquée, diagnostic requis.';
+    }
+  }
+
+  async function checkUpdateStatus() {
+    const name = currentName();
+    if (!name) throw new Error('Nom de cible requis');
+    setMessage('Lecture de la version réellement déployée…');
+    const payload = await api('/api/admin/deployment/update-status', {
+      method: 'POST',
+      body: JSON.stringify({name})
+    });
+    renderUpdateState(payload.update || {});
+    setMessage(
+      payload.update?.updateAvailable
+        ? 'Une mise à jour vérifiée est disponible.'
+        : 'État de mise à jour vérifié.'
+    );
+  }
+
   function renderJobs(jobs) {
     const body = $('deploymentJobs');
     body.replaceChildren();
@@ -335,11 +410,13 @@
     bind('deploymentTrustHostKey', 'click', trustHostKey);
     bind('deploymentProbe', 'click', probeTarget);
     bind('deploymentPlanButton', 'click', buildPlan);
+    bind('deploymentCheckUpdate', 'click', checkUpdateStatus);
     bind('deploymentInstall', 'click', () => startJob('install'));
     bind('deploymentUpdate', 'click', () => startJob('update'));
     bind('deploymentRollback', 'click', () => startJob('rollback'));
     bind('deploymentRefresh', 'click', () => refreshStatusPreservingForm());
     updateAuthFields();
+    resetUpdateState();
     loadStatus().catch(showError);
   });
 })();

@@ -158,6 +158,32 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertTrue(result["capabilities"]["passenger"])
         self.assertNotIn("secret-value", str(result))
 
+    @mock.patch.object(admin.deployment_update, "update_status")
+    @mock.patch.object(admin, "_current_sha", return_value=SHA)
+    def test_update_status_uses_remote_target_and_current_sha(self, current_sha, update_status):
+        admin.save_target(self.payload())
+        admin._known_hosts_path().parent.mkdir(parents=True, exist_ok=True)
+        admin._known_hosts_path().write_text(
+            "[ssh.example.net]:5022 ssh-ed25519 AAAATEST\n",
+            encoding="utf-8",
+        )
+        update_status.return_value = {
+            "schemaVersion": 1,
+            "state": "update_available",
+            "installed": True,
+            "deployedSha": "b" * 40,
+            "desiredSha": SHA,
+            "updateAvailable": True,
+            "releases": [],
+            "rollbackCandidates": [],
+        }
+        result = admin.update_status("production")
+        self.assertTrue(result["updateAvailable"])
+        self.assertEqual(result["desiredSha"], SHA)
+        self.assertNotIn("secret-value", str(result))
+        args = update_status.call_args.args
+        self.assertEqual(args[3], SHA)
+
     @mock.patch.object(admin.executor, "execute_deployment")
     @mock.patch.object(admin, "_current_sha", return_value=SHA)
     def test_start_job_is_async_and_persists_sanitized_result(self, current_sha, execute):
