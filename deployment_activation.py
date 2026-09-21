@@ -16,6 +16,7 @@ _PREVIOUS_SHA_PREFIX = "CHECKUPAUTO_PREVIOUS_SHA="
 _READINESS_STATE_PREFIX = "CHECKUPAUTO_READINESS_STATE="
 _ACTIVATION_ALLOWED_PREFIX = "CHECKUPAUTO_ACTIVATION_ALLOWED="
 _BLOCKER_COUNT_PREFIX = "CHECKUPAUTO_BLOCKER_COUNT="
+_PUBLIC_CUTOVER_PREFIX = "CHECKUPAUTO_PUBLIC_CUTOVER_REQUIRED="
 _ADMIN_PASSWORD_MIN = 12
 _ADMIN_PASSWORD_MAX = 256
 _ADMIN_PASSWORD_PLACEHOLDER = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
@@ -28,6 +29,8 @@ class ActivationResult:
     readiness_state: str
     activation_allowed: bool
     blocker_count: int
+    activated: bool = True
+    public_verified: bool = True
 
 
 def _release_sha(value: object) -> str:
@@ -241,6 +244,21 @@ def touch_restart(target: Path) -> None:
     os.chmod(restart, 0o600)
 
 
+def target_route_matches(probe_name: str, probe_value: str) -> bool:
+    probe_url = "https://" + domain + "/" + probe_name
+    for _attempt in range(3):
+        try:
+            with request.urlopen(probe_url, timeout=6) as response:
+                if response.status != 200:
+                    raise RuntimeError("deployment target probe status invalid")
+                observed = response.read(4096).decode("utf-8").strip()
+            if secrets.compare_digest(observed, probe_value):
+                return True
+        except Exception:
+            time.sleep(1)
+    return False
+
+
 def probe_http(probe_name: str, probe_value: str) -> tuple[str, bool, int]:
     password_path = shared_private / "admin-password"
     if password_path.is_symlink():
@@ -338,6 +356,18 @@ probe_name = "checkupauto-deployment-probe-" + secrets.token_hex(16) + ".txt"
 probe_path = web_root / probe_name
 probe_value = secrets.token_urlsafe(32)
 atomic_write(probe_path, (probe_value + "\n").encode("utf-8"), 0o644)
+
+if not target_route_matches(probe_name, probe_value):
+    try:
+        probe_path.unlink()
+    except FileNotFoundError:
+        pass
+    print("CHECKUPAUTO_PUBLIC_CUTOVER_REQUIRED=" + sha)
+    print("CHECKUPAUTO_PREVIOUS_SHA=" + previous_sha)
+    print("CHECKUPAUTO_READINESS_STATE=blocked_external")
+    print("CHECKUPAUTO_ACTIVATION_ALLOWED=0")
+    print("CHECKUPAUTO_BLOCKER_COUNT=1")
+    raise SystemExit(0)
 
 block_lines = [
     BEGIN,
@@ -455,13 +485,19 @@ def _parse_activation_output(output: str, expected_sha: str) -> ActivationResult
         _READINESS_STATE_PREFIX: "state",
         _ACTIVATION_ALLOWED_PREFIX: "allowed",
         _BLOCKER_COUNT_PREFIX: "blockers",
+        _PUBLIC_CUTOVER_PREFIX: "cutover",
     }
     for line in str(output or "").splitlines():
         for prefix, key in prefixes.items():
             if line.startswith(prefix):
                 values[key] = line[len(prefix):].strip()
                 break
-    if values.get("sha") != sha:
+    cutover = values.get("cutover", "")
+    activated_sha = values.get("sha", "")
+    if cutover:
+        if cutover != sha or activated_sha:
+            raise RuntimeError("réponse d activation distante invalide")
+    elif activated_sha != sha:
         raise RuntimeError("réponse d activation distante invalide")
     previous = values.get("previous", "")
     if previous != "none" and not _SHA_RE.fullmatch(previous):
@@ -475,12 +511,26 @@ def _parse_activation_output(output: str, expected_sha: str) -> ActivationResult
     state = values.get("state", "")
     if blockers < 0 or state not in {"ready", "configuration_required", "blocked_external", "degraded"}:
         raise RuntimeError("réponse d activation distante invalide")
+    if cutover:
+        if state != "blocked_external" or values["allowed"] != "0" or blockers < 1:
+            raise RuntimeError("réponse d activation distante invalide")
+        return ActivationResult(
+            sha=sha,
+            previous_sha="" if previous == "none" else previous,
+            readiness_state=state,
+            activation_allowed=False,
+            blocker_count=blockers,
+            activated=False,
+            public_verified=False,
+        )
     return ActivationResult(
         sha=sha,
         previous_sha="" if previous == "none" else previous,
         readiness_state=state,
         activation_allowed=values["allowed"] == "1",
         blocker_count=blockers,
+        activated=True,
+        public_verified=True,
     )
 
 
