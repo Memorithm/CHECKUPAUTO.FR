@@ -50,14 +50,20 @@ class DeploymentExecutorTest(unittest.TestCase):
             shared_host_tick=True,
         )
 
+    @mock.patch("deployment_executor.github_source.bootstrap_material")
     @mock.patch("deployment_executor.activation.activate_release")
     @mock.patch("deployment_executor.release.stage_release")
     @mock.patch("deployment_executor.deployment_update.classify_update")
     @mock.patch("deployment_executor.deployment_update.read_remote_state")
     @mock.patch("deployment_executor.transport.probe_target")
     def test_update_probes_stages_then_activates_exact_sha(
-        self, probe, read_remote, classify_update, stage, activate
+        self, probe, read_remote, classify_update, stage, activate, bootstrap_material
     ):
+        bootstrap_material.return_value = {
+            "repository": "Memorithm/CHECKUPAUTO.FR",
+            "branch": "main",
+            "token": "github" + "_pat_" + "T" * 40,
+        }
         probe.return_value = self.ready_capabilities()
         read_remote.return_value = deployment_update.RemoteDeploymentState(
             installed=True,
@@ -109,6 +115,10 @@ class DeploymentExecutorTest(unittest.TestCase):
         self.assertEqual(
             activate.call_args.kwargs["admin_password"],
             "local-admin-secret-value",
+        )
+        self.assertEqual(
+            activate.call_args.kwargs["update_source"],
+            bootstrap_material.return_value,
         )
 
     @mock.patch("deployment_executor.release.stage_release")
