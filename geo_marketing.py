@@ -48,6 +48,21 @@ def _band_for(distance_km, bands):
     return None
 
 
+def _eligible_communes(data, p):
+    if not p.get('enabled', True):
+        return []
+    radius = max(0.0, float(p.get('radiusKm', 50.01) or 0))
+    eligible = []
+    for row in data.get('communes') or []:
+        try:
+            distance = float(row.get('distanceKm'))
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= distance <= radius + 1e-9:
+            eligible.append(row)
+    return eligible
+
+
 def find_commune(query):
     q = _fold(query)
     if not q:
@@ -85,13 +100,13 @@ def quote(config, query, services):
         'city': row['name'], 'postalCodes': row.get('postalCodes') or [], 'distanceKm': distance,
         'band': (band or {}).get('label', ''), 'prices': prices,
     }
-
 def priority_markets(config, services, limit=None):
     data = catalog()
     p = policy(config)
     count = int(limit or p.get('priorityMarketCount', 36) or 36)
     count = max(6, min(count, 100))
-    selected = sorted(data.get('communes') or [], key=lambda x: (-(x.get('population') or 0), x.get('distanceKm') or 9999))[:count]
+    eligible = _eligible_communes(data, p)
+    selected = sorted(eligible, key=lambda x: (-(x.get('population') or 0), x.get('distanceKm') or 9999))[:count]
     out = []
     for row in selected:
         band = _band_for(float(row['distanceKm']), p.get('bands') or [])
@@ -107,7 +122,9 @@ def priority_markets(config, services, limit=None):
 
 def coverage(config, services):
     data = catalog(); p = policy(config)
+    eligible = _eligible_communes(data, p)
     return {
-        'center': data['center'], 'radiusKm': float(p.get('radiusKm', 50.01)), 'communeCount': int(data.get('count') or 0),
+        'center': data['center'], 'radiusKm': float(p.get('radiusKm', 50.01)),
+        'communeCount': len(eligible), 'catalogCommuneCount': int(data.get('count') or len(data.get('communes') or [])),
         'policy': p, 'markets': priority_markets(config, services),
     }
