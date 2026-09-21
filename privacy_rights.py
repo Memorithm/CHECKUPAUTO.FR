@@ -282,6 +282,8 @@ def steps(request_id: object, db_path: Path | str | None = None) -> list[dict]:
 
 
 def _reminder_rows(kind: str, ref: str) -> list[dict]:
+    if kind not in {"mercure_account", "mercure_free", "vehicle", "contract"}:
+        return []
     reminder_dispatch.init_db()
     if kind == "mercure_account":
         where, args = "client_kind='account' AND client_id=?", (ref,)
@@ -316,6 +318,8 @@ def _reminder_rows(kind: str, ref: str) -> list[dict]:
 
 
 def _reminder_delete(kind: str, ref: str) -> int:
+    if kind not in {"mercure_account", "mercure_free", "vehicle", "contract"}:
+        return 0
     reminder_dispatch.init_db()
     if kind == "mercure_account":
         where, args = "client_kind='account' AND client_id=?", (ref,)
@@ -333,6 +337,8 @@ def _reminder_delete(kind: str, ref: str) -> int:
 
 
 def _reminder_quarantine(kind: str, ref: str) -> int:
+    if kind not in {"mercure_account", "mercure_free", "vehicle", "contract"}:
+        return 0
     reminder_dispatch.init_db()
     if kind == "mercure_account":
         where, args = "client_kind='account' AND client_id=?", (ref,)
@@ -353,6 +359,8 @@ def _reminder_quarantine(kind: str, ref: str) -> int:
 
 
 def _mobile_installations(kind: str, ref: str) -> list[str]:
+    if kind not in {"installation", "mercure_account", "mercure_free", "vehicle"}:
+        return []
     mobile_devices.init_db()
     with mobile_devices.connect() as db:
         if kind == "installation":
