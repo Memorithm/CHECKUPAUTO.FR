@@ -200,6 +200,44 @@ class DeploymentAdminTest(unittest.TestCase):
             "local-admin-secret-value",
         )
 
+    @mock.patch.object(admin.executor, "execute_deployment")
+    @mock.patch.object(admin, "_current_sha", return_value=SHA)
+    def test_job_waits_for_external_cutover_without_becoming_failed(
+        self, current_sha, execute
+    ):
+        admin.save_target(self.payload())
+        admin._known_hosts_path().parent.mkdir(parents=True, exist_ok=True)
+        admin._known_hosts_path().write_text(
+            "[ssh.example.net]:5022 ssh-ed25519 AAAATEST\n",
+            encoding="utf-8",
+        )
+        execute.return_value = executor.DeploymentExecutionResult(
+            action="install",
+            sha=SHA,
+            previous_sha="",
+            staged=True,
+            release_path="/home/checkup/.checkupauto/releases/" + SHA,
+            archive_sha256="b" * 64,
+            file_count=123,
+            readiness_state="blocked_external",
+            activation_allowed=False,
+            blocker_count=1,
+            activated=False,
+            public_verified=False,
+        )
+        started = admin.start_job("production", "install")
+        deadline = time.time() + 2
+        state = started
+        while time.time() < deadline:
+            state = admin.job(started["id"])
+            if state["state"] not in {"queued", "running"}:
+                break
+            time.sleep(0.01)
+        self.assertEqual(state["state"], "waiting_external")
+        self.assertFalse(state["result"]["activated"])
+        self.assertFalse(state["result"]["publicVerified"])
+        self.assertTrue(state["result"]["staged"])
+
     def test_local_admin_credential_must_be_private_and_valid(self):
         path = self.private / "admin-password"
         self.assertEqual(admin._local_admin_password(), "local-admin-secret-value")
