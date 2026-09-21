@@ -33,6 +33,7 @@ import production_readiness as production_readiness
 import deployment_admin as deployment_admin
 import site_config_store as site_config_store
 import compliance_store as compliance
+import compliance_admin as compliance_admin
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -267,6 +268,10 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_bytes(('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">'
       '<title>Connexion Google impossible</title></head><body><h1>Connexion Google impossible</h1><p>'+'La connexion Google n’a pas pu être finalisée.'+'</p>'
       '<p><a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode(),'text/html; charset=utf-8',400,'no-store')
+  if path=='/api/admin/compliance':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(compliance_admin.snapshot())
+   except Exception: return self.send_json({'ok':False,'error':'compliance_snapshot_unavailable'},500)
   if path=='/api/admin/readiness':
    if not self.authorized(): return self.require_auth()
    try:
