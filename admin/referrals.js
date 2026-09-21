@@ -73,7 +73,16 @@ async function rrLoad(){
   try{
     const data=await rrApi('/api/admin/referrals/accounts?limit=100');
     rrRender(data);
-    if(badge){badge.textContent='ReferralWallet actif';badge.className='gsc-status online'}
+    const integrity=data.integrity||{};
+    if(badge){
+      if(integrity.ok===true){badge.textContent='Ledger cohérent';badge.className='gsc-status online'}
+      else if(integrity.state==='unavailable'){badge.textContent='Audit indisponible';badge.className='gsc-status offline'}
+      else{
+        const issues=Math.max(0,Number(integrity.issues||0));
+        badge.textContent=`Ledger · ${issues} anomalie${issues===1?'':'s'}`;
+        badge.className='gsc-status warning';
+      }
+    }
     return data;
   }catch(error){
     if(badge){badge.textContent='Indisponible';badge.className='gsc-status offline'}

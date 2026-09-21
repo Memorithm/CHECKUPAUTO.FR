@@ -24,6 +24,7 @@ import competitive_intelligence as competitive
 import review_followup as reviews
 import integration_hub as integrations
 import referral_engine as referrals
+import referral_admin as referral_admin
 import reminder_engine as reminders
 import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
@@ -232,8 +233,9 @@ class Handler(SimpleHTTPRequestHandler):
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); limit=int((q.get('limit') or ['100'])[0])
-    return self.send_json({'accounts':referrals.list_accounts(limit),'rewardCents':referrals.configured_reward_cents()})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+    return self.send_json(referral_admin.status(limit))
+   except (TypeError,ValueError): return self.send_json({'ok':False,'error':'referral_request_invalid'},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
   if path=='/api/admin/referrals/summary':
    if not self.authorized(): return self.require_auth()
    try:
