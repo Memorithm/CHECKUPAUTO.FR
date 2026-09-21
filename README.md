@@ -20,6 +20,7 @@ The project currently includes:
 - deterministic ReminderEngine aligned with the iOS J-60/J-30/J-15/J-7/J-1 reminder policy;
 - privacy-preserving NotificationBroker with idempotent delivery ledger; raw recipient addresses and message bodies are not persisted.
 - governed Mercure due-date synchronisation feeding ReminderEngine and NotificationBroker, with incremental 730-day backfill and no persisted customer e-mail address.
+- Deployment Center core with PlanetHoster presets, encrypted SSH credential vault, strict host-key verification, remote capability probe and atomic release planning.
 
 ## Local runtime
 
@@ -40,6 +41,8 @@ Start the local application server with:
 The application listens on `127.0.0.1:8765` by design. Production/public exposure should be provided by a reverse proxy or Cloudflare Tunnel rather than binding the Python server directly to the Internet.
 
 For the hardened host deployment, install `deploy/cybercheck.service` as a systemd unit. It runs the application under the dedicated `cybercheck` account with no Linux capabilities and a read-only filesystem except for the explicitly required runtime state directories.
+
+For remote hosting deployment, see `docs/deployment-center.md`. The Deployment Center currently validates/stores targets, performs a strict SSH capability probe and generates an atomic release/rollback plan. PlanetHoster activation remains fail-closed until the Passenger/WSGI adapter is available.
 
 ## Secrets and private state
 
