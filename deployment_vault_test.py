@@ -63,6 +63,21 @@ class DeploymentVaultTest(unittest.TestCase):
         self.assertNotIn("passwordValue", rows[0])
         self.assertNotIn("secret", str(rows[0]))
 
+    def test_generated_admin_password_is_stable_and_encrypted(self):
+        self.vault.store("production", self.password_target, password="ssh-secret")
+        first = self.vault.ensure_admin_password("production")
+        second = self.vault.ensure_admin_password("production")
+        self.assertEqual(first, second)
+        self.assertGreaterEqual(len(first), 32)
+        self.assertEqual(self.vault.admin_password("production"), first)
+        raw = self.vault.data_path.read_bytes()
+        self.assertNotIn(first.encode(), raw)
+        self.assertNotIn(b"adminPassword", raw)
+
+    def test_admin_password_requires_existing_target(self):
+        with self.assertRaises(KeyError):
+            self.vault.ensure_admin_password("missing")
+
     def test_delete_removes_target(self):
         self.vault.store("production", self.password_target, password="secret")
         self.assertTrue(self.vault.delete("production"))
