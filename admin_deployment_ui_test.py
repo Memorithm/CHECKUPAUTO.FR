@@ -26,6 +26,11 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertIn("source_unavailable", script)
         self.assertIn("deploymentUpdateState", script)
         self.assertIn("deploymentRollbackCandidates", script)
+        self.assertIn("/api/admin/deployment/source", script)
+        self.assertIn("/api/admin/deployment/source/test", script)
+        self.assertIn("deploymentGitHubToken", script)
+        self.assertIn("github_remote", script)
+        self.assertNotIn("source.token", script)
         self.assertNotIn("credential.password", script)
         self.assertNotIn("target.password", script)
 
@@ -51,6 +56,8 @@ class AdminDeploymentUITest(unittest.TestCase):
             "/api/admin/deployment/hostkey/scan",
             "/api/admin/deployment/hostkey/trust",
             "/api/admin/deployment/probe",
+            "/api/admin/deployment/source",
+            "/api/admin/deployment/source/test",
             "/api/admin/deployment/plan",
             "/api/admin/deployment/update-status",
             "/api/admin/deployment/job",
@@ -67,6 +74,18 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertIn('id="deploymentUpdateState"', html)
         self.assertIn('id="deploymentCheckUpdate"', html)
         self.assertIn('id="deploymentRollbackCandidates"', html)
+
+    def test_update_source_ui_is_write_only(self):
+        html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
+        self.assertIn('id="deploymentGitHubRepository"', html)
+        self.assertIn('id="deploymentGitHubBranch"', html)
+        self.assertIn('id="deploymentGitHubToken" type="password"', html)
+        self.assertIn('id="deploymentGitHubTest"', html)
+        self.assertIn('id="deploymentGitHubDelete"', html)
+        self.assertIn("deploymentGitHubToken').value = ''", script)
+        self.assertNotIn("remote.token", script)
+        self.assertNotIn("source.token", script)
 
     def test_packaged_source_ui_disables_install_and_update(self):
         script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
