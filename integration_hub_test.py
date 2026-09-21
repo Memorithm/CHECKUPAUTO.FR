@@ -32,6 +32,7 @@ class IntegrationHubTest(unittest.TestCase):
                 "client_secret": "super-secret",
                 "project_id": "cybercheck-test",
                 "token_uri": hub.TOKEN_URL,
+                "redirect_uris": ["https://www.checkupauto.fr/api/integrations/google/oauth/callback"],
             }
         })
 
