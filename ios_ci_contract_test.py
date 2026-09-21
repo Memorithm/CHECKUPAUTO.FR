@@ -31,6 +31,13 @@ class IOSCIContractTest(unittest.TestCase):
         self.assertIn('rm -f "$key"', text)
         self.assertIn("rm -f .ios-mac-key .ios-remote-dir", text)
 
+    def test_xcode_ci_reuses_release_runner_simulator_discovery(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("tar -czf - ios/CheckupAutoReminder ios_release_runner.py", text)
+        self.assertIn("r.discover_simulator()", text)
+        self.assertIn('-destination \\"\\$destination\\"', text)
+        self.assertNotIn("platform=iOS Simulator,name=iPhone", text)
+
 
 if __name__ == "__main__":
     unittest.main()
