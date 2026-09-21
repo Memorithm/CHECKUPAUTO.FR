@@ -191,19 +191,27 @@ def is_suppressed(
     db_path: Path | str | None = None,
 ) -> bool:
     requested = str(purpose or "").strip()
-    if requested not in PURPOSES - {"all_processing"}:
+    if requested not in PURPOSES:
         raise ValueError("finalité invalide")
     subject_kind, normalized = normalize(kind, value)
     digest = identity_hash(subject_kind, normalized)
     init_db(db_path)
     with compliance_store.connect(db_path) as db:
-        row = db.execute(
-            """SELECT 1 FROM privacy_suppressions
-               WHERE subject_kind=? AND subject_hash=? AND active=1
-                 AND purpose IN (?, 'all_processing')
-               LIMIT 1""",
-            (subject_kind, digest, requested),
-        ).fetchone()
+        if requested == "all_processing":
+            row = db.execute(
+                """SELECT 1 FROM privacy_suppressions
+                   WHERE subject_kind=? AND subject_hash=? AND active=1
+                     AND purpose='all_processing' LIMIT 1""",
+                (subject_kind, digest),
+            ).fetchone()
+        else:
+            row = db.execute(
+                """SELECT 1 FROM privacy_suppressions
+                   WHERE subject_kind=? AND subject_hash=? AND active=1
+                     AND purpose IN (?, 'all_processing')
+                   LIMIT 1""",
+                (subject_kind, digest, requested),
+            ).fetchone()
     return bool(row)
 
 
