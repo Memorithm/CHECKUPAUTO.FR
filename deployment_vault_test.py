@@ -58,7 +58,9 @@ class DeploymentVaultTest(unittest.TestCase):
         rows = self.vault.summaries()
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]["credentialStored"])
-        self.assertNotIn("password", str(rows[0]).lower())
+        self.assertEqual(rows[0]["authMode"], "password")
+        self.assertNotIn("credential", rows[0])
+        self.assertNotIn("passwordValue", rows[0])
         self.assertNotIn("secret", str(rows[0]))
 
     def test_delete_removes_target(self):
