@@ -74,6 +74,29 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertNotIn("sudo ", script)
 
 
+    def test_activation_requires_exact_public_target_instance(self):
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password="local-admin-secret-value",
+        )
+        self.assertIn("checkupauto-deployment-probe-", script)
+        self.assertIn("secrets.token_hex(16)", script)
+        self.assertIn("secrets.token_urlsafe(32)", script)
+        self.assertIn("secrets.compare_digest(observed, probe_value)", script)
+        self.assertIn("deployment target probe mismatch", script)
+        self.assertIn("atomic_write(probe_path", script)
+        self.assertIn("0o644", script)
+        self.assertIn("probe_path.unlink()", script)
+
+        probe_create = script.index("atomic_write(probe_path")
+        switch_current = script.index("switch_current(release)")
+        public_probe = script.index("probe_http(probe_name, probe_value)")
+        cleanup = script.index("probe_path.unlink()")
+        self.assertLess(probe_create, switch_current)
+        self.assertLess(switch_current, public_probe)
+        self.assertLess(public_probe, cleanup)
+
     def test_initial_admin_secret_is_not_embedded_in_plain_text(self):
         secret = "local-admin-secret-value"
         script = activation.remote_activation_script(
