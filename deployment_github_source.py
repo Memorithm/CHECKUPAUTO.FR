@@ -173,9 +173,14 @@ def configure_source(
     *,
     token: str = "",
 ) -> dict:
-    saved = save_config(repository, branch)
-    if token:
-        save_token(token)
+    repo = _repository(repository)
+    ref = _branch(branch)
+    raw_token = str(token or "").strip()
+    if raw_token and not _TOKEN_RE.fullmatch(raw_token):
+        raise ValueError("token GitHub invalide")
+    saved = save_config(repo, ref)
+    if raw_token:
+        save_token(raw_token)
     return {
         **saved,
         "tokenConfigured": token_configured(),
