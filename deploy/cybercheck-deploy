@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH GIT_TERMINAL_PROMPT=0
 
 readonly ROOT="/root/CyberCheckLive"
 readonly BACKUP_ROOT="/root/CyberCheckBackups"
 readonly SERVICE="cybercheck.service"
 readonly HEALTH_URL="http://127.0.0.1:8765/"
 readonly LOCK_FILE="/run/cybercheck-deploy.lock"
+readonly INSTALLED_HELPER="/usr/local/sbin/cybercheck-deploy"
 
 log() {
   printf '[cybercheck-deploy] %s\n' "$*"
@@ -29,42 +32,45 @@ on_error() {
 trap on_error ERR
 
 [[ "${EUID}" -eq 0 ]] || fail 1 "root privileges are required"
-[[ "$#" -eq 1 ]] || fail 2 "usage: cybercheck-deploy <40-hex-commit-sha>"
+readonly SELF="$(readlink -f "$0")"
+[[ "$SELF" == "$INSTALLED_HELPER" ]] || fail 2 "deployment helper must run from its root-owned installed path"
+[[ "$(stat -c '%U:%G:%a' "$SELF")" == "root:root:755" ]] || fail 3 "installed deployment helper ownership or mode is invalid"
+[[ "$#" -eq 1 ]] || fail 4 "usage: cybercheck-deploy <40-hex-commit-sha>"
 readonly EXPECTED="$1"
-[[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || fail 3 "commit SHA must be exactly 40 lowercase hexadecimal characters"
+[[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || fail 5 "commit SHA must be exactly 40 lowercase hexadecimal characters"
 
 exec 9>"$LOCK_FILE"
-flock -n 9 || fail 4 "another deployment is already running"
+flock -n 9 || fail 6 "another deployment is already running"
 
-[[ -d "$ROOT/.git" ]] || fail 5 "production repository is missing"
-[[ "$(stat -c '%U' "$ROOT")" == "root" ]] || fail 6 "production repository must be root-owned"
-[[ "$(stat -c '%U' "$ROOT/.git")" == "root" ]] || fail 7 "production .git directory must be root-owned"
+[[ -d "$ROOT/.git" ]] || fail 7 "production repository is missing"
+[[ "$(stat -c '%U' "$ROOT")" == "root" ]] || fail 8 "production repository must be root-owned"
+[[ "$(stat -c '%U' "$ROOT/.git")" == "root" ]] || fail 9 "production .git directory must be root-owned"
 
 cd "$ROOT"
-[[ "$(git branch --show-current)" == "main" ]] || fail 8 "production repository must be on main"
-[[ -z "$(git status --porcelain=v1)" ]] || fail 9 "production working tree is not clean"
+[[ "$(git branch --show-current)" == "main" ]] || fail 10 "production repository must be on main"
+[[ -z "$(git status --porcelain=v1)" ]] || fail 11 "production working tree is not clean"
 
 readonly ORIGIN_URL="$(git remote get-url origin)"
 case "$ORIGIN_URL" in
   https://github.com/Memorithm/CHECKUPAUTO.FR|https://github.com/Memorithm/CHECKUPAUTO.FR.git|git@github.com:Memorithm/CHECKUPAUTO.FR.git|ssh://git@github.com/Memorithm/CHECKUPAUTO.FR.git)
     ;;
-  *) fail 10 "origin does not point to the approved Memorithm/CHECKUPAUTO.FR repository" ;;
+  *) fail 12 "origin does not point to the approved Memorithm/CHECKUPAUTO.FR repository" ;;
 esac
 
 git fetch --quiet --no-tags origin refs/heads/main:refs/remotes/origin/main
 readonly REMOTE_HEAD="$(git rev-parse refs/remotes/origin/main)"
-[[ "$REMOTE_HEAD" == "$EXPECTED" ]] || fail 11 "requested SHA is not the current origin/main"
-git cat-file -e "${EXPECTED}^{commit}" || fail 12 "requested object is not a commit"
+[[ "$REMOTE_HEAD" == "$EXPECTED" ]] || fail 13 "requested SHA is not the current origin/main"
+git cat-file -e "${EXPECTED}^{commit}" || fail 14 "requested object is not a commit"
 
 readonly CURRENT="$(git rev-parse HEAD)"
 if [[ "$CURRENT" == "$EXPECTED" ]]; then
-  systemctl is-active --quiet "$SERVICE" || fail 13 "service is not active at the requested SHA"
-  curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null || fail 14 "health probe failed at the requested SHA"
+  systemctl is-active --quiet "$SERVICE" || fail 15 "service is not active at the requested SHA"
+  curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null || fail 16 "health probe failed at the requested SHA"
   log "already deployed sha=$EXPECTED"
   exit 0
 fi
 
-git merge-base --is-ancestor "$CURRENT" "$EXPECTED" || fail 15 "requested deployment is not a fast-forward from production HEAD"
+git merge-base --is-ancestor "$CURRENT" "$EXPECTED" || fail 17 "requested deployment is not a fast-forward from production HEAD"
 
 readonly STAMP="$(date -u +'%Y%m%dT%H%M%SZ')"
 readonly BACKUP_DIR="$BACKUP_ROOT/${STAMP}-${CURRENT}"
@@ -149,8 +155,8 @@ PY
 log "backup complete path=$BACKUP_DIR source=$CURRENT"
 
 git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"
-[[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || fail 16 "HEAD mismatch after fast-forward"
-[[ -z "$(git status --porcelain=v1)" ]] || fail 17 "working tree changed during deployment"
+[[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || fail 18 "HEAD mismatch after fast-forward"
+[[ -z "$(git status --porcelain=v1)" ]] || fail 19 "working tree changed during deployment"
 
 systemctl stop "$SERVICE"
 /usr/bin/python3 - <<'PY'
@@ -218,7 +224,7 @@ print(f"Integrity baseline approved for {os.environ['EXPECTED']} ({len(files)} p
 PY
 
 systemctl start "$SERVICE"
-systemctl is-active --quiet "$SERVICE" || fail 18 "service did not become active"
+systemctl is-active --quiet "$SERVICE" || fail 20 "service did not become active"
 
 healthy=0
 for _ in $(seq 1 30); do
@@ -228,7 +234,10 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
-[[ "$healthy" -eq 1 ]] || fail 19 "HTTP health probe failed after deployment"
+if [[ "$healthy" -ne 1 ]]; then
+  systemctl stop "$SERVICE" || true
+  fail 21 "HTTP health probe failed after deployment; service stopped fail-closed"
+fi
 
 log "SUCCESS from=$CURRENT to=$EXPECTED backup=$BACKUP_DIR"
 printf 'DEPLOY_OK=%s\nBACKUP_DIR=%s\n' "$EXPECTED" "$BACKUP_DIR"
