@@ -127,10 +127,6 @@ def status() -> dict:
         "source": {
             "mode": source.mode,
             "sha": source.sha,
-            "desiredSha": (
-                deployment_source.desired_sha(ROOT)
-                if source.build_capable else source.sha
-            ),
             "buildCapable": source.build_capable,
             "reason": source.reason,
             "remote": github_source.public_status(),
