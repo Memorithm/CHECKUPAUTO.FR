@@ -11,7 +11,10 @@ import analytics_store
 import booking_bridge
 import compliance_store
 import mobile_devices
+import notification_broker
 import privacy_suppression
+import reminder_dispatch
+import review_followup
 import site_config_store
 
 
@@ -83,6 +86,7 @@ CONFIGURABLE_RULES = {
         "store": "booking_conversions",
         "trigger": "updated_at",
         "minimumDays": 1,
+        "legalReviewRequired": True,
     },
     "checkout_acceptance_transient": {
         "label": "Liaison technique acceptation→Mercure",
@@ -372,6 +376,216 @@ def _purge_inactive_suppressions(*, dry_run: bool, db_path: Path | str | None = 
     return count
 
 
+def _purge_notification_delivery(days: int, *, dry_run: bool) -> int:
+    notification_broker.init_db()
+    cutoff = _cutoff(days)
+    with notification_broker.connect() as db:
+        count = int(db.execute(
+            """SELECT COUNT(*) n FROM notification_delivery
+               WHERE COALESCE(NULLIF(sent_at,''),created_at)<?""",
+            (cutoff,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute(
+                """DELETE FROM notification_delivery
+                   WHERE COALESCE(NULLIF(sent_at,''),created_at)<?""",
+                (cutoff,),
+            )
+    return count
+
+
+def _purge_review_followup(days: int, *, dry_run: bool) -> int:
+    review_followup.init_db()
+    cutoff = _cutoff(days)
+    with review_followup.connect() as db:
+        count = int(db.execute(
+            """SELECT COUNT(*) n FROM review_followup
+               WHERE COALESCE(NULLIF(sent_at,''),NULLIF(last_attempt_at,''),first_seen_at)<?""",
+            (cutoff,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute(
+                """DELETE FROM review_followup
+                   WHERE COALESCE(NULLIF(sent_at,''),NULLIF(last_attempt_at,''),first_seen_at)<?""",
+                (cutoff,),
+            )
+    return count
+
+
+def _purge_reminder_targets(days: int, *, dry_run: bool) -> int:
+    reminder_dispatch.init_db()
+    cutoff_date = (_now().date() - datetime.timedelta(days=int(days))).isoformat()
+    with reminder_dispatch.connect() as db:
+        count = int(db.execute(
+            "SELECT COUNT(*) n FROM reminder_target WHERE due_date<?",
+            (cutoff_date,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute("DELETE FROM reminder_target WHERE due_date<?", (cutoff_date,))
+    return count
+
+
+def _purge_inactive_mobile(days: int, *, dry_run: bool) -> int:
+    mobile_devices.init_db()
+    cutoff = _cutoff(days)
+    with mobile_devices.connect() as db:
+        rows = [
+            str(row["installation_id"])
+            for row in db.execute(
+                """SELECT installation_id FROM mobile_device
+                   WHERE disabled_at<>'' AND disabled_at<?""",
+                (cutoff,),
+            )
+        ]
+        if dry_run:
+            return len(rows)
+        removed = 0
+        for installation in rows:
+            db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation,))
+            db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (installation,))
+            removed += int(db.execute(
+                "DELETE FROM mobile_device WHERE installation_id=?",
+                (installation,),
+            ).rowcount or 0)
+    return removed
+
+
+def _purge_booking_conversions(days: int, *, dry_run: bool) -> int:
+    booking_bridge.init_db()
+    cutoff = _cutoff(days)
+    with analytics_store.connect() as db:
+        count = int(db.execute(
+            "SELECT COUNT(*) n FROM booking_conversions WHERE updated_at<?",
+            (cutoff,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute("DELETE FROM booking_conversions WHERE updated_at<?", (cutoff,))
+    return count
+
+
+def _purge_checkout_acceptance_transient(
+    days: int,
+    *,
+    dry_run: bool,
+    db_path: Path | str | None = None,
+) -> int:
+    cutoff = _cutoff(days)
+    compliance_store.init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        count = int(db.execute(
+            """SELECT COUNT(*) n FROM checkout_acceptance_intents i
+               WHERE i.finalized_at<>'' AND i.finalized_at<?
+                 AND EXISTS(
+                   SELECT 1 FROM consent_receipts r
+                   WHERE r.contract_ref=i.finalized_contract_ref
+                     AND r.document_type='terms'
+                     AND r.document_version=i.terms_version
+                     AND r.content_hash=i.terms_content_hash
+                 )""",
+            (cutoff,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute(
+                """DELETE FROM checkout_acceptance_intents
+                   WHERE finalized_at<>'' AND finalized_at<?
+                     AND EXISTS(
+                       SELECT 1 FROM consent_receipts r
+                       WHERE r.contract_ref=checkout_acceptance_intents.finalized_contract_ref
+                         AND r.document_type='terms'
+                         AND r.document_version=checkout_acceptance_intents.terms_version
+                         AND r.content_hash=checkout_acceptance_intents.terms_content_hash
+                     )""",
+                (cutoff,),
+            )
+    return count
+
+
+def _purge_consent_receipts(days: int, *, dry_run: bool, db_path: Path | str | None = None) -> int:
+    cutoff = _cutoff(days)
+    compliance_store.init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        count = int(db.execute(
+            "SELECT COUNT(*) n FROM consent_receipts WHERE accepted_at<?",
+            (cutoff,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute("DELETE FROM consent_receipts WHERE accepted_at<?", (cutoff,))
+    return count
+
+
+def _purge_withdrawal_evidence(days: int, *, dry_run: bool, db_path: Path | str | None = None) -> int:
+    cutoff = _cutoff(days)
+    compliance_store.init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        try:
+            count = int(db.execute(
+                "SELECT COUNT(*) n FROM withdrawal_requests WHERE submitted_at<?",
+                (cutoff,),
+            ).fetchone()["n"])
+            if not dry_run:
+                db.execute("DELETE FROM withdrawal_requests WHERE submitted_at<?", (cutoff,))
+            return count
+        except sqlite3.OperationalError:
+            return 0
+
+
+def _purge_rights_evidence(days: int, *, dry_run: bool, db_path: Path | str | None = None) -> int:
+    cutoff = _cutoff(days)
+    compliance_store.init_db(db_path)
+    removed = 0
+    with compliance_store.connect(db_path) as db:
+        closed_ids = [
+            str(row["request_id"])
+            for row in db.execute(
+                """SELECT request_id FROM rights_requests
+                   WHERE status IN ('closed','rejected') AND closed_at<>'' AND closed_at<?""",
+                (cutoff,),
+            )
+        ]
+        if dry_run:
+            return len(closed_ids)
+        for request_id in closed_ids:
+            for table in ("rights_execution_audit", "rights_subject_binding"):
+                try:
+                    db.execute(f"DELETE FROM {table} WHERE request_id=?", (request_id,))
+                except sqlite3.OperationalError:
+                    pass
+            removed += int(db.execute(
+                "DELETE FROM rights_requests WHERE request_id=?",
+                (request_id,),
+            ).rowcount or 0)
+    return removed
+
+
+def _run_configurable_rule(
+    state: dict,
+    *,
+    dry_run: bool,
+    db_path: Path | str | None,
+) -> int:
+    rule_id = str(state["id"])
+    days = int(state["activeDays"])
+    if rule_id == "notification_delivery":
+        return _purge_notification_delivery(days, dry_run=dry_run)
+    if rule_id == "review_followup":
+        return _purge_review_followup(days, dry_run=dry_run)
+    if rule_id == "reminder_targets":
+        return _purge_reminder_targets(days, dry_run=dry_run)
+    if rule_id == "mobile_inactive_installations":
+        return _purge_inactive_mobile(days, dry_run=dry_run)
+    if rule_id == "booking_conversions":
+        return _purge_booking_conversions(days, dry_run=dry_run)
+    if rule_id == "checkout_acceptance_transient":
+        return _purge_checkout_acceptance_transient(days, dry_run=dry_run, db_path=db_path)
+    if rule_id == "contract_consent_receipts":
+        return _purge_consent_receipts(days, dry_run=dry_run, db_path=db_path)
+    if rule_id == "withdrawal_evidence":
+        return _purge_withdrawal_evidence(days, dry_run=dry_run, db_path=db_path)
+    if rule_id == "rights_requests_and_audit":
+        return _purge_rights_evidence(days, dry_run=dry_run, db_path=db_path)
+    raise NotImplementedError(rule_id)
+
+
 def run_once(
     *,
     dry_run: bool = False,
@@ -407,6 +621,42 @@ def run_once(
             run_id, rule_id, mode, removed, cutoff_at, db_path=db_path
         )
         rows.append({"ruleId": rule_id, "state": "ready", "removedCount": removed, "audit": audit})
+
+    for rule_id in CONFIGURABLE_RULES:
+        state = policy(rule_id, db_path)
+        if not state.get("ready"):
+            rows.append({
+                "ruleId": rule_id,
+                "state": "blocked",
+                "removedCount": 0,
+                "reason": state.get("blocker") or "not_ready",
+            })
+            continue
+        cutoff_at = _cutoff(int(state["activeDays"]))
+        try:
+            removed = _run_configurable_rule(state, dry_run=dry_run, db_path=db_path)
+        except NotImplementedError:
+            rows.append({
+                "ruleId": rule_id,
+                "state": "blocked",
+                "removedCount": 0,
+                "reason": "purger_implementation_required",
+            })
+            continue
+        audit = _record_audit(
+            run_id,
+            rule_id,
+            "dry_run" if dry_run else "purge",
+            removed,
+            cutoff_at,
+            db_path=db_path,
+        )
+        rows.append({
+            "ruleId": rule_id,
+            "state": "ready",
+            "removedCount": removed,
+            "audit": audit,
+        })
 
     return {
         "ok": all(row["state"] == "ready" for row in rows),
