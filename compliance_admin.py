@@ -45,6 +45,10 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["withdrawalFunctionBound"] = bool(withdrawal.get("bound"))
     summary["withdrawalPendingReceipts"] = int(withdrawal.get("pendingReceipts") or 0)
     summary["withdrawalManualMatchRequired"] = int(withdrawal.get("manualMatchRequired") or 0)
+    # Phase-2 fail-closed controls. These become true only when the executable
+    # cross-store rights and retention engines are implemented and evidenced.
+    summary["dataSubjectExecutionBound"] = False
+    summary["retentionEnforcementBound"] = False
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
 
@@ -56,6 +60,8 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         and int(summary.get("publishedDocuments") or 0) == int(summary.get("requiredDocuments") or 0)
         and bool(summary.get("checkoutAcceptanceBound"))
         and bool(summary.get("withdrawalFunctionBound"))
+        and bool(summary.get("dataSubjectExecutionBound"))
+        and bool(summary.get("retentionEnforcementBound"))
         and int(summary.get("overdueRightsRequests") or 0) == 0
         and int(summary.get("overdueIncidentNotifications") or 0) == 0
     )
