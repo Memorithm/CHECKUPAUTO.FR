@@ -82,6 +82,25 @@ class PassengerWSGITest(unittest.TestCase):
                 "wsgi.input": io.BytesIO(b""),
             })
 
+    def test_truncated_body_is_rejected_before_loopback_request(self):
+        with self.assertRaisesRegex(ValueError, "incomplet"):
+            wsgi._request_body({
+                "CONTENT_LENGTH": "5",
+                "wsgi.input": io.BytesIO(b"abc"),
+            })
+
+    def test_positive_body_length_requires_wsgi_input(self):
+        with self.assertRaisesRegex(ValueError, "flux WSGI absent"):
+            wsgi._request_body({"CONTENT_LENGTH": "1"})
+
+    def test_client_content_length_is_not_forwarded_verbatim(self):
+        headers = wsgi._request_headers({
+            "HTTP_CONTENT_LENGTH": "999999",
+            "CONTENT_LENGTH": "3",
+            "HTTP_HOST": "www.checkupauto.fr",
+        })
+        self.assertNotIn("Content-Length", headers)
+
     @mock.patch("passenger_wsgi._ensure_backend", return_value=("127.0.0.1", 12345))
     @mock.patch("passenger_wsgi.http.client.HTTPConnection", FakeConnection)
     def test_application_proxies_request_and_filters_response_headers(self, _backend):
