@@ -1,0 +1,135 @@
+name: Apply admin boundary hardening
+
+on:
+  push:
+    branches:
+      - automation/admin-boundary-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bound administration error diagnostics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('admin_server.py')
+          source = path.read_text()
+          lines = source.splitlines()
+
+          generic_codes = {
+              "if path=='/api/admin/readiness':": 'readiness_unavailable',
+              "if path=='/api/admin/referrals/accounts':": 'referral_admin_unavailable',
+              "if path=='/api/admin/referrals/summary':": 'referral_summary_unavailable',
+              "if path=='/api/admin/reminders/status':": 'reminder_status_unavailable',
+              "if path=='/api/admin/reminders/plan':": 'reminder_plan_invalid',
+              "if path=='/api/admin/mobile/devices/status':": 'mobile_status_unavailable',
+              "if path=='/api/admin/mobile/claims/candidates':": 'mobile_claim_candidates_unavailable',
+              "if path=='/api/admin/notifications/status':": 'notification_status_unavailable',
+              "if path=='/api/admin/analytics':": 'analytics_summary_unavailable',
+              "if path=='/api/admin/reviews/status':": 'review_status_unavailable',
+              "if path=='/api/admin/competitive/summary':": 'competitive_summary_unavailable',
+              "if path=='/api/admin/competitive/connectors':": 'competitive_connectors_unavailable',
+              "if path=='/api/admin/security/status':": 'security_status_unavailable',
+              "if path=='/api/admin/security/ai':": 'security_ai_unavailable',
+              "if path=='/api/admin/security/posture':": 'security_posture_unavailable',
+              "if path=='/api/admin/security/alerts':": 'security_alerts_unavailable',
+              "if path=='/api/admin/security/sbom':": 'security_sbom_unavailable',
+              "if path.startswith('/api/admin/mercure/'):": 'mercure_admin_request_failed',
+              "if path=='/api/admin/mobile/claims/issue':": 'mobile_claim_request_invalid',
+              "if path=='/api/admin/referrals/account':": 'referral_request_invalid',
+              "if path=='/api/admin/referrals/redeem':": 'referral_request_invalid',
+              "if path=='/api/admin/mercure/login':": 'mercure_login_failed',
+              "if path=='/api/admin/booking-test/session':": 'booking_test_session_failed',
+              "if path=='/api/admin/notifications/preflight':": 'notification_preflight_failed',
+              "if path=='/api/admin/notifications/permanent/recipient-check':": 'recipient_check_unavailable',
+              "if path=='/api/admin/notifications/permanent/retry':": 'recipient_retry_unavailable',
+              "if path=='/api/admin/notifications/permanent/action':": 'permanent_failure_action_unavailable',
+              "if path=='/api/admin/reminders/process':": 'reminder_process_failed',
+              "if path=='/api/admin/reviews/process':": 'review_process_failed',
+              "if path=='/api/admin/competitive/observation':": 'competitive_request_invalid',
+              "if path=='/api/admin/competitive/review':": 'competitive_request_invalid',
+              "if path=='/api/admin/security/alerts/ack':": 'security_alert_request_invalid',
+              "if path=='/api/admin/security/vulnerability-refresh':": 'security_vulnerability_refresh_failed',
+              "if path=='/api/admin/security/assess':": 'security_assessment_failed',
+              "if path=='/api/admin/mercure/promo-slot':": 'mercure_promotion_invalid',
+              "if path=='/api/admin/mercure/rotate-secret':": 'mercure_secret_rotation_failed',
+              "if path!='/api/admin/config': return self.send_json({'error':'not_found'},404)": 'config_update_invalid',
+          }
+          exception_codes = {
+              ("if path=='/api/admin/mobile/claims/issue':", 'LookupError'): 'mobile_claim_not_found',
+              ("if path=='/api/admin/mobile/claims/issue':", 'RuntimeError'): 'mobile_claim_conflict',
+              ("if path=='/api/admin/mercure/login':", 'PermissionError'): 'mercure_auth_failed',
+              ("if path=='/api/admin/notifications/permanent/recipient-check':", 'LookupError'): 'permanent_failure_not_found',
+              ("if path=='/api/admin/notifications/permanent/recipient-check':", 'ValueError'): 'recipient_check_invalid',
+              ("if path=='/api/admin/notifications/permanent/retry':", 'LookupError'): 'permanent_failure_not_found',
+              ("if path=='/api/admin/notifications/permanent/retry':", 'ValueError'): 'recipient_retry_invalid',
+              ("if path=='/api/admin/notifications/permanent/action':", 'ValueError'): 'permanent_failure_action_invalid',
+          }
+
+          current = None
+          changed = 0
+          output = []
+          for line in lines:
+              if line.startswith('  if ') and 'path' in line:
+                  current = line.strip()
+              if current in generic_codes and 'except ' in line and 'return self.send_json' in line:
+                  match = re.search(r'except\s+([A-Za-z_][A-Za-z0-9_]*)', line)
+                  kind = match.group(1) if match else 'Exception'
+                  code = exception_codes.get((current, kind), generic_codes[current])
+                  updated = line.replace("'error':str(exc)", f"'error':'{code}'")
+                  updated = updated.replace("'error':type(exc).__name__", f"'error':'{code}'")
+                  if updated != line:
+                      line = updated
+                      changed += 1
+              output.append(line)
+
+          expected_minimum = 37
+          if changed < expected_minimum:
+              raise SystemExit(f'expected at least {expected_minimum} bounded admin error replacements, got {changed}')
+          source = '\n'.join(output) + '\n'
+          path.write_text(source)
+
+          test = Path('admin_error_boundary_test.py')
+          test.write_text('''from pathlib import Path\nimport unittest\n\n\nclass AdminErrorBoundaryTest(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n        cls.source = Path("admin_server.py").read_text()\n\n    def _block(self, start, end, offset=0):\n        begin = self.source.find(start, offset)\n        self.assertGreaterEqual(begin, 0, start)\n        finish = self.source.find(end, begin)\n        self.assertGreaterEqual(finish, 0, end)\n        return self.source[begin:finish]\n\n    def _assert_no_exception_text(self, block):\n        self.assertNotIn("'error':str(exc)", block)\n        self.assertNotIn("'error':type(exc).__name__", block)\n\n    def test_admin_get_boundaries_use_stable_codes(self):\n        core = self._block(\n            "  if path=='/api/admin/readiness':",\n            "  if path=='/api/booking-test/status':",\n        )\n        mercure = self._block(\n            "  if path.startswith('/api/admin/mercure/'):",\n            "  if path.startswith('/api/admin/google/'):",\n            self.source.find(' def do_GET(self):'),\n        )\n        self._assert_no_exception_text(core)\n        self._assert_no_exception_text(mercure)\n        for code in (\n            'readiness_unavailable',\n            'referral_admin_unavailable',\n            'notification_status_unavailable',\n            'security_status_unavailable',\n            'mercure_admin_request_failed',\n        ):\n            self.assertIn(code, core + mercure)\n\n    def test_admin_post_boundaries_use_stable_codes(self):\n        post = self.source.find(' def do_POST(self):')\n        self.assertGreaterEqual(post, 0)\n        core = self._block(\n            "  if path=='/api/admin/mobile/claims/issue':",\n            "  if path.startswith('/api/admin/google/'):",\n            post,\n        )\n        config = self._block(\n            "  if path!='/api/admin/config':",\n            " def do_DELETE(self):",\n            post,\n        )\n        self._assert_no_exception_text(core)\n        self._assert_no_exception_text(config)\n        for code in (\n            'mobile_claim_not_found',\n            'referral_request_invalid',\n            'notification_preflight_failed',\n            'recipient_retry_unavailable',\n            'security_vulnerability_refresh_failed',\n            'mercure_secret_rotation_failed',\n            'config_update_invalid',\n        ):\n            self.assertIn(code, core + config)\n\n    def test_admin_delete_boundary_uses_stable_code(self):\n        delete = self.source.find(' def do_DELETE(self):')\n        self.assertGreaterEqual(delete, 0)\n        block = self._block(\n            "  if path=='/api/admin/mercure/promo-slot':",\n            "  return self.send_json({'error':'not_found'},404)",\n            delete,\n        )\n        self._assert_no_exception_text(block)\n        self.assertIn('mercure_promotion_delete_failed', block)\n\n    def test_admin_boundary_does_not_embed_synthetic_sensitive_marker(self):\n        marker = 'sensitive-user@example.invalid:synthetic-token-marker'\n        self.assertNotIn(marker, self.source)\n        self.assertNotIn(marker, 'admin_request_failed')\n\n\nif __name__ == '__main__':\n    unittest.main()\n''')
+
+          # DELETE has a separate top-level endpoint with the same path as POST.
+          source = path.read_text()
+          delete_start = source.find(' def do_DELETE(self):')
+          if delete_start < 0:
+              raise SystemExit('do_DELETE not found')
+          before = source[:delete_start]
+          delete = source[delete_start:]
+          old = "except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)"
+          new = "except Exception as exc: return self.send_json({'ok':False,'error':'mercure_promotion_delete_failed'},400)"
+          endpoint = "if path=='/api/admin/mercure/promo-slot':"
+          endpoint_at = delete.find(endpoint)
+          old_at = delete.find(old, endpoint_at)
+          if endpoint_at < 0 or old_at < 0:
+              raise SystemExit('DELETE Mercure promotion exception boundary not found')
+          delete = delete[:old_at] + delete[old_at:].replace(old, new, 1)
+          path.write_text(before + delete)
+
+          Path('.github/workflows/admin-boundary-hardening.yml').unlink()
+          PY
+      - name: Validate targeted patch
+        run: |
+          python -m unittest admin_error_boundary_test.py
+          python -m py_compile admin_server.py
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A admin_server.py admin_error_boundary_test.py .github/workflows/admin-boundary-hardening.yml
+          git commit -m 'fix: bound admin exception diagnostics'
+          git push origin HEAD:${GITHUB_REF_NAME}
