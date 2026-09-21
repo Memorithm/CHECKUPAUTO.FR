@@ -400,49 +400,44 @@ def _purge_inactive_suppressions(*, dry_run: bool, db_path: Path | str | None = 
 
 
 def _purge_security_telemetry(days: int, *, dry_run: bool) -> int:
-    # Sentinel currently initializes persistent state at module import, so keep
-    # this dependency lazy to preserve import-side-effect isolation elsewhere.
-    import security_alerts
-    import security_behavior
-    import security_guard
-
-    security_guard.init_db()
-    security_behavior.init_db()
-    security_alerts.init_db()
+    # Do not import Sentinel runtime here: security_guard initializes persistent
+    # state at import time. Retention operates directly on its already-owned DB.
+    db_path = Path(
+        os.environ.get("CYBERCHECK_SECURITY_DIR", "/root/CyberCheckSecurity")
+    ) / "security.sqlite3"
+    if not db_path.is_file():
+        return 0
     cutoff = _cutoff(days)
     cutoff_day = (
         _now().date() - datetime.timedelta(days=int(days))
     ).isoformat()
-    db_path = security_guard.DB
+    specs = (
+        ("security_events", "occurred_at<?", (cutoff,)),
+        ("security_client_state", "day<?", (cutoff_day,)),
+        ("behavior_profiles", "day<?", (cutoff_day,)),
+        ("security_alerts", "acknowledged=1 AND created_at<?", (cutoff,)),
+    )
+    removed = 0
     with sqlite3.connect(db_path, timeout=10) as db:
-        counts = [
-            int(db.execute(
-                "SELECT COUNT(*) FROM security_events WHERE occurred_at<?",
-                (cutoff,),
-            ).fetchone()[0]),
-            int(db.execute(
-                "SELECT COUNT(*) FROM security_client_state WHERE day<?",
-                (cutoff_day,),
-            ).fetchone()[0]),
-            int(db.execute(
-                "SELECT COUNT(*) FROM behavior_profiles WHERE day<?",
-                (cutoff_day,),
-            ).fetchone()[0]),
-            int(db.execute(
-                """SELECT COUNT(*) FROM security_alerts
-                   WHERE acknowledged=1 AND created_at<?""",
-                (cutoff,),
-            ).fetchone()[0]),
-        ]
-        if not dry_run:
-            db.execute("DELETE FROM security_events WHERE occurred_at<?", (cutoff,))
-            db.execute("DELETE FROM security_client_state WHERE day<?", (cutoff_day,))
-            db.execute("DELETE FROM behavior_profiles WHERE day<?", (cutoff_day,))
-            db.execute(
-                "DELETE FROM security_alerts WHERE acknowledged=1 AND created_at<?",
-                (cutoff,),
+        existing = {
+            str(row[0])
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
             )
-    return sum(counts)
+        }
+        for table, predicate, args in specs:
+            if table not in existing:
+                continue
+            count = int(
+                db.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {predicate}",
+                    args,
+                ).fetchone()[0]
+            )
+            removed += count
+            if not dry_run and count:
+                db.execute(f"DELETE FROM {table} WHERE {predicate}", args)
+    return removed
 
 
 def _purge_notification_delivery(days: int, *, dry_run: bool) -> int:
