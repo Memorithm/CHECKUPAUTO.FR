@@ -43,8 +43,8 @@ _REMEDIATION = {
     },
     "reminder_engine": {
         "code": "complete_reminder_sync",
-        "summary": "Terminer la synchronisation autoritaire et corriger toute erreur ReminderEngine.",
-        "verify": "backfillComplete=true et ReminderEngine = PRÊT.",
+        "summary": "Terminer la synchronisation autoritaire et résoudre toute identité Mercure mise en quarantaine.",
+        "verify": "backfillComplete=true, quarantinedTargets=0 et ReminderEngine = PRÊT.",
         "target": "#notifications",
         "external": False,
     },
@@ -213,13 +213,25 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             critical=True,
             metrics={"inventory": int(reminder.get("inventory") or 0)},
         ))
-        complete = bool(reminder.get("ok")) and bool(reminder.get("backfillComplete"))
+        quarantined_targets = int(reminder.get("quarantinedTargets") or 0)
+        complete = (
+            bool(reminder.get("ok"))
+            and bool(reminder.get("backfillComplete"))
+            and quarantined_targets == 0
+        )
+        if quarantined_targets:
+            reminder_detail = f"{quarantined_targets} cible(s) Mercure en quarantaine d’identité"
+        elif complete:
+            reminder_detail = "Inventaire autoritaire synchronisé"
+        else:
+            reminder_detail = "Synchronisation des échéances incomplète"
         components.append(_component(
             "reminder_engine", "ReminderEngine", "ready" if complete else "degraded",
-            "Inventaire autoritaire synchronisé" if complete else "Synchronisation des échéances incomplète",
+            reminder_detail,
             critical=True,
             metrics={
                 "inventory": int(reminder.get("inventory") or 0),
+                "quarantinedTargets": quarantined_targets,
                 "futureDueDates": int(reminder.get("futureDueDates") or 0),
                 "eligibleNow": int(reminder.get("eligibleNow") or 0),
                 "backfillComplete": bool(reminder.get("backfillComplete")),
@@ -346,7 +358,7 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         available = bool(ios.get("available")) and bool(ios.get("targetUrl"))
         components.append(_component(
             "ios_distribution", "Distribution iOS", "ready" if available else "blocked_external",
-            f"Canal {ios.get("channel")} actif" if available else "Publication TestFlight ou App Store requise",
+            f"Canal {ios.get('channel')} actif" if available else "Publication TestFlight ou App Store requise",
             critical=False,
             metrics={"channel": ios.get("channel") or "pending"},
         ))
