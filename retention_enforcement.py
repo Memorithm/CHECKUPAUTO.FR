@@ -666,6 +666,17 @@ def run_once(
     }
 
 
+def process_once(db_path: Path | str | None = None) -> dict:
+    """Execute every currently ready rule without treating policy blockers as a job failure."""
+    result = run_once(dry_run=False, db_path=db_path)
+    blocked = [row for row in result["rules"] if row["state"] == "blocked"]
+    result["ok"] = True
+    result["state"] = "active" if not blocked else "partial_policy"
+    result["policyComplete"] = not blocked
+    result["blockerCount"] = len(blocked)
+    return result
+
+
 def audit_rows(db_path: Path | str | None = None, limit: int = 100) -> list[dict]:
     init_db(db_path)
     with compliance_store.connect(db_path) as db:
