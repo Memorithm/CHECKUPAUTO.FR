@@ -1,0 +1,74 @@
+name: Temporary compliance readiness patch
+
+on:
+  push:
+    branches:
+      - feat/compliance-production-readiness
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+      - name: Apply bounded readiness patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('production_readiness.py')
+          source = path.read_text(encoding='utf-8')
+
+          import_anchor = 'import app_download\n'
+          if 'import compliance_admin\n' not in source:
+              if source.count(import_anchor) != 1:
+                  raise SystemExit('production_readiness import anchor changed')
+              source = source.replace(import_anchor, import_anchor + 'import compliance_admin\n', 1)
+
+          remediation_anchor = '    "google_integration": {\n'
+          remediation = (
+              '    "compliance": {\n'
+              '        "code": "complete_compliance_controls",\n'
+              '        "summary": "Compléter les contrôles RGPD et de contractualisation avant activation publique.",\n'
+              '        "verify": "Le Compliance Center doit retourner readyForPublicContracting=true et operationalRegistersReady=true.",\n'
+              '        "target": "#compliance",\n'
+              '        "external": False,\n'
+              '    },\n'
+          )
+          if '"complete_compliance_controls"' not in source:
+              if source.count(remediation_anchor) != 1:
+                  raise SystemExit('production_readiness remediation anchor changed')
+              source = source.replace(remediation_anchor, remediation + remediation_anchor, 1)
+
+          status_anchor = 'def status(config: dict, seo_health: dict | None = None) -> dict:\n    components: list[dict] = [_public_site(config)]\n\n'
+          compliance_block = '''def status(config: dict, seo_health: dict | None = None) -> dict:\n    components: list[dict] = [_public_site(config)]\n\n    compliance_state, compliance_error = _safe("compliance", compliance_admin.snapshot)\n    if compliance_error:\n        components.append(_failed("compliance", "Conformité RGPD & ventes", True, compliance_error))\n    else:\n        compliance_summary = compliance_state.get("summary") or {}\n        compliance_ready = bool(compliance_summary.get("readyForPublicContracting"))\n        operational_ready = bool(compliance_summary.get("operationalRegistersReady"))\n        overdue_rights = int(compliance_summary.get("overdueRightsRequests") or 0)\n        overdue_incidents = int(compliance_summary.get("overdueIncidentNotifications") or 0)\n        operational_blockers = list(compliance_summary.get("operationalBlockers") or [])\n        if compliance_ready:\n            state = "ready"\n            detail = "Contrôles RGPD et contractualisation publique prêts"\n        elif overdue_rights or overdue_incidents or operational_blockers:\n            state = "degraded"\n            detail = "Contrôles de conformité opérationnelle à résoudre avant activation publique"\n        else:\n            state = "configuration_required"\n            detail = "Identité, documents, CGV finale ou fonction de rétractation à compléter"\n        components.append(_component(\n            "compliance", "Conformité RGPD & ventes", state, detail,\n            critical=True,\n            metrics={\n                "identityComplete": bool(compliance_summary.get("identityComplete")),\n                "publishedDocuments": int(compliance_summary.get("publishedDocuments") or 0),\n                "requiredDocuments": int(compliance_summary.get("requiredDocuments") or 0),\n                "checkoutAcceptanceBound": bool(compliance_summary.get("checkoutAcceptanceBound")),\n                "withdrawalFunctionBound": bool(compliance_summary.get("withdrawalFunctionBound")),\n                "overdueRightsRequests": overdue_rights,\n                "overdueIncidentNotifications": overdue_incidents,\n                "operationalRegistersReady": operational_ready,\n                "operationalBlockerCount": len(operational_blockers),\n            },\n        ))\n\n'''
+          if 'components.append(_component(\n            "compliance", "Conformité RGPD & ventes"' not in source:
+              if source.count(status_anchor) != 1:
+                  raise SystemExit('production_readiness status anchor changed')
+              source = source.replace(status_anchor, compliance_block, 1)
+
+          path.write_text(source, encoding='utf-8')
+
+          test_path = Path('production_readiness_test.py')
+          tests = test_path.read_text(encoding='utf-8')
+          helper_anchor = '''        mock.patch.object(readiness.ios_release_preflight, "status", return_value={\n            "state": "ready", "projectReady": True, "associationReady": True,\n            "publicationReady": True, "channel": "app-store", "checks": [],\n        }),\n    ]\n'''
+          helper_replacement = '''        mock.patch.object(readiness.ios_release_preflight, "status", return_value={\n            "state": "ready", "projectReady": True, "associationReady": True,\n            "publicationReady": True, "channel": "app-store", "checks": [],\n        }),\n        mock.patch.object(readiness.compliance_admin, "snapshot", return_value={\n            "summary": {\n                "readyForPublicContracting": True,\n                "operationalRegistersReady": True,\n                "identityComplete": True,\n                "publishedDocuments": 4,\n                "requiredDocuments": 4,\n                "checkoutAcceptanceBound": True,\n                "withdrawalFunctionBound": True,\n                "overdueRightsRequests": 0,\n                "overdueIncidentNotifications": 0,\n                "operationalBlockers": [],\n            },\n        }),\n    ]\n'''
+          if 'mock.patch.object(readiness.compliance_admin, "snapshot"' not in tests:
+              if tests.count(helper_anchor) != 1:
+                  raise SystemExit('production_readiness_test helper anchor changed')
+              tests = tests.replace(helper_anchor, helper_replacement, 1)
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+          git rm .github/workflows/_patch-compliance-readiness.yml
+          git config user.name "CHECKUPAUTO"
+          git config user.email "contact@checkupauto.fr"
+          git add production_readiness.py production_readiness_test.py
+          git diff --cached --check
+          git commit -m "feat: gate activation on compliance readiness"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
