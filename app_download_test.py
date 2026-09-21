@@ -10,7 +10,7 @@ import app_download
 class AppDownloadTest(unittest.TestCase):
     def setUp(self):
         self.config = {
-            "seo": {"canonicalUrl": "https://checkupauto.fr/"}
+            "seo": {"canonicalUrl": "https://www.checkupauto.fr/"}
         }
 
     def test_normalize_source_accepts_known_values_only(self):
@@ -29,7 +29,7 @@ class AppDownloadTest(unittest.TestCase):
         self.assertIsNone(status["ios"]["appStoreUrl"])
         self.assertIsNone(status["ios"]["testFlightUrl"])
         self.assertIsNone(status["ios"]["targetUrl"])
-        self.assertEqual(status["landingUrl"], "https://checkupauto.fr/app")
+        self.assertEqual(status["landingUrl"], "https://www.checkupauto.fr/app")
         page = app_download.landing_html(self.config, "<script>", "test-nonce").decode()
         self.assertIn('const source="direct";', page)
         self.assertIn('nonce="test-nonce"', page)
