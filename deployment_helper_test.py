@@ -38,6 +38,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
             self.helper,
             re.compile(r'\[\[ "\$EXPECTED" =~ \^\[0-9a-f\]\{40\}\$ \]\]'),
         )
+        self.assertNotIn('.venv/bin/python', self.helper)
 
     def test_helper_pins_repository_and_current_main(self):
         self.assertIn('Memorithm/CHECKUPAUTO.FR', self.helper)
@@ -69,6 +70,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('if not manifest:', self.helper)
         self.assertIn('"sha256": digest.hexdigest()', self.helper)
         self.assertIn('handle.read(16)', self.helper)
+        self.assertGreaterEqual(self.helper.count("/usr/bin/python3 - <<'PY'"), 2)
 
     def test_post_update_root_code_is_data_only_and_health_failure_stops_service(self):
         merge = self.helper.index('git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"')
