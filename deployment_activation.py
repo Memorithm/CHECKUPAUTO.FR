@@ -56,7 +56,12 @@ web_root = (home / web_rel).resolve()
 releases_root = (private_root / "releases").resolve()
 release = (releases_root / sha).resolve()
 current = private_root / "current"
-shared = private_root / "shared"
+shared = (private_root / "shared").resolve()
+shared_data = (shared / "data").resolve()
+shared_private = (shared / "private").resolve()
+shared_security = (shared / "security").resolve()
+shared_integrity = (shared / "integrity").resolve()
+shared_logs = (shared / "logs").resolve()
 htaccess = web_root / ".htaccess"
 
 
@@ -93,7 +98,7 @@ def managed_text(original: str, block: str) -> str:
         finish = original.index(END, start) + len(END)
         base = original[:start] + original[finish:]
     base = base.rstrip()
-    return (base + ("\n\n" if base else "") + block.rstrip() + "\n")
+    return base + ("\n\n" if base else "") + block.rstrip() + "\n"
 
 
 def apache_quote(value: Path) -> str:
@@ -105,8 +110,9 @@ def apache_quote(value: Path) -> str:
 
 def atomic_write(path: Path, content: bytes, mode: int) -> None:
     temporary = path.with_name(path.name + ".checkupauto-" + str(os.getpid()))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        fd = os.open(temporary, flags, mode)
         with os.fdopen(fd, "wb") as handle:
             handle.write(content)
             handle.flush()
@@ -131,23 +137,20 @@ def cron_snapshot() -> tuple[bool, str]:
 
 def install_cron(original: str) -> None:
     env = {
-        "CYBERCHECK_DATA_DIR": shared / "data",
-        "CYBERCHECK_PRIVATE_DIR": shared / "private",
-        "CYBERCHECK_SECURITY_DIR": shared / "security",
-        "CYBERCHECK_INTEGRITY_DIR": shared / "integrity",
-        "CYBERCHECK_GSC_CREDENTIALS_PATH": shared / "private" / "gsc-service-account.json",
-        "CYBERCHECK_SITE_CONFIG_PATH": shared / "data" / "site-config.json",
+        "CYBERCHECK_DATA_DIR": shared_data,
+        "CYBERCHECK_PRIVATE_DIR": shared_private,
+        "CYBERCHECK_SECURITY_DIR": shared_security,
+        "CYBERCHECK_INTEGRITY_DIR": shared_integrity,
+        "CYBERCHECK_GSC_CREDENTIALS_PATH": shared_private / "gsc-service-account.json",
+        "CYBERCHECK_SITE_CONFIG_PATH": shared_data / "site-config.json",
     }
-    assignments = " ".join(
-        key + "=" + shlex.quote(str(value))
-        for key, value in env.items()
-    )
+    assignments = " ".join(key + "=" + shlex.quote(str(value)) for key, value in env.items())
     command = " ".join([
         assignments,
         shlex.quote(str(current / ".venv" / "bin" / "python")),
         shlex.quote(str(current / "scripts" / "checkupauto-shared-tick.py")),
         ">>",
-        shlex.quote(str(shared / "logs" / "shared-tick.log")),
+        shlex.quote(str(shared_logs / "shared-tick.log")),
         "2>&1",
     ])
     block = "\n".join([BEGIN, "*/5 * * * * " + command, END])
@@ -196,7 +199,9 @@ def touch_restart(target: Path) -> None:
 
 
 def probe_http() -> tuple[str, bool, int]:
-    password_path = shared / "private" / "admin-password"
+    password_path = shared_private / "admin-password"
+    if password_path.is_symlink():
+        fail("admin credential symlink refused")
     password = password_path.read_text(encoding="utf-8").strip()
     if not password:
         fail("admin credential missing")
@@ -228,8 +233,8 @@ def probe_http() -> tuple[str, bool, int]:
             if not isinstance(blockers, list) or not all(isinstance(item, str) for item in blockers):
                 fail("readiness blockers invalid")
             launch_ready = payload.get("launchReady")
-            if not isinstance(launch_ready, bool):
-                fail("readiness launch flag invalid")
+            if not isinstance(launch_ready, bool) or launch_ready is not gate["allowed"]:
+                fail("readiness launch gate inconsistent")
             return state, gate["allowed"], len(blockers)
         except Exception as exc:
             last_kind = type(exc).__name__
@@ -237,10 +242,19 @@ def probe_http() -> tuple[str, bool, int]:
     fail("post-activation verification failed: " + last_kind)
 
 
-if private_root == web_root or under(private_root, web_root):
+if under(private_root, web_root):
     fail("private deployment root is inside web root")
 if not web_root.is_dir():
     fail("web root missing")
+if not under(releases_root, private_root):
+    fail("releases root escapes private root")
+if not under(shared, private_root) or under(shared, web_root):
+    fail("shared state escapes private root")
+for managed_path in (shared_data, shared_private, shared_security, shared_integrity, shared_logs):
+    if not under(managed_path, shared) or under(managed_path, web_root):
+        fail("shared state path escapes managed root")
+    if not managed_path.is_dir():
+        fail("shared state directory missing")
 if not release.is_dir() or not under(release, releases_root):
     fail("staged release missing")
 load_marker(release)
@@ -250,8 +264,8 @@ if not (release / "passenger_wsgi.py").is_file():
     fail("Passenger entrypoint missing")
 if not (release / "scripts" / "checkupauto-shared-tick.py").is_file():
     fail("shared scheduler missing")
-if htaccess.is_symlink():
-    fail(".htaccess symlink refused")
+if htaccess.is_symlink() or (htaccess.exists() and not htaccess.is_file()):
+    fail("unmanaged .htaccess refused")
 
 previous_release = None
 previous_sha = "none"
@@ -269,34 +283,30 @@ old_htaccess = htaccess.read_bytes() if had_htaccess else b""
 old_htaccess_mode = (htaccess.stat().st_mode & 0o777) if had_htaccess else 0o644
 had_cron, old_cron = cron_snapshot()
 
-app_root = current
-venv_python = current / ".venv" / "bin" / "python"
 block_lines = [
     BEGIN,
     "PassengerEnabled on",
     "PassengerAppType wsgi",
-    "PassengerAppRoot " + apache_quote(app_root),
+    "PassengerAppRoot " + apache_quote(current),
     "PassengerStartupFile passenger_wsgi.py",
-    "PassengerPython " + apache_quote(venv_python),
+    "PassengerPython " + apache_quote(current / ".venv" / "bin" / "python"),
     "PassengerAppEnv production",
-    "SetEnv CYBERCHECK_DATA_DIR " + apache_quote(shared / "data"),
-    "SetEnv CYBERCHECK_PRIVATE_DIR " + apache_quote(shared / "private"),
-    "SetEnv CYBERCHECK_SECURITY_DIR " + apache_quote(shared / "security"),
-    "SetEnv CYBERCHECK_INTEGRITY_DIR " + apache_quote(shared / "integrity"),
-    "SetEnv CYBERCHECK_GSC_CREDENTIALS_PATH " + apache_quote(shared / "private" / "gsc-service-account.json"),
-    "SetEnv CYBERCHECK_SITE_CONFIG_PATH " + apache_quote(shared / "data" / "site-config.json"),
+    "SetEnv CYBERCHECK_DATA_DIR " + apache_quote(shared_data),
+    "SetEnv CYBERCHECK_PRIVATE_DIR " + apache_quote(shared_private),
+    "SetEnv CYBERCHECK_SECURITY_DIR " + apache_quote(shared_security),
+    "SetEnv CYBERCHECK_INTEGRITY_DIR " + apache_quote(shared_integrity),
+    "SetEnv CYBERCHECK_GSC_CREDENTIALS_PATH " + apache_quote(shared_private / "gsc-service-account.json"),
+    "SetEnv CYBERCHECK_SITE_CONFIG_PATH " + apache_quote(shared_data / "site-config.json"),
     END,
 ]
 original_text = old_htaccess.decode("utf-8") if old_htaccess else ""
 new_htaccess = managed_text(original_text, "\n".join(block_lines)).encode("utf-8")
 
-activated = False
 try:
     atomic_write(htaccess, new_htaccess, 0o644)
     install_cron(old_cron)
     switch_current(release)
     touch_restart(release)
-    activated = True
     state, allowed, blocker_count = probe_http()
 except Exception as activation_error:
     rollback_failed = False
@@ -321,8 +331,7 @@ except Exception as activation_error:
         print("activation failed; rollback completed: " + kind, file=sys.stderr)
     raise SystemExit(1)
 
-history = shared / "logs" / "deployment-history.jsonl"
-history.parent.mkdir(parents=True, exist_ok=True)
+history = shared_logs / "deployment-history.jsonl"
 record = {
     "schemaVersion": 1,
     "sha": sha,
@@ -385,12 +394,13 @@ def _parse_activation_output(output: str, expected_sha: str) -> ActivationResult
         blockers = int(values.get("blockers", ""))
     except ValueError as exc:
         raise RuntimeError("réponse d activation distante invalide") from exc
-    if blockers < 0 or not values.get("state"):
+    state = values.get("state", "")
+    if blockers < 0 or state not in {"ready", "configuration_required", "blocked_external", "degraded"}:
         raise RuntimeError("réponse d activation distante invalide")
     return ActivationResult(
         sha=sha,
         previous_sha="" if previous == "none" else previous,
-        readiness_state=values["state"],
+        readiness_state=state,
         activation_allowed=values["allowed"] == "1",
         blocker_count=blockers,
     )
@@ -412,12 +422,7 @@ def activate_release(
     cred = credential.validate(target.auth_mode)
     args = transport.ssh_arguments(target, known_hosts, cred)
     if target.auth_mode == "password":
-        result = transport._run_password_ssh(
-            args,
-            script,
-            cred.password,
-            timeout=timeout,
-        )
+        result = transport._run_password_ssh(args, script, cred.password, timeout=timeout)
     else:
         result = subprocess.run(
             [*args, "sh", "-s"],
