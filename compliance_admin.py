@@ -4,6 +4,7 @@ from pathlib import Path
 
 import compliance_operations
 import compliance_store
+import data_subject_rights
 import withdrawal_service
 
 
@@ -19,6 +20,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result = compliance_store.admin_snapshot(db_path)
     withdrawal = withdrawal_service.status(db_path)
     operations = compliance_operations.snapshot(db_path)
+    rights_execution = data_subject_rights.capability(db_path)
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
 
@@ -45,9 +47,10 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["withdrawalFunctionBound"] = bool(withdrawal.get("bound"))
     summary["withdrawalPendingReceipts"] = int(withdrawal.get("pendingReceipts") or 0)
     summary["withdrawalManualMatchRequired"] = int(withdrawal.get("manualMatchRequired") or 0)
-    # Phase-2 fail-closed controls. These become true only when the executable
-    # cross-store rights and retention engines are implemented and evidenced.
-    summary["dataSubjectExecutionBound"] = False
+    # Phase-2 controls remain fail-closed. The rights engine can expose partial
+    # executable coverage without pretending that every declared right and
+    # every personal-data store is already bound.
+    summary["dataSubjectExecutionBound"] = bool(rights_execution.get("bound"))
     summary["retentionEnforcementBound"] = False
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
@@ -69,4 +72,5 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["summary"] = summary
     result["operations"] = operations
     result["withdrawal"] = withdrawal
+    result["dataSubjectExecution"] = rights_execution
     return result
