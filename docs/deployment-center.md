@@ -23,11 +23,17 @@ Le Deployment Center est fail-closed :
 - les mots de passe et chemins de clés sont stockés dans un coffre AES-GCM hors du dépôt ;
 - le coffre est créé avec un répertoire `0700` et des fichiers `0600` ;
 - les plans et listes de cibles n'exposent jamais le credential ;
-- le probe SSH ne modifie pas l'application distante ; il crée uniquement un répertoire de test temporaire pour vérifier écriture et symlinks, puis le supprime.
+- le probe SSH ne modifie pas l'application distante ; il crée uniquement un répertoire de test temporaire pour vérifier écriture et symlinks, puis le supprime ;
+- sur hébergement mutualisé, releases, bases, credentials, état sécurité, baseline d'intégrité et logs restent hors de la racine Web.
 
 Le coffre par défaut est `~/.config/checkupauto-deployer`. Pour un service CheckupAuto, utiliser plutôt un chemin privé explicite via `CYBERCHECK_DEPLOYMENT_VAULT`.
 
 ## Définir une cible PlanetHoster
+
+Le profil PlanetHoster sépare deux racines relatives au HOME :
+
+- `.checkupauto` : racine privée de déploiement ;
+- `public_html` : racine Web Passenger.
 
 Exemple `target.json` :
 
@@ -37,10 +43,13 @@ Exemple `target.json` :
   "host": "ssh.example.net",
   "username": "checkupauto",
   "domain": "www.checkupauto.fr",
-  "rootPath": "public_html",
+  "rootPath": ".checkupauto",
+  "webRootPath": "public_html",
   "authMode": "password"
 }
 ```
+
+`rootPath` ne doit jamais être égal à `webRootPath` ni être situé dessous. Les anciens profils enregistrés avec `rootPath: "public_html"` doivent être remplacés avant tout déploiement ; le validateur les refuse désormais.
 
 Valider sans enregistrer de secret :
 
@@ -85,7 +94,8 @@ Le probe rapporte notamment :
 - systemd ;
 - cron ;
 - support des symlinks ;
-- droit d'écriture sur la racine cible ;
+- droit d'écriture sur la racine privée de déploiement ;
+- droit d'écriture sur la racine Web lorsqu'elle est distincte ;
 - espace disque disponible.
 
 ## Générer le plan de release
@@ -99,26 +109,29 @@ python3 scripts/checkupauto-deployctl.py plan \
   --sha 0123456789abcdef0123456789abcdef01234567
 ```
 
-Le layout cible est versionné :
+Le layout mutualisé est séparé :
 
 ```text
-<root>/
-  releases/
-    <sha>/
-  current -> releases/<sha>
-  shared/
-    data/
-    private/
-    security/
-    integrity/
-    logs/
+$HOME/
+  .checkupauto/
+    releases/
+      <sha>/
+    current -> releases/<sha>
+    shared/
+      data/
+      private/
+      security/
+      integrity/
+      logs/
+  public_html/
+    # point d'entrée Passenger uniquement
 ```
 
-Cela permet une bascule atomique de `current` et un rollback vers la release précédente.
+Les secrets, bases SQLite et états opérationnels ne doivent donc pas être copiés sous `public_html`. La bascule de release reste atomique via le lien privé `current` et permet un rollback vers la release précédente.
 
 ## Runtime PlanetHoster
 
-CheckupAuto dispose maintenant d'un pont WSGI Passenger qui réutilise le `Handler` HTTP existant derrière un serveur loopback interne. L'adresse IP cliente n'est transmise à Sentinel qu'avec un jeton proxy aléatoire interne ; les headers externes de même nom sont supprimés par le pont.
+CheckupAuto dispose d'un pont WSGI Passenger qui réutilise le `Handler` HTTP existant derrière un serveur loopback interne. L'adresse IP cliente n'est transmise à Sentinel qu'avec un jeton proxy aléatoire interne ; les headers externes de même nom sont supprimés par le pont.
 
 Les workers persistants ne sont jamais démarrés dans les processus Passenger. Sur hébergement mutualisé, les tâches périodiques sont exécutées par `scripts/checkupauto-shared-tick.py` via CRON avec un verrou fichier non bloquant. Le tick couvre notamment la purge des tests de réservation, ReminderEngine, la synchronisation mobile autoritaire, les rappels mobiles, les avis Google et le retry des alertes.
 
@@ -128,7 +141,8 @@ Le profil PlanetHoster n'est déclaré prêt que si le diagnostic confirme :
 - Passenger ;
 - CRON ;
 - symlinks ;
-- racine d'installation accessible en écriture ;
+- racine privée de déploiement accessible en écriture ;
+- racine Web accessible en écriture ;
 - au moins 1 Gio libre ;
 - pont Passenger/WSGI présent dans la release ;
 - scheduler mutualisé présent dans la release.
@@ -136,12 +150,12 @@ Le profil PlanetHoster n'est déclaré prêt que si le diagnostic confirme :
 Le runtime mutualisé utilise les chemins privés configurables suivants :
 
 ```text
-CYBERCHECK_DATA_DIR=<root>/shared/data
-CYBERCHECK_PRIVATE_DIR=<root>/shared/private
-CYBERCHECK_SECURITY_DIR=<root>/shared/security
-CYBERCHECK_INTEGRITY_DIR=<root>/shared/integrity
-CYBERCHECK_GSC_CREDENTIALS_PATH=<root>/shared/private/gsc-service-account.json
-CYBERCHECK_SITE_CONFIG_PATH=<root>/shared/data/site-config.json
+CYBERCHECK_DATA_DIR=$HOME/.checkupauto/shared/data
+CYBERCHECK_PRIVATE_DIR=$HOME/.checkupauto/shared/private
+CYBERCHECK_SECURITY_DIR=$HOME/.checkupauto/shared/security
+CYBERCHECK_INTEGRITY_DIR=$HOME/.checkupauto/shared/integrity
+CYBERCHECK_GSC_CREDENTIALS_PATH=$HOME/.checkupauto/shared/private/gsc-service-account.json
+CYBERCHECK_SITE_CONFIG_PATH=$HOME/.checkupauto/shared/data/site-config.json
 ```
 
-Le chantier restant pour le « un clic » est l'exécuteur distant `install/update/rollback` : transfert de la release, création du venv, installation des dépendances, configuration Passenger et CRON, health-check avant bascule du lien `current`, puis rollback automatique en cas d'échec.
+Le chantier restant pour le « un clic » est l'exécuteur distant `install/update/rollback` : transfert de la release vers la racine privée, création du venv, installation des dépendances, configuration du point d'entrée Passenger dans la racine Web et du CRON, health-check avant bascule du lien privé `current`, puis rollback automatique en cas d'échec.

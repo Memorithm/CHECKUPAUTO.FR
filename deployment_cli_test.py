@@ -50,8 +50,10 @@ class DeploymentCLITest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual(payload["planethoster-n0c"]["defaultPort"], 5022)
         self.assertEqual(payload["planethoster-cpanel"]["defaultPort"], 2908)
+        self.assertEqual(payload["planethoster-n0c"]["defaultRoot"], ".checkupauto")
+        self.assertEqual(payload["planethoster-n0c"]["defaultWebRoot"], "public_html")
 
-    def test_validate_command_applies_provider_defaults(self):
+    def test_validate_command_separates_private_and_public_roots(self):
         result = self.run_cli(
             "validate",
             "--target",
@@ -60,7 +62,8 @@ class DeploymentCLITest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["port"], 5022)
-        self.assertEqual(payload["root_path"], "public_html")
+        self.assertEqual(payload["root_path"], ".checkupauto")
+        self.assertEqual(payload["web_root_path"], "public_html")
 
     def test_password_save_uses_stdin_and_list_is_redacted(self):
         target = self.target_file("password")

@@ -6,13 +6,14 @@ import ipaddress
 import re
 from typing import Any
 
-PROFILE_VERSION = 1
+PROFILE_VERSION = 2
 _PROVIDER_PROFILES = {
     "planethoster-n0c": {
         "label": "PlanetHoster World / N0C",
         "defaultPort": 5022,
         "runtime": "passenger",
-        "defaultRoot": "public_html",
+        "defaultRoot": ".checkupauto",
+        "defaultWebRoot": "public_html",
         "sharedHosting": True,
         "supportsSystemd": False,
         "supportsCron": True,
@@ -21,7 +22,8 @@ _PROVIDER_PROFILES = {
         "label": "PlanetHoster cPanel (legacy)",
         "defaultPort": 2908,
         "runtime": "passenger",
-        "defaultRoot": "public_html",
+        "defaultRoot": ".checkupauto",
+        "defaultWebRoot": "public_html",
         "sharedHosting": True,
         "supportsSystemd": False,
         "supportsCron": True,
@@ -30,7 +32,8 @@ _PROVIDER_PROFILES = {
         "label": "Hébergement SSH générique",
         "defaultPort": 22,
         "runtime": "probe",
-        "defaultRoot": "public_html",
+        "defaultRoot": "checkupauto",
+        "defaultWebRoot": "",
         "sharedHosting": False,
         "supportsSystemd": False,
         "supportsCron": True,
@@ -40,6 +43,7 @@ _PROVIDER_PROFILES = {
         "defaultPort": 22,
         "runtime": "systemd",
         "defaultRoot": "/opt/checkupauto",
+        "defaultWebRoot": "",
         "sharedHosting": False,
         "supportsSystemd": True,
         "supportsCron": True,
@@ -66,6 +70,7 @@ class DeploymentTarget:
     username: str
     domain: str
     root_path: str
+    web_root_path: str = ""
     auth_mode: str = "key"
 
     def public_dict(self) -> dict[str, Any]:
@@ -81,6 +86,7 @@ class CapabilityReport:
     cron: bool = False
     symlink: bool = False
     writable_root: bool = False
+    writable_web_root: bool = False
     free_disk_mb: int = 0
     passenger_wsgi_adapter: bool = False
     shared_host_tick: bool = False
@@ -126,6 +132,12 @@ def _root_path(value: object, *, shared: bool) -> str:
     return str(path)
 
 
+def _inside_or_equal(path: str, parent: str) -> bool:
+    path_parts = PurePosixPath(path).parts
+    parent_parts = PurePosixPath(parent).parts
+    return len(path_parts) >= len(parent_parts) and path_parts[:len(parent_parts)] == parent_parts
+
+
 def validate_target(payload: dict[str, Any]) -> DeploymentTarget:
     if not isinstance(payload, dict):
         raise ValueError("configuration de déploiement invalide")
@@ -152,16 +164,28 @@ def validate_target(payload: dict[str, Any]) -> DeploymentTarget:
     if auth_mode not in {"key", "password"}:
         raise ValueError("mode d authentification invalide")
 
+    shared = bool(profile["sharedHosting"])
+    root_path = _root_path(
+        payload.get("rootPath", profile["defaultRoot"]),
+        shared=shared,
+    )
+    web_root_path = ""
+    if shared:
+        web_root_path = _root_path(
+            payload.get("webRootPath", profile["defaultWebRoot"]),
+            shared=True,
+        )
+        if _inside_or_equal(root_path, web_root_path):
+            raise ValueError("le répertoire privé de déploiement doit rester hors de la racine web")
+
     return DeploymentTarget(
         provider=provider,
         host=_host(payload.get("host")),
         port=port,
         username=username,
         domain=_domain(payload.get("domain")),
-        root_path=_root_path(
-            payload.get("rootPath", profile["defaultRoot"]),
-            shared=bool(profile["sharedHosting"]),
-        ),
+        root_path=root_path,
+        web_root_path=web_root_path,
         auth_mode=auth_mode,
     )
 
@@ -200,6 +224,7 @@ def assess(target: DeploymentTarget, capabilities: CapabilityReport) -> dict[str
     runtime = profile["runtime"]
     if runtime == "passenger":
         check("passenger", capabilities.passenger, "Passenger Python")
+        check("writable_web_root", capabilities.writable_web_root, target.web_root_path)
         check(
             "passenger_wsgi_adapter",
             capabilities.passenger_wsgi_adapter,
@@ -239,6 +264,7 @@ def installation_layout(target: DeploymentTarget, release_sha: str) -> dict[str,
     root = target.root_path.rstrip("/")
     return {
         "root": root,
+        "webRoot": target.web_root_path,
         "releases": f"{root}/releases",
         "release": f"{root}/releases/{sha}",
         "current": f"{root}/current",
@@ -261,7 +287,7 @@ def installation_plan(
     actions = [
         {"id": "connect", "label": "Connexion SSH et validation de l empreinte hôte"},
         {"id": "probe", "label": "Diagnostic runtime non destructif"},
-        {"id": "directories", "label": "Création releases/current/shared"},
+        {"id": "directories", "label": "Création releases/current/shared hors racine web"},
         {"id": "upload", "label": "Transfert de la release dans un répertoire neuf"},
         {"id": "dependencies", "label": "Installation des dépendances dans la release"},
         {"id": "health", "label": "Validation locale avant activation"},
@@ -283,5 +309,6 @@ def installation_plan(
         "secrets": {
             "persistInRepository": False,
             "passwordInPlan": False,
+            "sharedStateOutsideWebRoot": bool(target.web_root_path),
         },
     }
