@@ -4,6 +4,7 @@ from pathlib import Path
 
 import compliance_operations
 import compliance_store
+import withdrawal_service
 
 
 def snapshot(db_path: Path | str | None = None) -> dict:
@@ -16,6 +17,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     truth.
     """
     result = compliance_store.admin_snapshot(db_path)
+    withdrawal = withdrawal_service.status(db_path)
     operations = compliance_operations.snapshot(db_path)
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
@@ -40,12 +42,31 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     operations["summary"] = operations_summary
 
     summary = dict(result.get("summary") or {})
+    summary["withdrawalFunctionBound"] = bool(withdrawal.get("bound"))
+    summary["withdrawalPendingReceipts"] = int(withdrawal.get("pendingReceipts") or 0)
+    summary["withdrawalManualMatchRequired"] = int(withdrawal.get("manualMatchRequired") or 0)
+    # Phase-2 fail-closed controls. These become true only when the executable
+    # cross-store rights and retention engines are implemented and evidenced.
+    summary["dataSubjectExecutionBound"] = False
+    summary["retentionEnforcementBound"] = False
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
-    # Never make the existing public-contracting gate less strict. The legacy
-    # gate remains authoritative for CGV binding, withdrawal and legal data;
-    # operational registers can only keep it blocked, never turn it green.
-    summary["readyForPublicContracting"] = bool(summary.get("readyForPublicContracting")) and operations_ready
+
+    # Recompute the public-contracting gate from explicit controls. The base
+    # compliance store deliberately stayed closed until the executable
+    # withdrawal function existed; this composed snapshot is now authoritative.
+    legal_ready = bool(
+        summary.get("identityComplete")
+        and int(summary.get("publishedDocuments") or 0) == int(summary.get("requiredDocuments") or 0)
+        and bool(summary.get("checkoutAcceptanceBound"))
+        and bool(summary.get("withdrawalFunctionBound"))
+        and bool(summary.get("dataSubjectExecutionBound"))
+        and bool(summary.get("retentionEnforcementBound"))
+        and int(summary.get("overdueRightsRequests") or 0) == 0
+        and int(summary.get("overdueIncidentNotifications") or 0) == 0
+    )
+    summary["readyForPublicContracting"] = legal_ready and operations_ready
     result["summary"] = summary
     result["operations"] = operations
+    result["withdrawal"] = withdrawal
     return result

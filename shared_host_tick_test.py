@@ -45,16 +45,19 @@ class SharedHostTickTest(unittest.TestCase):
                 (module.mobile_authoritative_sync, "sync_once"),
                 (module.mobile_reminder_dispatch, "process_once"),
                 (module.review_followup, "process_once"),
+                (module.withdrawal_service, "dispatch_pending"),
                 (module.security_alerts, "retry_pending"),
             ]
             for owner, name in functions:
-                setattr(owner, name, mock.Mock(return_value={"ok": True}))
+                patcher = mock.patch.object(owner, name, return_value={"ok": True})
+                patcher.start()
+                self.addCleanup(patcher.stop)
 
             with mock.patch.dict(os.environ, env, clear=False):
                 result = module.tick()
 
             self.assertTrue(result["ok"])
-            self.assertEqual(len(result["tasks"]), 6)
+            self.assertEqual(len(result["tasks"]), 7)
             module.admin_server.initialize_runtime.assert_called_once_with(background=False)
             for owner, name in functions:
                 getattr(owner, name).assert_called_once_with()
@@ -63,14 +66,21 @@ class SharedHostTickTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             module, env = self.load_module(Path(tmp))
             module.admin_server.initialize_runtime = mock.Mock()
-            module.booking_test.purge_expired = mock.Mock(
-                side_effect=RuntimeError("secret-token-should-not-leak")
-            )
-            module.reminder_dispatch.process_once = mock.Mock(return_value={"ok": True})
-            module.mobile_authoritative_sync.sync_once = mock.Mock(return_value={"ok": True})
-            module.mobile_reminder_dispatch.process_once = mock.Mock(return_value={"ok": True})
-            module.review_followup.process_once = mock.Mock(return_value={"ok": True})
-            module.security_alerts.retry_pending = mock.Mock(return_value={"ok": True})
+            patches = [
+                mock.patch.object(
+                    module.booking_test, "purge_expired",
+                    side_effect=RuntimeError("secret-token-should-not-leak"),
+                ),
+                mock.patch.object(module.reminder_dispatch, "process_once", return_value={"ok": True}),
+                mock.patch.object(module.mobile_authoritative_sync, "sync_once", return_value={"ok": True}),
+                mock.patch.object(module.mobile_reminder_dispatch, "process_once", return_value={"ok": True}),
+                mock.patch.object(module.review_followup, "process_once", return_value={"ok": True}),
+                mock.patch.object(module.withdrawal_service, "dispatch_pending", return_value={"ok": True}),
+                mock.patch.object(module.security_alerts, "retry_pending", return_value={"ok": True}),
+            ]
+            for patcher in patches:
+                patcher.start()
+                self.addCleanup(patcher.stop)
 
             with mock.patch.dict(os.environ, env, clear=False):
                 result = module.tick()

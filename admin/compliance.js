@@ -33,7 +33,10 @@ function render(){
  $('#complianceRights').textContent=String(s.openRightsRequests||0);
  $('#complianceIncidents').textContent=String(s.openIncidents||0);
  $('#complianceCheckout').textContent=s.checkoutAcceptanceBound?'Relié':'À relier à Mercure';
- $('#complianceWithdrawal').textContent=s.withdrawalFunctionBound?'Reliée':'À relier au contrat';
+ const withdrawal=snapshot.withdrawal||{};
+ $('#complianceWithdrawal').textContent=s.withdrawalFunctionBound
+  ? ('Opérationnelle · '+String(withdrawal.pendingReceipts||0)+' accusé(s) en attente')
+  : 'À relier au contrat';
  for(const key of ['controllerName','legalForm','capital','registeredAddress','registrationId','vatNumber','publicationDirector','contactEmail','privacyContact','mediatorName','mediatorUrl','mediatorAddress','hostName','hostAddress','hostPhone','approvalAuthority','approvalReference']){
   const el=$('#compliance_'+key);if(el)el.value=settings[key]||'';
  }
