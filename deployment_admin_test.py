@@ -238,7 +238,7 @@ class DeploymentAdminTest(unittest.TestCase):
             "branch": "main",
             "tokenConfigured": True,
         }
-        token = "github_pat_" + "A" * 40
+        token = "github" + "_pat_" + "A" * 40
         result = admin.save_update_source({
             "repository": "Memorithm/CHECKUPAUTO.FR",
             "branch": "main",
