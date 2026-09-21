@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 HELPER = ROOT / "deploy" / "cybercheck-deploy"
 INSTALLER = ROOT / "deploy" / "install-deploy-helper.sh"
+WORKFLOW = ROOT / ".github" / "workflows" / "production-deploy.yml"
 
 
 class DeploymentHelperContractTest(unittest.TestCase):
@@ -13,6 +14,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
     def setUpClass(cls):
         cls.helper = HELPER.read_text(encoding="utf-8")
         cls.installer = INSTALLER.read_text(encoding="utf-8")
+        cls.workflow = WORKFLOW.read_text(encoding="utf-8")
 
     def test_shell_scripts_parse(self):
         for script in (HELPER, INSTALLER):
@@ -24,8 +26,13 @@ class DeploymentHelperContractTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_helper_is_root_only_and_accepts_one_full_sha(self):
+    def test_helper_is_root_owned_installed_code_with_fixed_environment(self):
         self.assertIn('[[ "${EUID}" -eq 0 ]]', self.helper)
+        self.assertIn('PATH=/usr/sbin:/usr/bin:/sbin:/bin', self.helper)
+        self.assertIn('export PATH GIT_TERMINAL_PROMPT=0', self.helper)
+        self.assertIn('readonly INSTALLED_HELPER="/usr/local/sbin/cybercheck-deploy"', self.helper)
+        self.assertIn('[[ "$SELF" == "$INSTALLED_HELPER" ]]', self.helper)
+        self.assertIn('root:root:755', self.helper)
         self.assertIn('[[ "$#" -eq 1 ]]', self.helper)
         self.assertRegex(
             self.helper,
@@ -63,7 +70,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('"sha256": digest.hexdigest()', self.helper)
         self.assertIn('handle.read(16)', self.helper)
 
-    def test_post_update_root_code_is_data_only_and_service_is_checked(self):
+    def test_post_update_root_code_is_data_only_and_health_failure_stops_service(self):
         merge = self.helper.index('git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"')
         baseline = self.helper.index('ast.literal_eval(node.value)')
         self.assertLess(merge, baseline)
@@ -73,6 +80,7 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('systemctl stop "$SERVICE"', self.helper)
         self.assertIn('systemctl start "$SERVICE"', self.helper)
         self.assertIn('systemctl is-active --quiet "$SERVICE"', self.helper)
+        self.assertIn('service stopped fail-closed', self.helper)
         self.assertIn('/root/CyberCheckIntegrity', self.helper)
         self.assertIn('http://127.0.0.1:8765/', self.helper)
         self.assertIn('flock -n 9', self.helper)
@@ -85,6 +93,16 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertIn('visudo -cf "$TMP"', self.installer)
         self.assertNotIn('ALL=(ALL)', self.installer)
         self.assertNotIn('SETENV', self.installer)
+
+    def test_workflow_requires_signed_green_current_main(self):
+        self.assertIn('actions: read', self.workflow)
+        self.assertIn('contents: read', self.workflow)
+        self.assertIn('/branches/main', self.workflow)
+        self.assertIn('verification.get("verified") is not True', self.workflow)
+        self.assertIn('/actions/workflows/security-ci.yml/runs', self.workflow)
+        self.assertIn('run.get("conclusion") == "success"', self.workflow)
+        self.assertIn('run.get("event") == "push"', self.workflow)
+        self.assertIn('sudo -n /usr/local/sbin/cybercheck-deploy "$DEPLOY_SHA"', self.workflow)
 
 
 if __name__ == "__main__":
