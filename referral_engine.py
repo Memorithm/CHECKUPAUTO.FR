@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -174,6 +175,7 @@ def init_db() -> None:
                  WHERE account_id=NEW.account_id
                    AND reference=NEW.reference
                    AND amount_cents=-NEW.amount_cents
+                   AND reversed=0
                )
             BEGIN
               SELECT RAISE(ABORT, 'referral reversal must match earn');
