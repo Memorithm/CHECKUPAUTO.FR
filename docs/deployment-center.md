@@ -230,3 +230,20 @@ Le panneau **Administration → Déploiement** permet de piloter le Deployment C
 Le mot de passe SSH n’est jamais renvoyé au navigateur après l’enregistrement. Une valeur vide lors de l’édition conserve le credential déjà présent dans le coffre. La clé hôte n’est pas approuvée automatiquement : le scan et la confirmation sont deux opérations distinctes, et la confirmation rescane le serveur avant d’écrire `known_hosts`.
 
 Les opérations d’installation sont sérialisées par un verrou fichier inter-processus. Deux workers Passenger ou deux onglets administrateur ne peuvent donc pas activer simultanément deux releases différentes.
+
+## Gestion des mises à jour
+
+Le Deployment Center ne suppose jamais que la cible distante exécute le dernier SHA local. L’action **Vérifier les mises à jour** lit par SSH le lien `current` et l’inventaire des releases distantes dont le marqueur `.checkupauto-release.json` est vérifié.
+
+L’état est classé ainsi :
+
+- `not_installed` : aucune release active ;
+- `up_to_date` : la cible exécute exactement le SHA Git local courant ;
+- `update_available` : le SHA distant est un ancêtre Git du SHA local courant ;
+- `remote_ahead` : la cible distante est plus récente que le checkout local ;
+- `diverged` : les historiques ne permettent pas une mise à jour automatique sûre.
+
+Le bouton **Mettre à jour** n’est activé que dans l’état `update_available`. Les états `remote_ahead` et `diverged` imposent une intervention explicite plutôt qu’un écrasement automatique.
+
+Les candidats de rollback affichés par l’administration proviennent uniquement des répertoires distants dont le SHA, le marqueur et l’empreinte de release ont déjà été vérifiés ; un SHA arbitraire saisi par l’interface reste ensuite revalidé côté serveur avant activation.
+
