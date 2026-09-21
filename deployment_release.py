@@ -78,7 +78,7 @@ def build_release_bundle(repo_root: str | Path, release_sha: str) -> ReleaseBund
         raise ValueError("dépôt Git local introuvable")
 
     resolved = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", f"{sha}^{{commit}}"],
+        ["git", "-c", f"safe.directory={root}", "-C", str(root), "rev-parse", f"{sha}^{{commit}}"],
         capture_output=True,
         check=False,
         text=True,
@@ -88,7 +88,7 @@ def build_release_bundle(repo_root: str | Path, release_sha: str) -> ReleaseBund
         raise ValueError("commit de release introuvable")
 
     archived = subprocess.run(
-        ["git", "-C", str(root), "archive", "--format=tar", sha],
+        ["git", "-c", f"safe.directory={root}", "-C", str(root), "archive", "--format=tar", sha],
         capture_output=True,
         check=False,
         timeout=60,

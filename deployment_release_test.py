@@ -75,6 +75,33 @@ class DeploymentReleaseTest(unittest.TestCase):
             {"app.py", "passenger_wsgi.py", "requirements.txt", "scripts/checkupauto-shared-tick.py"},
         )
 
+    @mock.patch("deployment_release._validate_archive", return_value=1)
+    @mock.patch("deployment_release.subprocess.run")
+    def test_bundle_git_calls_pin_safe_directory(self, run, validate_archive):
+        run.side_effect = [
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=self.sha + "\n",
+                stderr="",
+            ),
+            subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=b"fixture-archive",
+                stderr=b"",
+            ),
+        ]
+        bundle = release.build_release_bundle(self.repo, self.sha)
+        self.assertEqual(bundle.sha, self.sha)
+        validate_archive.assert_called_once_with(b"fixture-archive")
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            command = call.args[0]
+            self.assertIn("-c", command)
+            self.assertIn("safe.directory=" + str(self.repo.resolve()), command)
+            self.assertLess(command.index("-c"), command.index("-C"))
+
     def test_bundle_is_reproducible_for_same_commit(self):
         first = release.build_release_bundle(self.repo, self.sha)
         (self.repo / "untracked.txt").write_text("ignored\n", encoding="utf-8")
