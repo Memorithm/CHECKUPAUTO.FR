@@ -2,7 +2,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode
-import base64, datetime, hashlib, hmac, html, json, os, re, secrets
+import base64, datetime, hashlib, hmac, html, ipaddress, json, os, re, secrets, threading
 import gsc_client as gsc
 import analytics_store as analytics
 import app_download as app_download
@@ -36,6 +36,10 @@ USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
 PASSWORD=(PRIVATE_DIR/'admin-password').read_text().strip()
 MAX_BODY=131072
+_INTERNAL_PROXY_TOKEN=''
+_RUNTIME_LOCK=threading.RLock()
+_RUNTIME_CORE_READY=False
+_RUNTIME_BACKGROUND_READY=False
 CRAWLERS={
  'googlebot':'Googlebot','bingbot':'Bingbot','oaiSearchBot':'OAI-SearchBot','chatgptUser':'ChatGPT-User','gptBot':'GPTBot',
  'claudeSearchBot':'Claude-SearchBot','claudeUser':'Claude-User','claudeBot':'ClaudeBot','perplexityBot':'PerplexityBot','perplexityUser':'Perplexity-User','googleExtended':'Google-Extended'
@@ -80,6 +84,32 @@ def asset_url(c,path):
  if path.startswith('https://'): return path
  return canonical_origin(c['seo']['canonicalUrl'])+'/'+path.lstrip('/')
 def esc(v): return html.escape(str(v),quote=True)
+
+def configure_internal_proxy(token):
+ raw=str(token or '').strip()
+ if len(raw)<32 or len(raw)>256 or not re.fullmatch(r'[A-Za-z0-9_-]+',raw):
+  raise ValueError('jeton proxy interne invalide')
+ global _INTERNAL_PROXY_TOKEN
+ _INTERNAL_PROXY_TOKEN=raw
+ return True
+
+def _security_client_ip(handler):
+ peer=str(handler.client_address[0] if getattr(handler,'client_address',None) else '').strip()
+ try:
+  loopback=ipaddress.ip_address(peer).is_loopback
+ except ValueError:
+  loopback=False
+ if not loopback or not _INTERNAL_PROXY_TOKEN:
+  return peer
+ supplied=str(handler.headers.get('X-CheckupAuto-Proxy-Token') or '')
+ if not hmac.compare_digest(supplied,_INTERNAL_PROXY_TOKEN):
+  return peer
+ raw=str(handler.headers.get('X-CheckupAuto-Client-IP') or '').strip()
+ try:
+  return str(ipaddress.ip_address(raw))
+ except ValueError:
+  return peer
+
 class Handler(SimpleHTTPRequestHandler):
  server_version='CyberCheck'
  sys_version=''
@@ -92,7 +122,7 @@ class Handler(SimpleHTTPRequestHandler):
   raw_target=self.path
   if urlparse(raw_target).path=='/api/integrations/google/oauth/callback':
    raw_target=urlparse(raw_target).path
-  d=security.evaluate(self.command,raw_target,self.headers,self.client_address[0] if self.client_address else '')
+  d=security.evaluate(self.command,raw_target,self.headers,_security_client_ip(self))
   self._security_client=d.get('client',''); self._security_fingerprint=d.get('fingerprint',''); self._security_path=d.get('path',''); self._security_risk=d.get('risk',0); self._security_allowed=bool(d.get('allow'))
   if self._security_allowed: return True
   status=int(d.get('status') or 403)
@@ -903,8 +933,24 @@ def validate_config(c):
  if isinstance(retention,bool) or not isinstance(retention,(int,float)) or retention<7 or retention>730: raise ValueError('analytics.retentionDays invalid')
  out['analytics']={'enabled':bool(analytics_cfg.get('enabled',True)),'retentionDays':int(retention),'privacyMode':'cookieless'}
  return out
+def initialize_runtime(*,background=True):
+ global _RUNTIME_CORE_READY,_RUNTIME_BACKGROUND_READY
+ with _RUNTIME_LOCK:
+  if not _RUNTIME_CORE_READY:
+   os.chdir(ROOT)
+   analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db()
+   reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); reviews.init_db()
+   security.init_db(); security_alerts.init_db()
+   competitive.seed_public_baseline(); competitive.seed_review_baseline()
+   _RUNTIME_CORE_READY=True
+  if background and not _RUNTIME_BACKGROUND_READY:
+   booking_test.start(300); reviews.start(); reminder_dispatch.start()
+   mobile_authoritative_sync.start(); mobile_reminder_dispatch.start()
+   security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+   _RUNTIME_BACKGROUND_READY=True
+ return {'coreReady':_RUNTIME_CORE_READY,'backgroundReady':_RUNTIME_BACKGROUND_READY}
+
 if __name__=='__main__':
- os.chdir(ROOT)
- analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db(); reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); competitive.seed_public_baseline(); competitive.seed_review_baseline(); booking_test.start(300); reviews.start(); reminder_dispatch.start(); mobile_authoritative_sync.start(); mobile_reminder_dispatch.start(); security.init_db(); security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
+ initialize_runtime(background=True)
  print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
  ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
