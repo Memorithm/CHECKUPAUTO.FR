@@ -1155,7 +1155,7 @@ def initialize_runtime(*,background=True):
    os.chdir(ROOT)
    analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db()
    reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); reviews.init_db()
-   security.init_db(); security_alerts.init_db()
+   withdrawals.init_db(); security.init_db(); security_alerts.init_db()
    competitive.seed_public_baseline(); competitive.seed_review_baseline()
    _RUNTIME_CORE_READY=True
   if background and not _RUNTIME_BACKGROUND_READY:
