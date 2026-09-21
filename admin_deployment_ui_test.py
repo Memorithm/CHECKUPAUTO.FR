@@ -23,6 +23,11 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertNotIn("credential.password", script)
         self.assertNotIn("target.password", script)
 
+    def test_deployment_ui_surfaces_pending_dns_cutover(self):
+        script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
+        self.assertIn("waiting_external", script)
+        self.assertIn("Bascule DNS/SSL requise", script)
+
     def test_deployment_admin_get_routes_require_basic_auth(self):
         source = (ROOT / "admin_server.py").read_text(encoding="utf-8")
         for route in (
