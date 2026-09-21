@@ -6,7 +6,7 @@ readonly ROOT="/root/CyberCheckLive"
 readonly BACKUP_ROOT="/root/CyberCheckBackups"
 readonly SERVICE="cybercheck.service"
 readonly HEALTH_URL="http://127.0.0.1:8765/"
-readonly LOCK_FILE="/run/lock/cybercheck-deploy.lock"
+readonly LOCK_FILE="/run/cybercheck-deploy.lock"
 
 log() {
   printf '[cybercheck-deploy] %s\n' "$*"
@@ -51,7 +51,7 @@ case "$ORIGIN_URL" in
   *) fail 10 "origin does not point to the approved Memorithm/CHECKUPAUTO.FR repository" ;;
 esac
 
-git fetch --quiet --no-tags origin main
+git fetch --quiet --no-tags origin refs/heads/main:refs/remotes/origin/main
 readonly REMOTE_HEAD="$(git rev-parse refs/remotes/origin/main)"
 [[ "$REMOTE_HEAD" == "$EXPECTED" ]] || fail 11 "requested SHA is not the current origin/main"
 git cat-file -e "${EXPECTED}^{commit}" || fail 12 "requested object is not a commit"
