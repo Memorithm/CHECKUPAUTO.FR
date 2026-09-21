@@ -263,3 +263,17 @@ Après validation HTTPS de l'instance exacte et passage du Production Readiness,
 Le snapshot et les compteurs de nettoyage sont ajoutés à `deployment-history.jsonl`. Un échec de nettoyage après une activation déjà vérifiée n'annule pas la release ; il reste visible dans l'historique pour correction ultérieure.
 
 Pour préserver les rollbacks vers des releases historiques, l'activation peut exécuter le helper de sécurité d'update depuis la release cible ou, si elle est trop ancienne pour le contenir, depuis la release actuellement active.
+
+## Source de mise à jour
+
+Une installation PlanetHoster est une release packagée : elle contient le marqueur `.checkupauto-release.json`, mais pas le répertoire `.git`.
+
+Le back-office distingue donc deux modes :
+
+- `git_checkout` : SHA Git local vérifié et construction de nouvelles releases autorisée ;
+- `packaged_release` : SHA de la release lisible, mais construction Install/Update interdite.
+
+Dans le second cas, le site continue à afficher sa version et peut lire l'inventaire distant ainsi qu'effectuer un rollback vers une release déjà vérifiée. En revanche, il n'affiche jamais une release packagée comme source de build valide et ne prétend pas être « à jour » par simple comparaison avec elle-même.
+
+Cette séparation évite qu'une instance PlanetHoster sans dépôt Git tente une mise à jour incomplète. Un futur mode de mise à jour autonome devra fournir explicitement une source de release vérifiée avant d'activer Install/Update.
+

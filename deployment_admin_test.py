@@ -8,6 +8,7 @@ from unittest import mock
 import deployment_admin as admin
 import deployment_center as center
 import deployment_executor as executor
+import deployment_source as source
 
 
 SHA = "a" * 40
@@ -88,7 +89,16 @@ class DeploymentAdminTest(unittest.TestCase):
 
     def test_status_never_exposes_credentials(self):
         admin.save_target(self.payload())
-        with mock.patch.object(admin, "_current_sha", return_value=SHA):
+        with mock.patch.object(
+            admin,
+            "_source_state",
+            return_value=source.DeploymentSourceState(
+                mode="git_checkout",
+                sha=SHA,
+                build_capable=True,
+                reason="test",
+            ),
+        ):
             state = admin.status()
         self.assertEqual(state["currentSha"], SHA)
         self.assertNotIn("secret-value", str(state))
@@ -159,13 +169,19 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertNotIn("secret-value", str(result))
 
     @mock.patch.object(admin.deployment_update, "update_status")
-    @mock.patch.object(admin, "_current_sha", return_value=SHA)
-    def test_update_status_uses_remote_target_and_current_sha(self, current_sha, update_status):
+    @mock.patch.object(admin, "_source_state")
+    def test_update_status_uses_remote_target_and_current_sha(self, source_state, update_status):
         admin.save_target(self.payload())
         admin._known_hosts_path().parent.mkdir(parents=True, exist_ok=True)
         admin._known_hosts_path().write_text(
             "[ssh.example.net]:5022 ssh-ed25519 AAAATEST\n",
             encoding="utf-8",
+        )
+        source_state.return_value = source.DeploymentSourceState(
+            mode="git_checkout",
+            sha=SHA,
+            build_capable=True,
+            reason="test",
         )
         update_status.return_value = {
             "schemaVersion": 1,
@@ -185,13 +201,19 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertEqual(args[3], SHA)
 
     @mock.patch.object(admin.executor, "execute_deployment")
-    @mock.patch.object(admin, "_current_sha", return_value=SHA)
-    def test_start_job_is_async_and_persists_sanitized_result(self, current_sha, execute):
+    @mock.patch.object(admin, "_source_state")
+    def test_start_job_is_async_and_persists_sanitized_result(self, source_state, execute):
         admin.save_target(self.payload())
         admin._known_hosts_path().parent.mkdir(parents=True, exist_ok=True)
         admin._known_hosts_path().write_text(
             "[ssh.example.net]:5022 ssh-ed25519 AAAATEST\n",
             encoding="utf-8",
+        )
+        source_state.return_value = source.DeploymentSourceState(
+            mode="git_checkout",
+            sha=SHA,
+            build_capable=True,
+            reason="test",
         )
         execute.return_value = executor.DeploymentExecutionResult(
             action="install",
@@ -226,6 +248,43 @@ class DeploymentAdminTest(unittest.TestCase):
             "local-admin-secret-value",
         )
 
+    @mock.patch.object(admin.deployment_update, "read_remote_state")
+    @mock.patch.object(admin, "_source_state")
+    def test_packaged_source_reports_source_unavailable(self, source_state, read_remote):
+        admin.save_target(self.payload())
+        source_state.return_value = source.DeploymentSourceState(
+            mode="packaged_release",
+            sha=SHA,
+            build_capable=False,
+            reason="packaged",
+        )
+        read_remote.return_value = admin.deployment_update.RemoteDeploymentState(
+            installed=True,
+            deployed_sha=SHA,
+            releases=(
+                admin.deployment_update.RemoteRelease(SHA, 200),
+                admin.deployment_update.RemoteRelease("b" * 40, 100),
+            ),
+        )
+        result = admin.update_status("production")
+        self.assertEqual(result["state"], "source_unavailable")
+        self.assertFalse(result["updateAvailable"])
+        self.assertFalse(result["sourceBuildCapable"])
+        self.assertEqual(result["rollbackCandidates"], ["b" * 40])
+
+    @mock.patch.object(admin, "_source_state")
+    def test_packaged_source_blocks_install_and_update(self, source_state):
+        admin.save_target(self.payload())
+        source_state.return_value = source.DeploymentSourceState(
+            mode="packaged_release",
+            sha=SHA,
+            build_capable=False,
+            reason="packaged",
+        )
+        for action in ("install", "update"):
+            with self.subTest(action=action), self.assertRaisesRegex(RuntimeError, "source de build"):
+                admin.start_job("production", action)
+
     def test_local_admin_credential_must_be_private_and_valid(self):
         path = self.private / "admin-password"
         self.assertEqual(admin._local_admin_password(), "local-admin-secret-value")
@@ -240,7 +299,16 @@ class DeploymentAdminTest(unittest.TestCase):
         admin.save_target(self.payload())
         handle = admin._execution_lock()
         try:
-            with mock.patch.object(admin, "_current_sha", return_value=SHA):
+            with mock.patch.object(
+                admin,
+                "_source_state",
+                return_value=source.DeploymentSourceState(
+                    mode="git_checkout",
+                    sha=SHA,
+                    build_capable=True,
+                    reason="test",
+                ),
+            ):
                 with self.assertRaisesRegex(RuntimeError, "déjà en cours"):
                     admin.start_job("production", "install")
         finally:
