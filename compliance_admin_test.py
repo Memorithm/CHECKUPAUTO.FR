@@ -4,6 +4,7 @@ from pathlib import Path
 
 import compliance_admin
 import compliance_operations
+import compliance_store
 
 
 class ComplianceAdminSnapshotTest(unittest.TestCase):
@@ -55,6 +56,40 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         self.assertIn("documentTypes", state)
         # Contracting remains blocked by the existing CGV/withdrawal gates.
         self.assertFalse(state["summary"]["readyForPublicContracting"])
+
+    def test_complete_legal_and_operational_controls_can_open_contracting_gate(self):
+        identity = {key: "value" for key in compliance_store.SETTINGS_FIELDS}
+        identity.update({
+            "controllerName": "Example SAS",
+            "legalForm": "SAS",
+            "registeredAddress": "1 rue Exemple, 75000 Paris",
+            "registrationId": "RCS PARIS 000 000 000",
+            "publicationDirector": "Direction",
+            "contactEmail": "contact@example.test",
+            "privacyContact": "privacy@example.test",
+            "mediatorName": "Médiateur test",
+            "mediatorUrl": "https://example.test/mediation",
+            "hostName": "Hébergeur test",
+            "hostAddress": "2 rue Exemple, 75000 Paris",
+            "approvalAuthority": "Autorité compétente test",
+        })
+        compliance_store.save_settings(identity, self.db)
+        for doc_type, meta in compliance_store.DOCUMENT_TYPES.items():
+            compliance_store.save_document({
+                "type": doc_type,
+                "version": "1.0",
+                "title": meta["label"],
+                "body": ("Document juridiquement validé pour le test. " * 6) + doc_type,
+                "action": "publish",
+            }, self.db)
+        compliance_operations.upsert_processing_activity(self.activity(), self.db)
+
+        state = compliance_admin.snapshot(self.db)
+        self.assertTrue(state["summary"]["checkoutAcceptanceBound"])
+        self.assertTrue(state["summary"]["withdrawalFunctionBound"])
+        self.assertTrue(state["summary"]["operationalRegistersReady"])
+        self.assertTrue(state["summary"]["readyForPublicContracting"])
+        self.assertEqual(state["withdrawal"]["path"], "/retractation")
 
     def test_high_risk_pending_dpia_is_visible_in_same_snapshot(self):
         compliance_operations.upsert_processing_activity(
