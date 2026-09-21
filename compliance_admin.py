@@ -49,8 +49,12 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["withdrawalManualMatchRequired"] = int(withdrawal.get("manualMatchRequired") or 0)
     # Phase-2 fail-closed controls. These become true only when the executable
     # cross-store rights and retention engines are implemented and evidenced.
+    rights_capability = rights_execution.get("capability") or {}
     summary["dataSubjectExecutionBound"] = bool(
-        (rights_execution.get("capability") or {}).get("bound")
+        rights_capability.get("bound") and rights_capability.get("operationalReady")
+    )
+    summary["rightsUnresolvedLocatorCount"] = int(
+        rights_capability.get("unresolvedLocatorCount") or 0
     )
     summary["retentionEnforcementBound"] = False
     summary["operationalRegistersReady"] = operations_ready
