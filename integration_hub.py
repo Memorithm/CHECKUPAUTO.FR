@@ -9,6 +9,8 @@ import tempfile
 
 import requests
 
+import gmail_operational_evidence as gmail_evidence
+
 from google_ads_probe import (
     GOOGLE_ADS_SCOPE,
     GoogleAdsProbeError,
@@ -777,6 +779,32 @@ def _apply_drive_probe(row):
     return row
 
 
+def _apply_gmail_operational_evidence(row):
+    evidence = gmail_evidence.status()
+    verification = str(evidence.get("verification") or "unavailable")
+    if verification not in {"verified", "unavailable", "unverified"}:
+        verification = "unavailable"
+    row["verification"] = verification
+    row["operationalEvidence"] = {
+        "operationallyVerified": bool(evidence.get("operationallyVerified")),
+        "circuitOpen": bool(evidence.get("circuitOpen")),
+        "consecutiveFailures": max(0, int(evidence.get("consecutiveFailures") or 0)),
+    }
+    if verification == "verified":
+        row["connected"] = True
+        row["state"] = "connected"
+        row["detail"] = "OAuth Gmail autorisé · livraison réelle vérifiée"
+    elif verification == "unavailable":
+        row["connected"] = False
+        row["state"] = "attention"
+        row["detail"] = "OAuth Gmail autorisé · preuve de livraison actuellement indisponible"
+    else:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["detail"] = "OAuth Gmail autorisé · aucune livraison réelle vérifiée"
+    return row
+
+
 def status(legacy_search_console=None, base_url="", *, verify_remote=None):
     legacy_search_console = legacy_search_console or {}
     scopes = _granted_scopes()
@@ -847,6 +875,8 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
                 _apply_tag_manager_probe(row, cfg)
             elif key == "google_ads":
                 _apply_google_ads_probe(row, cfg)
+            elif key == "gmail":
+                _apply_gmail_operational_evidence(row)
             elif key == "calendar":
                 _apply_calendar_probe(row)
             elif key == "drive":
