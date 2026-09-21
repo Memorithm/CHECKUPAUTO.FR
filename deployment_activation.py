@@ -464,6 +464,7 @@ if previous_release is not None:
     )
 
 admin_credential_initialized = bootstrap_admin_credential()
+update_source_provisioned = bootstrap_update_source()
 had_htaccess = htaccess.exists()
 old_htaccess = htaccess.read_bytes() if had_htaccess else b""
 old_htaccess_mode = (htaccess.stat().st_mode & 0o777) if had_htaccess else 0o644
@@ -555,6 +556,7 @@ record = {
     "activationAllowed": allowed,
     "blockerCount": blocker_count,
     "adminCredentialInitialized": admin_credential_initialized,
+    "updateSourceProvisioned": update_source_provisioned,
     "backupSnapshot": str(backup_result.get("snapshot") or ""),
     "backupDatabaseCount": int(backup_result.get("databaseCount") or 0),
     "backupFileCount": int(backup_result.get("fileCount") or 0),
@@ -583,6 +585,7 @@ def remote_activation_script(
     release_sha: str,
     *,
     admin_password: str = "",
+    update_source: dict | None = None,
 ) -> str:
     sha = _release_sha(release_sha)
     if not target.web_root_path:
@@ -591,6 +594,16 @@ def remote_activation_script(
     if admin_password:
         encoded = base64.b64encode(
             _admin_password(admin_password).encode("utf-8")
+        ).decode("ascii")
+    source_encoded = ""
+    material = _update_source_material(update_source)
+    if material is not None:
+        source_encoded = base64.b64encode(
+            json.dumps(
+                material,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
         ).decode("ascii")
     args = " ".join([
         shlex.quote(target.root_path),
@@ -601,6 +614,9 @@ def remote_activation_script(
     program = remote_activation_program().replace(
         _ADMIN_PASSWORD_PLACEHOLDER,
         encoded,
+    ).replace(
+        _UPDATE_SOURCE_PLACEHOLDER,
+        source_encoded,
     )
     return "python3 - " + args + " <<'CHECKUPAUTO_ACTIVATE'\n" + program + "\nCHECKUPAUTO_ACTIVATE\n"
 
@@ -651,6 +667,7 @@ def activate_release(
     release_sha: str,
     *,
     admin_password: str = "",
+    update_source: dict | None = None,
     timeout: int = 180,
 ) -> ActivationResult:
     readiness = assess(target, capabilities)
@@ -660,6 +677,7 @@ def activate_release(
         target,
         release_sha,
         admin_password=admin_password,
+        update_source=update_source,
     )
     cred = credential.validate(target.auth_mode)
     args = transport.ssh_arguments(target, known_hosts, cred)
