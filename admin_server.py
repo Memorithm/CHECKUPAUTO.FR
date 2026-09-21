@@ -522,6 +522,18 @@ class Handler(SimpleHTTPRequestHandler):
  def do_POST(self):
   if not self._guard(): return
   path=urlparse(self.path).path
+  if path=='/api/booking/accept-terms':
+   try:
+    acceptance=booking.record_terms_acceptance(self._read_json())
+    return self.send_json({'ok':True,'acceptance':{
+      'termsVersion':acceptance.get('termsVersion'),
+      'termsContentHash':acceptance.get('termsContentHash'),
+      'acceptedAt':acceptance.get('acceptedAt'),
+      'immediatePerformance':bool(acceptance.get('immediatePerformance')),
+    }},201)
+   except PermissionError: return self.send_json({'ok':False,'error':'booking_acceptance_denied'},403)
+   except RuntimeError: return self.send_json({'ok':False,'error':'booking_terms_unavailable'},409)
+   except Exception: return self.send_json({'ok':False,'error':'booking_acceptance_invalid'},400)
   if path=='/api/integrations/mercure/browser-confirmed':
    try:
     origin=self.headers.get('Origin','')
