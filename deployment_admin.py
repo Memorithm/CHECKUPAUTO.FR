@@ -14,6 +14,7 @@ import uuid
 
 import deployment_center as center
 import deployment_executor as executor
+import deployment_source as deployment_source
 import deployment_transport as transport
 import deployment_update as deployment_update
 from deployment_vault import DeploymentVault
@@ -104,34 +105,25 @@ def _load_target(name: str):
     return target, credential
 
 
+def _source_state() -> deployment_source.DeploymentSourceState:
+    return deployment_source.detect_source(ROOT)
+
+
 def _current_sha() -> str:
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={ROOT}",
-            "-C",
-            str(ROOT),
-            "rev-parse",
-            "HEAD",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
-    sha = result.stdout.strip().lower()
-    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise RuntimeError("SHA Git local indisponible")
-    return sha
+    state = _source_state()
+    if not state.sha:
+        raise RuntimeError("SHA de release local indisponible")
+    return state.sha
 
 
 def status() -> dict:
+    source = _source_state()
     return {
         "ok": True,
         "profiles": center.provider_profiles(),
         "targets": targets(),
-        "currentSha": _current_sha(),
+        "currentSha": source.sha,
+        "source": source.public_dict(),
         "knownHostsConfigured": _known_hosts_path().is_file(),
         "jobs": list_jobs(12),
     }
@@ -571,9 +563,12 @@ def start_job(
     if action not in {"install", "update", "rollback"}:
         raise ValueError("action de déploiement invalide")
     _load_target(name)
+    source = _source_state()
+    if action in {"install", "update"} and not source.build_capable:
+        raise RuntimeError("source de build indisponible pour install/update")
     selected_sha = str(sha or "").strip().lower()
     if action in {"install", "update"} and not selected_sha:
-        selected_sha = _current_sha()
+        selected_sha = source.sha
     if not re.fullmatch(r"[0-9a-f]{40}", selected_sha):
         raise ValueError("SHA de release invalide")
 
