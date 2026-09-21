@@ -15,9 +15,6 @@ import notification_broker
 import privacy_suppression
 import reminder_dispatch
 import review_followup
-import security_alerts
-import security_behavior
-import security_guard
 import site_config_store
 
 
@@ -403,6 +400,12 @@ def _purge_inactive_suppressions(*, dry_run: bool, db_path: Path | str | None = 
 
 
 def _purge_security_telemetry(days: int, *, dry_run: bool) -> int:
+    # Sentinel currently initializes persistent state at module import, so keep
+    # this dependency lazy to preserve import-side-effect isolation elsewhere.
+    import security_alerts
+    import security_behavior
+    import security_guard
+
     security_guard.init_db()
     security_behavior.init_db()
     security_alerts.init_db()
