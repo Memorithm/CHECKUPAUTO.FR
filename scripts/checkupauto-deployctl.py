@@ -135,6 +135,8 @@ def cmd_probe(args) -> int:
             "freeDiskMb": capabilities.free_disk_mb,
             "passengerWsgiAdapter": capabilities.passenger_wsgi_adapter,
             "sharedHostTick": capabilities.shared_host_tick,
+            "cloudlinuxSelector": capabilities.cloudlinux_selector,
+            "managedPythonVersion": capabilities.managed_python_version,
         },
     }, ensure_ascii=False, indent=2))
     return 0
