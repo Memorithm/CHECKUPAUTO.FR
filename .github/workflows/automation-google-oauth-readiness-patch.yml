@@ -20,14 +20,20 @@ jobs:
       - name: Apply readiness patch
         run: python3 scripts/.automation_google_oauth_readiness_patch.py
 
+      - name: Create isolated test environment
+        run: |
+          python3 -m venv .automation-venv
+          .automation-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+
       - name: Validate focused readiness tests
         run: |
-          python3 -m compileall -q production_readiness.py production_readiness_test.py
-          python3 -m unittest production_readiness_test.py
+          .automation-venv/bin/python -m compileall -q production_readiness.py production_readiness_test.py
+          .automation-venv/bin/python -m unittest production_readiness_test.py
 
       - name: Commit final branch state
         run: |
           set -euo pipefail
+          rm -rf .automation-venv
           rm .github/workflows/automation-google-oauth-readiness-patch.yml
           rm scripts/.automation_google_oauth_readiness_patch.py
           git config user.name "CHECKUPAUTO Automation"
