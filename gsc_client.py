@@ -37,38 +37,60 @@ def _valid_service_account_payload(data):
     return str(data.get('token_uri') or '').strip() == TOKEN_URL
 
 
+def _read_service_account():
+    if not CREDS.exists():
+        return None, False
+    try:
+        data = json.loads(CREDS.read_text())
+    except (OSError, TypeError, ValueError):
+        return None, True
+    if not _valid_service_account_payload(data):
+        return None, True
+    return data, False
+
+
+def _oauth_info_if_usable():
+    try:
+        if not integrations.has_usable_scopes(SCOPES):
+            return None
+        return integrations.oauth_client_info()
+    except OSError:
+        return None
+
+
 def credential_info():
-    if CREDS.exists():
-        try:
-            data = json.loads(CREDS.read_text())
-        except (OSError, TypeError, ValueError):
-            data = None
-        if not _valid_service_account_payload(data):
-            return {
-                'configured': False,
-                'mode': 'service_account_invalid',
-                'clientEmail': None,
-                'projectId': None,
-            }
+    data, static_invalid = _read_service_account()
+    if data is not None:
         return {
             'configured': True,
             'mode': 'service_account',
             'clientEmail': data.get('client_email'),
             'projectId': data.get('project_id'),
+            'serviceAccountInvalid': False,
         }
-    if integrations.has_usable_scopes(SCOPES):
-        info = integrations.oauth_client_info()
+    oauth_info = _oauth_info_if_usable()
+    if oauth_info is not None:
         return {
             'configured': True,
             'mode': 'oauth',
             'clientEmail': 'Compte Google OAuth',
-            'projectId': info.get('projectId'),
+            'projectId': oauth_info.get('projectId'),
+            'serviceAccountInvalid': static_invalid,
+        }
+    if static_invalid:
+        return {
+            'configured': False,
+            'mode': 'service_account_invalid',
+            'clientEmail': None,
+            'projectId': None,
+            'serviceAccountInvalid': True,
         }
     return {
         'configured': False,
         'mode': None,
         'clientEmail': None,
         'projectId': None,
+        'serviceAccountInvalid': False,
     }
 
 
@@ -102,7 +124,8 @@ def remove_credentials():
 
 
 def _access_token():
-    if CREDS.exists():
+    data, _static_invalid = _read_service_account()
+    if data is not None:
         try:
             creds = service_account.Credentials.from_service_account_file(
                 str(CREDS),
