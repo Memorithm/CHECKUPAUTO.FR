@@ -28,11 +28,22 @@ class GSCError(RuntimeError):
         super().__init__(str(message or 'Erreur Google Search Console')[:180])
 
 
+def _valid_service_account_payload(data):
+    if not isinstance(data, dict) or data.get('type') != 'service_account':
+        return False
+    required = ('client_email', 'private_key', 'project_id')
+    if any(not str(data.get(key) or '').strip() for key in required):
+        return False
+    return str(data.get('token_uri') or '').strip() == TOKEN_URL
+
+
 def credential_info():
     if CREDS.exists():
         try:
             data = json.loads(CREDS.read_text())
         except (OSError, TypeError, ValueError):
+            data = None
+        if not _valid_service_account_payload(data):
             return {
                 'configured': False,
                 'mode': 'service_account_invalid',
