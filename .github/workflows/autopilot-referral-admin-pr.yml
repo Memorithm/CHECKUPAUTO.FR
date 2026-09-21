@@ -2,16 +2,14 @@ name: Autopilot Referral Admin Integrity Patch
 
 on:
   push:
-    branches: [autopilot/referral-admin-integrity]
-  pull_request:
-    branches: [main]
+    branches:
+      - autopilot/referral-admin-integrity
 
 permissions:
   contents: write
 
 jobs:
   patch-and-test:
-    if: github.ref_name == 'autopilot/referral-admin-integrity' || github.head_ref == 'autopilot/referral-admin-integrity'
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 30
     steps:
