@@ -21,6 +21,7 @@ _ALLOWED_KEYS = {
     "cron",
     "symlink",
     "writable_root",
+    "writable_web_root",
     "free_disk_mb",
 }
 
@@ -94,9 +95,11 @@ def ssh_arguments(
 
 def remote_probe_script(target: DeploymentTarget) -> str:
     root = shlex.quote(target.root_path)
+    web_root = shlex.quote(target.web_root_path)
     return f"""set -eu
 printf '{_PROBE_PREFIX}\\n'
 root={root}
+web_root={web_root}
 probe_parent="$root"
 if [ ! -d "$probe_parent" ]; then
   probe_parent="$(dirname "$root")"
@@ -110,6 +113,16 @@ if [ -d "$root" ]; then
   if [ -w "$root" ]; then writable=1; else writable=0; fi
 else
   if [ -d "$probe_parent" ] && [ -w "$probe_parent" ]; then writable=1; else writable=0; fi
+fi
+web_writable=1
+if [ -n "$web_root" ]; then
+  web_parent="$web_root"
+  if [ ! -d "$web_parent" ]; then web_parent="$(dirname "$web_root")"; fi
+  if [ -d "$web_root" ]; then
+    if [ -w "$web_root" ]; then web_writable=1; else web_writable=0; fi
+  else
+    if [ -d "$web_parent" ] && [ -w "$web_parent" ]; then web_writable=1; else web_writable=0; fi
+  fi
 fi
 symlink=0
 tmp=""
@@ -130,6 +143,7 @@ printf 'systemd=%s\\n' "$systemd"
 printf 'cron=%s\\n' "$cron"
 printf 'symlink=%s\\n' "$symlink"
 printf 'writable_root=%s\\n' "$writable"
+printf 'writable_web_root=%s\\n' "$web_writable"
 printf 'free_disk_mb=%s\\n' "$disk"
 """
 
@@ -156,7 +170,16 @@ def parse_probe(
         if key in _ALLOWED_KEYS:
             values[key] = value.strip()
 
-    required = {"python", "passenger", "systemd", "cron", "symlink", "writable_root", "free_disk_mb"}
+    required = {
+        "python",
+        "passenger",
+        "systemd",
+        "cron",
+        "symlink",
+        "writable_root",
+        "writable_web_root",
+        "free_disk_mb",
+    }
     if not required.issubset(values):
         raise ValueError("diagnostic SSH incomplet")
     try:
@@ -172,6 +195,7 @@ def parse_probe(
         cron=_parse_bool(values["cron"]),
         symlink=_parse_bool(values["symlink"]),
         writable_root=_parse_bool(values["writable_root"]),
+        writable_web_root=_parse_bool(values["writable_web_root"]),
         free_disk_mb=max(0, free_disk),
         passenger_wsgi_adapter=bool(passenger_wsgi_adapter),
         shared_host_tick=bool(shared_host_tick),
@@ -261,5 +285,6 @@ def sanitized_connection(target: DeploymentTarget) -> Mapping[str, object]:
         "username": target.username,
         "domain": target.domain,
         "rootPath": target.root_path,
+        "webRootPath": target.web_root_path,
         "authMode": target.auth_mode,
     }
