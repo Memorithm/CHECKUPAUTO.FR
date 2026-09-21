@@ -1,0 +1,55 @@
+name: Inspect CheckupAuto runtime safely
+
+on:
+  push:
+    branches: [automation/runtime-inspect]
+    paths:
+      - '.github/workflows/inspect-runtime-safe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Inspect production checkout and service without mutation
+        run: |
+          set -euo pipefail
+          target=/root/CyberCheckLive
+          git_safe=(git -c safe.directory="$target" -C "$target")
+          echo "RUNNER_USER=$(id -un)"
+          echo "RUNNER_HOST=$(hostname)"
+          if [ ! -d "$target/.git" ]; then
+            echo 'RUNTIME_CHECKOUT=missing'
+            exit 2
+          fi
+          echo 'RUNTIME_CHECKOUT=present'
+          echo "RUNTIME_HEAD=$(${git_safe[@]} rev-parse HEAD)"
+          echo "RUNTIME_BRANCH=$(${git_safe[@]} branch --show-current)"
+          dirty="$(${git_safe[@]} status --porcelain | wc -l | tr -d ' ')"
+          echo "RUNTIME_DIRTY_ENTRIES=$dirty"
+          echo "SERVICE_STATE=$(systemctl is-active cybercheck.service || true)"
+          http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8765/ || true)"
+          echo "LOCAL_HTTP_CODE=$http_code"
+          set +e
+          fetch_output="$(${git_safe[@]} fetch --quiet origin main 2>&1)"
+          fetch_rc=$?
+          set -e
+          echo "RUNTIME_FETCH_RC=$fetch_rc"
+          if [ "$fetch_rc" -eq 0 ]; then
+            echo "RUNTIME_ORIGIN_MAIN=$(${git_safe[@]} rev-parse origin/main)"
+          else
+            printf '%s\n' "$fetch_output" | sed -E 's#https://[^/@]+@github.com#https://<credential>@github.com#g' | head -3
+          fi
+      - name: Remove runtime inspection bootstrap
+        if: always()
+        run: |
+          rm -f .github/workflows/inspect-runtime-safe.yml
+          git add -A
+          git config user.name 'CHECKUPAUTO Automation'
+          git config user.email 'contact@checkupauto.fr'
+          git commit -m 'chore: remove safe runtime inspection bootstrap' || true
+          git push origin HEAD:automation/runtime-inspect || true
