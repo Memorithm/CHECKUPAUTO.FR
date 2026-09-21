@@ -261,6 +261,17 @@ def public_status() -> dict:
     return cfg.public_dict()
 
 
+def bootstrap_material() -> dict | None:
+    cfg = config()
+    if not token_configured(cfg.token_file):
+        return None
+    return {
+        "repository": cfg.repository,
+        "branch": cfg.branch,
+        "token": _read_token(cfg.token_file),
+    }
+
+
 def _headers(token: str) -> dict[str, str]:
     return {
         "Accept": "application/vnd.github+json",
