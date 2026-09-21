@@ -45,7 +45,6 @@ class SharedHostTickTest(unittest.TestCase):
                 (module.mobile_authoritative_sync, "sync_once"),
                 (module.mobile_reminder_dispatch, "process_once"),
                 (module.review_followup, "process_once"),
-                (module.places_competitive_sync, "sync_once"),
                 (module.security_alerts, "retry_pending"),
             ]
             for owner, name in functions:
@@ -55,7 +54,7 @@ class SharedHostTickTest(unittest.TestCase):
                 result = module.tick()
 
             self.assertTrue(result["ok"])
-            self.assertEqual(len(result["tasks"]), 7)
+            self.assertEqual(len(result["tasks"]), 6)
             module.admin_server.initialize_runtime.assert_called_once_with(background=False)
             for owner, name in functions:
                 getattr(owner, name).assert_called_once_with()
@@ -71,7 +70,6 @@ class SharedHostTickTest(unittest.TestCase):
             module.mobile_authoritative_sync.sync_once = mock.Mock(return_value={"ok": True})
             module.mobile_reminder_dispatch.process_once = mock.Mock(return_value={"ok": True})
             module.review_followup.process_once = mock.Mock(return_value={"ok": True})
-            module.places_competitive_sync.sync_once = mock.Mock(return_value={"ok": True})
             module.security_alerts.retry_pending = mock.Mock(return_value={"ok": True})
 
             with mock.patch.dict(os.environ, env, clear=False):
