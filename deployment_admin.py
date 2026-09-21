@@ -15,6 +15,7 @@ import uuid
 import deployment_center as center
 import deployment_executor as executor
 import deployment_transport as transport
+import deployment_update as deployment_update
 from deployment_vault import DeploymentVault
 
 ROOT = Path(__file__).resolve().parent
@@ -385,6 +386,18 @@ def probe(name: str) -> dict:
         },
         "assessment": assessment,
     }
+
+
+def update_status(name: str) -> dict:
+    target, credential = _load_target(name)
+    return deployment_update.update_status(
+        target,
+        _known_hosts_path(),
+        credential,
+        _current_sha(),
+        ROOT,
+        timeout=30,
+    )
 
 
 def plan(name: str, sha: str = "") -> dict:
