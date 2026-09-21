@@ -314,10 +314,11 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     q=parse_qs(parsed.query); token=(q.get('token') or [''])[0]
     return self.send_json(booking_test.status(token))
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError: return self.send_json({'ok':False,'error':'booking_test_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'booking_test_status_unavailable'},400)
   if path=='/api/booking/services':
-   c=load_config(); return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':incentive_config(c)})
+   c=load_config(); policy=incentive_config(c); today=mercure_admin.business_today(); horizon=today+datetime.timedelta(days=int(policy['horizonDays']))
+   return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':policy,'businessDate':today.isoformat(),'horizonEnd':horizon.isoformat()})
   if path=='/api/geo/coverage':
    try: return self.send_json(geo_marketing.coverage(load_config(),mercure_public.public_services()))
    except Exception: return self.send_json({'ok':False,'error':'geo_coverage_unavailable'},400)
@@ -329,8 +330,8 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)
   if path=='/api/booking/availability':
    try:
-    q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [datetime.date.today().isoformat()])[0]; c=load_config(); policy=incentive_config(c)
-    requested=datetime.date.fromisoformat(date); limit=datetime.date.today()+datetime.timedelta(days=int(policy['horizonDays']))
+    today=mercure_admin.business_today(); q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [today.isoformat()])[0]; c=load_config(); policy=incentive_config(c)
+    requested=datetime.date.fromisoformat(date); limit=today+datetime.timedelta(days=int(policy['horizonDays']))
     if requested>limit: raise ValueError(f"Date hors horizon de réservation ({policy['horizonDays']} jours)")
     result=mercure_public.availability(service,date); result['incentives']=policy; return self.send_json(result)
    except ValueError: return self.send_json({'ok':False,'error':'booking_availability_invalid'},400)
@@ -363,7 +364,7 @@ class Handler(SimpleHTTPRequestHandler):
     if path=='/api/admin/mercure/live-summary': return self.send_json(mercure_admin.live_summary(days))
     if path=='/api/admin/mercure/session-status': return self.send_json(mercure_admin.session_status())
     if path=='/api/admin/mercure/promotions':
-     q=parse_qs(parsed.query); today=datetime.date.today(); start=(q.get('start') or [today.isoformat()])[0]; end=(q.get('end') or [(today+datetime.timedelta(days=30)).isoformat()])[0]
+     q=parse_qs(parsed.query); today=mercure_admin.business_today(); start=(q.get('start') or [today.isoformat()])[0]; end=(q.get('end') or [(today+datetime.timedelta(days=30)).isoformat()])[0]
      return self.send_json({'promotions':mercure_admin.list_promotions(),'events':mercure_admin.promotion_events(start,end),'start':start,'end':end})
     if path=='/api/admin/mercure/secret': return self.send_json(booking.secret_info(True))
     return self.send_json({'error':'not_found'},404)
@@ -649,7 +650,7 @@ class Handler(SimpleHTTPRequestHandler):
     cap=float(policy.get('maxDiscountPercent') or 0)
     if cap>0 and discount>cap+0.001: raise ValueError(f'La remise dépasse le plafond administrateur de {cap:g} %')
     ds=str(payload.get('dateStart') or ''); de=str(payload.get('dateEnd') or ds); ts=_hhmm(payload.get('timeStart'),'Heure de début'); te=_hhmm(payload.get('timeEnd'),'Heure de fin')
-    d1=datetime.date.fromisoformat(ds); d2=datetime.date.fromisoformat(de); today=datetime.date.today()
+    d1=datetime.date.fromisoformat(ds); d2=datetime.date.fromisoformat(de); today=mercure_admin.business_today()
     if d1<today: raise ValueError('La promotion doit commencer aujourd’hui ou plus tard')
     if d2<d1: raise ValueError('La date de fin doit être postérieure à la date de début')
     if d2>today+datetime.timedelta(days=int(policy['horizonDays'])): raise ValueError(f"La promotion dépasse l’horizon autorisé de {policy['horizonDays']} jours")
