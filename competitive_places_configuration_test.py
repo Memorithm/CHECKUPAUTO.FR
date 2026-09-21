@@ -1,8 +1,18 @@
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
-import competitive_intelligence as competitive
+_IMPORT_DATA = tempfile.TemporaryDirectory()
+_PREVIOUS_DATA_DIR = os.environ.get("CYBERCHECK_DATA_DIR")
+os.environ["CYBERCHECK_DATA_DIR"] = _IMPORT_DATA.name
+try:
+    import competitive_intelligence as competitive
+finally:
+    if _PREVIOUS_DATA_DIR is None:
+        os.environ.pop("CYBERCHECK_DATA_DIR", None)
+    else:
+        os.environ["CYBERCHECK_DATA_DIR"] = _PREVIOUS_DATA_DIR
 
 
 class CompetitivePlacesConfigurationTest(unittest.TestCase):
