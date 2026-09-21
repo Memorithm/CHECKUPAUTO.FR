@@ -13,6 +13,12 @@ class IOSPrivacyManifestTest(unittest.TestCase):
         self.assertTrue(MANIFEST.is_file(), "PrivacyInfo.xcprivacy is required")
         return plistlib.loads(MANIFEST.read_bytes())
 
+    def _swift_source(self) -> str:
+        source_root = Path("ios/CheckupAutoReminder/Sources")
+        return "\n".join(
+            path.read_text(encoding="utf-8") for path in sorted(source_root.glob("*.swift"))
+        )
+
     def test_tracking_is_explicitly_disabled(self):
         manifest = self._manifest()
         self.assertIs(manifest.get("NSPrivacyTracking"), False)
@@ -38,17 +44,24 @@ class IOSPrivacyManifestTest(unittest.TestCase):
                 ["NSPrivacyCollectedDataTypePurposeAppFunctionality"],
             )
 
-    def test_no_required_reason_api_is_declared_without_current_code_evidence(self):
+    def test_userdefaults_required_reason_is_declared(self):
         manifest = self._manifest()
-        self.assertEqual(manifest.get("NSPrivacyAccessedAPITypes"), [])
-
-    def test_current_swift_sources_do_not_use_known_required_reason_api_wrappers(self):
-        source_root = Path("ios/CheckupAutoReminder/Sources")
-        swift = "\n".join(
-            path.read_text(encoding="utf-8") for path in sorted(source_root.glob("*.swift"))
+        self.assertEqual(
+            manifest.get("NSPrivacyAccessedAPITypes"),
+            [
+                {
+                    "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+                    "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
+                }
+            ],
         )
+        swift = self._swift_source()
+        self.assertIn("UserDefaults", swift)
+        self.assertNotIn("UserDefaults(suiteName:", swift)
+
+    def test_no_other_known_required_reason_api_wrapper_is_present(self):
+        swift = self._swift_source()
         for token in (
-            "UserDefaults",
             "systemUptime",
             "volumeAvailableCapacity",
             "volumeAvailableCapacityForImportantUsage",
