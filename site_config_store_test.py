@@ -42,6 +42,35 @@ class SiteConfigStoreTest(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o777, 0o640)
             self.assertEqual(list(target.parent.glob("site-config.*.json")), [])
 
+    def test_save_accepts_production_canonical_origin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "site-config.json"
+            config = {"seo": {"canonicalUrl": "https://www.checkupauto.fr/"}}
+            site_config_store.save(config, runtime_path=target)
+            self.assertEqual(json.loads(target.read_text()), config)
+
+    def test_save_rejects_foreign_or_insecure_canonical_origin(self):
+        invalid = (
+            "http://www.checkupauto.fr/",
+            "https://example.invalid/",
+            "https://www.checkupauto.fr.evil.invalid/",
+            "https://user@www.checkupauto.fr/",
+            "https://www.checkupauto.fr:444/",
+            "https://www.checkupauto.fr/other",
+            "https://www.checkupauto.fr/?redirect=1",
+            "https://www.checkupauto.fr/#fragment",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "site-config.json"
+            for value in invalid:
+                with self.subTest(value=value):
+                    with self.assertRaises(ValueError):
+                        site_config_store.save(
+                            {"seo": {"canonicalUrl": value}},
+                            runtime_path=target,
+                        )
+            self.assertFalse(target.exists())
+
     def test_environment_can_relocate_runtime_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "custom.json"

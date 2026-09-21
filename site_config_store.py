@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlparse
 import json
 import os
 import tempfile
@@ -9,6 +10,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "data" / "site-config.json"
 DEFAULT_RUNTIME_CONFIG = Path("/root/CyberCheckData/site-config.json")
+_CANONICAL_HOST = "www.checkupauto.fr"
 
 
 def runtime_config_path() -> Path:
@@ -28,7 +30,34 @@ def load(*, runtime_path: Path | None = None, default_path: Path | None = None) 
     return json.loads(source.read_text())
 
 
+def _validate_public_canonical(config: dict) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("site config must be an object")
+    seo = config.get("seo")
+    if not isinstance(seo, dict) or "canonicalUrl" not in seo:
+        return
+    raw = str(seo.get("canonicalUrl") or "").strip()
+    try:
+        parsed = urlparse(raw)
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("seo.canonicalUrl invalid") from exc
+    if (
+        parsed.scheme != "https"
+        or hostname != _CANONICAL_HOST
+        or port not in (None, 443)
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise ValueError("seo.canonicalUrl must use the CheckupAuto production origin")
+
+
 def save(config: dict, *, runtime_path: Path | None = None) -> Path:
+    _validate_public_canonical(config)
     target = Path(runtime_path) if runtime_path is not None else runtime_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix="site-config.", suffix=".json", dir=str(target.parent))
