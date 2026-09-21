@@ -748,10 +748,14 @@ def finalize_checkout_acceptance(
             raise PermissionError("acceptation CGV manquante")
         previous_ref = str(row["finalized_contract_ref"] or "")
         if previous_ref and previous_ref != contract_ref:
-            # A browser callback uses a deterministic placeholder before Mercure
-            # can provide its authoritative booking id. Only that placeholder may
-            # be upgraded; an authoritative reference is immutable.
-            if not previous_ref.startswith("browser-") or contract_ref.startswith("browser-"):
+            # Either side of the provider/browser race may arrive first. A
+            # provider reference is authoritative: upgrade a browser placeholder
+            # to it, or reuse it when the later browser callback arrives.
+            if previous_ref.startswith("browser-") and not contract_ref.startswith("browser-"):
+                pass
+            elif not previous_ref.startswith("browser-") and contract_ref.startswith("browser-"):
+                contract_ref = previous_ref
+            else:
                 raise ValueError("acceptation déjà liée à une autre référence contrat")
 
         existing = db.execute(
