@@ -101,7 +101,7 @@ class IntegrationHubTest(unittest.TestCase):
                 "code",
             )
 
-    def test_callback_persists_token_and_marks_connector_connected(self):
+    def test_callback_persists_token_and_requires_analytics_target(self):
         self.install_client()
         auth = hub.create_authorization_url("https://www.checkupauto.fr", ["analytics"])
         state = parse_qs(urlparse(auth["authorizationUrl"]).query)["state"][0]
@@ -118,6 +118,10 @@ class IntegrationHubTest(unittest.TestCase):
             hub.handle_oauth_callback("https://www.checkupauto.fr", state, "code")
         status = hub.status()
         analytics = next(x for x in status["connectors"] if x["id"] == "analytics")
+        self.assertFalse(analytics["connected"])
+        self.assertEqual(analytics["state"], "attention")
+        hub.save_settings({"analyticsPropertyId": "123456789"})
+        analytics = next(x for x in hub.status()["connectors"] if x["id"] == "analytics")
         self.assertTrue(analytics["connected"])
         saved = json.loads(hub.TOKEN_FILE.read_text())
         self.assertEqual(saved["refresh_token"], "refresh")
@@ -211,7 +215,6 @@ class IntegrationHubTest(unittest.TestCase):
         self.assertEqual(caught.exception.status, 503)
         self.assertEqual(caught.exception.retry_after, "90")
         self.assertTrue(caught.exception.retryable)
-
 
     def test_force_refresh_does_not_trust_cached_access_token(self):
         self.install_client()
