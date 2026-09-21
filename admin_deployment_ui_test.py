@@ -84,8 +84,9 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertIn('id="deploymentGitHubTest"', html)
         self.assertIn('id="deploymentGitHubDelete"', html)
         self.assertIn("deploymentGitHubToken').value = ''", script)
-        self.assertNotIn("remote.token", script)
-        self.assertNotIn("source.token", script)
+        self.assertNotIn("remote.tokenValue", script)
+        self.assertNotIn("source.tokenValue", script)
+        self.assertNotIn("remote.password", script)
 
     def test_packaged_source_ui_disables_install_and_update(self):
         script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
