@@ -118,6 +118,36 @@ class DeploymentActivationTest(unittest.TestCase):
                 admin_password="short",
             )
 
+    def test_cutover_pending_output_is_not_treated_as_activation(self):
+        result = activation._parse_activation_output(
+            "\n".join([
+                f"CHECKUPAUTO_PUBLIC_CUTOVER_REQUIRED={SHA}",
+                "CHECKUPAUTO_PREVIOUS_SHA=none",
+                "CHECKUPAUTO_READINESS_STATE=blocked_external",
+                "CHECKUPAUTO_ACTIVATION_ALLOWED=0",
+                "CHECKUPAUTO_BLOCKER_COUNT=1",
+            ]),
+            SHA,
+        )
+        self.assertEqual(result.sha, SHA)
+        self.assertFalse(result.activated)
+        self.assertFalse(result.public_verified)
+        self.assertFalse(result.activation_allowed)
+        self.assertEqual(result.readiness_state, "blocked_external")
+
+    def test_target_route_is_checked_before_activation_mutations(self):
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password="local-admin-secret-value",
+        )
+        precheck = script.index("if not target_route_matches(probe_name, probe_value)")
+        htaccess = script.index("atomic_write(htaccess, new_htaccess")
+        current = script.index("switch_current(release)")
+        self.assertLess(precheck, htaccess)
+        self.assertLess(precheck, current)
+        self.assertIn("CHECKUPAUTO_PUBLIC_CUTOVER_REQUIRED=", script)
+
     def test_parse_activation_output_is_bounded(self):
         result = activation._parse_activation_output(
             "\n".join([
@@ -134,6 +164,8 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertEqual(result.readiness_state, "degraded")
         self.assertFalse(result.activation_allowed)
         self.assertEqual(result.blocker_count, 2)
+        self.assertTrue(result.activated)
+        self.assertTrue(result.public_verified)
 
         invalid_rows = [
             f"CHECKUPAUTO_ACTIVATE_OK={'0' * 40}\nCHECKUPAUTO_PREVIOUS_SHA=none\nCHECKUPAUTO_READINESS_STATE=ready\nCHECKUPAUTO_ACTIVATION_ALLOWED=1\nCHECKUPAUTO_BLOCKER_COUNT=0",
