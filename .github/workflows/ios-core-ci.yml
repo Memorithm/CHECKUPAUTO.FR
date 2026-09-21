@@ -77,7 +77,7 @@ jobs:
           printf '%s\n' "$remote_dir" > .ios-remote-dir
           ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
-          tar -czf - ios/CheckupAutoReminder | \
+          tar -czf - ios/CheckupAutoReminder ios_release_runner.py | \
             ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xzf - -C '$remote_dir'"
       - name: Run Swift package tests on Mac mini
@@ -95,7 +95,7 @@ jobs:
           remote_dir="$(cat .ios-remote-dir)"
           ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
+            "set -euo pipefail; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
       - name: Clean remote staging directory and ephemeral identity
         if: always()
         run: |
