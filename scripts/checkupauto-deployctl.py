@@ -194,6 +194,8 @@ def _result_payload(result) -> dict:
             "activationAllowed": result.activation_allowed,
             "blockerCount": result.blocker_count,
         },
+        "activated": result.activated,
+        "publicVerified": result.public_verified,
     }
     if result.staged:
         payload["release"] = {
