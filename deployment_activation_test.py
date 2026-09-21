@@ -137,6 +137,16 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertLess(switch, verify)
         self.assertLess(verify, cleanup)
 
+    def test_update_safety_can_fallback_to_current_release_for_legacy_rollback(self):
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password="local-admin-secret-value",
+        )
+        self.assertIn("candidates = [release]", script)
+        self.assertIn("candidates.append(previous_release)", script)
+        self.assertIn('fail("update safety helper missing")', script)
+
     def test_parse_activation_output_is_bounded(self):
         result = activation._parse_activation_output(
             "\n".join([
