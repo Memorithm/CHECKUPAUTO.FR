@@ -183,6 +183,28 @@ def init_db() -> None:
     analytics.DB.chmod(0o600)
 
 
+def _checkpoint_balance_locked(db, account_id: str) -> int:
+    row = db.execute(
+        "SELECT balance_cents FROM referral_ledger_checkpoint WHERE account_id=?",
+        (account_id,),
+    ).fetchone()
+    return int(row["balance_cents"]) if row else 0
+
+
+def _wallet_balance_locked(db, account_id: str) -> int:
+    live = int(
+        db.execute(
+            "SELECT COALESCE(SUM(amount_cents),0) balance FROM referral_ledger WHERE account_id=?",
+            (account_id,),
+        ).fetchone()["balance"]
+    )
+    return _checkpoint_balance_locked(db, account_id) + live
+
+
+def _reference_hash(reference: str) -> str:
+    return hashlib.sha256(str(reference).encode("utf-8")).hexdigest()
+
+
 def create_account(code: object = "", reward_cents: int | None = None) -> dict:
     init_db()
     clean = normalize_code(code)
@@ -363,6 +385,16 @@ def _earned_reference_locked(db, row, provider: str, external_id: str, reward_ce
             raise RuntimeError("Intégrité du crédit de parrainage incohérente")
         return reference
 
+    compacted = db.execute(
+        """SELECT amount_cents FROM referral_compacted_reward_evidence
+           WHERE account_id=? AND reference=?""",
+        (row["account_id"], reference),
+    ).fetchone()
+    if compacted:
+        if int(compacted["amount_cents"]) != reward_cents:
+            raise RuntimeError("Intégrité du crédit de parrainage incohérente")
+        return reference
+
     legacy_reference = _legacy_reward_ledger_reference(provider, external_id)
     legacy_earned = db.execute(
         """SELECT amount_cents FROM referral_ledger
@@ -398,7 +430,12 @@ def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -
            WHERE account_id=? AND kind='reverse' AND reference=?""",
         (row["account_id"], reference),
     ).fetchone()
-    if existing_reverse:
+    compacted_reverse = db.execute(
+        """SELECT reversed FROM referral_compacted_reward_evidence
+           WHERE account_id=? AND reference=?""",
+        (row["account_id"], reference),
+    ).fetchone()
+    if existing_reverse or (compacted_reverse and bool(compacted_reverse["reversed"])):
         raise RuntimeError("Intégrité de l'annulation de parrainage incohérente")
     try:
         db.execute(
@@ -416,6 +453,12 @@ def _reverse_earned_locked(db, row, provider: str, external_id: str, now: str) -
         )
     except sqlite3.IntegrityError as exc:
         raise RuntimeError("Intégrité de l'annulation de parrainage incohérente") from exc
+    db.execute(
+        """UPDATE referral_compacted_reward_evidence
+           SET reversed=1,compacted_at=?
+           WHERE account_id=? AND reference=?""",
+        (now, row["account_id"], reference),
+    )
     changed = db.execute(
         """UPDATE referral_rewards
            SET status='reversed',updated_at=?,reversed_at=?
@@ -487,14 +530,16 @@ def redeem(code: object, amount_cents: int, reference: object) -> dict:
         account = _account_by_code(db, code)
         if not account:
             raise ValueError("Code de parrainage inconnu")
-        balance = int(
-            db.execute(
-                "SELECT COALESCE(SUM(amount_cents),0) balance FROM referral_ledger WHERE account_id=?",
-                (account["id"],),
-            ).fetchone()["balance"]
-        )
+        balance = _wallet_balance_locked(db, account["id"])
         if amount > balance:
             raise ValueError("Solde de cagnotte insuffisant")
+        tombstone = db.execute(
+            """SELECT 1 FROM referral_redeem_tombstone
+               WHERE account_id=? AND reference_hash=?""",
+            (account["id"], _reference_hash(reference)),
+        ).fetchone()
+        if tombstone:
+            raise ValueError("Cette utilisation de cagnotte a déjà été enregistrée")
         try:
             db.execute(
                 """INSERT INTO referral_ledger(
@@ -519,12 +564,12 @@ def account_summary(code: object) -> dict:
         ).fetchone()
         if not account:
             raise ValueError("Code de parrainage inconnu")
-        balance = int(
-            db.execute(
-                "SELECT COALESCE(SUM(amount_cents),0) balance FROM referral_ledger WHERE account_id=?",
-                (account["id"],),
-            ).fetchone()["balance"]
-        )
+        checkpoint = db.execute(
+            """SELECT balance_cents,compacted_entries,updated_at
+               FROM referral_ledger_checkpoint WHERE account_id=?""",
+            (account["id"],),
+        ).fetchone()
+        balance = _wallet_balance_locked(db, account["id"])
         counts = {
             row["status"]: int(row["n"])
             for row in db.execute(
@@ -554,6 +599,9 @@ def account_summary(code: object) -> dict:
             "currency": account["currency"],
             "rewardCents": int(account["reward_cents"]),
             "balanceCents": balance,
+            "compactedBalanceCents": int(checkpoint["balance_cents"]) if checkpoint else 0,
+            "compactedEntries": int(checkpoint["compacted_entries"]) if checkpoint else 0,
+            "compactedAt": str(checkpoint["updated_at"]) if checkpoint else "",
             "pendingCents": pending_cents,
             "earnedReferrals": counts.get("earned", 0),
             "pendingReferrals": counts.get("pending", 0),
