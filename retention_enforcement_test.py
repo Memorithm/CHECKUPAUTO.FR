@@ -14,6 +14,9 @@ import privacy_suppression
 import reminder_dispatch
 import retention_enforcement as retention
 import review_followup
+import security_alerts
+import security_behavior
+import security_guard
 
 
 class RetentionEnforcementTest(unittest.TestCase):
@@ -40,6 +43,13 @@ class RetentionEnforcementTest(unittest.TestCase):
             "review_db": review_followup.DB,
             "reminder_dir": reminder_dispatch.DATA_DIR,
             "reminder_db": reminder_dispatch.DB,
+            "security_guard_dir": security_guard.STATE_DIR,
+            "security_guard_db": security_guard.DB,
+            "security_guard_secret": security_guard.SECRET_FILE,
+            "security_behavior_dir": security_behavior.STATE_DIR,
+            "security_behavior_db": security_behavior.DB,
+            "security_alerts_dir": security_alerts.STATE_DIR,
+            "security_alerts_db": security_alerts.DB,
         }
         analytics_store.DB = self.root / "analytics.sqlite3"
         booking_bridge.SECRET_FILE = self.root / "private" / "mercure-webhook-secret"
@@ -51,6 +61,14 @@ class RetentionEnforcementTest(unittest.TestCase):
         review_followup.DB = review_followup.DATA_DIR / "review.sqlite3"
         reminder_dispatch.DATA_DIR = self.root / "reminders"
         reminder_dispatch.DB = reminder_dispatch.DATA_DIR / "reminder.sqlite3"
+        security_dir = self.root / "security"
+        security_guard.STATE_DIR = security_dir
+        security_guard.DB = security_dir / "security.sqlite3"
+        security_guard.SECRET_FILE = security_dir / "client-hmac-secret"
+        security_behavior.STATE_DIR = security_dir
+        security_behavior.DB = security_guard.DB
+        security_alerts.STATE_DIR = security_dir
+        security_alerts.DB = security_guard.DB
         self.addCleanup(self._restore_globals)
 
         self.db = self.root / "compliance.sqlite3"
@@ -75,6 +93,13 @@ class RetentionEnforcementTest(unittest.TestCase):
         review_followup.DB = self.originals["review_db"]
         reminder_dispatch.DATA_DIR = self.originals["reminder_dir"]
         reminder_dispatch.DB = self.originals["reminder_db"]
+        security_guard.STATE_DIR = self.originals["security_guard_dir"]
+        security_guard.DB = self.originals["security_guard_db"]
+        security_guard.SECRET_FILE = self.originals["security_guard_secret"]
+        security_behavior.STATE_DIR = self.originals["security_behavior_dir"]
+        security_behavior.DB = self.originals["security_behavior_db"]
+        security_alerts.STATE_DIR = self.originals["security_alerts_dir"]
+        security_alerts.DB = self.originals["security_alerts_db"]
 
     @staticmethod
     def _iso(days_ago):
@@ -222,13 +247,79 @@ class RetentionEnforcementTest(unittest.TestCase):
         with notification_broker.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) n FROM notification_delivery").fetchone()["n"], 1)
 
-    def test_unimplemented_security_and_referral_purgers_keep_readiness_closed(self):
+    def test_security_purge_keeps_unacknowledged_alerts(self):
         retention.save_policy({
             "ruleId": "security_telemetry",
-            "activeDays": 180,
-            "justification": "Fenêtre de sécurité à valider avec la politique Sentinel.",
+            "activeDays": 30,
+            "justification": "Fenêtre de détection Sentinel limitée aux investigations courantes.",
             "enabled": True,
         }, self.db)
+        security_guard.init_db()
+        security_behavior.init_db()
+        security_alerts.init_db()
+        old = self._iso(45)
+        new = self._iso(2)
+        old_day = old[:10]
+        with __import__("sqlite3").connect(security_guard.DB) as db:
+            db.execute(
+                """INSERT INTO security_events(
+                     occurred_at,client_hash,method,path,status,risk,action,reason
+                   ) VALUES(?,?,?,?,?,?,?,?)""",
+                (old, "client-old", "GET", "/", 200, 10, "allow", ""),
+            )
+            db.execute(
+                """INSERT INTO behavior_profiles(
+                     day,fingerprint,client_hash,first_seen,last_seen,requests,errors,
+                     unique_paths,max_risk,classification
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (old_day, "fp-old", "client-old", old, old, 1, 0, 1, 10, "normal"),
+            )
+            db.execute(
+                """INSERT INTO security_alerts(
+                     created_at,level,kind,title,detail,fingerprint,dedup_key,metadata_json,
+                     acknowledged,delivered
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (old, "medium", "old-resolved", "Resolved", "", "", "resolved", "{}", 1, 1),
+            )
+            db.execute(
+                """INSERT INTO security_alerts(
+                     created_at,level,kind,title,detail,fingerprint,dedup_key,metadata_json,
+                     acknowledged,delivered
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (old, "high", "old-open", "Open", "", "", "open", "{}", 0, 0),
+            )
+            db.execute(
+                """INSERT INTO security_alerts(
+                     created_at,level,kind,title,detail,fingerprint,dedup_key,metadata_json,
+                     acknowledged,delivered
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (new, "low", "new-resolved", "New", "", "", "new", "{}", 1, 1),
+            )
+
+        with mock.patch.object(retention.site_config_store, "load", return_value=self._site_config()):
+            result = retention.run_once(dry_run=False, db_path=self.db)
+        row = next(item for item in result["rules"] if item["ruleId"] == "security_telemetry")
+        self.assertEqual(row["state"], "ready")
+        self.assertGreaterEqual(row["removedCount"], 3)
+        with __import__("sqlite3").connect(security_guard.DB) as db:
+            events = db.execute("SELECT COUNT(*) FROM security_events").fetchone()[0]
+            profiles = db.execute("SELECT COUNT(*) FROM behavior_profiles").fetchone()[0]
+            open_alert = db.execute(
+                "SELECT COUNT(*) FROM security_alerts WHERE kind='old-open'"
+            ).fetchone()[0]
+            resolved_old = db.execute(
+                "SELECT COUNT(*) FROM security_alerts WHERE kind='old-resolved'"
+            ).fetchone()[0]
+            new_alert = db.execute(
+                "SELECT COUNT(*) FROM security_alerts WHERE kind='new-resolved'"
+            ).fetchone()[0]
+        self.assertEqual(events, 0)
+        self.assertEqual(profiles, 0)
+        self.assertEqual(open_alert, 1)
+        self.assertEqual(resolved_old, 0)
+        self.assertEqual(new_alert, 1)
+
+    def test_referral_ledger_stays_blocked_until_compaction_preserves_balances(self):
         retention.save_policy({
             "ruleId": "referral_ledger",
             "activeDays": 3650,
@@ -240,7 +331,6 @@ class RetentionEnforcementTest(unittest.TestCase):
             state = retention.status(self.db)
         blockers = {item["ruleId"]: item["reason"] for item in state["blockers"]}
         self.assertFalse(state["bound"])
-        self.assertEqual(blockers["security_telemetry"], "purger_implementation_required")
         self.assertEqual(blockers["referral_ledger"], "purger_implementation_required")
 
     def test_cron_process_reports_policy_blockers_without_failing_tick(self):
