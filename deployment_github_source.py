@@ -383,19 +383,30 @@ def _download_tarball(sha: str, *, session=None) -> bytes:
         headers={"User-Agent": "CheckupAuto-DeploymentCenter/1"},
         timeout=(5, 60),
         allow_redirects=False,
+        stream=True,
     )
     if response.status_code != 200:
         raise RuntimeError("téléchargement archive GitHub impossible")
     length = response.headers.get("Content-Length")
     if length:
         try:
-            if int(length) > MAX_DOWNLOAD_BYTES:
-                raise RuntimeError("archive GitHub trop volumineuse")
+            announced = int(length)
         except ValueError as exc:
             raise RuntimeError("taille archive GitHub invalide") from exc
-    raw = bytes(response.content)
-    if not raw or len(raw) > MAX_DOWNLOAD_BYTES:
-        raise RuntimeError("archive GitHub trop volumineuse")
+        if announced < 0 or announced > MAX_DOWNLOAD_BYTES:
+            raise RuntimeError("archive GitHub trop volumineuse")
+    chunks = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_DOWNLOAD_BYTES:
+            raise RuntimeError("archive GitHub trop volumineuse")
+        chunks.append(bytes(chunk))
+    raw = b"".join(chunks)
+    if not raw:
+        raise RuntimeError("archive GitHub vide")
     return raw
 
 
