@@ -35,6 +35,7 @@ import admin_mfa as admin_mfa
 import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
+import withdrawal_service as withdrawals
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -480,6 +481,17 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_bytes(mobile_claim_delivery.association_document(load_config()),'application/json',cache='public, max-age=3600')
    except Exception:
     return self.send_json({'error':'association_not_ready'},503)
+  if path=='/api/compliance/cookies':
+   try: return self.send_json(compliance.cookie_policy())
+   except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
+  if path in compliance.SLUG_TO_DOCUMENT:
+   doc=compliance.public_document_for_path(path)
+   if path=='/retractation':
+    origin=canonical_origin(load_config()['seo']['canonicalUrl'])
+    return self.send_bytes(withdrawals.render_page(doc,canonical_origin=origin),'text/html; charset=utf-8',cache='no-cache')
+   if not doc:
+    return self.send_bytes(b'Document juridique non publie','text/plain; charset=utf-8',404,'no-store')
+   return self.send_bytes(render_legal_document(doc,load_config()),'text/html; charset=utf-8',cache='no-cache')
   if path=='/zone-tarifs':
    return self.send_bytes(build_geo_pricing_page(load_config()),'text/html; charset=utf-8',cache='no-cache')
   if path=='/app/claim':
@@ -519,9 +531,35 @@ class Handler(SimpleHTTPRequestHandler):
   if length==0 and allow_empty: return {}
   if length<=0 or length>MAX_BODY: raise ValueError('invalid body size')
   return json.loads(self.rfile.read(length))
+ def _read_form(self):
+  ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+  if ctype!='application/x-www-form-urlencoded': raise ValueError('invalid content type')
+  length=int(self.headers.get('Content-Length','0'))
+  if length<=0 or length>MAX_BODY: raise ValueError('invalid body size')
+  raw=self.rfile.read(length).decode('utf-8')
+  parsed=parse_qs(raw,keep_blank_values=True,strict_parsing=False)
+  return {key:(values[0] if values else '') for key,values in parsed.items()}
  def do_POST(self):
   if not self._guard(): return
   path=urlparse(self.path).path
+  if path=='/retractation':
+   try:
+    if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
+    payload=self._read_form(); payload['confirm']=payload.get('confirm')=='yes'
+    result=withdrawals.submit(payload)
+    origin=canonical_origin(load_config()['seo']['canonicalUrl'])
+    return self.send_bytes(withdrawals.render_confirmation(result,canonical_origin=origin),'text/html; charset=utf-8',201,'no-store')
+   except ValueError:
+    return self.send_bytes(b'Declaration de retractation invalide','text/plain; charset=utf-8',400,'no-store')
+   except Exception:
+    return self.send_bytes(b'Declaration enregistree mais confirmation indisponible','text/plain; charset=utf-8',503,'no-store')
+  if path=='/api/compliance/withdrawal':
+   try:
+    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
+    payload=self._read_json(); payload['confirm']=payload.get('confirm') is True
+    return self.send_json({'ok':True,'withdrawal':withdrawals.submit(payload)},201)
+   except ValueError: return self.send_json({'ok':False,'error':'withdrawal_request_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'withdrawal_request_unavailable'},503)
   if path=='/api/booking/accept-terms':
    try:
     acceptance=booking.record_terms_acceptance(self._read_json())
