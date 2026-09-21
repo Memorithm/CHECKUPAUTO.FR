@@ -14,6 +14,7 @@ import compliance_store
 import mobile_devices
 import notification_broker
 import privacy_suppression
+import referral_engine
 import reminder_dispatch
 import review_followup
 import site_config_store
@@ -128,7 +129,6 @@ CONFIGURABLE_RULES = {
         "trigger": "created_at",
         "minimumDays": 1,
         "legalReviewRequired": True,
-        "implementationRequired": True,
     },
 }
 
@@ -622,6 +622,19 @@ def _purge_rights_evidence(days: int, *, dry_run: bool, db_path: Path | str | No
     return removed
 
 
+def _compact_referral_ledger(days: int, *, dry_run: bool) -> int:
+    result = referral_engine.compact_ledger(days, dry_run=dry_run)
+    if not bool(result.get("ok")):
+        raise RuntimeError("Compaction parrainage non confirmée")
+    skipped = int(result.get("skippedEntries") or 0)
+    if skipped:
+        raise RuntimeError("Compaction parrainage incomplète")
+    compacted = int(result.get("compactedEntries") or 0)
+    if compacted < 0:
+        raise RuntimeError("Compaction parrainage incohérente")
+    return compacted
+
+
 def _run_configurable_rule(
     state: dict,
     *,
@@ -650,6 +663,8 @@ def _run_configurable_rule(
         return _purge_withdrawal_evidence(days, dry_run=dry_run, db_path=db_path)
     if rule_id == "rights_requests_and_audit":
         return _purge_rights_evidence(days, dry_run=dry_run, db_path=db_path)
+    if rule_id == "referral_ledger":
+        return _compact_referral_ledger(days, dry_run=dry_run)
     raise NotImplementedError(rule_id)
 
 
