@@ -54,3 +54,18 @@ select{margin-top:8px;width:100%;border:1px solid var(--line);border-radius:9px;
 
 /* ReferralWallet */
 .referral-panel{border-top:3px solid #b79353}.referral-metrics{grid-template-columns:repeat(4,1fr)}.referral-metrics article{background:#fffdf7}.referral-create-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:end}.referral-create-row button,.referral-redeem-grid button{border:0;border-radius:8px;padding:12px 14px;background:var(--green);color:#fff;font-weight:700;cursor:pointer}.referral-create-row .secondary{background:#eef3ef;color:var(--green);border:1px solid #cddbd2}.referral-redeem-grid{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:12px;align-items:end}.referral-panel .funnel-table td:first-child{font-family:Consolas,monospace;font-weight:700}.referral-panel .compact-action{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#f4f7f5;color:var(--green);cursor:pointer}@media(max-width:900px){.referral-metrics{grid-template-columns:1fr 1fr}.referral-create-row,.referral-redeem-grid{grid-template-columns:1fr}}@media(max-width:520px){.referral-metrics{grid-template-columns:1fr}}
+
+/* Admin MFA gate */
+.mfa-gate{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:24px;background:rgba(244,245,240,.96);backdrop-filter:blur(12px)}
+.mfa-gate[hidden]{display:none}
+.mfa-card{width:min(520px,100%);background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 24px 80px rgba(23,55,43,.14);display:grid;gap:16px}
+.mfa-card h2{margin:0;color:var(--green);font-size:28px;letter-spacing:-.03em}
+.mfa-card label{display:grid;gap:7px;font-size:12px;font-weight:700;color:var(--green)}
+.mfa-card input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:13px 14px;font:600 16px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.06em}
+.mfa-card button{border:0;border-radius:10px;padding:12px 16px;background:var(--green);color:#fff;font-weight:800;cursor:pointer}
+.mfa-card code{user-select:all;word-break:break-all}
+.mfa-qr{width:220px;height:220px;max-width:100%;background:#fff;border:12px solid #fff;border-radius:12px;box-shadow:0 0 0 1px var(--line)}
+.mfa-card .inspection-result{max-height:220px;overflow:auto;white-space:pre-wrap;user-select:all}
+.mfa-locked .shell{filter:blur(7px);pointer-events:none;user-select:none}
+@media(max-width:600px){.mfa-gate{padding:12px}.mfa-card{padding:20px}.mfa-card h2{font-size:23px}.mfa-qr{width:190px;height:190px}}
+
