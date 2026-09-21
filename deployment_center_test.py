@@ -14,7 +14,7 @@ class DeploymentCenterTest(unittest.TestCase):
         self.assertEqual(profiles["planethoster-n0c"]["runtime"], "passenger")
         self.assertTrue(profiles["planethoster-n0c"]["sharedHosting"])
 
-    def test_planethoster_target_defaults_to_public_html(self):
+    def test_planethoster_target_defaults_to_dedicated_app_root(self):
         target = deploy.validate_target({
             "provider": "planethoster-n0c",
             "host": "ssh.example.net",
@@ -22,7 +22,7 @@ class DeploymentCenterTest(unittest.TestCase):
             "domain": "www.checkupauto.fr",
         })
         self.assertEqual(target.port, 5022)
-        self.assertEqual(target.root_path, "public_html")
+        self.assertEqual(target.root_path, "checkupauto")
         self.assertEqual(target.auth_mode, "key")
 
     def test_cpanel_target_defaults_to_legacy_port(self):
@@ -115,6 +115,8 @@ class DeploymentCenterTest(unittest.TestCase):
             deploy.CapabilityReport(
                 python_version="Python 3.12.8",
                 passenger=True,
+                cloudlinux_selector=True,
+                managed_python_version="3.12",
                 cron=True,
                 symlink=True,
                 writable_root=True,
