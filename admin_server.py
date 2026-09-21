@@ -282,7 +282,7 @@ class Handler(SimpleHTTPRequestHandler):
    return self.send_json({'ok':True,'twoFactor':admin_mfa.status(self.headers.get('Cookie',''))})
   if path=='/api/admin/auth/2fa/qr':
    if not self.authorized(): return self.require_auth()
-   try: return self.send_bytes(admin_mfa.pending_qr_png(),'image/png',200,'no-store')
+   try: return self.send_bytes(admin_mfa.pending_qr_svg(),'image/svg+xml; charset=utf-8',200,'no-store')
    except Exception: return self.send_json({'ok':False,'error':'two_factor_enrollment_unavailable'},400)
   if path.startswith('/api/admin/'):
    if not self.authorized(): return self.require_auth()
