@@ -13,14 +13,16 @@ The project currently includes:
 - CyberCheck Sentinel request filtering and security telemetry;
 - the isolated security AI supervisor;
 - Google Search Console integration hooks;
-- permanent `/app` distribution landing page with source-tracked QR codes;
+- Google IntegrationHub with bounded verification for configured Google services and explicit verification provenance;
+- permanent `/app` distribution landing page with source-tracked QR codes, pinned to the canonical `https://www.checkupauto.fr` public origin;
 - first SwiftUI iOS reminder application scaffold with local CT reminders;
 - Checkup Auto-owned e-mail delivery gateway with SMTP or Gmail API transport through IntegrationHub; Mercure is restricted to data retrieval for follow-up workflows.
 - server-side ReferralWallet with pending/earned credit ledger and 5 EUR default reward per completed referred control;
 - deterministic ReminderEngine aligned with the iOS J-60/J-30/J-15/J-7/J-1 reminder policy;
 - privacy-preserving NotificationBroker with idempotent delivery ledger; raw recipient addresses and message bodies are not persisted.
 - governed Mercure due-date synchronisation feeding ReminderEngine and NotificationBroker, with incremental 730-day backfill and no persisted customer e-mail address.
-- Deployment Center core with PlanetHoster presets, encrypted SSH credential vault, strict host-key verification, remote capability probe and atomic release planning.
+- competitive-intelligence storage/scoring limited to permitted public or first-party evidence; Google Places competitive ingestion is intentionally not used.
+- Deployment Center with PlanetHoster presets, encrypted SSH credential vault, strict host-key verification, capability probes, Passenger/WSGI shared-host runtime, atomic release activation and rollback.
 
 ## Local runtime
 
@@ -42,7 +44,7 @@ The application listens on `127.0.0.1:8765` by design. Production/public exposur
 
 For the hardened host deployment, install `deploy/cybercheck.service` as a systemd unit. It runs the application under the dedicated `cybercheck` account with no Linux capabilities and a read-only filesystem except for the explicitly required runtime state directories.
 
-For remote hosting deployment, see `docs/deployment-center.md`. The Deployment Center currently validates/stores targets, performs a strict SSH capability probe and generates an atomic release/rollback plan. PlanetHoster activation remains fail-closed until the Passenger/WSGI adapter is available.
+For remote hosting deployment, see `docs/deployment-center.md`. The Deployment Center supports strict SSH probing plus SHA-bound `install`, `update` and `rollback` flows. On shared hosting, Passenger serves the HTTP application through the WSGI adapter while periodic ReminderEngine/mobile/review/security work is executed separately by the shared-host CRON tick. Releases and runtime-private state remain outside the public Web root, activation is atomic, and failed activation rolls back to the previous release.
 
 ## Secrets and private state
 
