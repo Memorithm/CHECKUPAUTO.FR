@@ -100,6 +100,17 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         self.assertFalse(state["summary"]["readyForPublicContracting"])
         self.assertEqual(state["withdrawal"]["path"], "/retractation")
 
+    def test_legacy_open_right_without_locator_keeps_execution_gate_closed(self):
+        compliance_store.create_rights_request({
+            "type": "access",
+            "subjectRef": "legacy@example.test",
+            "notes": "legacy",
+        }, self.db)
+        state = compliance_admin.snapshot(self.db)
+        self.assertFalse(state["summary"]["dataSubjectExecutionBound"])
+        self.assertEqual(state["summary"]["rightsUnresolvedLocatorCount"], 1)
+        self.assertFalse(state["summary"]["readyForPublicContracting"])
+
     def test_high_risk_pending_dpia_is_visible_in_same_snapshot(self):
         compliance_operations.upsert_processing_activity(
             self.activity(riskLevel="high", dpiaStatus="required_pending"), self.db
