@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+readonly ROOT="/root/CyberCheckLive"
+readonly BACKUP_ROOT="/root/CyberCheckBackups"
+readonly SERVICE="cybercheck.service"
+readonly HEALTH_URL="http://127.0.0.1:8765/"
+readonly LOCK_FILE="/run/lock/cybercheck-deploy.lock"
+
+log() {
+  printf '[cybercheck-deploy] %s\n' "$*"
+  logger -t cybercheck-deploy -- "$*" >/dev/null 2>&1 || true
+}
+
+fail() {
+  local code="$1"
+  shift
+  log "ERROR: $*"
+  exit "$code"
+}
+
+on_error() {
+  local code="$?"
+  local line="${BASH_LINENO[0]:-unknown}"
+  log "FAILED exit=${code} line=${line}"
+  exit "$code"
+}
+trap on_error ERR
+
+[[ "${EUID}" -eq 0 ]] || fail 1 "root privileges are required"
+[[ "$#" -eq 1 ]] || fail 2 "usage: cybercheck-deploy <40-hex-commit-sha>"
+readonly EXPECTED="$1"
+[[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]] || fail 3 "commit SHA must be exactly 40 lowercase hexadecimal characters"
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || fail 4 "another deployment is already running"
+
+[[ -d "$ROOT/.git" ]] || fail 5 "production repository is missing"
+[[ "$(stat -c '%U' "$ROOT")" == "root" ]] || fail 6 "production repository must be root-owned"
+[[ "$(stat -c '%U' "$ROOT/.git")" == "root" ]] || fail 7 "production .git directory must be root-owned"
+
+cd "$ROOT"
+[[ "$(git branch --show-current)" == "main" ]] || fail 8 "production repository must be on main"
+[[ -z "$(git status --porcelain=v1)" ]] || fail 9 "production working tree is not clean"
+
+readonly ORIGIN_URL="$(git remote get-url origin)"
+case "$ORIGIN_URL" in
+  https://github.com/Memorithm/CHECKUPAUTO.FR|https://github.com/Memorithm/CHECKUPAUTO.FR.git|git@github.com:Memorithm/CHECKUPAUTO.FR.git|ssh://git@github.com/Memorithm/CHECKUPAUTO.FR.git)
+    ;;
+  *) fail 10 "origin does not point to the approved Memorithm/CHECKUPAUTO.FR repository" ;;
+esac
+
+git fetch --quiet --no-tags origin main
+readonly REMOTE_HEAD="$(git rev-parse refs/remotes/origin/main)"
+[[ "$REMOTE_HEAD" == "$EXPECTED" ]] || fail 11 "requested SHA is not the current origin/main"
+git cat-file -e "${EXPECTED}^{commit}" || fail 12 "requested object is not a commit"
+
+readonly CURRENT="$(git rev-parse HEAD)"
+if [[ "$CURRENT" == "$EXPECTED" ]]; then
+  systemctl is-active --quiet "$SERVICE" || fail 13 "service is not active at the requested SHA"
+  curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null || fail 14 "health probe failed at the requested SHA"
+  log "already deployed sha=$EXPECTED"
+  exit 0
+fi
+
+git merge-base --is-ancestor "$CURRENT" "$EXPECTED" || fail 15 "requested deployment is not a fast-forward from production HEAD"
+
+readonly STAMP="$(date -u +'%Y%m%dT%H%M%SZ')"
+readonly BACKUP_DIR="$BACKUP_ROOT/${STAMP}-${CURRENT}"
+mkdir -p "$BACKUP_DIR"
+chmod 0700 "$BACKUP_DIR"
+export BACKUP_DIR CURRENT
+
+"$ROOT/.venv/bin/python" - <<'PY'
+from __future__ import annotations
+import datetime as dt
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+from urllib.parse import quote
+
+backup_root = Path(os.environ["BACKUP_DIR"])
+sources = {
+    "data": Path("/root/CyberCheckData"),
+    "private": Path("/root/CyberCheckPrivate"),
+    "security": Path("/root/CyberCheckSecurity"),
+    "runtime": Path("/root/CyberCheckLive/data"),
+}
+suffixes = {".sqlite", ".sqlite3", ".db"}
+manifest = []
+
+for label, root in sources.items():
+    if not root.exists():
+        continue
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not path.is_file() or path.suffix.lower() not in suffixes:
+            continue
+        try:
+            if path.read_bytes()[:16] != b"SQLite format 3\x00":
+                continue
+        except OSError as exc:
+            raise RuntimeError(f"cannot inspect SQLite candidate in {label}") from exc
+        relative = path.relative_to(root)
+        destination = backup_root / label / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        uri = "file:" + quote(str(path), safe="/") + "?mode=ro"
+        source = sqlite3.connect(uri, uri=True, timeout=10)
+        target = sqlite3.connect(destination)
+        try:
+            source.backup(target)
+            check = target.execute("PRAGMA quick_check").fetchone()
+            if not check or check[0] != "ok":
+                raise RuntimeError(f"SQLite backup quick_check failed in {label}")
+        finally:
+            target.close()
+            source.close()
+        os.chmod(destination, 0o600)
+        digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+        manifest.append({
+            "sourceGroup": label,
+            "relativePath": str(relative),
+            "sha256": digest,
+            "bytes": destination.stat().st_size,
+        })
+
+payload = {
+    "schema": 1,
+    "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+    "sourceGitHead": os.environ["CURRENT"],
+    "databases": manifest,
+}
+manifest_path = backup_root / "manifest.json"
+manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+os.chmod(manifest_path, 0o600)
+print(f"SQLite backups verified: {len(manifest)}")
+PY
+
+log "backup complete path=$BACKUP_DIR source=$CURRENT"
+
+git merge --ff-only "$EXPECTED"
+[[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || fail 16 "HEAD mismatch after fast-forward"
+[[ -z "$(git status --porcelain=v1)" ]] || fail 17 "working tree changed during deployment"
+
+bash "$ROOT/deploy/rebaseline-integrity.sh"
+systemctl restart "$SERVICE"
+systemctl is-active --quiet "$SERVICE" || fail 18 "service did not become active"
+
+healthy=0
+for _ in $(seq 1 30); do
+  if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
+  sleep 1
+done
+[[ "$healthy" -eq 1 ]] || fail 19 "HTTP health probe failed after deployment"
+
+log "SUCCESS from=$CURRENT to=$EXPECTED backup=$BACKUP_DIR"
+printf 'DEPLOY_OK=%s\nBACKUP_DIR=%s\n' "$EXPECTED" "$BACKUP_DIR"
