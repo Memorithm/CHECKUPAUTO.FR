@@ -1,0 +1,36 @@
+name: Apply Paris business clock patch
+
+on:
+  push:
+    branches: [automation/paris-business-clock]
+    paths:
+      - '.github/workflows/autopatch-business-clock.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 scripts/autopatch_business_clock.py
+      - name: Compile Python sources
+        run: python3 -m compileall -q .
+      - name: Run Python tests
+        run: |
+          python3 -m venv .patch-venv
+          .patch-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+          .patch-venv/bin/python -m unittest discover -p '*_test.py'
+      - name: Commit verified patch and remove bootstrap files
+        run: |
+          rm -rf .patch-venv
+          git rm scripts/autopatch_business_clock.py .github/workflows/autopatch-business-clock.yml
+          git add mercure_admin_client.py reminder_dispatch.py business_clock_boundary_test.py
+          git config user.name 'CHECKUPAUTO Automation'
+          git config user.email 'contact@checkupauto.fr'
+          git commit -m 'fix: use Paris business date at Mercure boundaries'
+          git push origin HEAD:automation/paris-business-clock
