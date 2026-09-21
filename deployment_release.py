@@ -80,12 +80,18 @@ def build_release_bundle(repo_root: str | Path, release_sha: str) -> ReleaseBund
             raise ValueError("source de build distante non configurée")
         remote = github_source.build_bundle(sha)
         file_count = _validate_archive(remote.archive)
-        if remote.sha != sha or file_count != remote.file_count:
+        digest = hashlib.sha256(remote.archive).hexdigest()
+        if (
+            remote.sha != sha
+            or file_count != remote.file_count
+            or not re.fullmatch(r"[0-9a-f]{64}", remote.sha256)
+            or not hashlib.sha256(remote.archive).hexdigest() == remote.sha256
+        ):
             raise RuntimeError("bundle GitHub incohérent")
         return ReleaseBundle(
             sha=remote.sha,
             archive=remote.archive,
-            sha256=remote.sha256,
+            sha256=digest,
             file_count=file_count,
         )
 
