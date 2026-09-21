@@ -445,7 +445,7 @@ class Handler(SimpleHTTPRequestHandler):
     self.send_response(201); self.send_header('Content-Type','application/json; charset=utf-8')
     self.send_header('Cache-Control','no-store'); self.send_header('Access-Control-Allow-Origin','https://rdv.checkupauto.fr')
     self.send_header('Vary','Origin'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data); return
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},401)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mercure_browser_confirmation_denied'},401)
    except Exception: return self.send_json({'ok':False,'error':'mercure_browser_confirmation_invalid'},400)
   if path=='/api/integrations/mercure/booking-confirmed':
    try:
@@ -461,28 +461,28 @@ class Handler(SimpleHTTPRequestHandler):
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.register_installation(self._read_json()),201)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/installations/delete':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.delete_installation(self._read_json()),200)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/devices/register':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.register(self._read_json()),201)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/devices/unregister':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.unregister(self._read_json()))
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/claims/consume':
    try:
@@ -495,7 +495,7 @@ class Handler(SimpleHTTPRequestHandler):
     except Exception:
      pass
     return self.send_json(result,200)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/inventory':
    try:
@@ -508,14 +508,14 @@ class Handler(SimpleHTTPRequestHandler):
     except Exception:
      pass
     return self.send_json(mobile_devices.bound_inventory(payload),200)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/reminders/sync':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     return self.send_json(mobile_devices.sync_deadlines(self._read_json()))
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/events':
    try:
@@ -528,12 +528,12 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     payload=self._read_json(); result=booking_test.create_appointment(str(payload.get('token') or ''),str(payload.get('service') or ''),str(payload.get('date') or ''),str(payload.get('time') or ''))
     return self.send_json(result,201)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'booking_test_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'booking_test_request_invalid'},400)
   if path=='/api/booking-test/remove':
    try:
     payload=self._read_json(); return self.send_json(booking_test.remove_appointment(str(payload.get('token') or '')))
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},403)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'booking_test_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'booking_test_request_invalid'},400)
   if path.startswith('/api/admin/'):
    if not self.authorized(): return self.require_auth()
