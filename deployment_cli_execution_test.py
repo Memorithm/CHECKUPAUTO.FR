@@ -86,6 +86,29 @@ class DeploymentCLIExecutionTest(unittest.TestCase):
         self.assertNotIn("private-user", encoded)
         self.assertNotIn("release_path", encoded)
         self.assertEqual(payload["release"]["archiveSha256"], "c" * 64)
+        self.assertTrue(payload["activated"])
+        self.assertTrue(payload["publicVerified"])
+
+    def test_result_payload_exposes_pending_public_cutover(self):
+        result = executor.DeploymentExecutionResult(
+            action="install",
+            sha=SHA,
+            previous_sha="",
+            staged=True,
+            release_path="ignored",
+            archive_sha256="d" * 64,
+            file_count=50,
+            readiness_state="blocked_external",
+            activation_allowed=False,
+            blocker_count=1,
+            activated=False,
+            public_verified=False,
+        )
+        payload = self.cli._result_payload(result)
+        self.assertTrue(payload["staged"])
+        self.assertFalse(payload["activated"])
+        self.assertFalse(payload["publicVerified"])
+        self.assertEqual(payload["readiness"]["state"], "blocked_external")
 
     def test_update_command_executes_one_click_orchestrator(self):
         result = executor.DeploymentExecutionResult(
