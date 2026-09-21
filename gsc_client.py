@@ -17,7 +17,7 @@ WEBMASTERS = 'https://www.googleapis.com/webmasters/v3'
 INSPECTION = 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect'
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 REPORTING_TZ = ZoneInfo('America/Los_Angeles')
-CREDS = Path('/root/.config/cybercheck/gsc-service-account.json')
+CREDS = Path(os.environ.get('CYBERCHECK_GSC_CREDENTIALS_PATH', '/root/.config/cybercheck/gsc-service-account.json'))
 
 
 class GSCError(RuntimeError):

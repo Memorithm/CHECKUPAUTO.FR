@@ -13,7 +13,12 @@ DEFAULT_RUNTIME_CONFIG = Path("/root/CyberCheckData/site-config.json")
 
 def runtime_config_path() -> Path:
     raw = str(os.environ.get("CYBERCHECK_SITE_CONFIG_PATH") or "").strip()
-    return Path(raw) if raw else DEFAULT_RUNTIME_CONFIG
+    if raw:
+        return Path(raw)
+    data_dir = str(os.environ.get("CYBERCHECK_DATA_DIR") or "").strip()
+    if data_dir:
+        return Path(data_dir) / "site-config.json"
+    return DEFAULT_RUNTIME_CONFIG
 
 
 def load(*, runtime_path: Path | None = None, default_path: Path | None = None) -> dict:

@@ -11,7 +11,7 @@ import security_guard as security
 import security_integrity as integrity
 import security_alerts as alerts
 
-STATE_DIR = Path('/root/CyberCheckSecurity')
+STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 LATEST = STATE_DIR / 'ai-latest.json'
 _STOP = threading.Event()
 _THREAD = None

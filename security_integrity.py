@@ -17,8 +17,8 @@ import requests
 import security_alerts as alerts
 
 ROOT = Path(__file__).resolve().parent
-STATE_DIR = Path('/root/CyberCheckSecurity')
-INTEGRITY_DIR = Path('/root/CyberCheckIntegrity')
+STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
+INTEGRITY_DIR = Path(os.environ.get('CYBERCHECK_INTEGRITY_DIR', '/root/CyberCheckIntegrity'))
 BASELINE = INTEGRITY_DIR / 'integrity-baseline.json'
 LATEST = STATE_DIR / 'integrity-latest.json'
 SBOM = STATE_DIR / 'sbom.cdx.json'

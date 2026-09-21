@@ -5,12 +5,13 @@ from pathlib import Path
 import datetime
 import hashlib
 import math
+import os
 import sqlite3
 import statistics
 import threading
 import time
 
-STATE_DIR = Path('/root/CyberCheckSecurity')
+STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
 _LOCK = threading.RLock()
 _SESSIONS = defaultdict(lambda: {
