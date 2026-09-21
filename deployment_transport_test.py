@@ -92,6 +92,7 @@ writable_root=1
 free_disk_mb=4096
 """,
             passenger_wsgi_adapter=True,
+            shared_host_tick=True,
         )
         self.assertEqual(report.python_version, "Python 3.12.8")
         self.assertTrue(report.passenger)
@@ -99,6 +100,7 @@ free_disk_mb=4096
         self.assertTrue(report.cron)
         self.assertEqual(report.free_disk_mb, 4096)
         self.assertTrue(report.passenger_wsgi_adapter)
+        self.assertTrue(report.shared_host_tick)
 
     def test_parse_probe_rejects_incomplete_or_untrusted_output(self):
         with self.assertRaisesRegex(ValueError, "invalide"):
