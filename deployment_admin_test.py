@@ -44,6 +44,29 @@ class DeploymentAdminTest(unittest.TestCase):
             "credential": {"password": password},
         }
 
+    def test_default_deployment_state_stays_inside_dedicated_private_subdirectory(self):
+        with mock.patch.dict(
+            os.environ,
+            {"CYBERCHECK_PRIVATE_DIR": str(self.private)},
+            clear=True,
+        ):
+            self.assertEqual(
+                admin._deployment_state_dir(),
+                self.private / "deployment",
+            )
+            self.assertEqual(
+                admin._vault_root(),
+                self.private / "deployment" / "vault",
+            )
+            self.assertEqual(
+                admin._known_hosts_path(),
+                self.private / "deployment" / "known_hosts",
+            )
+            self.assertEqual(
+                admin._jobs_dir(),
+                self.private / "deployment" / "jobs",
+            )
+
     def test_save_target_redacts_secret_and_preserves_it_on_edit(self):
         first = admin.save_target(self.payload())
         self.assertTrue(first["ok"])
