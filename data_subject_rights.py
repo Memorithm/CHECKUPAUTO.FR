@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -11,12 +12,14 @@ from pathlib import Path
 import compliance_store
 import mercure_rights
 import mobile_devices
+import privacy_suppression
 import rights_subject_bindings
 
 
 SUPPORTED_ADAPTERS = {
     "mobile_installation": ("access", "portability", "erasure"),
     "mercure_customer_contact": ("access", "portability"),
+    "privacy_suppression": ("restriction", "objection", "consent_withdrawal", "erasure"),
 }
 
 
@@ -83,6 +86,7 @@ def _verify_subject(
     row: sqlite3.Row,
     subject_ref: str,
     adapter: str,
+    purpose: str = "",
     db_path: Path | str | None = None,
 ) -> None:
     digest = hashlib.sha256(subject_ref.encode("utf-8")).hexdigest()
@@ -91,6 +95,13 @@ def _verify_subject(
     if rights_subject_bindings.is_bound(
         str(row["request_id"]),
         adapter,
+        subject_ref,
+        db_path,
+    ):
+        return
+    if adapter == "privacy_suppression" and rights_subject_bindings.is_bound(
+        str(row["request_id"]),
+        "mercure_customer_contact",
         subject_ref,
         db_path,
     ):
@@ -258,6 +269,117 @@ def _audit_execution(
     return execution_id
 
 
+def _suppression_subject(subject_ref: str) -> tuple[str, str]:
+    raw = str(subject_ref or "").strip()
+    try:
+        return "installation", _mobile_installation(raw)
+    except ValueError:
+        pass
+    try:
+        client_kind, client_id = mercure_rights.parse_subject_ref(raw)
+        return f"mercure_{client_kind}", client_id
+    except ValueError:
+        pass
+    if re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", raw):
+        return "email", raw.lower()
+    phone = re.sub(r"[^+0-9]", "", raw)
+    if re.fullmatch(r"\+?[0-9]{6,20}", phone):
+        return "phone", phone
+    raise ValueError("subjectRef suppression invalide")
+
+
+def _suppression_purposes(request_type: str, purpose: str) -> tuple[str, ...]:
+    requested = str(purpose or "").strip()
+    if request_type in {"restriction", "erasure"}:
+        return ("all_processing",)
+    if requested == "direct_marketing":
+        return privacy_suppression.DIRECT_MARKETING_PURPOSES
+    if requested in {"google_review", "direct_marketing_email", "direct_marketing_phone",
+                     "direct_marketing_sms", "direct_marketing_push"}:
+        if request_type == "consent_withdrawal" and requested == "google_review":
+            raise ValueError("retrait du consentement non applicable à cette finalité")
+        return (requested,)
+    if request_type in {"objection", "consent_withdrawal"}:
+        return privacy_suppression.DIRECT_MARKETING_PURPOSES
+    raise ValueError("finalité de suppression invalide")
+
+
+def _linked_suppression_identities(subject_kind: str, subject_value: str) -> tuple[list[tuple[str, str]], bool]:
+    identities: set[tuple[str, str]] = {(subject_kind, subject_value)}
+    provider_contact_resolved = False
+    mercure_refs: list[str] = []
+    if subject_kind == "installation":
+        try:
+            for row in mobile_devices.registered_vehicle_bindings(subject_value):
+                client_kind = str(row.get("client_kind") or "")
+                client_id = str(row.get("client_id") or "")
+                vehicle_id = str(row.get("vehicle_id") or "")
+                if client_kind in {"account", "free"} and client_id:
+                    identities.add((f"mercure_{client_kind}", client_id))
+                    mercure_refs.append(f"{client_kind}:{client_id}")
+                if vehicle_id:
+                    identities.add(("vehicle", vehicle_id))
+        except Exception:
+            pass
+    elif subject_kind in {"mercure_account", "mercure_free"}:
+        kind = "account" if subject_kind == "mercure_account" else "free"
+        mercure_refs.append(f"{kind}:{subject_value}")
+
+    for mercure_ref in dict.fromkeys(mercure_refs):
+        try:
+            snapshot = mercure_rights.contact_snapshot(mercure_ref)
+            contact = snapshot.get("contact") or {}
+            email = str(contact.get("email") or "").strip()
+            phone = str(contact.get("telephone") or "").strip()
+            if email:
+                identities.add(("email", email.lower()))
+            if phone:
+                identities.add(("phone", phone))
+            provider_contact_resolved = True
+        except Exception:
+            continue
+    return sorted(identities), provider_contact_resolved
+
+
+def _execute_privacy_suppression(
+    row: sqlite3.Row,
+    subject_ref: str,
+    purpose: str,
+    db_path: Path | str | None = None,
+) -> tuple[dict, dict]:
+    request_type = str(row["request_type"])
+    subject_kind, subject_value = _suppression_subject(subject_ref)
+    purposes = _suppression_purposes(request_type, purpose)
+    identities, provider_contact_resolved = _linked_suppression_identities(subject_kind, subject_value)
+    for kind, value in identities:
+        privacy_suppression.suppress(
+            kind,
+            value,
+            purposes,
+            request_id=str(row["request_id"]),
+            db_path=db_path,
+        )
+    result = {
+        "ok": True,
+        "requestId": str(row["request_id"]),
+        "requestType": request_type,
+        "adapter": "privacy_suppression",
+        "purposes": list(purposes),
+        "suppressedIdentityCount": len(identities),
+        "providerContactResolved": provider_contact_resolved,
+    }
+    evidence = {
+        "requestId": str(row["request_id"]),
+        "requestType": request_type,
+        "adapter": "privacy_suppression",
+        "purposes": list(purposes),
+        "identityKinds": sorted({kind for kind, _ in identities}),
+        "suppressedIdentityCount": len(identities),
+        "providerContactResolved": provider_contact_resolved,
+    }
+    return result, evidence
+
+
 def bind_mercure_from_mobile(
     request_id: object,
     installation_id: object,
@@ -357,6 +479,9 @@ def execute(
                 json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest(),
         }
+    elif adapter == "privacy_suppression":
+        result, evidence = _execute_privacy_suppression(row, ref, purpose, db_path)
+        action = "suppress"
     else:  # pragma: no cover - guarded by SUPPORTED_ADAPTERS
         raise ValueError("adaptateur de droit non pris en charge")
 
@@ -408,15 +533,12 @@ def capability(db_path: Path | str | None = None) -> dict:
         "executionCount": execution_count,
         "remainingRightTypes": [
             "rectification",
-            "restriction",
-            "objection",
-            "consent_withdrawal",
         ],
         "partialSystemAdapters": ["mercure"],
         "remainingSystemAdapters": [
-            "mercure",
-            "notification_broker",
+            "mercure_mutations",
             "referral_wallet",
             "compliance_contracts",
+            "retention_purge",
         ],
     }
