@@ -149,6 +149,39 @@ def _audit(db, object_type: str, object_id: str, action: str, evidence: dict) ->
     )
 
 
+def record_audit_evidence(
+    object_type: str,
+    object_id: str,
+    action: str,
+    evidence: dict,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Persist only a cryptographic digest of operational compliance evidence."""
+    object_type = _text(object_type, "objectType", 80, required=True)
+    object_id = _text(object_id, "objectId", 128, required=True)
+    action = _text(action, "action", 80, required=True)
+    if not isinstance(evidence, dict):
+        raise ValueError("evidence invalide")
+    init_db(db_path)
+    stamp = _now_iso()
+    canonical = json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    with compliance_store.connect(db_path) as db:
+        db.execute(
+            """INSERT INTO compliance_operation_audit(
+              event_id,object_type,object_id,action,evidence_hash,created_at
+            ) VALUES(?,?,?,?,?,?)""",
+            (uuid.uuid4().hex, object_type, object_id, action, digest, stamp),
+        )
+    return {
+        "objectType": object_type,
+        "objectId": object_id,
+        "action": action,
+        "evidenceHash": digest,
+        "createdAt": stamp,
+    }
+
+
 def upsert_processing_activity(payload: dict, db_path: Path | str | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("activité de traitement invalide")
