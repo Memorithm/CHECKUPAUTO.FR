@@ -134,6 +134,14 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
         self.assertEqual(cfg.repository, "Memorithm/CHECKUPAUTO.FR")
         self.assertEqual(cfg.branch, "stable")
 
+    def test_bootstrap_material_is_internal_and_contains_valid_source(self):
+        material = github.bootstrap_material()
+        self.assertIsNotNone(material)
+        self.assertEqual(material["repository"], "Memorithm/CHECKUPAUTO.FR")
+        self.assertEqual(material["branch"], "main")
+        self.assertEqual(material["token"], self.token.read_text().strip())
+        self.assertNotIn(material["token"], str(github.public_status()))
+
     def test_token_requires_private_permissions(self):
         self.token.chmod(0o644)
         self.assertFalse(github.token_configured())
