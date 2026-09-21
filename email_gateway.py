@@ -240,6 +240,37 @@ def configured() -> bool:
     return active_transport() is not None
 
 
+def configuration_summary() -> dict:
+    try:
+        cfg = load_config()
+        mode = _transport_mode()
+        source = _configuration_source()
+        error = ""
+    except ValueError as exc:
+        return {
+            "source": _configuration_source(),
+            "transportMode": "invalid",
+            "smtp": {"configured": False, "passwordStored": False},
+            "gmailSender": _gmail_sender(),
+            "error": str(exc)[:120],
+        }
+    return {
+        "source": source,
+        "transportMode": mode,
+        "smtp": {
+            "configured": cfg is not None,
+            "host": cfg.host if cfg else "",
+            "port": cfg.port if cfg else 0,
+            "sender": cfg.sender if cfg else "",
+            "mode": cfg.mode if cfg else "",
+            "username": cfg.username if cfg else "",
+            "passwordStored": bool(cfg and cfg.password),
+        },
+        "gmailSender": _gmail_sender(),
+        "error": error,
+    }
+
+
 def transport_status() -> dict:
     try:
         requested = _transport_mode()
