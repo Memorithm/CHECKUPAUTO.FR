@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
+import json
 from io import BytesIO
 import os
 from pathlib import Path, PurePosixPath
@@ -77,18 +78,108 @@ def _token_file(value: str | Path | None = None) -> Path:
     return Path(raw).expanduser() if raw else _private_dir() / "github-update-token"
 
 
+def _config_path(value: str | Path | None = None) -> Path:
+    raw = str(
+        value
+        or os.environ.get("CYBERCHECK_UPDATE_GITHUB_CONFIG_FILE")
+        or ""
+    ).strip()
+    return (
+        Path(raw).expanduser()
+        if raw
+        else _private_dir() / "github-update-source.json"
+    )
+
+
+def _read_saved_config(path: str | Path | None = None) -> dict:
+    candidate = _config_path(path)
+    if candidate.is_symlink() or not candidate.is_file():
+        return {}
+    try:
+        payload = json.loads(candidate.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("configuration GitHub de mise à jour invalide") from exc
+    if payload.get("schemaVersion") != 1:
+        raise RuntimeError("configuration GitHub de mise à jour invalide")
+    return {
+        "repository": _repository(payload.get("repository")),
+        "branch": _branch(payload.get("branch")),
+    }
+
+
 def config() -> GitHubSourceConfig:
+    saved = _read_saved_config()
     return GitHubSourceConfig(
         repository=_repository(
-            os.environ.get("CYBERCHECK_UPDATE_GITHUB_REPOSITORY")
+            saved.get("repository")
+            or os.environ.get("CYBERCHECK_UPDATE_GITHUB_REPOSITORY")
             or DEFAULT_REPOSITORY
         ),
         branch=_branch(
-            os.environ.get("CYBERCHECK_UPDATE_GITHUB_BRANCH")
+            saved.get("branch")
+            or os.environ.get("CYBERCHECK_UPDATE_GITHUB_BRANCH")
             or DEFAULT_BRANCH
         ),
         token_file=_token_file(),
     )
+
+
+def save_config(
+    repository: str,
+    branch: str,
+    path: str | Path | None = None,
+) -> dict:
+    repo = _repository(repository)
+    ref = _branch(branch)
+    target = _config_path(path)
+    root = target.parent
+    root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o700)
+    if target.is_symlink():
+        raise RuntimeError("chemin configuration GitHub invalide")
+    payload = {
+        "schemaVersion": 1,
+        "repository": repo,
+        "branch": ref,
+    }
+    temporary = root / (".github-update-source-" + os.urandom(8).hex())
+    fd = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        target.chmod(0o600)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return {
+        "repository": repo,
+        "branch": ref,
+    }
+
+
+def configure_source(
+    repository: str,
+    branch: str,
+    *,
+    token: str = "",
+) -> dict:
+    saved = save_config(repository, branch)
+    if token:
+        save_token(token)
+    return {
+        **saved,
+        "tokenConfigured": token_configured(),
+    }
 
 
 def token_configured(path: str | Path | None = None) -> bool:
