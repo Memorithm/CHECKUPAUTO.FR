@@ -59,6 +59,7 @@ class IntegrationHubGmailOperationalTest(unittest.TestCase):
         self.assertFalse(gmail["connected"])
         self.assertEqual(gmail["state"], "attention")
         self.assertEqual(gmail["verification"], "unverified")
+        self.assertEqual(gmail["verificationSource"], "operational_delivery")
         self.assertNotIn("lastSuccessAt", gmail["operationalEvidence"])
 
     def test_real_delivery_marks_gmail_verified(self):
@@ -66,6 +67,7 @@ class IntegrationHubGmailOperationalTest(unittest.TestCase):
         gmail = self._gmail()
         self.assertTrue(gmail["connected"])
         self.assertEqual(gmail["verification"], "verified")
+        self.assertEqual(gmail["verificationSource"], "operational_delivery")
         self.assertTrue(gmail["operationalEvidence"]["operationallyVerified"])
 
     def test_recent_delivery_failure_marks_gmail_unavailable(self):
@@ -76,6 +78,7 @@ class IntegrationHubGmailOperationalTest(unittest.TestCase):
         gmail = self._gmail()
         self.assertFalse(gmail["connected"])
         self.assertEqual(gmail["verification"], "unavailable")
+        self.assertEqual(gmail["verificationSource"], "operational_delivery")
         self.assertEqual(gmail["operationalEvidence"]["consecutiveFailures"], 1)
 
 
