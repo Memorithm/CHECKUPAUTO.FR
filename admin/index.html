@@ -122,10 +122,22 @@ X-CyberCheck-Signature: sha256=HMAC_SHA256(secret, raw_body)
 </div>
 
 <div class="integration-box">
-<div class="panel-head compact"><div><h3>4 · Exercice des droits RGPD</h3><p class="hint">La référence du demandeur est immédiatement hachée ; aucune adresse e-mail brute n’est stockée dans ce registre. L’échéance est calculée à un mois calendaire.</p></div></div>
-<div class="promo-form-grid"><label>Droit<select id="complianceRightType"><option value="access">Accès</option><option value="rectification">Rectification</option><option value="erasure">Effacement</option><option value="restriction">Limitation</option><option value="portability">Portabilité</option><option value="objection">Opposition</option><option value="consent_withdrawal">Retrait du consentement</option></select></label><label>Référence interne / e-mail à hacher<input id="complianceRightRef" maxlength="240"></label><label>Note interne<input id="complianceRightNotes" maxlength="2000"></label></div>
+<div class="panel-head compact"><div><h3>4 · Exercice des droits RGPD</h3><p class="hint">La référence du demandeur n’est pas conservée en clair : elle doit être ressaisie lors de chaque exécution et est revalidée contre l’empreinte de la demande ou une liaison mobile→Mercure prouvée. Une exécution partielle ne clôt jamais automatiquement la demande.</p></div></div>
+<div class="promo-form-grid"><label>Droit<select id="complianceRightType"><option value="access">Accès</option><option value="rectification">Rectification</option><option value="erasure">Effacement</option><option value="restriction">Limitation</option><option value="portability">Portabilité</option><option value="objection">Opposition</option><option value="consent_withdrawal">Retrait du consentement</option></select></label><label>Référence initiale à hacher<input id="complianceRightRef" maxlength="240"></label><label>Note interne<input id="complianceRightNotes" maxlength="2000"></label></div>
 <button type="button" id="complianceRightCreate">Enregistrer la demande</button>
-<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Droit</th><th>Référence hachée</th><th>État</th><th>Reçue</th><th>Échéance</th><th>Action</th></tr></thead><tbody id="complianceRightsRows"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div>
+
+<div class="panel-head compact"><div><h3>Exécuter un adaptateur</h3><p class="hint">Ressaisissez exactement la référence du sujet. Pour une demande mobile, une référence Mercure secondaire doit d’abord être liée à partir d’un binding mobile déjà vérifié.</p></div></div>
+<div class="promo-form-grid">
+<label>Adaptateur<select id="complianceRightAdapter"><option value="mobile_installation">Installation mobile</option><option value="mercure_customer_contact">Contact Mercure</option><option value="privacy_suppression">Suppression / opposition</option></select></label>
+<label>Référence brute à revalider<input id="complianceRightExecutionRef" maxlength="240" autocomplete="off"></label>
+<label>Finalité suppression<select id="complianceRightPurpose"><option value="direct_marketing">Prospection commerciale</option><option value="google_review">Demande d’avis Google</option><option value="">Automatique selon le droit</option></select></label>
+</div>
+<div class="promo-form-grid">
+<label>Installation mobile pour liaison<input id="complianceRightBindingInstallation" maxlength="64" autocomplete="off"></label>
+<label>Référence Mercure liée<input id="complianceRightBindingMercure" maxlength="160" placeholder="account:ID ou free:ID" autocomplete="off"></label>
+</div>
+<p class="warning-text">La clôture manuelle est désactivée tant que la couverture globale des traitements n’est pas prouvée. Les exécutions restent « in_progress ».</p>
+<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Droit</th><th>Référence hachée</th><th>État / adaptateurs</th><th>Reçue</th><th>Échéance</th><th>Action</th></tr></thead><tbody id="complianceRightsRows"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div>
 </div>
 
 <div class="integration-box">
