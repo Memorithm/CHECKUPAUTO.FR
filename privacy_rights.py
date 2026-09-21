@@ -697,23 +697,58 @@ def _purpose_set(request_type: str, requested: str) -> tuple[str, ...]:
     return ("all_processing",)
 
 
-def _suppress_linked_installations(
+def _linked_identities(kind: str, ref: str) -> list[tuple[str, str]]:
+    identities: set[tuple[str, str]] = {(kind, ref)}
+    for row in _reminder_rows(kind, ref):
+        client_kind = str(row.get("clientKind") or "")
+        client_id = str(row.get("clientId") or "")
+        vehicle_id = str(row.get("vehicleId") or "")
+        if client_id and client_kind in {"account", "free"}:
+            identities.add((f"mercure_{client_kind}", client_id))
+        if vehicle_id:
+            identities.add(("vehicle", vehicle_id))
+    for row in _mobile_rows(kind, ref):
+        installation = str(row.get("installationId") or "")
+        client_kind = str(row.get("clientKind") or "")
+        client_id = str(row.get("clientId") or "")
+        vehicle_id = str(row.get("vehicleId") or "")
+        if installation:
+            identities.add(("installation", installation))
+        if client_id and client_kind in {"account", "free"}:
+            identities.add((f"mercure_{client_kind}", client_id))
+        if vehicle_id:
+            identities.add(("vehicle", vehicle_id))
+    if kind in {"mercure_account", "mercure_free"}:
+        try:
+            provider = _mercure_snapshot(kind, ref) or {}
+            email = str(provider.get("email") or "").strip()
+            phone = str(provider.get("telephone") or "").strip()
+            if email:
+                identities.add(("email", email))
+            if phone:
+                identities.add(("phone", phone))
+        except Exception:
+            pass
+    return sorted(identities)
+
+
+def _apply_suppression_network(
     kind: str,
     ref: str,
     purposes: tuple[str, ...],
     request_id: str,
     db_path: Path | str | None,
-) -> int:
-    installations = _mobile_installations(kind, ref)
-    for installation in installations:
+) -> list[tuple[str, str]]:
+    identities = _linked_identities(kind, ref)
+    for linked_kind, linked_ref in identities:
         suppression.suppress(
-            "installation",
-            installation,
+            linked_kind,
+            linked_ref,
             purposes,
             source_request_id=request_id,
             db_path=db_path,
         )
-    return len(installations)
+    return identities
 
 
 def execute_request(request_id: object, db_path: Path | str | None = None) -> dict:
@@ -734,14 +769,7 @@ def execute_request(request_id: object, db_path: Path | str | None = None) -> di
 
     if request_type in {"objection", "consent_withdrawal", "restriction", "erasure"}:
         purposes = _purpose_set(request_type, locator["purpose"])
-        suppression.suppress(
-            kind,
-            ref,
-            purposes,
-            source_request_id=row["request_id"],
-            db_path=db_path,
-        )
-        linked = _suppress_linked_installations(
+        linked = _apply_suppression_network(
             kind,
             ref,
             purposes,
@@ -753,9 +781,13 @@ def execute_request(request_id: object, db_path: Path | str | None = None) -> di
             "suppression_registry",
             request_type,
             "applied",
-            count=1 + linked,
+            count=len(linked),
             detail="hmac_identity_suppression",
-            evidence={"purposes": list(purposes), "linkedInstallations": linked},
+            evidence={
+                "purposes": list(purposes),
+                "linkedIdentityKinds": sorted({item[0] for item in linked}),
+                "linkedIdentityCount": len(linked),
+            },
             db_path=db_path,
         )
 
