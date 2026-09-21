@@ -170,10 +170,19 @@ def bootstrap_admin_credential() -> bool:
 
 
 def run_update_safety(action: str, *arguments: str) -> dict:
-    helper = release / "scripts" / "checkupauto-update-safety.py"
-    python = release / ".venv" / "bin" / "python"
-    if not helper.is_file() or not python.is_file():
+    candidates = [release]
+    if previous_release is not None and previous_release != release:
+        candidates.append(previous_release)
+    runtime = None
+    for candidate in candidates:
+        helper = candidate / "scripts" / "checkupauto-update-safety.py"
+        python = candidate / ".venv" / "bin" / "python"
+        if helper.is_file() and python.is_file():
+            runtime = (python, helper)
+            break
+    if runtime is None:
         fail("update safety helper missing")
+    python, helper = runtime
     proc = subprocess.run(
         [str(python), str(helper), action, *[str(value) for value in arguments]],
         text=True,
@@ -340,8 +349,6 @@ if not (release / "passenger_wsgi.py").is_file():
     fail("Passenger entrypoint missing")
 if not (release / "scripts" / "checkupauto-shared-tick.py").is_file():
     fail("shared scheduler missing")
-if not (release / "scripts" / "checkupauto-update-safety.py").is_file():
-    fail("update safety helper missing")
 if htaccess.is_symlink() or (htaccess.exists() and not htaccess.is_file()):
     fail("unmanaged .htaccess refused")
 
