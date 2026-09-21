@@ -85,6 +85,8 @@ class DeploymentExecutorTest(unittest.TestCase):
         self.assertEqual(result.archive_sha256, "c" * 64)
         self.assertEqual(result.file_count, 123)
         self.assertTrue(result.activation_allowed)
+        self.assertTrue(result.activated)
+        self.assertTrue(result.public_verified)
         probe.assert_called_once()
         self.assertTrue(probe.call_args.kwargs["passenger_wsgi_adapter"])
         self.assertTrue(probe.call_args.kwargs["shared_host_tick"])
@@ -94,6 +96,43 @@ class DeploymentExecutorTest(unittest.TestCase):
             activate.call_args.kwargs["admin_password"],
             "local-admin-secret-value",
         )
+
+    @mock.patch("deployment_executor.activation.activate_release")
+    @mock.patch("deployment_executor.release.stage_release")
+    @mock.patch("deployment_executor.transport.probe_target")
+    def test_install_can_finish_staged_while_waiting_for_dns_cutover(
+        self, probe, stage, activate
+    ):
+        probe.return_value = self.ready_capabilities()
+        stage.return_value = release.StageResult(
+            sha=SHA,
+            release_path=f"/home/checkup/.checkupauto/releases/{SHA}",
+            archive_sha256="c" * 64,
+            file_count=123,
+        )
+        activate.return_value = activation.ActivationResult(
+            sha=SHA,
+            previous_sha="",
+            readiness_state="blocked_external",
+            activation_allowed=False,
+            blocker_count=1,
+            activated=False,
+            public_verified=False,
+        )
+        result = executor.execute_deployment(
+            "install",
+            self.target,
+            self.known_hosts,
+            self.credential,
+            self.root,
+            SHA,
+            admin_password="local-admin-secret-value",
+        )
+        self.assertTrue(result.staged)
+        self.assertFalse(result.activated)
+        self.assertFalse(result.public_verified)
+        self.assertFalse(result.activation_allowed)
+        self.assertEqual(result.readiness_state, "blocked_external")
 
     @mock.patch("deployment_executor.release.stage_release")
     @mock.patch("deployment_executor.transport.probe_target")
