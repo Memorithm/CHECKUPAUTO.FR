@@ -29,6 +29,23 @@ class AdminIntegrationsWebOAuthUiTest(unittest.TestCase):
             compact,
         )
 
+    def test_search_console_connector_is_actively_verified(self):
+        compact = "".join(self.source.split())
+        self.assertIn("ihApplySearchConsoleProbe", self.source)
+        self.assertIn("awaitihApi('/api/admin/google/status')", compact)
+        self.assertIn("row.verification='verified'", compact)
+        self.assertIn("API Search Console vérifiée", self.source)
+
+    def test_failed_search_console_probe_cannot_remain_connected(self):
+        compact = "".join(self.source.split())
+        unavailable = compact.index("row.verification='unavailable'")
+        before = compact.rfind("row.connected=false;", 0, unavailable)
+        self.assertGreaterEqual(before, 0)
+        failed = compact.index("row.verification='failed'")
+        before_failed = compact.rfind("row.connected=false;", 0, failed)
+        self.assertGreaterEqual(before_failed, 0)
+        self.assertIn("Configuration présente · vérification API Search Console indisponible", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
