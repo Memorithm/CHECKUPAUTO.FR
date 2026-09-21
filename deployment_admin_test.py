@@ -168,9 +168,10 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertTrue(result["capabilities"]["passenger"])
         self.assertNotIn("secret-value", str(result))
 
+    @mock.patch.object(admin.deployment_source, "desired_sha", return_value=SHA)
     @mock.patch.object(admin.deployment_update, "update_status")
     @mock.patch.object(admin, "_source_state")
-    def test_update_status_uses_remote_target_and_current_sha(self, source_state, update_status):
+    def test_update_status_uses_remote_target_and_current_sha(self, source_state, update_status, desired_sha):
         admin.save_target(self.payload())
         admin._known_hosts_path().parent.mkdir(parents=True, exist_ok=True)
         admin._known_hosts_path().write_text(
@@ -199,6 +200,7 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertNotIn("secret-value", str(result))
         args = update_status.call_args.args
         self.assertEqual(args[3], SHA)
+        desired_sha.assert_called_once_with(admin.ROOT)
 
     @mock.patch.object(admin.deployment_source, "desired_sha", return_value="b" * 40)
     @mock.patch.object(admin.deployment_update, "update_status")
