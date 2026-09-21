@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from deployment_center import installation_plan, provider_profiles, validate_target
+from deployment_executor import execute_deployment, execute_rollback
 from deployment_transport import SSHCredential, probe_target
 from deployment_vault import DeploymentVault
 
@@ -41,6 +42,7 @@ def _stored_target(record: dict):
         "username": target.get("username"),
         "domain": target.get("domain"),
         "rootPath": target.get("root_path") or target.get("rootPath"),
+        "webRootPath": target.get("web_root_path") or target.get("webRootPath"),
         "authMode": target.get("auth_mode") or target.get("authMode"),
     })
 
@@ -50,6 +52,13 @@ def _stored_credential(record: dict, target) -> SSHCredential:
     if target.auth_mode == "key":
         return SSHCredential(identity_file=str(raw.get("identityFile") or ""))
     return SSHCredential(password=str(raw.get("password") or ""))
+
+
+def _stored_context(name: str):
+    record = _vault().load(name)
+    target = _stored_target(record)
+    credential = _stored_credential(record, target)
+    return target, credential
 
 
 def _adapter_available() -> bool:
@@ -106,9 +115,7 @@ def cmd_list(_args) -> int:
 
 
 def _probe(name: str, known_hosts: str):
-    record = _vault().load(name)
-    target = _stored_target(record)
-    credential = _stored_credential(record, target)
+    target, credential = _stored_context(name)
     capabilities = probe_target(
         target,
         known_hosts,
@@ -132,6 +139,7 @@ def cmd_probe(args) -> int:
             "cron": capabilities.cron,
             "symlink": capabilities.symlink,
             "writableRoot": capabilities.writable_root,
+            "writableWebRoot": capabilities.writable_web_root,
             "freeDiskMb": capabilities.free_disk_mb,
             "passengerWsgiAdapter": capabilities.passenger_wsgi_adapter,
             "sharedHostTick": capabilities.shared_host_tick,
@@ -145,6 +153,62 @@ def cmd_plan(args) -> int:
     plan = installation_plan(target, args.sha, capabilities)
     print(json.dumps(plan, ensure_ascii=False, indent=2))
     return 0 if plan["assessment"]["ok"] else 3
+
+
+def _result_payload(result) -> dict:
+    payload = {
+        "ok": True,
+        "action": result.action,
+        "sha": result.sha,
+        "previousSha": result.previous_sha,
+        "staged": result.staged,
+        "readiness": {
+            "state": result.readiness_state,
+            "activationAllowed": result.activation_allowed,
+            "blockerCount": result.blocker_count,
+        },
+    }
+    if result.staged:
+        payload["release"] = {
+            "archiveSha256": result.archive_sha256,
+            "fileCount": result.file_count,
+        }
+    return payload
+
+
+def _cmd_deploy(args, action: str) -> int:
+    target, credential = _stored_context(args.name)
+    result = execute_deployment(
+        action,
+        target,
+        args.known_hosts,
+        credential,
+        ROOT,
+        args.sha,
+    )
+    print(json.dumps(_result_payload(result), ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_install(args) -> int:
+    return _cmd_deploy(args, "install")
+
+
+def cmd_update(args) -> int:
+    return _cmd_deploy(args, "update")
+
+
+def cmd_rollback(args) -> int:
+    target, credential = _stored_context(args.name)
+    result = execute_rollback(
+        target,
+        args.known_hosts,
+        credential,
+        ROOT,
+        args.sha,
+    )
+    print(json.dumps(_result_payload(result), ensure_ascii=False, indent=2))
+    return 0
 
 
 def parser() -> argparse.ArgumentParser:
@@ -176,6 +240,17 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--known-hosts", required=True)
         if name == "plan":
             command.add_argument("--sha", required=True)
+        command.set_defaults(func=handler)
+
+    for name, handler in (
+        ("install", cmd_install),
+        ("update", cmd_update),
+        ("rollback", cmd_rollback),
+    ):
+        command = sub.add_parser(name)
+        command.add_argument("--name", required=True)
+        command.add_argument("--known-hosts", required=True)
+        command.add_argument("--sha", required=True)
         command.set_defaults(func=handler)
     return root
 
