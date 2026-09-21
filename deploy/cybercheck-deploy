@@ -8,8 +8,11 @@ readonly ROOT="/root/CyberCheckLive"
 readonly BACKUP_ROOT="/root/CyberCheckBackups"
 readonly SERVICE="cybercheck.service"
 readonly HEALTH_URL="http://127.0.0.1:8765/"
+readonly READINESS_URL="http://127.0.0.1:8765/api/admin/readiness"
+readonly ADMIN_PASSWORD_FILE="/root/CyberCheckPrivate/admin-password"
 readonly LOCK_FILE="/run/cybercheck-deploy.lock"
 readonly INSTALLED_HELPER="/usr/local/sbin/cybercheck-deploy"
+export READINESS_URL ADMIN_PASSWORD_FILE
 
 log() {
   printf '[cybercheck-deploy] %s\n' "$*"
@@ -30,6 +33,66 @@ on_error() {
   exit "$code"
 }
 trap on_error ERR
+
+readiness_probe() {
+  /usr/bin/python3 - <<'PY'
+from __future__ import annotations
+import base64
+import json
+import os
+from pathlib import Path
+import urllib.error
+import urllib.request
+
+password_path = Path(os.environ["ADMIN_PASSWORD_FILE"])
+try:
+    password = password_path.read_text(encoding="utf-8").strip()
+except OSError as exc:
+    raise RuntimeError("cannot read local admin credential for readiness probe") from exc
+if not password:
+    raise RuntimeError("local admin credential is empty")
+
+authorization = base64.b64encode(f"admin:{password}".encode("utf-8")).decode("ascii")
+request = urllib.request.Request(
+    os.environ["READINESS_URL"],
+    headers={
+        "Accept": "application/json",
+        "Authorization": f"Basic {authorization}",
+    },
+)
+try:
+    with urllib.request.urlopen(request, timeout=10) as response:
+        if response.status != 200:
+            raise RuntimeError("readiness endpoint returned a non-success status")
+        payload = json.load(response)
+except urllib.error.HTTPError as exc:
+    raise RuntimeError(f"readiness endpoint returned HTTP {exc.code}") from exc
+except urllib.error.URLError as exc:
+    raise RuntimeError("readiness endpoint is unreachable") from exc
+
+if not isinstance(payload, dict) or payload.get("ok") is not True:
+    raise RuntimeError("readiness response is not a valid successful report")
+schema = payload.get("schemaVersion")
+if not isinstance(schema, int) or schema < 2:
+    raise RuntimeError("readiness response schema is unsupported")
+state = payload.get("state")
+if state not in {"ready", "configuration_required", "blocked_external", "degraded"}:
+    raise RuntimeError("readiness response state is invalid")
+gate = payload.get("activationGate")
+if not isinstance(gate, dict) or not isinstance(gate.get("allowed"), bool):
+    raise RuntimeError("readiness activation gate is invalid")
+blockers = gate.get("blockingComponents")
+if not isinstance(blockers, list) or not all(isinstance(item, str) for item in blockers):
+    raise RuntimeError("readiness blocker list is invalid")
+launch_ready = payload.get("launchReady")
+if not isinstance(launch_ready, bool) or launch_ready is not gate["allowed"]:
+    raise RuntimeError("readiness launch gate is inconsistent")
+
+print(f"READINESS_STATE={state}")
+print(f"LAUNCH_READY={'true' if launch_ready else 'false'}")
+print(f"CRITICAL_BLOCKER_COUNT={len(blockers)}")
+PY
+}
 
 [[ "${EUID}" -eq 0 ]] || fail 1 "root privileges are required"
 readonly SELF="$(readlink -f "$0")"
@@ -66,6 +129,7 @@ readonly CURRENT="$(git rev-parse HEAD)"
 if [[ "$CURRENT" == "$EXPECTED" ]]; then
   systemctl is-active --quiet "$SERVICE" || fail 15 "service is not active at the requested SHA"
   curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null || fail 16 "health probe failed at the requested SHA"
+  readiness_probe || fail 30 "readiness probe failed at the requested SHA"
   log "already deployed sha=$EXPECTED"
   exit 0
 fi
@@ -237,6 +301,11 @@ done
 if [[ "$healthy" -ne 1 ]]; then
   systemctl stop "$SERVICE" || true
   fail 21 "HTTP health probe failed after deployment; service stopped fail-closed"
+fi
+
+if ! readiness_probe; then
+  systemctl stop "$SERVICE" || true
+  fail 31 "authenticated readiness probe failed after deployment; service stopped fail-closed"
 fi
 
 log "SUCCESS from=$CURRENT to=$EXPECTED backup=$BACKUP_DIR"
