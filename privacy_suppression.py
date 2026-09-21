@@ -150,6 +150,31 @@ def suppress(
     return {"ok": True, "subjectKind": subject_kind, "purposes": list(clean)}
 
 
+def unsuppress(
+    kind: object,
+    value: object,
+    purposes: list[str] | tuple[str, ...],
+    *,
+    db_path: Path | str | None = None,
+) -> dict:
+    subject_kind, normalized = normalize(kind, value)
+    clean = tuple(dict.fromkeys(str(item or "").strip() for item in purposes))
+    if not clean or "all_processing" in clean or any(item not in PURPOSES for item in clean):
+        raise ValueError("finalité de réactivation invalide")
+    digest = identity_hash(subject_kind, normalized)
+    init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        placeholders = ",".join("?" for _ in clean)
+        cursor = db.execute(
+            f"""UPDATE privacy_suppression
+                SET active=0,updated_at=?
+                WHERE subject_kind=? AND subject_hash=? AND active=1
+                  AND purpose IN ({placeholders})""",
+            (_now_iso(), subject_kind, digest, *clean),
+        )
+    return {"ok": True, "deactivated": int(cursor.rowcount or 0)}
+
+
 def is_suppressed(
     kind: object,
     value: object,
