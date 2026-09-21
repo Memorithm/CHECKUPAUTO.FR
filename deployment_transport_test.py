@@ -27,7 +27,8 @@ class DeploymentTransportTest(unittest.TestCase):
             "host": "ssh.example.net",
             "username": "checkup",
             "domain": "www.checkupauto.fr",
-            "rootPath": "public_html",
+            "rootPath": ".checkupauto",
+            "webRootPath": "public_html",
             "authMode": "key",
         }
         payload.update(changes)
@@ -71,10 +72,12 @@ class DeploymentTransportTest(unittest.TestCase):
                 transport.SSHCredential(identity_file=str(missing)),
             )
 
-    def test_probe_script_is_non_secret_and_target_scoped(self):
-        script = transport.remote_probe_script(self.target(rootPath="public_html/checkupauto"))
+    def test_probe_script_is_non_secret_and_probes_both_roots(self):
+        script = transport.remote_probe_script(self.target(rootPath=".checkupauto/runtime"))
         self.assertIn("CHECKUPAUTO_PROBE_V1", script)
-        self.assertIn("public_html/checkupauto", script)
+        self.assertIn(".checkupauto/runtime", script)
+        self.assertIn("public_html", script)
+        self.assertIn("writable_web_root", script)
         self.assertIn("ln -s", script)
         self.assertNotIn("password", script.lower())
         self.assertNotIn("admin-password", script)
@@ -89,6 +92,7 @@ systemd=0
 cron=1
 symlink=1
 writable_root=1
+writable_web_root=1
 free_disk_mb=4096
 """,
             passenger_wsgi_adapter=True,
@@ -98,6 +102,8 @@ free_disk_mb=4096
         self.assertTrue(report.passenger)
         self.assertFalse(report.systemd)
         self.assertTrue(report.cron)
+        self.assertTrue(report.writable_root)
+        self.assertTrue(report.writable_web_root)
         self.assertEqual(report.free_disk_mb, 4096)
         self.assertTrue(report.passenger_wsgi_adapter)
         self.assertTrue(report.shared_host_tick)
@@ -121,6 +127,7 @@ systemd=0
 cron=1
 symlink=1
 writable_root=1
+writable_web_root=1
 free_disk_mb=2048
 """,
             stderr="",
@@ -132,6 +139,7 @@ free_disk_mb=2048
             passenger_wsgi_adapter=False,
         )
         self.assertTrue(result.passenger)
+        self.assertTrue(result.writable_web_root)
         kwargs = run.call_args.kwargs
         self.assertFalse(kwargs["check"])
         self.assertTrue(kwargs["text"])
@@ -152,6 +160,7 @@ systemd=0
 cron=1
 symlink=1
 writable_root=1
+writable_web_root=1
 free_disk_mb=2048
 """,
             stderr="",
@@ -163,11 +172,11 @@ free_disk_mb=2048
             transport.SSHCredential(password="secret-value"),
         )
         self.assertTrue(result.passenger)
-        self.assertNotIn("secret-value", str(transport.sanitized_connection(target)))
-        self.assertEqual(
-            transport.sanitized_connection(target)["authMode"],
-            "password",
-        )
+        public = transport.sanitized_connection(target)
+        self.assertNotIn("secret-value", str(public))
+        self.assertEqual(public["authMode"], "password")
+        self.assertEqual(public["rootPath"], ".checkupauto")
+        self.assertEqual(public["webRootPath"], "public_html")
 
 
 if __name__ == "__main__":
