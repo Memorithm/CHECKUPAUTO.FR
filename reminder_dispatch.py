@@ -168,6 +168,14 @@ def _upsert(rows: list[dict], source_window_end: object = "") -> int:
                 continue
 
             row = representative
+            client_kind = str(row.get("clientKind") or "").strip()
+            client_id = str(row.get("clientId") or "").strip()
+            privacy_kind = "mercure_account" if client_kind == "account" else "mercure_free"
+            if privacy.any_suppressed(
+                [(privacy_kind, client_id), ("vehicle", vehicle_id)],
+                "all_processing",
+            ):
+                continue
             cursor = db.execute(
                 """INSERT INTO reminder_target(
                      vehicle_id,client_kind,client_id,due_date,appointment_id,
