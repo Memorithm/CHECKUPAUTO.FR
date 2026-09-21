@@ -82,6 +82,16 @@ def _verify_subject(row: sqlite3.Row, subject_ref: str) -> None:
         raise PermissionError("référence du demandeur refusée")
 
 
+def _adapter_executed(request_id: str, adapter: str, db_path: Path | str | None = None) -> bool:
+    _init_audit(db_path)
+    with compliance_store.connect(db_path) as db:
+        row = db.execute(
+            "SELECT 1 FROM rights_execution_audit WHERE request_id=? AND adapter=? LIMIT 1",
+            (request_id, adapter),
+        ).fetchone()
+    return row is not None
+
+
 def _mobile_snapshot(installation_id: str) -> dict:
     mobile_devices.init_db()
     with mobile_devices.connect() as db:
@@ -178,13 +188,20 @@ def _erase_mobile(installation_id: str) -> dict:
     }
 
 
-def _audit_and_close(
+def _audit_execution(
     row: sqlite3.Row,
     adapter: str,
     action: str,
     evidence: dict,
     db_path: Path | str | None = None,
 ) -> str:
+    """Record one store-level execution without closing the global rights request.
+
+    A rights request spans every applicable personal-data store. Until the engine
+    can prove complete cross-store coverage, a successful adapter execution only
+    moves the request to ``in_progress``. Closing it here would incorrectly claim
+    completion while other stores remain untouched.
+    """
     _init_audit(db_path)
     canonical = json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -198,6 +215,12 @@ def _audit_and_close(
         ).fetchone()
         if not current or str(current["status"]) not in {"open", "in_progress"}:
             raise RuntimeError("demande non exécutable")
+        duplicate = db.execute(
+            "SELECT 1 FROM rights_execution_audit WHERE request_id=? AND adapter=? LIMIT 1",
+            (row["request_id"], adapter),
+        ).fetchone()
+        if duplicate:
+            raise RuntimeError("adaptateur déjà exécuté pour cette demande")
         db.execute(
             """INSERT INTO rights_execution_audit(
                  execution_id,request_id,request_type,adapter,action,evidence_hash,created_at
@@ -213,8 +236,8 @@ def _audit_and_close(
             ),
         )
         db.execute(
-            "UPDATE rights_requests SET status='closed',closed_at=? WHERE request_id=?",
-            (stamp, row["request_id"]),
+            "UPDATE rights_requests SET status='in_progress',closed_at='' WHERE request_id=?",
+            (row["request_id"],),
         )
     return execution_id
 
@@ -238,6 +261,8 @@ def execute(
     request_type = str(row["request_type"])
     if request_type not in SUPPORTED_ADAPTERS[adapter]:
         raise NotImplementedError("type de droit non pris en charge par cet adaptateur")
+    if _adapter_executed(rid, adapter, db_path):
+        raise RuntimeError("adaptateur déjà exécuté pour cette demande")
 
     if adapter == "mobile_installation":
         installation_id = _mobile_installation(ref)
@@ -282,8 +307,10 @@ def execute(
     else:  # pragma: no cover - guarded by SUPPORTED_ADAPTERS
         raise ValueError("adaptateur de droit non pris en charge")
 
-    execution_id = _audit_and_close(row, adapter, action, evidence, db_path)
+    execution_id = _audit_execution(row, adapter, action, evidence, db_path)
     result["executionId"] = execution_id
+    result["requestStatus"] = "in_progress"
+    result["requestComplete"] = False
     return result
 
 
@@ -321,6 +348,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         },
         "rawSubjectReferencePersisted": False,
         "subjectReferenceReverifiedAtExecution": True,
+        "partialExecutionClosesRequest": False,
         "auditStoresEvidenceHashOnly": True,
         "executionCount": execution_count,
         "remainingRightTypes": [
