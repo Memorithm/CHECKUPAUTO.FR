@@ -1,0 +1,37 @@
+name: Production deploy preflight automation
+
+on:
+  push:
+    branches: [automation/deploy-preflight-20260921-1325]
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 4f0c1a4f610c7813ab2356779cb17045e09b5119
+      - name: Inspect bounded deployment privilege
+        shell: bash
+        run: |
+          set -u
+          if [ -e /usr/local/sbin/cybercheck-deploy ]; then
+            echo 'DEPLOY_HELPER_PRESENT=1'
+            stat -c 'DEPLOY_HELPER_OWNER=%U:%G' /usr/local/sbin/cybercheck-deploy
+            stat -c 'DEPLOY_HELPER_MODE=%a' /usr/local/sbin/cybercheck-deploy
+          else
+            echo 'DEPLOY_HELPER_PRESENT=0'
+          fi
+          if [ -x /usr/local/sbin/cybercheck-deploy ]; then
+            echo 'DEPLOY_HELPER_EXECUTABLE=1'
+          else
+            echo 'DEPLOY_HELPER_EXECUTABLE=0'
+          fi
+          if sudo -n -l /usr/local/sbin/cybercheck-deploy >/dev/null 2>&1; then
+            echo 'DEPLOY_HELPER_SUDO_ALLOWED=1'
+          else
+            echo 'DEPLOY_HELPER_SUDO_ALLOWED=0'
+          fi
