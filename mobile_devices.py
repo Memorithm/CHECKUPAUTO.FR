@@ -388,6 +388,12 @@ def consume_vehicle_claim(payload: dict) -> dict:
         ).fetchone()
         if not claim or claim["consumed_at"]:
             raise PermissionError("claim mobile refusé")
+        if privacy.any_suppressed(
+            [("mercure_"+str(claim["client_kind"]),str(claim["client_id"])),
+             ("vehicle",str(claim["vehicle_id"]))],
+            "all_processing",
+        ):
+            raise PermissionError("claim mobile refusé")
         try:
             expires = datetime.datetime.fromisoformat(str(claim["expires_at"]))
         except ValueError as exc:
