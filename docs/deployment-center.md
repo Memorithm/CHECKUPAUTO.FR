@@ -277,3 +277,14 @@ Dans le second cas, le site continue à afficher sa version et peut lire l'inven
 
 Cette séparation évite qu'une instance PlanetHoster sans dépôt Git tente une mise à jour incomplète. Un futur mode de mise à jour autonome devra fournir explicitement une source de release vérifiée avant d'activer Install/Update.
 
+## Garde serveur des actions de déploiement
+
+Les boutons de l'interface ne constituent pas la frontière de sécurité. L'exécuteur distant revalide l'état de la cible avant tout staging :
+
+- `install` est accepté uniquement si aucune release active n'est détectée ;
+- `update` est accepté uniquement si l'état autoritaire est `update_available` ;
+- `up_to_date`, `remote_ahead`, `diverged` et `not_installed` bloquent l'action `update` côté serveur ;
+- le staging et l'activation ne sont jamais appelés lorsque cette garde échoue.
+
+Ainsi, un appel API direct ne peut pas contourner les protections visibles dans le back-office.
+
