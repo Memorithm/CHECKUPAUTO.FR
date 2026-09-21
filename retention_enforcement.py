@@ -173,6 +173,15 @@ def init_db(db_path: Path | str | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_retention_audit_rule
               ON retention_purge_audit(rule_id,created_at);
+            CREATE TABLE IF NOT EXISTS retention_rule_run_state(
+              rule_id TEXT PRIMARY KEY,
+              run_id TEXT NOT NULL,
+              mode TEXT NOT NULL,
+              removed_count INTEGER NOT NULL,
+              cutoff_at TEXT NOT NULL DEFAULT '',
+              evidence_hash TEXT NOT NULL,
+              last_run_at TEXT NOT NULL
+            );
             """
         )
 
@@ -304,21 +313,36 @@ def _record_audit(
         json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     row = {
-        "auditId": uuid.uuid4().hex,
+        "auditId": "",
         **evidence,
         "evidenceHash": digest,
         "createdAt": _now_iso(),
     }
     with compliance_store.connect(db_path) as db:
         db.execute(
-            """INSERT INTO retention_purge_audit(
-                 audit_id,run_id,rule_id,mode,removed_count,cutoff_at,evidence_hash,created_at
-               ) VALUES(?,?,?,?,?,?,?,?)""",
+            """INSERT INTO retention_rule_run_state(
+                 rule_id,run_id,mode,removed_count,cutoff_at,evidence_hash,last_run_at
+               ) VALUES(?,?,?,?,?,?,?)
+               ON CONFLICT(rule_id) DO UPDATE SET
+                 run_id=excluded.run_id,mode=excluded.mode,
+                 removed_count=excluded.removed_count,cutoff_at=excluded.cutoff_at,
+                 evidence_hash=excluded.evidence_hash,last_run_at=excluded.last_run_at""",
             (
-                row["auditId"], run_id, rule_id, mode, row["removedCount"],
-                cutoff_at, digest, row["createdAt"],
+                rule_id, run_id, mode, row["removedCount"], cutoff_at,
+                digest, row["createdAt"],
             ),
         )
+        if row["removedCount"] > 0 or mode == "dry_run":
+            row["auditId"] = uuid.uuid4().hex
+            db.execute(
+                """INSERT INTO retention_purge_audit(
+                     audit_id,run_id,rule_id,mode,removed_count,cutoff_at,evidence_hash,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?)""",
+                (
+                    row["auditId"], run_id, rule_id, mode, row["removedCount"],
+                    cutoff_at, digest, row["createdAt"],
+                ),
+            )
     return row
 
 
@@ -744,6 +768,27 @@ def audit_rows(db_path: Path | str | None = None, limit: int = 100) -> list[dict
     ]
 
 
+def _last_runs(db_path: Path | str | None = None) -> list[dict]:
+    init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        rows = db.execute(
+            """SELECT rule_id,run_id,mode,removed_count,cutoff_at,evidence_hash,last_run_at
+               FROM retention_rule_run_state ORDER BY rule_id"""
+        ).fetchall()
+    return [
+        {
+            "ruleId": str(row["rule_id"]),
+            "runId": str(row["run_id"]),
+            "mode": str(row["mode"]),
+            "removedCount": int(row["removed_count"]),
+            "cutoffAt": str(row["cutoff_at"]),
+            "evidenceHash": str(row["evidence_hash"]),
+            "lastRunAt": str(row["last_run_at"]),
+        }
+        for row in rows
+    ]
+
+
 def status(db_path: Path | str | None = None) -> dict:
     rows = policies(db_path)
     blockers = [
@@ -758,6 +803,7 @@ def status(db_path: Path | str | None = None) -> dict:
         "blockers": blockers,
         "policies": rows,
         "audit": audit_rows(db_path, 50),
+        "lastRuns": _last_runs(db_path),
         "principles": {
             "noArbitraryDuration": True,
             "purposeLimitedRetention": True,
