@@ -27,6 +27,11 @@ class FakeResponse:
             raise ValueError("no json")
         return self._payload
 
+    def iter_content(self, chunk_size=1024 * 1024):
+        raw = bytes(self.content)
+        for start in range(0, len(raw), chunk_size):
+            yield raw[start:start + chunk_size]
+
 
 class FakeSession:
     def __init__(self, responses):
@@ -196,6 +201,22 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
         )
         codeload_headers = session.calls[2][1]["headers"]
         self.assertNotIn("Authorization", codeload_headers)
+        self.assertTrue(session.calls[2][1]["stream"])
+
+    def test_streaming_download_enforces_size_cap(self):
+        location = (
+            "https://codeload.github.com/Memorithm/CHECKUPAUTO.FR/"
+            f"legacy.tar.gz/{SHA}"
+        )
+        oversized = b"x" * 32
+        session = FakeSession([
+            FakeResponse(payload={"sha": SHA}),
+            FakeResponse(status=302, headers={"Location": location}),
+            FakeResponse(status=200, content=oversized),
+        ])
+        with mock.patch.object(github, "MAX_DOWNLOAD_BYTES", 16):
+            with self.assertRaisesRegex(RuntimeError, "trop volumineuse"):
+                github.build_bundle(SHA, session=session)
 
     def test_archive_redirect_is_restricted_to_codeload(self):
         session = FakeSession([
