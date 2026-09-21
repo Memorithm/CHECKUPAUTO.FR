@@ -192,3 +192,22 @@ python3 scripts/checkupauto-deployctl.py rollback \
 ```
 
 Les profils enregistrés conservent désormais explicitement une éventuelle `webRootPath` personnalisée lors de leur rechargement ; le contrôleur ne retombe plus silencieusement sur `public_html` pour une cible déjà enregistrée avec une autre racine Web.
+
+## Utilisation depuis l’administration
+
+Le panneau **Administration → Déploiement** permet de piloter le Deployment Center sans terminal :
+
+1. choisir le profil PlanetHoster ;
+2. saisir serveur, port, utilisateur, domaine et credential ;
+3. enregistrer la cible dans le coffre AES-GCM privé ;
+4. scanner la clé hôte SSH ;
+5. comparer l’empreinte SHA-256 avec celle communiquée par l’hébergeur puis l’approuver ;
+6. lancer le diagnostic de compatibilité ;
+7. construire le plan de release ;
+8. cliquer sur **Installer** ou **Mettre à jour** ;
+9. suivre le job asynchrone jusqu’au contrôle Production Readiness ;
+10. utiliser **Rollback** avec le SHA d’une release déjà staged si nécessaire.
+
+Le mot de passe SSH n’est jamais renvoyé au navigateur après l’enregistrement. Une valeur vide lors de l’édition conserve le credential déjà présent dans le coffre. La clé hôte n’est pas approuvée automatiquement : le scan et la confirmation sont deux opérations distinctes, et la confirmation rescane le serveur avant d’écrire `known_hosts`.
+
+Les opérations d’installation sont sérialisées par un verrou fichier inter-processus. Deux workers Passenger ou deux onglets administrateur ne peuvent donc pas activer simultanément deux releases différentes.
