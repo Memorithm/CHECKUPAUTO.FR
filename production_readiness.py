@@ -11,6 +11,7 @@ import mobile_claim_delivery
 import notification_broker
 import notification_preflight
 import referral_engine
+import referral_integrity_audit
 import reminder_dispatch
 import review_followup
 import security_alerts
@@ -105,8 +106,8 @@ _REMEDIATION = {
     },
     "referrals": {
         "code": "restore_referrals",
-        "summary": "Rétablir le ledger de parrainage et vérifier la valeur de récompense configurée.",
-        "verify": "Le ledger doit répondre sans erreur.",
+        "summary": "Rétablir le ledger de parrainage et corriger toute anomalie d’intégrité comptable.",
+        "verify": "Le ledger doit répondre et l’audit d’intégrité doit retourner issues=0.",
         "target": "#referrals",
         "external": False,
     },
@@ -428,14 +429,34 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             },
         ))
 
-    accounts, error = _safe("parrainage", lambda: referral_engine.list_accounts(100))
+    referral_snapshot, error = _safe("parrainage", lambda: {
+        "accounts": referral_engine.list_accounts(100),
+        "integrity": referral_integrity_audit.status(),
+    })
     if error:
         components.append(_failed("referrals", "Parrainage / cagnotte", False, error))
     else:
+        accounts = referral_snapshot.get("accounts") or []
+        integrity = referral_snapshot.get("integrity") or {}
+        integrity_metrics = integrity.get("metrics") or {}
+        integrity_issues = int(integrity.get("issues") or 0)
+        integrity_ok = bool(integrity.get("ok")) and integrity_issues == 0
         components.append(_component(
-            "referrals", "Parrainage / cagnotte", "ready", "Ledger de parrainage opérationnel",
+            "referrals", "Parrainage / cagnotte", "ready" if integrity_ok else "degraded",
+            "Ledger de parrainage opérationnel et cohérent" if integrity_ok else "Anomalies d’intégrité du ledger de parrainage",
             critical=False,
-            metrics={"accounts": len(accounts), "rewardCents": referral_engine.configured_reward_cents()},
+            metrics={
+                "accounts": len(accounts),
+                "rewardCents": referral_engine.configured_reward_cents(),
+                "integrityIssues": integrity_issues,
+                "accountsInDebt": int(integrity_metrics.get("accountsInDebt") or 0),
+                "ambiguousLegacyReferences": int(integrity_metrics.get("ambiguousLegacyReferences") or 0),
+                "missingEarns": int(integrity_metrics.get("missingEarns") or 0),
+                "orphanEarns": int(integrity_metrics.get("orphanEarns") or 0),
+                "amountMismatches": int(integrity_metrics.get("amountMismatches") or 0),
+                "missingReversals": int(integrity_metrics.get("missingReversals") or 0),
+                "orphanReversals": int(integrity_metrics.get("orphanReversals") or 0),
+            },
         ))
 
     reviews, error = _safe("avis Google", review_followup.status)

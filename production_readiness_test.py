@@ -58,6 +58,11 @@ def healthy_patches():
 
 class ProductionReadinessTest(unittest.TestCase):
     def _run_with(self, patches, seo=SEO_READY):
+        audit_patcher = mock.patch.object(readiness.referral_integrity_audit, "status", return_value={
+            "ok": True, "state": "ready", "issues": 0, "metrics": {"accountsInDebt": 0},
+        })
+        audit_patcher.start()
+        self.addCleanup(audit_patcher.stop)
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -275,6 +280,46 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertFalse(result["launchReady"])
         self.assertNotIn("secret-token-123", json.dumps(result))
         self.assertIn("RuntimeError", json.dumps(result))
+
+
+    def test_referral_integrity_anomalies_are_visible_without_blocking_core_launch(self):
+        patches = healthy_patches()
+        patches.append(mock.patch.object(readiness.referral_integrity_audit, "status", return_value={
+            "ok": False,
+            "state": "degraded",
+            "issues": 4,
+            "metrics": {
+                "accountsInDebt": 1,
+                "ambiguousLegacyReferences": 1,
+                "missingEarns": 1,
+                "orphanEarns": 0,
+                "amountMismatches": 1,
+                "missingReversals": 1,
+                "orphanReversals": 0,
+            },
+        }))
+        result = self._run_with(patches)
+        referrals = next(item for item in result["components"] if item["id"] == "referrals")
+        self.assertEqual(referrals["state"], "degraded")
+        self.assertEqual(referrals["metrics"]["integrityIssues"], 4)
+        self.assertEqual(referrals["metrics"]["accountsInDebt"], 1)
+        self.assertEqual(referrals["metrics"]["ambiguousLegacyReferences"], 1)
+        self.assertEqual(referrals["remediation"]["code"], "restore_referrals")
+        self.assertTrue(result["activationGate"]["allowed"])
+
+    def test_referral_integrity_probe_failure_is_bounded(self):
+        patches = healthy_patches()
+        patches.append(mock.patch.object(
+            readiness.referral_integrity_audit,
+            "status",
+            side_effect=readiness.referral_integrity_audit.ReferralAuditUnavailable("private-customer-token"),
+        ))
+        result = self._run_with(patches)
+        referrals = next(item for item in result["components"] if item["id"] == "referrals")
+        self.assertEqual(referrals["state"], "degraded")
+        encoded = json.dumps(result, sort_keys=True)
+        self.assertNotIn("private-customer-token", encoded)
+        self.assertIn("ReferralAuditUnavailable", encoded)
 
 
 if __name__ == "__main__":
