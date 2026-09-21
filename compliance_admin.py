@@ -73,4 +73,5 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["operations"] = operations
     result["withdrawal"] = withdrawal
     result["dataSubjectExecution"] = rights_execution
+    result["rightsExecutionAudit"] = data_subject_rights.audit_rows(db_path, 200)
     return result
