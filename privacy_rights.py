@@ -150,8 +150,8 @@ def create_request(payload: dict, db_path: Path | str | None = None) -> dict:
         raise ValueError("finalité de droit invalide")
     if request_type not in {"objection", "consent_withdrawal"}:
         purpose = "all_processing"
-    elif request_type == "consent_withdrawal" and purpose not in {"direct_marketing", "review_request"}:
-        raise ValueError("le retrait du consentement doit viser un traitement fondé sur le consentement")
+    elif request_type == "consent_withdrawal" and purpose != "direct_marketing":
+        raise ValueError("le retrait du consentement doit viser une finalité fondée sur le consentement")
     rectification = payload.get("rectification") or {}
     if not isinstance(rectification, dict) or len(rectification) > 20:
         raise ValueError("rectification invalide")
