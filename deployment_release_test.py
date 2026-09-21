@@ -110,6 +110,31 @@ class DeploymentReleaseTest(unittest.TestCase):
         self.assertEqual(first.archive, second.archive)
         self.assertEqual(first.sha256, second.sha256)
 
+    @mock.patch.object(release.github_source, "build_bundle")
+    @mock.patch.object(release.github_source, "token_configured", return_value=True)
+    def test_bundle_can_come_from_private_github_without_local_git(self, configured, remote_bundle):
+        archive = release.build_release_bundle(self.repo, self.sha).archive
+        remote_bundle.return_value = release.github_source.RemoteBundle(
+            sha=self.sha,
+            archive=archive,
+            sha256=hashlib.sha256(archive).hexdigest(),
+            file_count=release._validate_archive(archive),
+        )
+        packaged = self.root / "packaged"
+        packaged.mkdir()
+        result = release.build_release_bundle(packaged, self.sha)
+        self.assertEqual(result.sha, self.sha)
+        self.assertEqual(result.archive, archive)
+        self.assertEqual(result.sha256, hashlib.sha256(archive).hexdigest())
+        remote_bundle.assert_called_once_with(self.sha)
+
+    @mock.patch.object(release.github_source, "token_configured", return_value=False)
+    def test_bundle_without_git_or_remote_source_fails_closed(self, configured):
+        packaged = self.root / "packaged"
+        packaged.mkdir()
+        with self.assertRaisesRegex(ValueError, "source de build"):
+            release.build_release_bundle(packaged, self.sha)
+
     def test_bundle_rejects_invalid_or_unknown_commit(self):
         with self.assertRaisesRegex(ValueError, "SHA"):
             release.build_release_bundle(self.repo, "main")

@@ -301,6 +301,10 @@ class Handler(SimpleHTTPRequestHandler):
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(deployment_admin.status())
    except Exception: return self.send_json({'ok':False,'error':'deployment_status_unavailable'},500)
+  if path=='/api/admin/deployment/source':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_json(deployment_admin.update_source_status())
+   except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
   if path=='/api/admin/deployment/job':
    if not self.authorized(): return self.require_auth()
    try:
@@ -735,6 +739,9 @@ class Handler(SimpleHTTPRequestHandler):
     payload=self._read_json(); return self.send_json({'ok':True,'incident':compliance.set_incident_status(payload.get('id'),payload.get('status'))})
    except LookupError: return self.send_json({'ok':False,'error':'compliance_incident_not_found'},404)
    except Exception: return self.send_json({'ok':False,'error':'compliance_incident_invalid'},400)
+  if path=='/api/admin/deployment/source':
+   try: return self.send_json(deployment_admin.delete_update_source_token())
+   except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try: return self.send_json(deployment_admin.save_target(self._read_json()),201)
    except ValueError: return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
@@ -758,6 +765,14 @@ class Handler(SimpleHTTPRequestHandler):
    except (ValueError,KeyError): return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
    except RuntimeError: return self.send_json({'ok':False,'error':'deployment_probe_failed'},409)
    except Exception: return self.send_json({'ok':False,'error':'deployment_probe_unavailable'},500)
+  if path=='/api/admin/deployment/source':
+   try: return self.send_json(deployment_admin.save_update_source(self._read_json()))
+   except ValueError: return self.send_json({'ok':False,'error':'deployment_source_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
+  if path=='/api/admin/deployment/source/test':
+   try: return self.send_json(deployment_admin.test_update_source())
+   except RuntimeError: return self.send_json({'ok':False,'error':'deployment_source_test_failed'},409)
+   except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
   if path=='/api/admin/deployment/plan':
    try:
     payload=self._read_json()
@@ -945,6 +960,7 @@ class Handler(SimpleHTTPRequestHandler):
   parsed=urlparse(self.path); path=parsed.path
   if not self.authorized(): return self.require_auth()
   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
+  if path.startswith('/api/admin/') and admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
   if path=='/api/admin/deployment/target':
    try:
     q=parse_qs(parsed.query); name=(q.get('name') or [''])[0]

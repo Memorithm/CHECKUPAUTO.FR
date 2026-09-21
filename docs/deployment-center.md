@@ -268,14 +268,45 @@ Pour préserver les rollbacks vers des releases historiques, l'activation peut e
 
 Une installation PlanetHoster est une release packagée : elle contient le marqueur `.checkupauto-release.json`, mais pas le répertoire `.git`.
 
-Le back-office distingue donc deux modes :
+Le Deployment Center distingue trois modes :
 
-- `git_checkout` : SHA Git local vérifié et construction de nouvelles releases autorisée ;
-- `packaged_release` : SHA de la release lisible, mais construction Install/Update interdite.
+- `git_checkout` : checkout Git local vérifié, utilisé sur un serveur de développement/contrôle ;
+- `github_remote` : release packagée avec source GitHub privée configurée, autorisant les mises à jour autonomes ;
+- `packaged_release` : release packagée sans source de build, lecture de version et rollback uniquement.
 
-Dans le second cas, le site continue à afficher sa version et peut lire l'inventaire distant ainsi qu'effectuer un rollback vers une release déjà vérifiée. En revanche, il n'affiche jamais une release packagée comme source de build valide et ne prétend pas être « à jour » par simple comparaison avec elle-même.
+### Source GitHub privée
 
-Cette séparation évite qu'une instance PlanetHoster sans dépôt Git tente une mise à jour incomplète. Un futur mode de mise à jour autonome devra fournir explicitement une source de release vérifiée avant d'activer Install/Update.
+Le panneau **Source des mises à jour** permet de définir le dépôt, la branche et un token GitHub. Le token doit être un credential dédié en lecture seule au dépôt CheckupAuto ; il n'est jamais renvoyé au navigateur après enregistrement.
+
+Par défaut :
+
+```text
+repository = Memorithm/CHECKUPAUTO.FR
+branch = main
+token file = <private>/github-update-token
+config file = <private>/github-update-source.json
+```
+
+Le fichier token est exigé en permissions privées `0600`. Un symlink ou des permissions groupe/monde font échouer la source.
+
+Le flux autonome est :
+
+1. lire le SHA de la branche configurée via l'API GitHub ;
+2. comparer le SHA déployé et le SHA cible via l'API Compare ;
+3. refuser `remote_ahead` et `diverged` ;
+4. demander l'archive du commit exact ;
+5. accepter la redirection d'archive uniquement vers `https://codeload.github.com` ;
+6. ne transmettre aucun header Authorization à codeload ;
+7. limiter le téléchargement compressé à 64 Mio et le contenu décompressé à 192 Mio ;
+8. rejeter symlinks, hardlinks, devices, FIFO et chemins dangereux ;
+9. normaliser l'archive avant de la re-hasher localement ;
+10. réutiliser ensuite le staging, backup, activation, Readiness et rollback standards.
+
+Ainsi, un site installé chez PlanetHoster peut vérifier et appliquer une nouvelle version sans conserver le dépôt `.git` sur l'hébergement.
+
+Lors d'une installation ou d'une mise à jour lancée depuis un contrôleur qui possède déjà cette source GitHub, le dépôt, la branche et le token sont provisionnés automatiquement sous `shared/private` sur la cible. Le matériel secret est transporté uniquement dans le flux SSH, n'apparaît pas dans les arguments de processus ni dans l'historique, et n'est écrit qu'après validation HTTPS/Readiness de la nouvelle release. Une écriture partielle config/token restaure l'état antérieur avant le rollback.
+
+Si le token est supprimé ou invalide, le mode retombe automatiquement sur `packaged_release` : Install/Update sont bloqués, mais le rollback vers une release déjà vérifiée reste disponible.
 
 ## Garde serveur des actions de déploiement
 

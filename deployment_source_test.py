@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import deployment_source as source
 
@@ -52,10 +53,41 @@ class DeploymentSourceTest(unittest.TestCase):
             }) + "\n",
             encoding="utf-8",
         )
-        state = source.detect_source(self.root)
+        with mock.patch.object(source.github_source, "token_configured", return_value=False):
+            state = source.detect_source(self.root)
         self.assertEqual(state.mode, "packaged_release")
         self.assertEqual(state.sha, SHA)
         self.assertFalse(state.build_capable)
+
+    def test_packaged_release_with_private_github_source_is_build_capable(self):
+        (self.root / ".checkupauto-release.json").write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "sha": SHA,
+                "archiveSha256": "b" * 64,
+                "verified": True,
+            }) + "\n",
+            encoding="utf-8",
+        )
+        with mock.patch.object(source.github_source, "token_configured", return_value=True):
+            state = source.detect_source(self.root)
+        self.assertEqual(state.mode, "github_remote")
+        self.assertEqual(state.sha, SHA)
+        self.assertTrue(state.build_capable)
+
+    def test_desired_sha_uses_remote_branch_for_github_source(self):
+        (self.root / ".checkupauto-release.json").write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "sha": SHA,
+                "archiveSha256": "b" * 64,
+                "verified": True,
+            }) + "\n",
+            encoding="utf-8",
+        )
+        with mock.patch.object(source.github_source, "token_configured", return_value=True), \
+             mock.patch.object(source.github_source, "latest_sha", return_value="b" * 40):
+            self.assertEqual(source.desired_sha(self.root), "b" * 40)
 
     def test_invalid_marker_fails_closed(self):
         (self.root / ".checkupauto-release.json").write_text(

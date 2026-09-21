@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import base64
+import json
 import re
 import shlex
 import subprocess
@@ -19,6 +20,10 @@ _BLOCKER_COUNT_PREFIX = "CHECKUPAUTO_BLOCKER_COUNT="
 _ADMIN_PASSWORD_MIN = 12
 _ADMIN_PASSWORD_MAX = 256
 _ADMIN_PASSWORD_PLACEHOLDER = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
+_UPDATE_SOURCE_PLACEHOLDER = "__CHECKUPAUTO_UPDATE_SOURCE_B64__"
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]{1,160}$")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-\.]{20,500}$")
 
 
 @dataclass(frozen=True)
@@ -46,12 +51,39 @@ def _admin_password(value: object) -> str:
     return raw
 
 
+def _update_source_material(value: dict | None) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("source GitHub de déploiement invalide")
+    repository = str(value.get("repository") or "").strip()
+    branch = str(value.get("branch") or "").strip()
+    token = str(value.get("token") or "").strip()
+    if not _REPOSITORY_RE.fullmatch(repository):
+        raise ValueError("source GitHub de déploiement invalide")
+    if (
+        not _BRANCH_RE.fullmatch(branch)
+        or branch.startswith("/")
+        or branch.endswith("/")
+        or ".." in Path(branch).parts
+    ):
+        raise ValueError("source GitHub de déploiement invalide")
+    if not _TOKEN_RE.fullmatch(token):
+        raise ValueError("source GitHub de déploiement invalide")
+    return {
+        "repository": repository,
+        "branch": branch,
+        "token": token,
+    }
+
+
 def remote_activation_program() -> str:
     return r'''from __future__ import annotations
 import base64
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import secrets
@@ -63,6 +95,7 @@ BEGIN = "# BEGIN CHECKUPAUTO DEPLOYMENT CENTER"
 END = "# END CHECKUPAUTO DEPLOYMENT CENTER"
 ALLOWED_READINESS_STATES = {"ready", "configuration_required", "blocked_external", "degraded"}
 BOOTSTRAP_ADMIN_PASSWORD_B64 = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
+BOOTSTRAP_UPDATE_SOURCE_B64 = "__CHECKUPAUTO_UPDATE_SOURCE_B64__"
 
 root_rel, web_rel, sha, domain = sys.argv[1:5]
 home = Path.home().resolve()
@@ -166,6 +199,80 @@ def bootstrap_admin_credential() -> bool:
     if not (12 <= len(password) <= 256) or "\n" in password or "\r" in password or "\x00" in password:
         fail("initial admin credential invalid")
     atomic_write(password_path, (password + "\n").encode("utf-8"), 0o600)
+    return True
+
+
+def bootstrap_update_source() -> bool:
+    if not BOOTSTRAP_UPDATE_SOURCE_B64:
+        return False
+    try:
+        raw = base64.b64decode(
+            BOOTSTRAP_UPDATE_SOURCE_B64.encode("ascii"),
+            validate=True,
+        )
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        fail("update source bootstrap invalid")
+    if not isinstance(payload, dict):
+        fail("update source bootstrap invalid")
+    repository = str(payload.get("repository") or "").strip()
+    branch = str(payload.get("branch") or "").strip()
+    token = str(payload.get("token") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", repository):
+        fail("update source repository invalid")
+    if (
+        not re.fullmatch(r"[A-Za-z0-9._/-]{1,160}", branch)
+        or branch.startswith("/")
+        or branch.endswith("/")
+        or ".." in Path(branch).parts
+    ):
+        fail("update source branch invalid")
+    if not re.fullmatch(r"[A-Za-z0-9_\-\.]{20,500}", token):
+        fail("update source token invalid")
+
+    config_path = shared_private / "github-update-source.json"
+    token_path = shared_private / "github-update-token"
+    for path in (config_path, token_path):
+        if path.is_symlink():
+            fail("update source path symlink refused")
+        if path.exists() and not path.is_file():
+            fail("update source path invalid")
+
+    config = {
+        "schemaVersion": 1,
+        "repository": repository,
+        "branch": branch,
+    }
+
+    snapshots = {}
+    for path in (config_path, token_path):
+        if path.exists():
+            snapshots[path] = (True, path.read_bytes(), path.stat().st_mode & 0o777)
+        else:
+            snapshots[path] = (False, b"", 0o600)
+    try:
+        atomic_write(
+            config_path,
+            (json.dumps(config, sort_keys=True) + "\n").encode("utf-8"),
+            0o600,
+        )
+        atomic_write(
+            token_path,
+            (token + "\n").encode("ascii"),
+            0o600,
+        )
+    except Exception:
+        for path, (existed, content, mode) in snapshots.items():
+            try:
+                if existed:
+                    atomic_write(path, content, mode)
+                else:
+                    path.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+        raise
     return True
 
 
@@ -378,6 +485,7 @@ if previous_release is not None:
     )
 
 admin_credential_initialized = bootstrap_admin_credential()
+update_source_provisioned = False
 had_htaccess = htaccess.exists()
 old_htaccess = htaccess.read_bytes() if had_htaccess else b""
 old_htaccess_mode = (htaccess.stat().st_mode & 0o777) if had_htaccess else 0o644
@@ -413,6 +521,7 @@ try:
     switch_current(release)
     touch_restart(release)
     state, allowed, blocker_count = probe_http(probe_name, probe_value)
+    update_source_provisioned = bootstrap_update_source()
 except Exception as activation_error:
     rollback_failed = False
     try:
@@ -469,6 +578,7 @@ record = {
     "activationAllowed": allowed,
     "blockerCount": blocker_count,
     "adminCredentialInitialized": admin_credential_initialized,
+    "updateSourceProvisioned": update_source_provisioned,
     "backupSnapshot": str(backup_result.get("snapshot") or ""),
     "backupDatabaseCount": int(backup_result.get("databaseCount") or 0),
     "backupFileCount": int(backup_result.get("fileCount") or 0),
@@ -497,6 +607,7 @@ def remote_activation_script(
     release_sha: str,
     *,
     admin_password: str = "",
+    update_source: dict | None = None,
 ) -> str:
     sha = _release_sha(release_sha)
     if not target.web_root_path:
@@ -505,6 +616,16 @@ def remote_activation_script(
     if admin_password:
         encoded = base64.b64encode(
             _admin_password(admin_password).encode("utf-8")
+        ).decode("ascii")
+    source_encoded = ""
+    material = _update_source_material(update_source)
+    if material is not None:
+        source_encoded = base64.b64encode(
+            json.dumps(
+                material,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
         ).decode("ascii")
     args = " ".join([
         shlex.quote(target.root_path),
@@ -515,6 +636,9 @@ def remote_activation_script(
     program = remote_activation_program().replace(
         _ADMIN_PASSWORD_PLACEHOLDER,
         encoded,
+    ).replace(
+        _UPDATE_SOURCE_PLACEHOLDER,
+        source_encoded,
     )
     return "python3 - " + args + " <<'CHECKUPAUTO_ACTIVATE'\n" + program + "\nCHECKUPAUTO_ACTIVATE\n"
 
@@ -565,6 +689,7 @@ def activate_release(
     release_sha: str,
     *,
     admin_password: str = "",
+    update_source: dict | None = None,
     timeout: int = 180,
 ) -> ActivationResult:
     readiness = assess(target, capabilities)
@@ -574,6 +699,7 @@ def activate_release(
         target,
         release_sha,
         admin_password=admin_password,
+        update_source=update_source,
     )
     cred = credential.validate(target.auth_mode)
     args = transport.ssh_arguments(target, known_hosts, cred)

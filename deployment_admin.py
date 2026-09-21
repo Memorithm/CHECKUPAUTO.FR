@@ -14,6 +14,7 @@ import uuid
 
 import deployment_center as center
 import deployment_executor as executor
+import deployment_github_source as github_source
 import deployment_source as deployment_source
 import deployment_transport as transport
 import deployment_update as deployment_update
@@ -128,6 +129,7 @@ def status() -> dict:
             "sha": source.sha,
             "buildCapable": source.build_capable,
             "reason": source.reason,
+            "remote": github_source.public_status(),
         },
         "knownHostsConfigured": _known_hosts_path().is_file(),
         "jobs": list_jobs(12),
@@ -136,6 +138,65 @@ def status() -> dict:
 
 def targets() -> list[dict]:
     return _vault().summaries()
+
+
+def update_source_status() -> dict:
+    source = _source_state()
+    remote = github_source.public_status()
+    desired = ""
+    if source.build_capable:
+        try:
+            desired = deployment_source.desired_sha(ROOT)
+        except Exception:
+            desired = ""
+    return {
+        "ok": True,
+        "mode": source.mode,
+        "buildCapable": source.build_capable,
+        "currentSha": source.sha,
+        "desiredSha": desired,
+        "remote": remote,
+    }
+
+
+def save_update_source(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("configuration source invalide")
+    repository = str(payload.get("repository") or "").strip()
+    branch = str(payload.get("branch") or "").strip()
+    token = str(payload.get("token") or "").strip()
+    result = github_source.configure_source(
+        repository,
+        branch,
+        token=token,
+    )
+    return {
+        "ok": True,
+        "source": {
+            "provider": "github",
+            **result,
+        },
+    }
+
+
+def test_update_source() -> dict:
+    status = github_source.public_status()
+    if not status.get("tokenConfigured"):
+        raise RuntimeError("token GitHub de mise à jour absent")
+    sha = github_source.latest_sha()
+    return {
+        "ok": True,
+        "source": status,
+        "latestSha": sha,
+    }
+
+
+def delete_update_source_token() -> dict:
+    return {
+        "ok": True,
+        "deleted": github_source.remove_token(),
+        "source": github_source.public_status(),
+    }
 
 
 def _preserved_credential(name: str, auth_mode: str) -> dict:
@@ -414,11 +475,14 @@ def update_status(name: str) -> dict:
             "releases": releases,
             "rollbackCandidates": rollback,
         }
+    desired = deployment_source.desired_sha(ROOT)
+    if not desired:
+        raise RuntimeError("SHA de mise à jour indisponible")
     result = deployment_update.update_status(
         target,
         _known_hosts_path(),
         credential,
-        source.sha,
+        desired,
         ROOT,
         timeout=30,
     )
@@ -442,9 +506,14 @@ def plan(name: str, sha: str = "") -> dict:
         passenger_wsgi_adapter=report["capabilities"]["passengerWsgiAdapter"],
         shared_host_tick=report["capabilities"]["sharedHostTick"],
     )
+    desired = str(sha or "").strip().lower()
+    if not desired:
+        desired = deployment_source.desired_sha(ROOT)
+    if not desired:
+        raise RuntimeError("SHA de release indisponible")
     return center.installation_plan(
         target,
-        sha or _current_sha(),
+        desired,
         capabilities,
     )
 
@@ -602,7 +671,7 @@ def start_job(
         raise RuntimeError("source de build indisponible pour install/update")
     selected_sha = str(sha or "").strip().lower()
     if action in {"install", "update"} and not selected_sha:
-        selected_sha = source.sha
+        selected_sha = deployment_source.desired_sha(ROOT)
     if not re.fullmatch(r"[0-9a-f]{40}", selected_sha):
         raise ValueError("SHA de release invalide")
 

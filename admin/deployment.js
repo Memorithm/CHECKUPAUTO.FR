@@ -235,7 +235,7 @@
     setMessage('Construction du plan vérifié…');
     const result = await api('/api/admin/deployment/plan', {
       method: 'POST',
-      body: JSON.stringify({name: currentName(), sha: state.currentSha || ''})
+      body: JSON.stringify({name: currentName(), sha: ''})
     });
     const plan = result.plan || {};
     $('deploymentPlan').textContent = JSON.stringify({
@@ -252,8 +252,10 @@
 
   function renderSourceState() {
     const source = state.source || {};
+    const remote = source.remote || {};
     const labels = {
-      git_checkout: 'Git prêt',
+      git_checkout: 'Git local prêt',
+      github_remote: 'GitHub prêt',
       packaged_release: 'Release packagée',
       git_invalid: 'Git invalide',
       unavailable: 'Indisponible'
@@ -263,6 +265,60 @@
     if (!sourceBuildCapable()) {
       $('deploymentUpdate').disabled = true;
     }
+
+    if ($('deploymentGitHubRepository')) {
+      $('deploymentGitHubRepository').value =
+        remote.repository || 'Memorithm/CHECKUPAUTO.FR';
+      $('deploymentGitHubBranch').value = remote.branch || 'main';
+      $('deploymentGitHubToken').value = '';
+      $('deploymentGitHubState').textContent =
+        remote.tokenConfigured ? 'Configurée' : 'Token absent';
+      $('deploymentGitHubState').className =
+        'gsc-status ' + (remote.tokenConfigured ? 'online' : 'warning');
+    }
+  }
+
+  async function saveUpdateSource() {
+    const repository = $('deploymentGitHubRepository').value.trim();
+    const branch = $('deploymentGitHubBranch').value.trim();
+    const token = $('deploymentGitHubToken').value.trim();
+    setMessage('Enregistrement de la source GitHub…');
+    const result = await api('/api/admin/deployment/source', {
+      method: 'POST',
+      body: JSON.stringify({repository, branch, token})
+    });
+    $('deploymentGitHubToken').value = '';
+    $('deploymentGitHubState').textContent =
+      result.source?.tokenConfigured ? 'Configurée' : 'Token absent';
+    $('deploymentGitHubDetail').textContent =
+      'Source ' + (result.source?.repository || repository) +
+      ' · branche ' + (result.source?.branch || branch) + '.';
+    await refreshStatusPreservingForm();
+  }
+
+  async function testUpdateSource() {
+    setMessage('Vérification de la source GitHub…');
+    const result = await api('/api/admin/deployment/source/test', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    const sha = result.latestSha || '';
+    $('deploymentGitHubState').textContent = 'Vérifiée';
+    $('deploymentGitHubState').className = 'gsc-status online';
+    $('deploymentGitHubDetail').textContent =
+      'Source accessible · dernier SHA : ' + sha.slice(0, 12);
+    setMessage('Source GitHub vérifiée.');
+  }
+
+  async function deleteUpdateSourceToken() {
+    if (!window.confirm('Supprimer le token GitHub de mise à jour ?')) return;
+    await api('/api/admin/deployment/source', {method: 'DELETE'});
+    $('deploymentGitHubToken').value = '';
+    $('deploymentGitHubState').textContent = 'Token absent';
+    $('deploymentGitHubState').className = 'gsc-status warning';
+    $('deploymentGitHubDetail').textContent =
+      'Le dépôt et la branche restent enregistrés, mais Install/Update distant est désactivé.';
+    await refreshStatusPreservingForm();
   }
 
   function resetUpdateState() {
@@ -315,7 +371,7 @@
         'Aucune release active détectée : utilise Installer depuis un contrôleur Git.';
     } else if (updateState.state === 'source_unavailable') {
       $('deploymentUpdateDetail').textContent =
-        'Cette instance est une release packagée sans checkout Git. La version est lisible et le rollback reste disponible, mais Install/Update exigent un contrôleur de source.';
+        'Cette instance est une release packagée sans source GitHub de build. Configure la source de mise à jour ci-dessus ; le rollback reste disponible.';
     } else if (updateState.state === 'remote_ahead') {
       $('deploymentUpdateDetail').textContent =
         'La cible distante est plus récente que le checkout local. Mise à jour bloquée.';
@@ -433,6 +489,9 @@
     bind('deploymentAuthMode', 'change', updateAuthFields);
     bind('deploymentTargetSelect', 'change', (event) => loadTargetIntoForm(event.target.value));
     bind('deploymentSave', 'click', saveTarget);
+    bind('deploymentGitHubSave', 'click', saveUpdateSource);
+    bind('deploymentGitHubTest', 'click', testUpdateSource);
+    bind('deploymentGitHubDelete', 'click', deleteUpdateSourceToken);
     bind('deploymentDelete', 'click', deleteTarget);
     bind('deploymentScanHostKey', 'click', scanHostKey);
     bind('deploymentTrustHostKey', 'click', trustHostKey);

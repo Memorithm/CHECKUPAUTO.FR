@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import subprocess
 
+import deployment_github_source as github_source
+
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -83,6 +85,13 @@ def detect_source(root: str | Path) -> DeploymentSourceState:
 
     marker_sha = _release_marker_sha(path)
     if marker_sha:
+        if github_source.token_configured():
+            return DeploymentSourceState(
+                mode="github_remote",
+                sha=marker_sha,
+                build_capable=True,
+                reason="release packagée avec source GitHub privée configurée",
+            )
         return DeploymentSourceState(
             mode="packaged_release",
             sha=marker_sha,
@@ -96,3 +105,14 @@ def detect_source(root: str | Path) -> DeploymentSourceState:
         build_capable=False,
         reason="source de déploiement indisponible",
     )
+
+
+def desired_sha(root: str | Path) -> str:
+    state = detect_source(root)
+    if state.mode == "git_checkout":
+        return state.sha
+    if state.mode == "github_remote":
+        return github_source.latest_sha()
+    if state.sha:
+        return state.sha
+    return ""
