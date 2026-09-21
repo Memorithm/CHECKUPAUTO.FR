@@ -210,6 +210,22 @@ def _record_step(
     safe_detail = str(detail or "").strip()[:120]
     if not safe_store or not safe_action:
         raise ValueError("étape invalide")
+    with compliance_store.connect(db_path) as db:
+        existing = db.execute(
+            """SELECT status,affected_count,detail_code,evidence_hash,updated_at
+               FROM rights_execution_steps
+               WHERE request_id=? AND store_name=? AND action=?""",
+            (request_id, safe_store, safe_action),
+        ).fetchone()
+    if existing and existing["status"] == "applied" and status == "manual_required":
+        return {
+            "store": safe_store,
+            "action": safe_action,
+            "status": "applied",
+            "affectedCount": int(existing["affected_count"]),
+            "detailCode": existing["detail_code"],
+            "evidenceHash": existing["evidence_hash"],
+        }
     evidence = dict(evidence or {})
     evidence.update(
         {
@@ -1061,8 +1077,17 @@ def snapshot(db_path: Path | str | None = None) -> dict:
                 "locatorAvailable": False,
                 "steps": [],
             }
+    capability_state = capability()
+    unresolved = sum(
+        1
+        for row in rows
+        if row["status"] not in {"closed", "rejected"}
+        and not bool((details.get(row["id"]) or {}).get("locatorAvailable"))
+    )
+    capability_state["unresolvedLocatorCount"] = unresolved
+    capability_state["operationalReady"] = unresolved == 0
     return {
-        "capability": capability(),
+        "capability": capability_state,
         "suppression": suppression.summary(db_path),
         "requests": details,
     }
