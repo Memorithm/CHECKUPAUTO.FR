@@ -24,6 +24,7 @@ INTERVAL_SECONDS = 3600
 _STOP = threading.Event()
 _THREAD = None
 
+
 def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
@@ -52,9 +53,17 @@ def init_db() -> None:
           due_date TEXT NOT NULL,
           appointment_id TEXT NOT NULL DEFAULT '',
           first_seen_at TEXT NOT NULL,
-          last_seen_at TEXT NOT NULL
+          last_seen_at TEXT NOT NULL,
+          source_window_end TEXT NOT NULL DEFAULT '',
+          quarantined INTEGER NOT NULL DEFAULT 0
         )""")
+        columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(reminder_target)")}
+        if "source_window_end" not in columns:
+            db.execute("ALTER TABLE reminder_target ADD COLUMN source_window_end TEXT NOT NULL DEFAULT ''")
+        if "quarantined" not in columns:
+            db.execute("ALTER TABLE reminder_target ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0")
         db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminder_target(due_date)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_quarantined ON reminder_target(quarantined,due_date)")
         db.execute("""CREATE TABLE IF NOT EXISTS reminder_meta(
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
@@ -83,21 +92,116 @@ def _set_meta(key: str, value: str) -> None:
         )
 
 
-def _upsert(rows: list[dict]) -> int:
+def _source_window_end(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return datetime.date.fromisoformat(raw).isoformat()
+    except ValueError as exc:
+        raise ValueError("source_window_end invalide") from exc
+
+
+def _upsert(rows: list[dict], source_window_end: object = "") -> int:
+    """Merge one Mercure observation window without letting older history win.
+
+    The backfill walks backwards in time.  ``source_window_end`` therefore acts as a
+    monotonic recency marker: an older backfill window may populate a missing vehicle,
+    but it cannot replace a client identity observed in a newer window.  When the same
+    window associates one vehicle with multiple client identities, the vehicle is
+    quarantined instead of choosing a recipient from provider ordering.
+    """
     if not rows:
         return 0
+    observed_through = _source_window_end(source_window_end)
     now = _now_iso()
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        vehicle_id = str(row.get("vehicleId") or "").strip()
+        if not vehicle_id or len(vehicle_id) > 128 or any(ch.isspace() for ch in vehicle_id):
+            raise ValueError("vehicleId invalide")
+        grouped.setdefault(vehicle_id, []).append(row)
+
+    applied = 0
     with connect() as db:
-        for row in rows:
-            db.execute(
-                """INSERT INTO reminder_target(vehicle_id,client_kind,client_id,due_date,appointment_id,first_seen_at,last_seen_at)
-                   VALUES(?,?,?,?,?,?,?)
+        db.execute("BEGIN IMMEDIATE")
+        for vehicle_id, candidates in grouped.items():
+            identities = {
+                (str(row.get("clientKind") or "").strip(), str(row.get("clientId") or "").strip())
+                for row in candidates
+            }
+            representative = candidates[0]
+            if len(identities) != 1:
+                existing = db.execute(
+                    "SELECT source_window_end FROM reminder_target WHERE vehicle_id=?",
+                    (vehicle_id,),
+                ).fetchone()
+                if existing:
+                    cursor = db.execute(
+                        """UPDATE reminder_target
+                           SET quarantined=1,source_window_end=?,last_seen_at=?
+                           WHERE vehicle_id=? AND (
+                             source_window_end='' OR (?<>'' AND ?>=source_window_end)
+                           )""",
+                        (observed_through, now, vehicle_id, observed_through, observed_through),
+                    )
+                    applied += max(0, int(cursor.rowcount or 0))
+                else:
+                    db.execute(
+                        """INSERT INTO reminder_target(
+                             vehicle_id,client_kind,client_id,due_date,appointment_id,
+                             first_seen_at,last_seen_at,source_window_end,quarantined
+                           ) VALUES(?,?,?,?,?,?,?,?,1)""",
+                        (
+                            vehicle_id,
+                            str(representative.get("clientKind") or ""),
+                            str(representative.get("clientId") or ""),
+                            str(representative.get("dueDate") or ""),
+                            str(representative.get("appointmentId") or ""),
+                            now,
+                            now,
+                            observed_through,
+                        ),
+                    )
+                    applied += 1
+                continue
+
+            row = representative
+            cursor = db.execute(
+                """INSERT INTO reminder_target(
+                     vehicle_id,client_kind,client_id,due_date,appointment_id,
+                     first_seen_at,last_seen_at,source_window_end,quarantined
+                   ) VALUES(?,?,?,?,?,?,?,?,0)
                    ON CONFLICT(vehicle_id) DO UPDATE SET
-                   client_kind=excluded.client_kind,client_id=excluded.client_id,due_date=excluded.due_date,
-                   appointment_id=excluded.appointment_id,last_seen_at=excluded.last_seen_at""",
-                (row["vehicleId"], row["clientKind"], row["clientId"], row["dueDate"], row.get("appointmentId", ""), now, now),
+                     client_kind=excluded.client_kind,
+                     client_id=excluded.client_id,
+                     due_date=excluded.due_date,
+                     appointment_id=excluded.appointment_id,
+                     last_seen_at=excluded.last_seen_at,
+                     source_window_end=excluded.source_window_end,
+                     quarantined=0
+                   WHERE reminder_target.source_window_end=''
+                      OR (excluded.source_window_end<>'' AND excluded.source_window_end>=reminder_target.source_window_end)""",
+                (
+                    vehicle_id,
+                    str(row.get("clientKind") or ""),
+                    str(row.get("clientId") or ""),
+                    str(row.get("dueDate") or ""),
+                    str(row.get("appointmentId") or ""),
+                    now,
+                    now,
+                    observed_through,
+                ),
             )
-    return len(rows)
+            applied += max(0, int(cursor.rowcount or 0))
+    return applied
+
+
+def _quarantined_count() -> int:
+    init_db()
+    with connect() as db:
+        return int(db.execute("SELECT COUNT(*) n FROM reminder_target WHERE quarantined=1").fetchone()["n"])
+
 
 def _vehicle_id(value: object) -> str:
     raw = str(value or "").strip()
@@ -117,7 +221,7 @@ def mobile_claim_target(vehicle_id: object) -> dict:
     with connect() as db:
         row = db.execute(
             """SELECT vehicle_id,client_kind,client_id,due_date,appointment_id,last_seen_at
-               FROM reminder_target WHERE vehicle_id=?""",
+               FROM reminder_target WHERE vehicle_id=? AND quarantined=0""",
             (clean,),
         ).fetchone()
     if not row:
@@ -132,7 +236,7 @@ def mobile_claim_candidates(limit: int = 30) -> list[dict]:
     with connect() as db:
         rows = db.execute(
             """SELECT vehicle_id,due_date,appointment_id,last_seen_at
-               FROM reminder_target WHERE due_date>=?
+               FROM reminder_target WHERE due_date>=? AND quarantined=0
                ORDER BY last_seen_at DESC, due_date ASC, vehicle_id ASC LIMIT ?""",
             (today, limit),
         ).fetchall()
@@ -158,7 +262,7 @@ def deadlines_for_vehicle_ids(vehicle_ids: list[str]) -> list[dict]:
     with connect() as db:
         rows = db.execute(
             f"""SELECT vehicle_id,due_date FROM reminder_target
-                WHERE vehicle_id IN ({placeholders})""",
+                WHERE vehicle_id IN ({placeholders}) AND quarantined=0""",
             tuple(cleaned),
         )
         return [dict(row) for row in rows]
@@ -174,7 +278,7 @@ def sync_once(today: datetime.date | None = None) -> dict:
     recent_start = today - datetime.timedelta(days=RECENT_DAYS)
     recent_end = today + datetime.timedelta(days=1)
     recent = mercure.reminder_source_rows(recent_start.isoformat(), recent_end.isoformat())
-    touched = _upsert(recent)
+    touched = _upsert(recent, recent_end.isoformat())
 
     floor = today - datetime.timedelta(days=BACKFILL_DAYS)
     cursor_raw = _meta("backfill_cursor_end", (today - datetime.timedelta(days=RECENT_DAYS)).isoformat())
@@ -184,16 +288,22 @@ def sync_once(today: datetime.date | None = None) -> dict:
         cursor_end = today - datetime.timedelta(days=RECENT_DAYS)
     backfill_rows = []
     if cursor_end > floor:
-        chunk_start = max(floor, cursor_end - datetime.timedelta(days=BACKFILL_CHUNK_DAYS))
-        backfill_rows = mercure.reminder_source_rows(chunk_start.isoformat(), cursor_end.isoformat())
-        touched += _upsert(backfill_rows)
+        chunk_end = cursor_end
+        chunk_start = max(floor, chunk_end - datetime.timedelta(days=BACKFILL_CHUNK_DAYS))
+        backfill_rows = mercure.reminder_source_rows(chunk_start.isoformat(), chunk_end.isoformat())
+        touched += _upsert(backfill_rows, chunk_end.isoformat())
         cursor_end = chunk_start
         _set_meta("backfill_cursor_end", cursor_end.isoformat())
     complete = cursor_end <= floor
     result = {
-        "ok": True, "state": "synced", "recentRows": len(recent),
-        "backfillRows": len(backfill_rows), "touched": touched,
-        "backfillCursorEnd": cursor_end.isoformat(), "backfillComplete": complete,
+        "ok": True,
+        "state": "synced",
+        "recentRows": len(recent),
+        "backfillRows": len(backfill_rows),
+        "touched": touched,
+        "quarantinedTargets": _quarantined_count(),
+        "backfillCursorEnd": cursor_end.isoformat(),
+        "backfillComplete": complete,
     }
     _set_meta("last_sync", json.dumps(result, separators=(",", ":")))
     return result
@@ -215,7 +325,9 @@ def _eligible(now: datetime.datetime | None = None) -> list[dict]:
     today = local.date()
     with connect() as db:
         rows = [dict(row) for row in db.execute(
-            "SELECT vehicle_id,client_kind,client_id,due_date,appointment_id FROM reminder_target WHERE due_date>=? AND due_date<=?",
+            """SELECT vehicle_id,client_kind,client_id,due_date,appointment_id
+               FROM reminder_target
+               WHERE due_date>=? AND due_date<=? AND quarantined=0""",
             (today.isoformat(), (today + datetime.timedelta(days=max(reminders.DEFAULT_LEAD_DAYS))).isoformat()),
         )]
     out = []
@@ -229,6 +341,7 @@ def _eligible(now: datetime.datetime | None = None) -> list[dict]:
             row["days_before"] = lead
             out.append(row)
     return out
+
 
 def _booking_url() -> str:
     try:
@@ -267,7 +380,8 @@ def _target_for_reference(reference: object) -> dict | None:
     init_db()
     with connect() as db:
         rows = [dict(row) for row in db.execute(
-            "SELECT vehicle_id,client_kind,client_id,due_date,appointment_id FROM reminder_target"
+            """SELECT vehicle_id,client_kind,client_id,due_date,appointment_id
+               FROM reminder_target WHERE quarantined=0"""
         )]
     for row in rows:
         for days_before in reminders.DEFAULT_LEAD_DAYS:
@@ -297,21 +411,26 @@ def permanent_recipient_check(incident_id: object) -> dict:
     except Exception:
         persisted = notifications.record_permanent_recipient_check(context["incidentId"], "lookup_failed")
         return {
-            "ok": False, "incidentId": context["incidentId"],
-            "recipientState": "lookup_failed", "recipientCheckedAt": persisted["recipientCheckedAt"],
+            "ok": False,
+            "incidentId": context["incidentId"],
+            "recipientState": "lookup_failed",
+            "recipientCheckedAt": persisted["recipientCheckedAt"],
             "retryEligible": False,
         }
     if not mail.valid_email(recipient):
         persisted = notifications.record_permanent_recipient_check(context["incidentId"], "missing")
         return {
-            "ok": True, "incidentId": context["incidentId"],
-            "recipientState": "missing", "recipientCheckedAt": persisted["recipientCheckedAt"],
+            "ok": True,
+            "incidentId": context["incidentId"],
+            "recipientState": "missing",
+            "recipientCheckedAt": persisted["recipientCheckedAt"],
             "retryEligible": False,
         }
     comparison = notifications.permanent_failure_recipient_state(context["incidentId"], recipient)
     changed = comparison.get("recipientState") == "changed"
     return {
-        "ok": True, "incidentId": context["incidentId"],
+        "ok": True,
+        "incidentId": context["incidentId"],
         "recipientState": comparison.get("recipientState", "unknown"),
         "recipientCheckedAt": comparison.get("recipientCheckedAt", ""),
         "transitionedToChanged": bool(comparison.get("transitionedToChanged")),
@@ -370,28 +489,42 @@ def permanent_recipient_retry(incident_id: object) -> dict:
         return {"ok": False, "state": "email_preflight_failed", "retryEligible": True}
     if not bool(preflight.get("ok")):
         return {
-            "ok": False, "state": "waiting_email_preflight", "retryEligible": True,
+            "ok": False,
+            "state": "waiting_email_preflight",
+            "retryEligible": True,
             "preflightState": str(preflight.get("state") or "unknown"),
         }
     subject, text = _message(target["due_date"])
     delivery = notifications.send_email(
-        recipient, subject, text,
-        category="ct_due_reminder", reference=context["reference"],
+        recipient,
+        subject,
+        text,
+        category="ct_due_reminder",
+        reference=context["reference"],
     )
     if delivery.get("deferred"):
         return {
-            "ok": False, "state": "retry_deferred", "incidentId": context["incidentId"],
-            "recipientState": "changed", "retryEligible": True,
+            "ok": False,
+            "state": "retry_deferred",
+            "incidentId": context["incidentId"],
+            "recipientState": "changed",
+            "retryEligible": True,
             "retryAfterSeconds": int(delivery.get("retryAfterSeconds") or 0),
         }
     if delivery.get("inFlight"):
         return {
-            "ok": False, "state": "retry_in_flight", "incidentId": context["incidentId"],
-            "recipientState": "changed", "retryEligible": True,
+            "ok": False,
+            "state": "retry_in_flight",
+            "incidentId": context["incidentId"],
+            "recipientState": "changed",
+            "retryEligible": True,
         }
     return {
-        "ok": True, "state": "resent", "incidentId": context["incidentId"],
-        "recipientState": "changed", "delivery": delivery,
+        "ok": True,
+        "state": "resent",
+        "incidentId": context["incidentId"],
+        "recipientState": "changed",
+        "delivery": delivery,
     }
 
 
@@ -444,8 +577,11 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
                 continue
             subject, text = _message(row["due_date"])
             delivery = notifications.send_email(
-                recipient, subject, text,
-                category="ct_due_reminder", reference=_reference(row),
+                recipient,
+                subject,
+                text,
+                category="ct_due_reminder",
+                reference=_reference(row),
             )
             if delivery.get("alreadySent"):
                 already += 1
@@ -463,9 +599,14 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
     result = {
         "ok": failed == 0,
         "state": state,
-        "eligible": len(eligible), "sent": sent, "alreadySent": already,
-        "inFlight": in_flight, "deferred": deferred, "missingRecipient": missing,
-        "permanentSuppressed": permanent_suppressed, "failed": failed,
+        "eligible": len(eligible),
+        "sent": sent,
+        "alreadySent": already,
+        "inFlight": in_flight,
+        "deferred": deferred,
+        "missingRecipient": missing,
+        "permanentSuppressed": permanent_suppressed,
+        "failed": failed,
         "sync": sync,
     }
     _set_meta("last_process", json.dumps(result, separators=(",", ":")))
@@ -473,11 +614,21 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
 
 
 def status(now: datetime.datetime | None = None) -> dict:
-    init_db(); local = _local_now(now); today = local.date()
+    init_db()
+    local = _local_now(now)
+    today = local.date()
     with connect() as db:
         total = int(db.execute("SELECT COUNT(*) n FROM reminder_target").fetchone()["n"])
-        future = int(db.execute("SELECT COUNT(*) n FROM reminder_target WHERE due_date>=?", (today.isoformat(),)).fetchone()["n"])
-        next_row = db.execute("SELECT due_date FROM reminder_target WHERE due_date>=? ORDER BY due_date LIMIT 1", (today.isoformat(),)).fetchone()
+        quarantined = int(db.execute("SELECT COUNT(*) n FROM reminder_target WHERE quarantined=1").fetchone()["n"])
+        future = int(db.execute(
+            "SELECT COUNT(*) n FROM reminder_target WHERE due_date>=? AND quarantined=0",
+            (today.isoformat(),),
+        ).fetchone()["n"])
+        next_row = db.execute(
+            """SELECT due_date FROM reminder_target
+               WHERE due_date>=? AND quarantined=0 ORDER BY due_date LIMIT 1""",
+            (today.isoformat(),),
+        ).fetchone()
     raw = _meta("last_process", "")
     try:
         last_process = json.loads(raw) if raw else None
@@ -492,22 +643,29 @@ def status(now: datetime.datetime | None = None) -> dict:
     floor = today - datetime.timedelta(days=BACKFILL_DAYS)
     complete = False
     if cursor_raw:
-        try: complete = datetime.date.fromisoformat(cursor_raw) <= floor
-        except ValueError: pass
+        try:
+            complete = datetime.date.fromisoformat(cursor_raw) <= floor
+        except ValueError:
+            pass
     return {
         "ok": True,
         "sessionConnected": bool(mercure.session_status().get("connected")),
         "emailTransportConfigured": mail.configured(),
-        "leadDays": list(reminders.DEFAULT_LEAD_DAYS), "sendHour": reminders.DEFAULT_HOUR,
+        "leadDays": list(reminders.DEFAULT_LEAD_DAYS),
+        "sendHour": reminders.DEFAULT_HOUR,
         "timezone": reminders.DEFAULT_TIMEZONE,
-        "inventory": total, "futureDueDates": future,
+        "inventory": total,
+        "quarantinedTargets": quarantined,
+        "futureDueDates": future,
         "nextDueDate": str(next_row["due_date"]) if next_row else "",
         "eligibleNow": len(_eligible(local)),
-        "backfillCursorEnd": cursor_raw, "backfillComplete": complete,
+        "backfillCursorEnd": cursor_raw,
+        "backfillComplete": complete,
         "lastProcess": last_process,
         "permanentRecipientRefresh": recipient_refresh,
         "privacy": "CyberCheck conserve les identifiants techniques véhicule/client et la date d’échéance, jamais l’adresse email du client.",
     }
+
 
 def _loop() -> None:
     while not _STOP.is_set():
