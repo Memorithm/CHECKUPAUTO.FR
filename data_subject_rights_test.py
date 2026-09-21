@@ -70,6 +70,8 @@ class DataSubjectRightsTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["requestType"], "access")
         self.assertEqual(result["format"], "application/json")
+        self.assertEqual(result["requestStatus"], "in_progress")
+        self.assertFalse(result["requestComplete"])
         self.assertEqual(result["data"]["installationId"], self.installation_id)
         self.assertTrue(result["data"]["device"]["pushTokenPresent"])
         self.assertEqual(len(result["data"]["deadlines"]), 1)
@@ -78,7 +80,8 @@ class DataSubjectRightsTest(unittest.TestCase):
         self.assertNotIn(self.device_token, serialized)
         self.assertNotIn(self.secret, serialized)
         stored = compliance_store.rights_requests(self.compliance_db)
-        self.assertEqual(stored[0]["status"], "closed")
+        self.assertEqual(stored[0]["status"], "in_progress")
+        self.assertEqual(stored[0]["closedAt"], "")
         audit = rights.audit_rows(self.compliance_db)
         self.assertEqual(len(audit), 1)
         self.assertEqual(audit[0]["action"], "export")
@@ -112,6 +115,9 @@ class DataSubjectRightsTest(unittest.TestCase):
             "deadlineRecords": 1,
             "vehicleBindingRecords": 1,
         })
+        self.assertEqual(result["requestStatus"], "in_progress")
+        self.assertFalse(result["requestComplete"])
+        self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "in_progress")
         self.assertEqual(mobile_devices.status()["total"], 0)
         with mobile_devices.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) n FROM mobile_deadline").fetchone()["n"], 0)
@@ -119,6 +125,24 @@ class DataSubjectRightsTest(unittest.TestCase):
         audit = rights.audit_rows(self.compliance_db)
         self.assertEqual(audit[0]["requestType"], "erasure")
         self.assertEqual(audit[0]["action"], "erase")
+
+    def test_duplicate_adapter_execution_is_refused_without_second_audit(self):
+        request = self.request("access")
+        rights.execute(
+            request["id"],
+            self.installation_id,
+            adapter="mobile_installation",
+            db_path=self.compliance_db,
+        )
+        with self.assertRaisesRegex(RuntimeError, "adaptateur déjà exécuté"):
+            rights.execute(
+                request["id"],
+                self.installation_id,
+                adapter="mobile_installation",
+                db_path=self.compliance_db,
+            )
+        self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "in_progress")
+        self.assertEqual(len(rights.audit_rows(self.compliance_db)), 1)
 
     def test_portability_returns_machine_readable_export(self):
         request = self.request("portability")
@@ -130,6 +154,7 @@ class DataSubjectRightsTest(unittest.TestCase):
         )
         self.assertEqual(result["format"], "application/json")
         self.assertEqual(result["data"]["device"]["environment"], "sandbox")
+        self.assertFalse(result["requestComplete"])
 
     def test_unimplemented_right_stays_open(self):
         request = self.request("rectification")
@@ -153,6 +178,7 @@ class DataSubjectRightsTest(unittest.TestCase):
         )
         self.assertFalse(state["rawSubjectReferencePersisted"])
         self.assertTrue(state["subjectReferenceReverifiedAtExecution"])
+        self.assertFalse(state["partialExecutionClosesRequest"])
         self.assertIn("mercure", state["remainingSystemAdapters"])
 
 
