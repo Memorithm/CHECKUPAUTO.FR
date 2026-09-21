@@ -86,7 +86,6 @@ def _verify_subject(
     row: sqlite3.Row,
     subject_ref: str,
     adapter: str,
-    purpose: str = "",
     db_path: Path | str | None = None,
 ) -> None:
     digest = hashlib.sha256(subject_ref.encode("utf-8")).hexdigest()
@@ -400,6 +399,7 @@ def execute(
     subject_ref: object,
     *,
     adapter: str,
+    purpose: str = "",
     db_path: Path | str | None = None,
 ) -> dict:
     rid = _request_id(request_id)
