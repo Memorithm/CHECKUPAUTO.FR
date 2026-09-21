@@ -21,6 +21,8 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 ANALYTICS_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 ANALYTICS_METADATA_URL = "https://analyticsdata.googleapis.com/v1beta/properties/{property_id}/metadata"
+BUSINESS_PROFILE_SCOPE = "https://www.googleapis.com/auth/business.manage"
+BUSINESS_PROFILE_ACCOUNT_URL = "https://mybusinessaccountmanagement.googleapis.com/v1/{account_name}"
 
 CONNECTORS = {
     "search_console": {
@@ -34,7 +36,7 @@ CONNECTORS = {
         "label": "Google Business Profile",
         "category": "Référencement local",
         "description": "Fiche établissement, informations locales et avis Google.",
-        "scopes": ["https://www.googleapis.com/auth/business.manage"],
+        "scopes": [BUSINESS_PROFILE_SCOPE],
         "mode": "oauth_plus_setting",
         "setting": "businessAccountId",
     },
@@ -258,6 +260,17 @@ def _valid_analytics_property_id(value):
     return bool(raw and raw != "0" and raw.isascii() and raw.isdigit())
 
 
+def _normalize_business_account_id(value):
+    raw = str(value or "").strip()
+    if raw.startswith("accounts/"):
+        identifier = raw[len("accounts/"):]
+    else:
+        identifier = raw
+    if not identifier or not identifier.isascii() or not identifier.isdigit():
+        return ""
+    return "accounts/" + identifier
+
+
 def save_settings(payload):
     if not isinstance(payload, dict):
         raise IntegrationError("Paramètres Google invalides.")
@@ -272,6 +285,10 @@ def save_settings(payload):
             raise IntegrationError("Adresse d’envoi Gmail invalide.")
         if key == "analyticsPropertyId" and value and not _valid_analytics_property_id(value):
             raise IntegrationError("Identifiant de propriété Google Analytics invalide.")
+        if key == "businessAccountId" and value:
+            value = _normalize_business_account_id(value)
+            if not value:
+                raise IntegrationError("Identifiant de compte Google Business Profile invalide.")
         if value:
             current[key] = value
         else:
@@ -391,6 +408,41 @@ def analytics_property_probe(property_id=None):
     }
 
 
+def business_profile_account_probe(account_id=None):
+    account_name = _normalize_business_account_id(
+        account_id or settings().get("businessAccountId") or ""
+    )
+    if not account_name:
+        raise IntegrationError("Identifiant de compte Google Business Profile invalide.")
+    token = google_access_token([BUSINESS_PROFILE_SCOPE])
+    try:
+        response = requests.get(
+            BUSINESS_PROFILE_ACCOUNT_URL.format(account_name=account_name),
+            headers={"Authorization": "Bearer " + token},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise IntegrationHTTPError(
+            "Connexion à Google Business Profile impossible.",
+            retryable=True,
+        ) from exc
+    if response.status_code >= 400:
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google Business Profile a refusé la vérification du compte.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
+    try:
+        payload = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse Google Business Profile invalide.") from exc
+    if not isinstance(payload, dict) or payload.get("name") != account_name:
+        raise IntegrationError("Réponse Google Business Profile invalide.")
+    return {"connected": True, "verification": "verified"}
+
+
 def _apply_analytics_probe(row, cfg):
     try:
         probe = analytics_property_probe(cfg.get("analyticsPropertyId"))
@@ -417,6 +469,31 @@ def _apply_analytics_probe(row, cfg):
             "dimensionCount": int(probe.get("dimensionCount") or 0),
             "metricCount": int(probe.get("metricCount") or 0),
         }
+    return row
+
+
+def _apply_business_profile_probe(row, cfg):
+    try:
+        business_profile_account_probe(cfg.get("businessAccountId"))
+    except IntegrationHTTPError as exc:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "unavailable" if exc.retryable else "failed"
+        row["detail"] = (
+            "Configuration présente · vérification API Business Profile indisponible"
+            if exc.retryable
+            else "API Business Profile joignable · compte non accessible"
+        )
+    except IntegrationError:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "failed"
+        row["detail"] = "Configuration Business Profile invalide ou non vérifiable"
+    else:
+        row["connected"] = True
+        row["state"] = "connected"
+        row["verification"] = "verified"
+        row["detail"] = "API Google Business Profile vérifiée"
     return row
 
 
@@ -475,8 +552,11 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
             "detail": detail,
             "requiredScopes": list(meta.get("scopes") or []),
         }
-        if key == "analytics" and row["connected"] and verify_remote:
-            _apply_analytics_probe(row, cfg)
+        if row["connected"] and verify_remote:
+            if key == "analytics":
+                _apply_analytics_probe(row, cfg)
+            elif key == "business_profile":
+                _apply_business_profile_probe(row, cfg)
         rows.append(row)
     return {
         "provider": "google",
