@@ -443,6 +443,41 @@ def cookie_policy(db_path: Path | str | None = None) -> dict:
     }
 
 
+def create_rights_request_hashed(
+    request_type: str,
+    subject_ref_hash: str,
+    *,
+    notes: str = "",
+    db_path: Path | str | None = None,
+) -> dict:
+    request_type = str(request_type or "").strip()
+    if request_type not in RIGHT_TYPES:
+        raise ValueError("type de droit invalide")
+    subject_hash = str(subject_ref_hash or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", subject_hash):
+        raise ValueError("empreinte sujet invalide")
+    notes = _text(notes, "notes", 2000)
+    received = _now()
+    request_id = uuid.uuid4().hex
+    due = _calendar_month_later(received)
+    init_db(db_path)
+    with connect(db_path) as db:
+        db.execute(
+            """INSERT INTO rights_requests(
+                 request_id,request_type,status,subject_ref_hash,received_at,due_at,notes
+               ) VALUES(?,?,'open',?,?,?,?)""",
+            (
+                request_id,
+                request_type,
+                subject_hash,
+                received.isoformat(timespec="seconds"),
+                due.isoformat(timespec="seconds"),
+                notes,
+            ),
+        )
+    return next(row for row in rights_requests(db_path) if row["id"] == request_id)
+
+
 def create_rights_request(payload: dict, db_path: Path | str | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("demande invalide")
