@@ -11,6 +11,63 @@ class EmailGatewayTest(unittest.TestCase):
     def test_requires_sender_configuration(self):
         self.assertIsNone(mail.load_config())
 
+    @patch.dict(os.environ, {
+        "CYBERCHECK_SMTP_FROM": "legacy@checkupauto.fr",
+        "CYBERCHECK_SMTP_HOST": "legacy.example.fr",
+        "CYBERCHECK_SMTP_MODE": "starttls",
+        "CYBERCHECK_SMTP_USERNAME": "legacy-user",
+        "CYBERCHECK_SMTP_PASSWORD": "legacy-secret",
+    }, clear=True)
+    @patch.object(mail.email_settings, "load", return_value={
+        "transportMode": "smtp",
+        "smtp": {
+            "host": "smtp.example.fr",
+            "port": 587,
+            "sender": "contact@checkupauto.fr",
+            "mode": "starttls",
+            "username": "admin-user",
+            "password": "admin-secret",
+        },
+    })
+    def test_admin_settings_override_environment_without_restart(self, stored):
+        cfg = mail.load_config()
+        self.assertEqual(cfg.host, "smtp.example.fr")
+        self.assertEqual(cfg.sender, "contact@checkupauto.fr")
+        self.assertEqual(cfg.username, "admin-user")
+        self.assertEqual(cfg.password, "admin-secret")
+        self.assertEqual(mail._transport_mode(), "smtp")
+
+    @patch.dict(os.environ, {
+        "CYBERCHECK_EMAIL_TRANSPORT": "smtp",
+        "CYBERCHECK_SMTP_FROM": "legacy@checkupauto.fr",
+    }, clear=True)
+    @patch.object(mail.email_settings, "load", return_value={
+        "transportMode": "gmail",
+        "smtp": {},
+    })
+    def test_admin_gmail_mode_suppresses_environment_smtp(self, stored):
+        self.assertIsNone(mail.load_config())
+        self.assertEqual(mail._transport_mode(), "gmail")
+
+    @patch.object(mail.email_settings, "summary", return_value={"configured": True})
+    @patch.object(mail.email_settings, "load", return_value={
+        "transportMode": "smtp",
+        "smtp": {
+            "host": "smtp.example.fr",
+            "port": 465,
+            "sender": "contact@checkupauto.fr",
+            "mode": "ssl",
+            "username": "mailer",
+            "password": "hidden-secret",
+        },
+    })
+    def test_configuration_summary_never_exposes_password(self, stored, summary):
+        public = mail.configuration_summary()
+        self.assertEqual(public["source"], "admin")
+        self.assertEqual(public["smtp"]["host"], "smtp.example.fr")
+        self.assertTrue(public["smtp"]["passwordStored"])
+        self.assertNotIn("hidden-secret", str(public))
+
     @patch.dict(os.environ, {"CYBERCHECK_SMTP_FROM": "rappel@checkupauto.fr"}, clear=True)
     def test_defaults_to_local_plain_relay(self):
         cfg = mail.load_config()
