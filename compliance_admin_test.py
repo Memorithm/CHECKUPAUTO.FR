@@ -57,7 +57,7 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         # Contracting remains blocked by the existing CGV/withdrawal gates.
         self.assertFalse(state["summary"]["readyForPublicContracting"])
 
-    def test_complete_legal_and_operational_controls_can_open_contracting_gate(self):
+    def test_withdrawal_ready_still_fails_closed_for_remaining_phase2_controls(self):
         identity = {key: "value" for key in compliance_store.SETTINGS_FIELDS}
         identity.update({
             "controllerName": "Example SAS",
@@ -88,7 +88,9 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         self.assertTrue(state["summary"]["checkoutAcceptanceBound"])
         self.assertTrue(state["summary"]["withdrawalFunctionBound"])
         self.assertTrue(state["summary"]["operationalRegistersReady"])
-        self.assertTrue(state["summary"]["readyForPublicContracting"])
+        self.assertFalse(state["summary"]["dataSubjectExecutionBound"])
+        self.assertFalse(state["summary"]["retentionEnforcementBound"])
+        self.assertFalse(state["summary"]["readyForPublicContracting"])
         self.assertEqual(state["withdrawal"]["path"], "/retractation")
 
     def test_high_risk_pending_dpia_is_visible_in_same_snapshot(self):
