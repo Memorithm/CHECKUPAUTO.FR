@@ -65,6 +65,7 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
             patch.dict(os.environ, env, clear=True),
             patch.object(followup.mail, "configured", return_value=True),
             patch.object(followup.mail, "preflight", return_value={"ok": True, "state": "ready"}),
+            patch.object(followup.privacy, "any_suppressed", return_value=False),
         ):
             result = followup.process_once()
 
@@ -148,6 +149,7 @@ class ReviewFollowupPolicyTest(unittest.TestCase):
                 patch.object(followup.mail, "preflight", return_value={"ok": True, "state": "ready"}),
                 patch.object(followup.notifications, "send_email", side_effect=RuntimeError(leaked)),
                 patch.object(followup.notifications, "status", return_value={}),
+                patch.object(followup.privacy, "any_suppressed", return_value=False),
             ):
                 followup.init_db()
                 result = followup.process_once()
