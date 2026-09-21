@@ -123,7 +123,12 @@ def status() -> dict:
         "profiles": center.provider_profiles(),
         "targets": targets(),
         "currentSha": source.sha,
-        "source": source.public_dict(),
+        "source": {
+            "mode": source.mode,
+            "sha": source.sha,
+            "buildCapable": source.build_capable,
+            "reason": source.reason,
+        },
         "knownHostsConfigured": _known_hosts_path().is_file(),
         "jobs": list_jobs(12),
     }
