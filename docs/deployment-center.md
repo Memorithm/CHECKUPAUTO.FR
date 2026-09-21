@@ -304,6 +304,8 @@ Le flux autonome est :
 
 Ainsi, un site installé chez PlanetHoster peut vérifier et appliquer une nouvelle version sans conserver le dépôt `.git` sur l'hébergement.
 
+Lors d'une installation ou d'une mise à jour lancée depuis un contrôleur qui possède déjà cette source GitHub, le dépôt, la branche et le token sont provisionnés automatiquement sous `shared/private` sur la cible. Le matériel secret est transporté uniquement dans le flux SSH, n'apparaît pas dans les arguments de processus ni dans l'historique, et n'est écrit qu'après validation HTTPS/Readiness de la nouvelle release. Une écriture partielle config/token restaure l'état antérieur avant le rollback.
+
 Si le token est supprimé ou invalide, le mode retombe automatiquement sur `packaged_release` : Install/Update sont bloqués, mais le rollback vers une release déjà vérifiée reste disponible.
 
 ## Garde serveur des actions de déploiement
