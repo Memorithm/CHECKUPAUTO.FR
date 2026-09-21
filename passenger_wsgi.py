@@ -4,7 +4,6 @@ from http.server import ThreadingHTTPServer
 import http.client
 import ipaddress
 import os
-from pathlib import Path
 import secrets
 import threading
 from urllib.parse import quote
@@ -77,16 +76,13 @@ def _request_headers(environ: dict) -> dict[str, str]:
         if not key.startswith("HTTP_"):
             continue
         name = key[5:].replace("_", "-").lower()
-        if name in _HOP_BY_HOP or name in _INTERNAL_HEADERS:
+        if name in _HOP_BY_HOP or name in _INTERNAL_HEADERS or name == "content-length":
             continue
         headers["-".join(part.capitalize() for part in name.split("-"))] = str(value)
 
     content_type = str(environ.get("CONTENT_TYPE") or "")
-    content_length = str(environ.get("CONTENT_LENGTH") or "")
     if content_type:
         headers["Content-Type"] = content_type
-    if content_length:
-        headers["Content-Length"] = content_length
 
     headers["X-CheckupAuto-Proxy-Token"] = _PROXY_TOKEN
     headers["X-CheckupAuto-Client-IP"] = _client_ip(environ)
@@ -103,12 +99,16 @@ def _request_body(environ: dict) -> bytes:
         raise ValueError("CONTENT_LENGTH invalide") from exc
     if length < 0 or length > 131072:
         raise ValueError("corps WSGI trop volumineux")
+    if length == 0:
+        return b""
     stream = environ.get("wsgi.input")
     if stream is None:
-        return b""
+        raise ValueError("flux WSGI absent")
     body = stream.read(length)
     if not isinstance(body, (bytes, bytearray)):
         raise ValueError("flux WSGI invalide")
+    if len(body) != length:
+        raise ValueError("corps WSGI incomplet")
     return bytes(body)
 
 
@@ -136,8 +136,8 @@ def application(environ, start_response):
         host, port = _ensure_backend()
         method = str(environ.get("REQUEST_METHOD") or "GET").upper()
         target = _request_target(environ)
-        headers = _request_headers(environ)
         body = _request_body(environ)
+        headers = _request_headers(environ)
 
         connection = http.client.HTTPConnection(host, port, timeout=60)
         connection.request(method, target, body=body, headers=headers)
