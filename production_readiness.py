@@ -92,8 +92,8 @@ _REMEDIATION = {
     },
     "google_integration": {
         "code": "authorize_google",
-        "summary": "Configurer le client OAuth Google puis autoriser les connecteurs nécessaires.",
-        "verify": "OAuth autorisé ou au moins un connecteur Google connecté.",
+        "summary": "Configurer OAuth Google puis rétablir tout connecteur configuré dont la vérification distante échoue.",
+        "verify": "Aucune vérification distante Google ne doit rester en échec ou indisponible.",
         "target": "#integrations",
         "external": True,
     },
@@ -194,6 +194,58 @@ def _public_site(config: dict) -> dict:
 
 def _failed(key: str, label: str, critical: bool, error: str) -> dict:
     return _component(key, label, "degraded", error, critical=critical)
+
+
+def _google_integration_component(integrations: dict) -> dict:
+    oauth = bool(integrations.get("oauthAuthorized"))
+    oauth_health = integrations.get("oauthHealth") or {}
+    oauth_state = str(oauth_health.get("state") or ("ready" if oauth else "awaiting_authorization"))
+    oauth_client = integrations.get("oauthClient") or {}
+    web_client_verified = bool(oauth_client.get("webClientVerified"))
+    redirect_uri_allowed = bool(oauth_client.get("redirectUriAllowed"))
+    redirect_uri_count = int(oauth_client.get("redirectUriCount") or 0)
+    connectors = integrations.get("connectors") or []
+    connected = sum(1 for item in connectors if item.get("connected"))
+    verified = sum(1 for item in connectors if item.get("verification") == "verified")
+    failed = sum(1 for item in connectors if item.get("verification") == "failed")
+    unavailable = sum(1 for item in connectors if item.get("verification") == "unavailable")
+    remote_checked = verified + failed + unavailable
+
+    if oauth and not redirect_uri_allowed:
+        google_state = "degraded"
+        google_detail = "OAuth actif · callback CheckupAuto à autoriser dans le client Application Web"
+    elif failed:
+        google_state = "degraded"
+        google_detail = f"{failed} connecteur(s) configuré(s) refusé(s) par Google"
+    elif unavailable:
+        google_state = "degraded"
+        google_detail = f"{unavailable} vérification(s) Google temporairement indisponible(s)"
+    elif oauth or connected:
+        google_state = "ready"
+        google_detail = f"{connected} connecteur(s) connecté(s)"
+    elif oauth_state in {"token_expired", "reauthorization_required", "oauth_client_missing"}:
+        google_state = "degraded"
+        google_detail = "Session OAuth Google à renouveler"
+    else:
+        google_state = "configuration_required"
+        google_detail = "OAuth Google non configuré"
+
+    return _component(
+        "google_integration", "IntegrationHub Google", google_state, google_detail,
+        critical=False,
+        metrics={
+            "oauthAuthorized": oauth,
+            "oauthState": oauth_state,
+            "webClientVerified": web_client_verified,
+            "redirectUriAllowed": redirect_uri_allowed,
+            "redirectUriCount": redirect_uri_count,
+            "connectedConnectors": connected,
+            "verifiedConnectors": verified,
+            "failedVerifications": failed,
+            "unavailableVerifications": unavailable,
+            "remoteCheckedConnectors": remote_checked,
+        },
+    )
 
 
 def status(config: dict, seo_health: dict | None = None) -> dict:
@@ -411,38 +463,7 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
     if error:
         components.append(_failed("google_integration", "IntegrationHub Google", False, error))
     else:
-        oauth = bool(integrations.get("oauthAuthorized"))
-        oauth_health = integrations.get("oauthHealth") or {}
-        oauth_state = str(oauth_health.get("state") or ("ready" if oauth else "awaiting_authorization"))
-        oauth_client = integrations.get("oauthClient") or {}
-        web_client_verified = bool(oauth_client.get("webClientVerified"))
-        redirect_uri_allowed = bool(oauth_client.get("redirectUriAllowed"))
-        redirect_uri_count = int(oauth_client.get("redirectUriCount") or 0)
-        connected = sum(1 for item in integrations.get("connectors") or [] if item.get("connected"))
-        if oauth and not redirect_uri_allowed:
-            google_state = "degraded"
-            google_detail = "OAuth actif · callback CheckupAuto à autoriser dans le client Application Web"
-        elif oauth or connected:
-            google_state = "ready"
-            google_detail = f"{connected} connecteur(s) connecté(s)"
-        elif oauth_state in {"token_expired", "reauthorization_required", "oauth_client_missing"}:
-            google_state = "degraded"
-            google_detail = "Session OAuth Google à renouveler"
-        else:
-            google_state = "configuration_required"
-            google_detail = "OAuth Google non configuré"
-        components.append(_component(
-            "google_integration", "IntegrationHub Google", google_state, google_detail,
-            critical=False,
-            metrics={
-                "oauthAuthorized": oauth,
-                "oauthState": oauth_state,
-                "webClientVerified": web_client_verified,
-                "redirectUriAllowed": redirect_uri_allowed,
-                "redirectUriCount": redirect_uri_count,
-                "connectedConnectors": connected,
-            },
-        ))
+        components.append(_google_integration_component(integrations))
 
     analytics, error = _safe("acquisition", lambda: analytics_store.summary(30))
     if error:
