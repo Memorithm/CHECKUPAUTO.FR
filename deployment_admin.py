@@ -498,6 +498,8 @@ def _result_payload(result) -> dict:
         "readinessState": result.readiness_state,
         "activationAllowed": result.activation_allowed,
         "blockerCount": result.blocker_count,
+        "activated": result.activated,
+        "publicVerified": result.public_verified,
     }
 
 
@@ -533,7 +535,7 @@ def _run_job(
                 sha,
                 admin_password=admin_password,
             )
-        record["state"] = "succeeded"
+        record["state"] = "succeeded" if result.activated else "waiting_external"
         record["result"] = _result_payload(result)
     except Exception as exc:
         record["state"] = "failed"
