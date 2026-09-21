@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 import requests
+import mercure_admin_client as mercure_admin
 
 BASE = 'https://rdv.checkupauto.fr'
 CENTRE_ID = '240'
@@ -55,7 +56,7 @@ def _date(value: str) -> str:
         parsed = datetime.date.fromisoformat(str(value))
     except Exception as exc:
         raise ValueError('Date invalide') from exc
-    today = datetime.date.today()
+    today = mercure_admin.business_today()
     if parsed < today:
         raise ValueError('La date est passée')
     if parsed > today + datetime.timedelta(days=180):
@@ -191,4 +192,3 @@ def availability(service_key: str, start_date: str) -> dict[str, Any]:
         with _CACHE_LOCK:
             _CACHE[cache_key] = (time.monotonic(), result)
         return result
-
