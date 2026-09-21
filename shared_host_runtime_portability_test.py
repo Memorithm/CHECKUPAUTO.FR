@@ -32,6 +32,7 @@ class SharedHostRuntimePortabilityTest(unittest.TestCase):
                 security_ai = runpy.run_path(str(ROOT / "security_ai.py"))
                 gsc_client = runpy.run_path(str(ROOT / "gsc_client.py"))
                 config_store = runpy.run_path(str(ROOT / "site_config_store.py"))
+                runtime_path = config_store["runtime_config_path"]()
 
             self.assertEqual(behavior["STATE_DIR"], security)
             self.assertEqual(alerts["STATE_DIR"], security)
@@ -39,7 +40,7 @@ class SharedHostRuntimePortabilityTest(unittest.TestCase):
             self.assertEqual(security_integrity["INTEGRITY_DIR"], integrity)
             self.assertEqual(security_ai["STATE_DIR"], security)
             self.assertEqual(gsc_client["CREDS"], gsc)
-            self.assertEqual(config_store["runtime_config_path"](), data / "site-config.json")
+            self.assertEqual(runtime_path, data / "site-config.json")
 
     def test_explicit_site_config_path_overrides_data_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
