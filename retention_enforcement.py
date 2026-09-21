@@ -382,13 +382,13 @@ def _purge_notification_delivery(days: int, *, dry_run: bool) -> int:
     with notification_broker.connect() as db:
         count = int(db.execute(
             """SELECT COUNT(*) n FROM notification_delivery
-               WHERE COALESCE(NULLIF(sent_at,''),created_at)<?""",
+               WHERE status='sent' AND sent_at<>'' AND sent_at<?""",
             (cutoff,),
         ).fetchone()["n"])
         if not dry_run:
             db.execute(
                 """DELETE FROM notification_delivery
-                   WHERE COALESCE(NULLIF(sent_at,''),created_at)<?""",
+                   WHERE status='sent' AND sent_at<>'' AND sent_at<?""",
                 (cutoff,),
             )
     return count
@@ -400,13 +400,13 @@ def _purge_review_followup(days: int, *, dry_run: bool) -> int:
     with review_followup.connect() as db:
         count = int(db.execute(
             """SELECT COUNT(*) n FROM review_followup
-               WHERE COALESCE(NULLIF(sent_at,''),NULLIF(last_attempt_at,''),first_seen_at)<?""",
+               WHERE status='sent' AND sent_at<>'' AND sent_at<?""",
             (cutoff,),
         ).fetchone()["n"])
         if not dry_run:
             db.execute(
                 """DELETE FROM review_followup
-                   WHERE COALESCE(NULLIF(sent_at,''),NULLIF(last_attempt_at,''),first_seen_at)<?""",
+                   WHERE status='sent' AND sent_at<>'' AND sent_at<?""",
                 (cutoff,),
             )
     return count
