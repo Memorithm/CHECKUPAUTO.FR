@@ -68,6 +68,7 @@ def execute_deployment(
     repo_root: str | Path,
     release_sha: str,
     *,
+    admin_password: str = "",
     probe_timeout: int = 30,
     stage_timeout: int = 900,
     activation_timeout: int = 180,
@@ -98,6 +99,7 @@ def execute_deployment(
         known_hosts,
         credential,
         staged.sha,
+        admin_password=admin_password,
         timeout=activation_timeout,
     )
     if activated.sha != staged.sha:
@@ -124,6 +126,7 @@ def execute_rollback(
     repo_root: str | Path,
     release_sha: str,
     *,
+    admin_password: str = "",
     probe_timeout: int = 30,
     activation_timeout: int = 180,
 ) -> DeploymentExecutionResult:
@@ -140,6 +143,7 @@ def execute_rollback(
         known_hosts,
         credential,
         release_sha,
+        admin_password=admin_password,
         timeout=activation_timeout,
     )
     return DeploymentExecutionResult(
