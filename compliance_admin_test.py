@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,8 +12,14 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = Path(self.tmp.name) / "compliance.sqlite3"
+        self.old_private = os.environ.get("CYBERCHECK_PRIVATE_DIR")
+        os.environ["CYBERCHECK_PRIVATE_DIR"] = self.tmp.name
 
     def tearDown(self):
+        if self.old_private is None:
+            os.environ.pop("CYBERCHECK_PRIVATE_DIR", None)
+        else:
+            os.environ["CYBERCHECK_PRIVATE_DIR"] = self.old_private
         self.tmp.cleanup()
 
     def activity(self, **overrides):
@@ -88,7 +95,7 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         self.assertTrue(state["summary"]["checkoutAcceptanceBound"])
         self.assertTrue(state["summary"]["withdrawalFunctionBound"])
         self.assertTrue(state["summary"]["operationalRegistersReady"])
-        self.assertFalse(state["summary"]["dataSubjectExecutionBound"])
+        self.assertTrue(state["summary"]["dataSubjectExecutionBound"])
         self.assertFalse(state["summary"]["retentionEnforcementBound"])
         self.assertFalse(state["summary"]["readyForPublicContracting"])
         self.assertEqual(state["withdrawal"]["path"], "/retractation")
