@@ -63,9 +63,23 @@ python3 ios_release_runner.py export \
 
 Cette garde empêche qu'un simple test local déclenche accidentellement une soumission App Store Connect.
 
+## 5. Identité SSH utilisée par la CI iOS
+
+Le workflow `iOS Core CI` s'exécute sur le runner Linux interne puis rejoint le Mac mini en SSH. Il vérifie d'abord que `Mac-mini-de-tarek.local` est résolu et que le port TCP 22 est joignable. L'identité SSH n'est jamais stockée dans Git.
+
+La méthode recommandée est un secret GitHub Actions nommé `CHECKUPAUTO_MAC_SSH_KEY`, contenant uniquement la clé privée dédiée autorisée pour l'utilisateur `tarek` du Mac mini. Depuis une machine où `gh` est authentifié sur le dépôt, le secret peut être provisionné sans afficher la clé :
+
+```bash
+gh secret set CHECKUPAUTO_MAC_SSH_KEY \
+  --repo Memorithm/CHECKUPAUTO.FR \
+  < ~/.ssh/checkupauto_macmini_ed25519
+```
+
+À défaut, le runner conserve la compatibilité avec une clé privée déjà provisionnée hors Git sous `/root/.ssh/checkupauto_macmini_ed25519`, `$HOME/.ssh/checkupauto_macmini_ed25519` ou `/opt/actions-runner/.ssh/checkupauto_macmini_ed25519`. Dans tous les cas, le workflow copie l'identité vers un fichier éphémère sous `$RUNNER_TEMP`, puis le détruit dans une étape `always()` après l'exécution.
+
 ## Garanties
 
-- aucune clé APNs, clé App Store Connect, session Xcode ou mot de passe n'est lu depuis Git ;
+- aucune clé APNs, clé App Store Connect, session Xcode, clé privée SSH ou mot de passe n'est lu depuis Git ;
 - `main` doit être propre et identique à `origin/main` pour toute exécution réelle ;
 - le projet Xcode est généré dans un répertoire temporaire, donc aucun `.xcodeproj` généré n'est commité ;
 - les XCTest précèdent obligatoirement l'archive ;
