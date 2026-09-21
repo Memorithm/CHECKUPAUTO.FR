@@ -19,28 +19,49 @@ jobs:
       CHECKUPAUTO_MAC_USER: tarek
     steps:
       - uses: actions/checkout@v5
-      - name: Resolve authorized Mac SSH identity
+      - name: Verify Mac SSH endpoint
         run: |
           set -euo pipefail
-          key=""
-          for candidate in \
-            /root/.ssh/checkupauto_macmini_ed25519 \
-            "$HOME/.ssh/checkupauto_macmini_ed25519" \
-            /opt/actions-runner/.ssh/checkupauto_macmini_ed25519; do
-            if [ -r "$candidate" ]; then
-              key="$candidate"
-              break
-            fi
-          done
-          if [ -z "$key" ]; then
-            key="$(find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \( -name '*macmini*' -o -name 'checkupauto*ed25519' \) -readable -print -quit 2>/dev/null || true)"
-          fi
-          if [ -z "$key" ]; then
-            echo '::error::authorized Mac mini SSH identity is not readable by the Actions runner'
+          getent hosts "$CHECKUPAUTO_MAC_HOST" >/dev/null || {
+            echo '::error::Mac mini hostname is not resolvable from the internal runner'
             exit 2
+          }
+          timeout 5 bash -c "</dev/tcp/$CHECKUPAUTO_MAC_HOST/22" || {
+            echo '::error::Mac mini SSH port 22 is not reachable from the internal runner'
+            exit 2
+          }
+      - name: Resolve authorized Mac SSH identity
+        env:
+          CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          tmp_key="$RUNNER_TEMP/checkupauto-mac-key"
+          rm -f "$tmp_key"
+          umask 077
+          if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
+            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
+          else
+            source_key=""
+            for candidate in \
+              /root/.ssh/checkupauto_macmini_ed25519 \
+              "$HOME/.ssh/checkupauto_macmini_ed25519" \
+              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519; do
+              if [ -r "$candidate" ]; then
+                source_key="$candidate"
+                break
+              fi
+            done
+            if [ -z "$source_key" ]; then
+              source_key="$(find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \( -name '*macmini*' -o -name 'checkupauto*ed25519' \) -readable -print -quit 2>/dev/null || true)"
+            fi
+            if [ -z "$source_key" ]; then
+              echo '::error::No authorized Mac mini SSH identity is available. Configure the CHECKUPAUTO_MAC_SSH_KEY Actions secret or provision a private key on the internal runner.'
+              exit 2
+            fi
+            cp "$source_key" "$tmp_key"
           fi
-          printf '%s\n' "$key" > .ios-mac-key
-          chmod 600 .ios-mac-key
+          chmod 600 "$tmp_key"
+          printf '%s\n' "$tmp_key" > .ios-mac-key
       - name: Verify remote Apple toolchain
         run: |
           set -euo pipefail
@@ -75,13 +96,20 @@ jobs:
           ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "set -euo pipefail; cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
-      - name: Clean remote staging directory
+      - name: Clean remote staging directory and ephemeral identity
         if: always()
         run: |
           set -u
-          if [ -s .ios-remote-dir ] && [ -s .ios-mac-key ]; then
+          key=""
+          if [ -s .ios-mac-key ]; then
             key="$(cat .ios-mac-key)"
+          fi
+          if [ -s .ios-remote-dir ] && [ -n "$key" ]; then
             remote_dir="$(cat .ios-remote-dir)"
             ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir'" || true
           fi
+          if [ -n "$key" ]; then
+            rm -f "$key"
+          fi
+          rm -f .ios-mac-key .ios-remote-dir
