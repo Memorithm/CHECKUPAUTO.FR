@@ -246,18 +246,9 @@ def seed_review_baseline():
     add_review('securitest-auchan-mureaux','public-web','Personnel sérieux et rendez-vous rapide.',5,'sec-seed-1','2026-01-26')
     add_review('securitest-auchan-mureaux','public-web','Bon accueil et technicien professionnel.',5,'sec-seed-2','2025-09-30',True)
 
-def _google_places_configured():
-    try:
-        import integration_hub
-        if bool(integration_hub.settings_info().get('mapsApiKeyConfigured')):
-            return True
-    except Exception:
-        pass
-    return bool(os.environ.get('GOOGLE_PLACES_API_KEY','').strip())
-
 def connector_status():
     return {
-      'googlePlacesConfigured': _google_places_configured(),
+      'googlePlacesConfigured': bool(os.environ.get('GOOGLE_PLACES_API_KEY','').strip()),
       'serpProviderConfigured': bool(os.environ.get('CYBERCHECK_SERP_API_KEY','').strip()),
       'firstPartyAvailable': True,
       'publicBaselineLoaded': True,
