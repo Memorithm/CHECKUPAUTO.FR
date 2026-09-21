@@ -56,21 +56,51 @@ def status(db_path: Path | None = None) -> dict:
                 "SELECT account_id,kind,amount_cents,reference FROM referral_ledger"
             )
         ]
+        tables = {
+            str(row["name"])
+            for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        compacted_rewards = [
+            dict(row)
+            for row in db.execute(
+                """SELECT account_id,reference,amount_cents,reversed
+                   FROM referral_compacted_reward_evidence"""
+            )
+        ] if "referral_compacted_reward_evidence" in tables else []
+        checkpoints = {
+            str(row["account_id"]): int(row["balance_cents"])
+            for row in db.execute(
+                "SELECT account_id,balance_cents FROM referral_ledger_checkpoint"
+            )
+        } if "referral_ledger_checkpoint" in tables else {}
         account_count = int(
             db.execute("SELECT COUNT(*) n FROM referral_accounts").fetchone()["n"]
         )
-        debt_accounts = int(
-            db.execute(
-                """SELECT COUNT(*) n FROM (
-                   SELECT account_id,SUM(amount_cents) balance
-                   FROM referral_ledger GROUP BY account_id HAVING balance < 0
-                   )"""
-            ).fetchone()["n"]
+        live_balances = {
+            str(row["account_id"]): int(row["balance"])
+            for row in db.execute(
+                """SELECT account_id,COALESCE(SUM(amount_cents),0) balance
+                   FROM referral_ledger GROUP BY account_id"""
+            )
+        }
+        account_ids = {
+            str(row["id"]) for row in db.execute("SELECT id FROM referral_accounts")
+        }
+        debt_accounts = sum(
+            1 for account_id in account_ids
+            if checkpoints.get(account_id, 0) + live_balances.get(account_id, 0) < 0
         )
 
     ledger_map = {
         (str(row["account_id"]), str(row["kind"]), str(row["reference"])): int(row["amount_cents"])
         for row in ledger
+    }
+    compacted_map = {
+        (str(row["account_id"]), str(row["reference"])): {
+            "amount": int(row["amount_cents"]),
+            "reversed": bool(row["reversed"]),
+        }
+        for row in compacted_rewards
     }
     active = [row for row in rewards if str(row["status"]) in {"earned", "reversed"}]
     legacy_groups: dict[tuple[str, str], list[dict]] = {}
@@ -84,6 +114,7 @@ def status(db_path: Path | None = None) -> dict:
         "earnedRewards": sum(1 for row in rewards if str(row["status"]) == "earned"),
         "reversedRewards": sum(1 for row in rewards if str(row["status"]) == "reversed"),
         "modernEarns": 0,
+        "compactedEarns": 0,
         "legacyEarns": 0,
         "ambiguousLegacyReferences": 0,
         "missingEarns": 0,
@@ -108,6 +139,7 @@ def status(db_path: Path | None = None) -> dict:
         modern_key = (account, "earn", modern)
         legacy_key = (account, "earn", legacy)
         modern_amount = ledger_map.get(modern_key)
+        compacted = compacted_map.get((account, modern))
         legacy_amount = ledger_map.get(legacy_key)
         chosen_reference = ""
 
@@ -116,6 +148,14 @@ def status(db_path: Path | None = None) -> dict:
             recognized_earn_keys.add(modern_key)
             chosen_reference = modern
             if modern_amount != reward_cents:
+                metrics["amountMismatches"] += 1
+            if legacy_amount is not None:
+                metrics["duplicateEarnReferences"] += 1
+                recognized_earn_keys.add(legacy_key)
+        elif compacted is not None:
+            metrics["compactedEarns"] += 1
+            chosen_reference = modern
+            if int(compacted["amount"]) != reward_cents:
                 metrics["amountMismatches"] += 1
             if legacy_amount is not None:
                 metrics["duplicateEarnReferences"] += 1
@@ -145,11 +185,16 @@ def status(db_path: Path | None = None) -> dict:
                 metrics["missingReversals"] += 1
             else:
                 amount = ledger_map.get((account, "reverse", chosen_reference))
-                if amount is None:
+                compacted_reversed = bool(
+                    compacted_map.get((account, modern), {}).get("reversed")
+                )
+                if amount is None and not compacted_reversed:
                     metrics["missingReversals"] += 1
-                elif amount != -reward_cents:
+                elif amount is not None and amount != -reward_cents:
                     metrics["amountMismatches"] += 1
-        elif reverse_candidates:
+        elif reverse_candidates or bool(
+            compacted_map.get((account, modern), {}).get("reversed")
+        ):
             metrics["unexpectedReversals"] += 1
 
     for row in ledger:
@@ -158,7 +203,12 @@ def status(db_path: Path | None = None) -> dict:
             metrics["orphanEarns"] += 1
         if str(row["kind"]) != "reverse":
             continue
-        earn_amount = ledger_map.get((str(row["account_id"]), "earn", str(row["reference"])))
+        account = str(row["account_id"])
+        reference = str(row["reference"])
+        earn_amount = ledger_map.get((account, "earn", reference))
+        compacted_earn = compacted_map.get((account, reference))
+        if earn_amount is None and compacted_earn is not None:
+            earn_amount = int(compacted_earn["amount"])
         if earn_amount is None or int(row["amount_cents"]) != -int(earn_amount):
             metrics["orphanReversals"] += 1
 
