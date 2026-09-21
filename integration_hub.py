@@ -25,6 +25,10 @@ BUSINESS_PROFILE_SCOPE = "https://www.googleapis.com/auth/business.manage"
 BUSINESS_PROFILE_ACCOUNT_URL = "https://mybusinessaccountmanagement.googleapis.com/v1/{account_name}"
 TAG_MANAGER_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly"
 TAG_MANAGER_ACCOUNT_URL = "https://tagmanager.googleapis.com/tagmanager/v2/accounts/{account_id}"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
 
 CONNECTORS = {
     "search_console": {
@@ -86,14 +90,14 @@ CONNECTORS = {
         "label": "Google Calendar",
         "category": "Organisation",
         "description": "Lecture et gestion des événements utiles à l’exploitation.",
-        "scopes": ["https://www.googleapis.com/auth/calendar.events"],
+        "scopes": [CALENDAR_SCOPE],
         "mode": "oauth",
     },
     "drive": {
         "label": "Google Drive",
         "category": "Documents",
         "description": "Accès limité aux fichiers explicitement utilisés avec CheckupAuto.",
-        "scopes": ["https://www.googleapis.com/auth/drive.file"],
+        "scopes": [DRIVE_SCOPE],
         "mode": "oauth",
     },
 }
@@ -509,6 +513,76 @@ def tag_manager_account_probe(account_id=None):
     return {"connected": True, "verification": "verified"}
 
 
+def calendar_events_probe():
+    token = google_access_token([CALENDAR_SCOPE])
+    try:
+        response = requests.get(
+            CALENDAR_EVENTS_URL,
+            headers={"Authorization": "Bearer " + token},
+            params={"maxResults": 1},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise IntegrationHTTPError(
+            "Connexion à Google Calendar impossible.",
+            retryable=True,
+        ) from exc
+    if response.status_code >= 400:
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google Calendar a refusé la vérification du calendrier principal.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
+    try:
+        payload = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse Google Calendar invalide.") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("kind") != "calendar#events"
+        or ("items" in payload and not isinstance(payload.get("items"), list))
+    ):
+        raise IntegrationError("Réponse Google Calendar invalide.")
+    return {"connected": True, "verification": "verified"}
+
+
+def drive_files_probe():
+    token = google_access_token([DRIVE_SCOPE])
+    try:
+        response = requests.get(
+            DRIVE_FILES_URL,
+            headers={"Authorization": "Bearer " + token},
+            params={"pageSize": 1, "fields": "kind,files(id)"},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise IntegrationHTTPError(
+            "Connexion à Google Drive impossible.",
+            retryable=True,
+        ) from exc
+    if response.status_code >= 400:
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google Drive a refusé la vérification de l’accès aux fichiers.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
+    try:
+        payload = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse Google Drive invalide.") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("kind") != "drive#fileList"
+        or ("files" in payload and not isinstance(payload.get("files"), list))
+    ):
+        raise IntegrationError("Réponse Google Drive invalide.")
+    return {"connected": True, "verification": "verified"}
+
+
 def _apply_analytics_probe(row, cfg):
     try:
         probe = analytics_property_probe(cfg.get("analyticsPropertyId"))
@@ -588,6 +662,56 @@ def _apply_tag_manager_probe(row, cfg):
     return row
 
 
+def _apply_calendar_probe(row):
+    try:
+        calendar_events_probe()
+    except IntegrationHTTPError as exc:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "unavailable" if exc.retryable else "failed"
+        row["detail"] = (
+            "Configuration présente · vérification API Google Calendar indisponible"
+            if exc.retryable
+            else "API Google Calendar joignable · calendrier principal non accessible"
+        )
+    except IntegrationError:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "failed"
+        row["detail"] = "Configuration Google Calendar invalide ou non vérifiable"
+    else:
+        row["connected"] = True
+        row["state"] = "connected"
+        row["verification"] = "verified"
+        row["detail"] = "API Google Calendar vérifiée"
+    return row
+
+
+def _apply_drive_probe(row):
+    try:
+        drive_files_probe()
+    except IntegrationHTTPError as exc:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "unavailable" if exc.retryable else "failed"
+        row["detail"] = (
+            "Configuration présente · vérification API Google Drive indisponible"
+            if exc.retryable
+            else "API Google Drive joignable · fichiers non accessibles"
+        )
+    except IntegrationError:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "failed"
+        row["detail"] = "Configuration Google Drive invalide ou non vérifiable"
+    else:
+        row["connected"] = True
+        row["state"] = "connected"
+        row["verification"] = "verified"
+        row["detail"] = "API Google Drive vérifiée"
+    return row
+
+
 def status(legacy_search_console=None, base_url="", *, verify_remote=None):
     legacy_search_console = legacy_search_console or {}
     scopes = _granted_scopes()
@@ -650,6 +774,10 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
                 _apply_business_profile_probe(row, cfg)
             elif key == "tag_manager":
                 _apply_tag_manager_probe(row, cfg)
+            elif key == "calendar":
+                _apply_calendar_probe(row)
+            elif key == "drive":
+                _apply_drive_probe(row)
         rows.append(row)
     return {
         "provider": "google",
