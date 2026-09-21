@@ -123,6 +123,29 @@ def _fold(v):
 def mercure_prestation(service):
     return MERCURE_PRESTATIONS.get(_fold(service))
 
+def _checkout_requirements(token):
+    with analytics.connect() as db:
+        intent=db.execute(
+            'SELECT preferred_date,preferred_time FROM booking_intents WHERE token=?',
+            (token,),
+        ).fetchone()
+    preferred_date=str(intent['preferred_date'] or '') if intent else ''
+    preferred_time=str(intent['preferred_time'] or '') if intent else ''
+    requires_immediate=True
+    if preferred_date:
+        try:
+            chosen=datetime.date.fromisoformat(preferred_date)
+            today=datetime.datetime.now(ZoneInfo('Europe/Paris')).date()
+            requires_immediate=chosen <= today+datetime.timedelta(days=14)
+        except ValueError:
+            requires_immediate=True
+    return {
+        'preferredDate':preferred_date,
+        'preferredTime':preferred_time,
+        'requiresImmediatePerformance':requires_immediate,
+    }
+
+
 def auto_submit_html(token, service, nonce=""):
     prestation=mercure_prestation(service)
     if not prestation: return None
@@ -132,11 +155,30 @@ def auto_submit_html(token, service, nonce=""):
     action='https://rdv.checkupauto.fr/prendre_rdv?ccid='+token+'&cct='+cct
     parts=prestation.split('|')
     price=parts[2] if len(parts)>2 else ''
+    requirements=_checkout_requirements(token)
+    preferred=' · '.join(
+        x for x in (requirements['preferredDate'],requirements['preferredTime']) if x
+    )
+    immediate_required=bool(requirements['requiresImmediatePerformance'])
+    immediate_markup=(
+        '<label><input id="immediate" type="checkbox"> '
+        'Je demande expressément que la prestation puisse commencer avant la fin du délai '
+        'de rétractation et je reconnais qu’après exécution complète de la prestation, '
+        'je perdrai mon droit de rétractation.</label>'
+        if immediate_required else
+        '<input id="immediate" type="hidden" value="">'
+    )
+    preferred_markup=(
+        '<br>Créneau souhaité : '+html.escape(preferred)
+        if preferred else ''
+    )
     token_js=json.dumps(token)
     cct_js=json.dumps(cct)
     version_js=json.dumps(terms["version"])
     hash_js=json.dumps(terms["contentHash"])
-    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>Prix affiché : {html.escape(str(price))} € TTC</div><p><a href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv" target="_blank" rel="noopener">conditions générales de vente</a> applicables à cette réservation.</label><label><input id="immediate" type="checkbox"> Je demande expressément, si cela devient juridiquement nécessaire pour ce rendez-vous, que la prestation puisse commencer avant la fin du délai de rétractation applicable.</label><button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error');terms.addEventListener('change',()=>{{button.disabled=!terms.checked}});form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked)return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:immediate.checked}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
+    immediate_required_js='true' if immediate_required else 'false'
+    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>Prix affiché : {html.escape(str(price))} € TTC{preferred_markup}</div><p><a href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv" target="_blank" rel="noopener">conditions générales de vente</a> applicables à cette réservation.</label>{immediate_markup}<button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error'),requiresImmediate={immediate_required_js};const update=()=>{{button.disabled=!terms.checked||(requiresImmediate&&!immediate.checked)}};terms.addEventListener('change',update);if(requiresImmediate)immediate.addEventListener('change',update);form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked||(requiresImmediate&&!immediate.checked))return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:requiresImmediate?immediate.checked:false}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
+
 
 def create_intent(params, booking_url):
     token=secrets.token_urlsafe(20)
