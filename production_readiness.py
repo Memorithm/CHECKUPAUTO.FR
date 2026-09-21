@@ -93,7 +93,7 @@ _REMEDIATION = {
     "google_integration": {
         "code": "authorize_google",
         "summary": "Configurer OAuth Google puis rétablir tout connecteur configuré dont la vérification distante échoue.",
-        "verify": "Aucune vérification distante Google ne doit rester en échec ou indisponible.",
+        "verify": "Aucune vérification distante Google ne doit rester en échec, indisponible ou non exécutée pour un connecteur configuré.",
         "target": "#integrations",
         "external": True,
     },
@@ -209,6 +209,7 @@ def _google_integration_component(integrations: dict) -> dict:
     verified = sum(1 for item in connectors if item.get("verification") == "verified")
     failed = sum(1 for item in connectors if item.get("verification") == "failed")
     unavailable = sum(1 for item in connectors if item.get("verification") == "unavailable")
+    unverified = sum(1 for item in connectors if item.get("verification") == "unverified")
     remote_checked = verified + failed + unavailable
 
     if oauth and not redirect_uri_allowed:
@@ -220,6 +221,9 @@ def _google_integration_component(integrations: dict) -> dict:
     elif unavailable:
         google_state = "degraded"
         google_detail = f"{unavailable} vérification(s) Google temporairement indisponible(s)"
+    elif unverified:
+        google_state = "degraded"
+        google_detail = f"{unverified} connecteur(s) configuré(s) sans vérification distante"
     elif oauth or connected:
         google_state = "ready"
         google_detail = f"{connected} connecteur(s) connecté(s)"
@@ -243,6 +247,7 @@ def _google_integration_component(integrations: dict) -> dict:
             "verifiedConnectors": verified,
             "failedVerifications": failed,
             "unavailableVerifications": unavailable,
+            "unverifiedVerifications": unverified,
             "remoteCheckedConnectors": remote_checked,
         },
     )
