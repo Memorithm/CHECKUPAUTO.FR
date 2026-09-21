@@ -19,18 +19,38 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.CHECKUPAUTO_MAIN_SHA }}
-      - name: Resolve secret-backed Mac identity
+      - name: Resolve authorized Mac identity
         env:
           CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
-            echo '::error::CHECKUPAUTO_MAC_SSH_KEY is not configured'
-            exit 2
-          fi
           key="$RUNNER_TEMP/checkupauto-mac-key"
+          rm -f "$key"
           umask 077
-          printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$key"
+          if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
+            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$key"
+            echo 'MAC_IDENTITY_SOURCE=actions_secret'
+          else
+            source_key=""
+            for candidate in \
+              /root/.ssh/checkupauto_macmini_ed25519 \
+              "$HOME/.ssh/checkupauto_macmini_ed25519" \
+              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519; do
+              if [ -r "$candidate" ]; then
+                source_key="$candidate"
+                break
+              fi
+            done
+            if [ -z "$source_key" ]; then
+              source_key="$(find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \( -name '*macmini*' -o -name 'checkupauto*ed25519' \) -readable -print -quit 2>/dev/null || true)"
+            fi
+            if [ -z "$source_key" ]; then
+              echo '::error::No authorized Mac mini SSH identity is available'
+              exit 2
+            fi
+            cp "$source_key" "$key"
+            echo 'MAC_IDENTITY_SOURCE=runner_provisioned'
+          fi
           chmod 600 "$key"
           printf '%s\n' "$key" > .ios-mac-key
       - name: Verify Mac toolchain
