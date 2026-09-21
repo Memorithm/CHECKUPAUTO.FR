@@ -21,6 +21,8 @@ class DeploymentExecutionResult:
     readiness_state: str
     activation_allowed: bool
     blocker_count: int
+    activated: bool = True
+    public_verified: bool = True
 
 
 def _local_runtime_flags(repo_root: str | Path) -> tuple[bool, bool]:
@@ -116,6 +118,8 @@ def execute_deployment(
         readiness_state=activated.readiness_state,
         activation_allowed=activated.activation_allowed,
         blocker_count=activated.blocker_count,
+        activated=activated.activated,
+        public_verified=activated.public_verified,
     )
 
 
@@ -157,4 +161,6 @@ def execute_rollback(
         readiness_state=activated.readiness_state,
         activation_allowed=activated.activation_allowed,
         blocker_count=activated.blocker_count,
+        activated=activated.activated,
+        public_verified=activated.public_verified,
     )
