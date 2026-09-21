@@ -147,6 +147,41 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertIn("candidates.append(previous_release)", script)
         self.assertIn('fail("update safety helper missing")', script)
 
+    def test_update_source_is_provisioned_only_after_verified_activation(self):
+        token = "github" + "_pat_" + "T" * 40
+        material = {
+            "repository": "Memorithm/CHECKUPAUTO.FR",
+            "branch": "main",
+            "token": token,
+        }
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password="local-admin-secret-value",
+            update_source=material,
+        )
+        self.assertNotIn(token, script)
+        self.assertIn("bootstrap_update_source", script)
+        self.assertIn("github-update-source.json", script)
+        self.assertIn("github-update-token", script)
+        self.assertIn('"updateSourceProvisioned"', script)
+        verify = script.index("probe_http(probe_name, probe_value)")
+        provision = script.index("update_source_provisioned = bootstrap_update_source()")
+        self.assertLess(verify, provision)
+
+    def test_invalid_update_source_material_is_rejected_locally(self):
+        with self.assertRaisesRegex(ValueError, "source GitHub"):
+            activation.remote_activation_script(
+                self.target(),
+                SHA,
+                admin_password="local-admin-secret-value",
+                update_source={
+                    "repository": "invalid repository",
+                    "branch": "main",
+                    "token": "x" * 40,
+                },
+            )
+
     def test_parse_activation_output_is_bounded(self):
         result = activation._parse_activation_output(
             "\n".join([
@@ -199,6 +234,7 @@ class DeploymentActivationTest(unittest.TestCase):
             stderr="",
         )
         secret = "local-admin-secret-value"
+        source_token = "github" + "_pat_" + "T" * 40
         result = activation.activate_release(
             self.target(),
             self.ready_capabilities(),
@@ -206,6 +242,11 @@ class DeploymentActivationTest(unittest.TestCase):
             transport.SSHCredential(identity_file=str(self.key)),
             SHA,
             admin_password=secret,
+            update_source={
+                "repository": "Memorithm/CHECKUPAUTO.FR",
+                "branch": "main",
+                "token": source_token,
+            },
         )
         self.assertEqual(result.sha, SHA)
         command = run.call_args.args[0]
@@ -216,6 +257,8 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertNotIn("password", joined.lower())
         self.assertNotIn(secret, joined)
         self.assertNotIn(secret, run.call_args.kwargs["input"])
+        self.assertNotIn(source_token, joined)
+        self.assertNotIn(source_token, run.call_args.kwargs["input"])
 
     @mock.patch("deployment_activation.activate_release")
     def test_explicit_rollback_reuses_verified_activation_path(self, activate):
