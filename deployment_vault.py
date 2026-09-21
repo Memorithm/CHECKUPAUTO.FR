@@ -162,6 +162,7 @@ class DeploymentVault:
                 "username": target.get("username"),
                 "domain": target.get("domain"),
                 "rootPath": target.get("root_path") or target.get("rootPath"),
+                "webRootPath": target.get("web_root_path") or target.get("webRootPath"),
                 "authMode": target.get("auth_mode") or target.get("authMode"),
                 "credentialStored": True,
             })
