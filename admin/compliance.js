@@ -10,6 +10,20 @@ async function api(path,body){
  if(!r.ok||data.ok===false)throw new Error(data.error||('HTTP '+r.status));
  return data
 }
+function retentionPolicyFor(id){return (snapshot?.retention?.policies||[]).find(row=>row.id===id)||null}
+function fillRetentionPolicy(){
+ const id=$('#complianceRetentionRule')?.value,row=retentionPolicyFor(id);if(!row)return;
+ $('#complianceRetentionDays').value=row.activeDays??'';
+ $('#complianceRetentionJustification').value=row.justification||'';
+ $('#complianceRetentionLegalReview').checked=!!row.legalReviewConfirmed;
+ $('#complianceRetentionEnabled').checked=row.enabled!==false;
+ const configurable=row.mode===undefined;
+ $('#complianceRetentionDays').disabled=!configurable;
+ $('#complianceRetentionJustification').disabled=!configurable;
+ $('#complianceRetentionLegalReview').disabled=!configurable;
+ $('#complianceRetentionEnabled').disabled=!configurable;
+ $('#complianceRetentionSave').disabled=!configurable;
+}
 function docFor(type){
  const rows=(snapshot?.documents||[]).filter(x=>x.type===type);
  return rows.find(x=>x.status==='draft')||rows.find(x=>x.status==='published')||null
@@ -57,8 +71,19 @@ function render(){
  }).join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
  const incidents=snapshot.incidents||[];
  $('#complianceIncidentRows').innerHTML=incidents.length?incidents.map(row=>'<tr><td>'+esc(row.riskLevel)+'</td><td>'+esc(row.status)+(row.notificationOverdue?' · DÉLAI DÉPASSÉ':'')+'</td><td>'+esc(row.summary)+'</td><td>'+new Date(row.detectedAt).toLocaleString('fr-FR')+'</td><td>'+(row.cnilDueAt?new Date(row.cnilDueAt).toLocaleString('fr-FR'):'—')+'</td><td>'+(row.status==='closed'?'—':'<button type="button" class="compact-action compliance-close-incident" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucun incident enregistré.</td></tr>';
- const retention=snapshot.retentionPolicies||[];
- $('#complianceRetentionRows').innerHTML=retention.map(row=>'<tr><td>'+esc(row.category)+'</td><td>'+esc(row.purpose)+'</td><td>'+esc(row.legalBasis)+'</td><td>'+(row.activeDays===null?'Événementielle':(Math.round(row.activeDays/365*10)/10)+' an(s)')+'</td><td>'+esc(row.trigger)+'</td></tr>').join('');
+ const retention=snapshot.retention||{},retentionPolicies=retention.policies||[];
+ $('#complianceRetentionState').textContent=retention.bound?'PRÊT':String(retention.blockerCount||0)+' BLOQUEUR(S)';
+ $('#complianceRetentionState').className='gsc-status '+(retention.bound?'online':'warning');
+ const configurable=retentionPolicies.filter(row=>row.mode===undefined);
+ $('#complianceRetentionRule').innerHTML=configurable.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.label)+'</option>').join('');
+ $('#complianceRetentionRows').innerHTML=retentionPolicies.length?retentionPolicies.map(row=>{
+  const days=row.activeDays===undefined||row.activeDays===null?'—':String(row.activeDays)+' j';
+  const state=row.ready?'PRÊT':('BLOQUÉ · '+esc(row.blocker||'configuration requise'));
+  return '<tr><td>'+esc(row.label||row.id)+'</td><td>'+esc(row.store||'—')+'</td><td>'+days+'</td><td>'+esc(row.trigger||'—')+'</td><td>'+state+'</td><td>'+esc(row.justification||row.source||'—')+'</td></tr>';
+ }).join(''):'<tr><td colspan="6">Aucune politique disponible.</td></tr>';
+ const retentionAudit=retention.audit||[];
+ $('#complianceRetentionAuditRows').innerHTML=retentionAudit.length?retentionAudit.map(row=>'<tr><td>'+new Date(row.createdAt).toLocaleString('fr-FR')+'</td><td>'+esc(row.ruleId)+'</td><td>'+esc(row.mode)+'</td><td>'+esc(row.removedCount)+'</td><td>'+esc(row.cutoffAt||'—')+'</td><td>'+esc((row.evidenceHash||'').slice(0,16))+'</td></tr>').join(''):'<tr><td colspan="6">Aucune exécution.</td></tr>';
+ fillRetentionPolicy();
  const docs=snapshot.documents||[];
  $('#complianceDocumentRows').innerHTML=Object.entries(types).map(([type,m])=>{
   const pub=docs.find(x=>x.type===type&&x.status==='published');
@@ -122,6 +147,33 @@ $('#complianceCookieSave')?.addEventListener('click',async()=>{
 });
 $('#complianceRightCreate')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/request',{type:$('#complianceRightType').value,subjectRef:$('#complianceRightRef').value,notes:$('#complianceRightNotes').value});$('#complianceRightRef').value='';$('#complianceRightNotes').value='';await load();setMessage('Demande RGPD enregistrée avec échéance à un mois.')}catch(e){setMessage(e.message,true)}
+});
+$('#complianceRetentionRule')?.addEventListener('change',fillRetentionPolicy);
+$('#complianceRetentionSave')?.addEventListener('click',async()=>{
+ try{
+  await api('/api/admin/compliance/retention-policy',{
+   ruleId:$('#complianceRetentionRule').value,
+   activeDays:Number($('#complianceRetentionDays').value||0),
+   justification:$('#complianceRetentionJustification').value,
+   legalReviewConfirmed:$('#complianceRetentionLegalReview').checked,
+   enabled:$('#complianceRetentionEnabled').checked
+  });
+  await load();setMessage('Politique de conservation enregistrée.');
+ }catch(e){setMessage(e.message,true)}
+});
+$('#complianceRetentionDryRun')?.addEventListener('click',async()=>{
+ try{
+  const result=await api('/api/admin/compliance/retention-run',{dryRun:true});
+  await load();setMessage('Simulation terminée · '+String((result.retentionRun?.rules||[]).filter(x=>x.state==='ready').length)+' règle(s) évaluée(s).');
+ }catch(e){setMessage(e.message,true)}
+});
+$('#complianceRetentionPurge')?.addEventListener('click',async()=>{
+ if(!window.confirm('Exécuter maintenant les purges pour toutes les politiques prêtes ? Les suppressions sont irréversibles.'))return;
+ try{
+  const result=await api('/api/admin/compliance/retention-run',{dryRun:false,confirm:'PURGE'});
+  const removed=(result.retentionRun?.rules||[]).reduce((sum,row)=>sum+Number(row.removedCount||0),0);
+  await load();setMessage('Purge terminée · '+String(removed)+' enregistrement(s) supprimé(s).');
+ }catch(e){setMessage(e.message,true)}
 });
 $('#complianceIncidentCreate')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/incident',{riskLevel:$('#complianceIncidentRisk').value,summary:$('#complianceIncidentSummary').value,notes:$('#complianceIncidentNotes').value});$('#complianceIncidentSummary').value='';$('#complianceIncidentNotes').value='';await load();setMessage('Incident enregistré.')}catch(e){setMessage(e.message,true)}
