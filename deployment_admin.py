@@ -144,6 +144,65 @@ def targets() -> list[dict]:
     return _vault().summaries()
 
 
+def update_source_status() -> dict:
+    source = _source_state()
+    remote = github_source.public_status()
+    desired = ""
+    if source.build_capable:
+        try:
+            desired = deployment_source.desired_sha(ROOT)
+        except Exception:
+            desired = ""
+    return {
+        "ok": True,
+        "mode": source.mode,
+        "buildCapable": source.build_capable,
+        "currentSha": source.sha,
+        "desiredSha": desired,
+        "remote": remote,
+    }
+
+
+def save_update_source(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("configuration source invalide")
+    repository = str(payload.get("repository") or "").strip()
+    branch = str(payload.get("branch") or "").strip()
+    token = str(payload.get("token") or "").strip()
+    result = github_source.configure_source(
+        repository,
+        branch,
+        token=token,
+    )
+    return {
+        "ok": True,
+        "source": {
+            "provider": "github",
+            **result,
+        },
+    }
+
+
+def test_update_source() -> dict:
+    status = github_source.public_status()
+    if not status.get("tokenConfigured"):
+        raise RuntimeError("token GitHub de mise à jour absent")
+    sha = github_source.latest_sha()
+    return {
+        "ok": True,
+        "source": status,
+        "latestSha": sha,
+    }
+
+
+def delete_update_source_token() -> dict:
+    return {
+        "ok": True,
+        "deleted": github_source.remove_token(),
+        "source": github_source.public_status(),
+    }
+
+
 def _preserved_credential(name: str, auth_mode: str) -> dict:
     try:
         existing = _vault().load(name)
