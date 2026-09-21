@@ -36,6 +36,7 @@ import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
 import withdrawal_service as withdrawals
+import privacy_rights as privacy_rights
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -720,12 +721,41 @@ class Handler(SimpleHTTPRequestHandler):
    try: return self.send_json({'ok':True,'cookie':compliance.upsert_cookie(self._read_json())})
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_invalid'},400)
   if path=='/api/admin/compliance/request':
-   try: return self.send_json({'ok':True,'request':compliance.create_rights_request(self._read_json())},201)
+   try: return self.send_json({'ok':True,'request':privacy_rights.create_request(self._read_json())},201)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
+  if path=='/api/admin/compliance/request-execute':
+   try:
+    payload=self._read_json()
+    return self.send_json({'ok':True,'execution':privacy_rights.execute_request(payload.get('id'))})
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except RuntimeError: return self.send_json({'ok':False,'error':'compliance_request_execution_blocked'},409)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_request_execution_failed'},400)
+  if path=='/api/admin/compliance/request-manual-step':
+   try:
+    payload=self._read_json()
+    return self.send_json(privacy_rights.complete_manual_step(
+      payload.get('id'),payload.get('store'),payload.get('action'),
+      evidence_code=payload.get('evidenceCode'),
+    ))
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_manual_step_invalid'},400)
+  if path=='/api/admin/compliance/request-complete':
+   try:
+    payload=self._read_json()
+    return self.send_json({'ok':True,'request':privacy_rights.complete_request(payload.get('id'))})
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except RuntimeError: return self.send_json({'ok':False,'error':'compliance_request_steps_pending'},409)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
   if path=='/api/admin/compliance/request-status':
    try:
-    payload=self._read_json(); return self.send_json({'ok':True,'request':compliance.set_rights_request_status(payload.get('id'),payload.get('status'))})
+    payload=self._read_json(); status=str(payload.get('status') or '')
+    if status=='closed':
+     return self.send_json({'ok':True,'request':privacy_rights.complete_request(payload.get('id'))})
+    if status=='rejected':
+     return self.send_json({'ok':True,'request':privacy_rights.reject_request(payload.get('id'),reason_code=payload.get('reasonCode'))})
+    return self.send_json({'ok':False,'error':'compliance_request_status_not_allowed'},409)
    except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except RuntimeError: return self.send_json({'ok':False,'error':'compliance_request_steps_pending'},409)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
   if path=='/api/admin/compliance/incident':
    try: return self.send_json({'ok':True,'incident':compliance.create_incident(self._read_json())},201)
@@ -1155,7 +1185,7 @@ def initialize_runtime(*,background=True):
    os.chdir(ROOT)
    analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db()
    reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); reviews.init_db()
-   withdrawals.init_db(); security.init_db(); security_alerts.init_db()
+   withdrawals.init_db(); privacy_rights.init_db(); security.init_db(); security_alerts.init_db()
    competitive.seed_public_baseline(); competitive.seed_review_baseline()
    _RUNTIME_CORE_READY=True
   if background and not _RUNTIME_BACKGROUND_READY:
