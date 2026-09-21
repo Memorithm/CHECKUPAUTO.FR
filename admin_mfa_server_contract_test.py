@@ -48,6 +48,18 @@ class AdminMFAServerContractTest(unittest.TestCase):
         self.assertGreater(basic, 0)
         self.assertGreater(origin, basic)
 
+    def test_admin_delete_routes_require_second_factor_when_configured(self):
+        source = (ROOT / "admin_server.py").read_text(encoding="utf-8")
+        start = source.index(" def do_DELETE(self):")
+        block = source[start:start + 900]
+        self.assertIn("if not self.authorized(): return self.require_auth()", block)
+        self.assertIn("if not self._admin_origin_ok()", block)
+        self.assertIn(
+            "admin_mfa.configured() and not self._mfa_session_valid()",
+            block,
+        )
+        self.assertIn("return self.require_mfa()", block)
+
     def test_security_guard_rate_limits_mfa_attempts(self):
         source = (ROOT / "security_guard.py").read_text(encoding="utf-8")
         self.assertIn("'/api/admin/auth/2fa/setup': 4", source)
