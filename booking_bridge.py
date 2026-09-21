@@ -3,6 +3,7 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import datetime, hashlib, hmac, json, os, secrets, unicodedata, html
 import analytics_store as analytics
 import referral_engine as referrals
+import compliance_store as compliance
 
 ROOT = Path(__file__).resolve().parent
 PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -120,8 +121,17 @@ def mercure_prestation(service):
 def auto_submit_html(token, service, nonce=""):
     prestation=mercure_prestation(service)
     if not prestation: return None
-    action='https://rdv.checkupauto.fr/prendre_rdv?ccid='+token+'&cct='+browser_token(token)
-    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Ouverture de la réservation…</title></head><body><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"></form><script nonce="{html.escape(str(nonce),quote=True)}">document.getElementById('mercure').submit()</script><noscript><button form="mercure" type="submit">Continuer vers la réservation</button></noscript></body></html>'''.encode()
+    terms=compliance.published_document("terms")
+    if not terms: raise RuntimeError("CGV non publiées")
+    cct=browser_token(token)
+    action='https://rdv.checkupauto.fr/prendre_rdv?ccid='+token+'&cct='+cct
+    parts=prestation.split('|')
+    price=parts[2] if len(parts)>2 else ''
+    token_js=json.dumps(token)
+    cct_js=json.dumps(cct)
+    version_js=json.dumps(terms["version"])
+    hash_js=json.dumps(terms["contentHash"])
+    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>Prix affiché : {html.escape(str(price))} € TTC</div><p><a href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv" target="_blank" rel="noopener">conditions générales de vente</a> applicables à cette réservation.</label><label><input id="immediate" type="checkbox"> Je demande expressément, si cela devient juridiquement nécessaire pour ce rendez-vous, que la prestation puisse commencer avant la fin du délai de rétractation applicable.</label><button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error');terms.addEventListener('change',()=>{{button.disabled=!terms.checked}});form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked)return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:immediate.checked}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
 
 def create_intent(params, booking_url):
     token=secrets.token_urlsafe(20)
@@ -142,6 +152,28 @@ def create_intent(params, booking_url):
     query=dict(parse_qsl(parts.query,keep_blank_values=True)); query['ccid']=token; query['cct']=browser_token(token)
     target=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),parts.fragment))
     return {'token':token,'target':target,'source':source,'campaign':campaign,'referralCode':referral_code or None}
+def record_terms_acceptance(payload):
+    if not isinstance(payload,dict): raise ValueError('invalid payload')
+    ccid=analytics.clean(payload.get('ccid'),120)
+    cct=analytics.clean(payload.get('cct'),128)
+    if not verify_browser_token(ccid,cct): raise PermissionError('invalid browser token')
+    with analytics.connect() as db:
+        intent=db.execute('SELECT * FROM booking_intents WHERE token=?',(ccid,)).fetchone()
+    if not intent: raise ValueError('unknown attribution token')
+    created=datetime.datetime.fromisoformat(intent['created_at'].replace('Z','+00:00'))
+    if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=48):
+        raise ValueError('attribution token expired')
+    return compliance.record_checkout_acceptance(
+        ccid,
+        terms_version=payload.get('termsVersion'),
+        terms_content_hash=payload.get('termsContentHash'),
+        accepted=payload.get('accepted') is True,
+        reviewed=payload.get('reviewed') is True,
+        immediate_performance=payload.get('immediatePerformance') is True,
+        source='checkout_review',
+    )
+
+
 def _money_cents(value):
     if value in (None,''): return 0
     if isinstance(value,bool): raise ValueError('amount invalid')
@@ -158,6 +190,10 @@ def apply_conversion(payload):
     status=analytics.clean(payload.get('status') or 'confirmed',30).lower()
     if status not in ALLOWED_STATUS: raise ValueError('unsupported status')
     token=analytics.clean(payload.get('attributionToken') or payload.get('ccid'),120)
+    acceptance=None
+    if token and status in CONFIRMED:
+        try: acceptance=compliance.finalize_checkout_acceptance(token,external_id)
+        except PermissionError: acceptance=None
     appointment=analytics.clean(payload.get('appointmentDate'),80)
     service=analytics.clean(payload.get('service'),120)
     amount_cents=_money_cents(payload.get('amount'))
@@ -192,6 +228,7 @@ def apply_conversion(payload):
     if status=='completed': reward=referrals.complete_control(PROVIDER,external_id) or reward
     elif status in ('cancelled','no_show'): reward=referrals.cancel_pending(PROVIDER,external_id) or reward
     return {'ok':True,'externalId':external_id,'status':status,'attributed':source!='Non attribué','source':source,
+            'contractAcceptanceBound':bool(acceptance),
             'referralCode':referral_code or (reward.get('referral_code') if reward else None),
             'referralStatus':reward.get('status') if reward else None}
 def browser_confirmation(payload):
@@ -215,7 +252,9 @@ def browser_confirmation(payload):
     if presta:
         try: amount=float(presta.split('|')[2])
         except Exception: amount=0.0
+    acceptance=compliance.finalize_checkout_acceptance(ccid,external)
     result=apply_conversion({'externalId':external,'status':'confirmed','ccid':ccid,'service':service,'amount':amount})
+    result['contractAcceptanceBound']=bool(acceptance)
     result['transport']='browser-success-callback'; result['routeObserved']=bool(route)
     return result
 
