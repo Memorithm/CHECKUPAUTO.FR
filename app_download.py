@@ -19,6 +19,10 @@ _ALLOWED_SOURCES = {
     "admin-test",
     "claim",
 }
+_APP_STORE_PATH = re.compile(
+    r"^/(?:[a-z]{2}/)?app/[A-Za-z0-9._~%-]+/id[0-9]{6,20}/?$",
+    re.IGNORECASE,
+)
 _TESTFLIGHT_PATH = re.compile(r"^/join/[A-Za-z0-9_-]{4,64}/?$")
 
 
@@ -33,15 +37,19 @@ def _safe_distribution_url(raw: str, hostname: str, *, testflight: bool = False)
         return ""
     try:
         parsed = urlparse(raw)
-    except Exception:
+        parsed_hostname = (parsed.hostname or "").lower()
+        parsed_port = parsed.port
+    except (TypeError, ValueError):
         return ""
-    if parsed.scheme != "https" or (parsed.hostname or "").lower() != hostname:
+    if parsed.scheme != "https" or parsed_hostname != hostname or parsed_port not in (None, 443):
         return ""
-    if parsed.username or parsed.password or parsed.fragment:
+    if parsed.username or parsed.password or parsed.fragment or parsed.query:
         return ""
     if testflight:
-        if parsed.query or not _TESTFLIGHT_PATH.fullmatch(parsed.path or ""):
+        if not _TESTFLIGHT_PATH.fullmatch(parsed.path or ""):
             return ""
+    elif not _APP_STORE_PATH.fullmatch(parsed.path or ""):
+        return ""
     return raw
 
 

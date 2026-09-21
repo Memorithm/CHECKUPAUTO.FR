@@ -74,6 +74,26 @@ class AppDownloadTest(unittest.TestCase):
         self.assertEqual(app_download.ios_testflight_url(), "")
 
     @patch.dict(os.environ, {
+        app_download.APP_STORE_ENV: "https://apps.apple.com/fr/music",
+    }, clear=False)
+    def test_rejects_non_app_store_product_path(self):
+        self.assertEqual(app_download.ios_app_store_url(), "")
+
+    @patch.dict(os.environ, {
+        app_download.APP_STORE_ENV: "https://apps.apple.com/fr/app/checkup-auto/id1234567890?campaign=fake",
+    }, clear=False)
+    def test_rejects_app_store_query_parameters(self):
+        self.assertEqual(app_download.ios_app_store_url(), "")
+
+    @patch.dict(os.environ, {
+        app_download.APP_STORE_ENV: "https://apps.apple.com:444/fr/app/checkup-auto/id1234567890",
+        app_download.TESTFLIGHT_ENV: "https://testflight.apple.com:444/join/AbC123xy",
+    }, clear=False)
+    def test_rejects_nonstandard_distribution_ports(self):
+        self.assertEqual(app_download.ios_app_store_url(), "")
+        self.assertEqual(app_download.ios_testflight_url(), "")
+
+    @patch.dict(os.environ, {
         app_download.TESTFLIGHT_ENV: "https://testflight.apple.com/not-a-public-link",
     }, clear=False)
     def test_rejects_non_join_testflight_path(self):
