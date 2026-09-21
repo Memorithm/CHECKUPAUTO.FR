@@ -110,15 +110,38 @@ Le layout cible est versionné :
     data/
     private/
     security/
+    integrity/
     logs/
 ```
 
 Cela permet une bascule atomique de `current` et un rollback vers la release précédente.
 
-## État PlanetHoster
+## Runtime PlanetHoster
 
-Le code applicatif actuel utilise `ThreadingHTTPServer`. Un hébergement mutualisé PlanetHoster utilise un runtime Passenger Python. Le Deployment Center détecte Passenger mais refuse volontairement l'étape d'activation tant que l'adaptateur WSGI CheckupAuto n'est pas présent.
+CheckupAuto dispose maintenant d'un pont WSGI Passenger qui réutilise le `Handler` HTTP existant derrière un serveur loopback interne. L'adresse IP cliente n'est transmise à Sentinel qu'avec un jeton proxy aléatoire interne ; les headers externes de même nom sont supprimés par le pont.
 
-Ce garde-fou est intentionnel : le bouton d'installation ne doit jamais produire un site partiellement installé ou une API silencieusement indisponible.
+Les workers persistants ne sont jamais démarrés dans les processus Passenger. Sur hébergement mutualisé, les tâches périodiques sont exécutées par `scripts/checkupauto-shared-tick.py` via CRON avec un verrou fichier non bloquant. Le tick couvre notamment la purge des tests de réservation, ReminderEngine, la synchronisation mobile autoritaire, les rappels mobiles, les avis Google et le retry des alertes.
 
-Le chantier suivant consiste à fournir et tester l'adaptateur Passenger, puis à ajouter l'exécuteur `install/rollback` au-dessus du plan validé.
+Le profil PlanetHoster n'est déclaré prêt que si le diagnostic confirme :
+
+- Python 3.11 ou supérieur ;
+- Passenger ;
+- CRON ;
+- symlinks ;
+- racine d'installation accessible en écriture ;
+- au moins 1 Gio libre ;
+- pont Passenger/WSGI présent dans la release ;
+- scheduler mutualisé présent dans la release.
+
+Le runtime mutualisé utilise les chemins privés configurables suivants :
+
+```text
+CYBERCHECK_DATA_DIR=<root>/shared/data
+CYBERCHECK_PRIVATE_DIR=<root>/shared/private
+CYBERCHECK_SECURITY_DIR=<root>/shared/security
+CYBERCHECK_INTEGRITY_DIR=<root>/shared/integrity
+CYBERCHECK_GSC_CREDENTIALS_PATH=<root>/shared/private/gsc-service-account.json
+CYBERCHECK_SITE_CONFIG_PATH=<root>/shared/data/site-config.json
+```
+
+Le chantier restant pour le « un clic » est l'exécuteur distant `install/update/rollback` : transfert de la release, création du venv, installation des dépendances, configuration Passenger et CRON, health-check avant bascule du lien `current`, puis rollback automatique en cas d'échec.

@@ -83,6 +83,7 @@ class CapabilityReport:
     writable_root: bool = False
     free_disk_mb: int = 0
     passenger_wsgi_adapter: bool = False
+    shared_host_tick: bool = False
 
 
 def provider_profiles() -> dict[str, dict[str, Any]]:
@@ -204,6 +205,12 @@ def assess(target: DeploymentTarget, capabilities: CapabilityReport) -> dict[str
             capabilities.passenger_wsgi_adapter,
             "adaptateur WSGI CheckupAuto",
         )
+        check("cron", capabilities.cron, "cron")
+        check(
+            "shared_host_tick",
+            capabilities.shared_host_tick,
+            "scheduler cron CheckupAuto",
+        )
     elif runtime == "systemd":
         check("systemd", capabilities.systemd, "systemd")
     elif runtime == "probe":
@@ -239,6 +246,7 @@ def installation_layout(target: DeploymentTarget, release_sha: str) -> dict[str,
         "data": f"{root}/shared/data",
         "private": f"{root}/shared/private",
         "security": f"{root}/shared/security",
+        "integrity": f"{root}/shared/integrity",
         "logs": f"{root}/shared/logs",
     }
 

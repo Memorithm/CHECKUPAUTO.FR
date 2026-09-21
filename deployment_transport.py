@@ -138,7 +138,12 @@ def _parse_bool(value: str) -> bool:
     return value.strip() == "1"
 
 
-def parse_probe(output: str, *, passenger_wsgi_adapter: bool = False) -> CapabilityReport:
+def parse_probe(
+    output: str,
+    *,
+    passenger_wsgi_adapter: bool = False,
+    shared_host_tick: bool = False,
+) -> CapabilityReport:
     lines = str(output or "").splitlines()
     if not lines or lines[0].strip() != _PROBE_PREFIX:
         raise ValueError("réponse de diagnostic SSH invalide")
@@ -169,6 +174,7 @@ def parse_probe(output: str, *, passenger_wsgi_adapter: bool = False) -> Capabil
         writable_root=_parse_bool(values["writable_root"]),
         free_disk_mb=max(0, free_disk),
         passenger_wsgi_adapter=bool(passenger_wsgi_adapter),
+        shared_host_tick=bool(shared_host_tick),
     )
 
 
@@ -214,6 +220,7 @@ def probe_target(
     credential: SSHCredential,
     *,
     passenger_wsgi_adapter: bool = False,
+    shared_host_tick: bool = False,
     timeout: int = 30,
 ) -> CapabilityReport:
     cred = credential.validate(target.auth_mode)
@@ -242,6 +249,7 @@ def probe_target(
     return parse_probe(
         result.stdout,
         passenger_wsgi_adapter=passenger_wsgi_adapter,
+        shared_host_tick=shared_host_tick,
     )
 
 

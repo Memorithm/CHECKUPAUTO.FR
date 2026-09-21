@@ -1,0 +1,139 @@
+import io
+import unittest
+from unittest import mock
+
+import passenger_wsgi as wsgi
+
+
+class FakeResponse:
+    status = 200
+    reason = "OK"
+
+    def __init__(self, body=b"hello"):
+        self.body = io.BytesIO(body)
+
+    def getheaders(self):
+        return [
+            ("Content-Type", "text/plain"),
+            ("Content-Length", "5"),
+            ("Connection", "close"),
+        ]
+
+    def read(self, size=-1):
+        return self.body.read(size)
+
+
+class FakeConnection:
+    instances = []
+
+    def __init__(self, host, port, timeout=0):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.request_args = None
+        self.closed = False
+        self.response = FakeResponse()
+        type(self).instances.append(self)
+
+    def request(self, method, target, body=None, headers=None):
+        self.request_args = (method, target, body, headers)
+
+    def getresponse(self):
+        return self.response
+
+    def close(self):
+        self.closed = True
+
+
+class PassengerWSGITest(unittest.TestCase):
+    def setUp(self):
+        FakeConnection.instances.clear()
+
+    def test_internal_headers_cannot_be_spoofed_by_request(self):
+        headers = wsgi._request_headers({
+            "REMOTE_ADDR": "203.0.113.42",
+            "HTTP_HOST": "www.checkupauto.fr",
+            "HTTP_X_CHECKUPAUTO_PROXY_TOKEN": "attacker",
+            "HTTP_X_CHECKUPAUTO_CLIENT_IP": "127.0.0.1",
+            "HTTP_CONNECTION": "keep-alive",
+        })
+        self.assertEqual(headers["X-CheckupAuto-Client-IP"], "203.0.113.42")
+        self.assertEqual(headers["X-CheckupAuto-Proxy-Token"], wsgi._PROXY_TOKEN)
+        self.assertNotEqual(headers["X-CheckupAuto-Proxy-Token"], "attacker")
+        self.assertNotIn("Connection", headers)
+
+    def test_invalid_remote_address_falls_back_to_loopback(self):
+        self.assertEqual(
+            wsgi._client_ip({"REMOTE_ADDR": "not-an-ip"}),
+            "127.0.0.1",
+        )
+
+    def test_request_target_preserves_query_without_using_shell(self):
+        target = wsgi._request_target({
+            "PATH_INFO": "/api/mobile/bootstrap",
+            "QUERY_STRING": "a=1&b=2",
+        })
+        self.assertEqual(target, "/api/mobile/bootstrap?a=1&b=2")
+
+    def test_body_length_is_bounded(self):
+        with self.assertRaisesRegex(ValueError, "volumineux"):
+            wsgi._request_body({
+                "CONTENT_LENGTH": "131073",
+                "wsgi.input": io.BytesIO(b""),
+            })
+
+    @mock.patch("passenger_wsgi._ensure_backend", return_value=("127.0.0.1", 12345))
+    @mock.patch("passenger_wsgi.http.client.HTTPConnection", FakeConnection)
+    def test_application_proxies_request_and_filters_response_headers(self, _backend):
+        captured = {}
+
+        def start_response(status, headers):
+            captured["status"] = status
+            captured["headers"] = headers
+
+        result = wsgi.application({
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": "/",
+            "QUERY_STRING": "",
+            "REMOTE_ADDR": "198.51.100.12",
+            "HTTP_HOST": "www.checkupauto.fr",
+            "wsgi.input": io.BytesIO(b""),
+        }, start_response)
+
+        body = b"".join(result)
+        self.assertEqual(body, b"hello")
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertNotIn(
+            "connection",
+            {name.lower() for name, _value in captured["headers"]},
+        )
+        connection = FakeConnection.instances[-1]
+        self.assertTrue(connection.closed)
+        method, target, request_body, headers = connection.request_args
+        self.assertEqual(method, "GET")
+        self.assertEqual(target, "/")
+        self.assertEqual(request_body, b"")
+        self.assertEqual(headers["X-CheckupAuto-Client-IP"], "198.51.100.12")
+
+    def test_invalid_wsgi_request_returns_sanitized_400(self):
+        captured = {}
+
+        def start_response(status, headers):
+            captured["status"] = status
+            captured["headers"] = headers
+
+        with mock.patch("passenger_wsgi._ensure_backend", return_value=("127.0.0.1", 12345)):
+            result = wsgi.application({
+                "REQUEST_METHOD": "POST",
+                "PATH_INFO": "/api/events",
+                "CONTENT_LENGTH": "invalid",
+                "REMOTE_ADDR": "203.0.113.8",
+                "wsgi.input": io.BytesIO(b""),
+            }, start_response)
+        body = b"".join(result)
+        self.assertEqual(captured["status"], "400 Bad Request")
+        self.assertIn(b"invalid_wsgi_request", body)
+
+
+if __name__ == "__main__":
+    unittest.main()
