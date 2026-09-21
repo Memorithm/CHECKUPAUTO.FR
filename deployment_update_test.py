@@ -131,6 +131,24 @@ class DeploymentUpdateTest(unittest.TestCase):
         self.assertIn("StrictHostKeyChecking=yes", joined)
         self.assertEqual(command[-2:], ["sh", "-s"])
 
+    @mock.patch.object(updates.github_source, "is_ancestor", return_value=True)
+    @mock.patch.object(updates.github_source, "token_configured", return_value=True)
+    def test_ancestry_uses_github_when_local_git_is_absent(self, configured, is_ancestor):
+        packaged = Path(self.tmp.name) / "packaged"
+        packaged.mkdir()
+        self.assertTrue(
+            updates._git_is_ancestor(packaged, SHA_OLD, SHA_NEW)
+        )
+        is_ancestor.assert_called_once_with(SHA_OLD, SHA_NEW)
+
+    @mock.patch.object(updates.github_source, "token_configured", return_value=False)
+    def test_ancestry_fails_closed_without_git_or_remote_source(self, configured):
+        packaged = Path(self.tmp.name) / "packaged"
+        packaged.mkdir()
+        self.assertFalse(
+            updates._git_is_ancestor(packaged, SHA_OLD, SHA_NEW)
+        )
+
     def test_invalid_payload_is_rejected(self):
         encoded = base64.b64encode(b'{"schemaVersion":1,"installed":true,"deployedSha":"bad","releases":[]}').decode()
         with self.assertRaisesRegex(RuntimeError, "invalide"):
