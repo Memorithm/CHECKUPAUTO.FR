@@ -22,6 +22,8 @@ _ALLOWED_KEYS = {
     "symlink",
     "writable_root",
     "free_disk_mb",
+    "cloudlinux_selector",
+    "managed_python",
 }
 
 
@@ -103,7 +105,35 @@ if [ ! -d "$probe_parent" ]; then
 fi
 python_value="$(python3 --version 2>&1 || true)"
 node_value="$(node --version 2>&1 || true)"
-if command -v passenger-config >/dev/null 2>&1 || command -v passenger >/dev/null 2>&1; then passenger=1; else passenger=0; fi
+cloudlinux=0
+managed_python=""
+if command -v cloudlinux-selector >/dev/null 2>&1; then
+  cloudlinux=1
+  selector_json="$(cloudlinux-selector get --json --interpreter python 2>/dev/null || true)"
+  if [ -n "$selector_json" ]; then
+    managed_python="$(printf '%s' "$selector_json" | python3 -c 'import json,re,sys
+try:
+ data=json.load(sys.stdin)
+except Exception:
+ raise SystemExit(0)
+found=set()
+def walk(value):
+ if isinstance(value,dict):
+  for key,item in value.items():
+   walk(str(key)); walk(item)
+ elif isinstance(value,(list,tuple)):
+  for item in value: walk(item)
+ elif isinstance(value,(str,int,float)):
+  text=str(value).strip()
+  if re.fullmatch(r"3\.(?:1[1-9]|[2-9][0-9])(?:\.\d+)?",text):
+   found.add(text)
+walk(data)
+def version(text):
+ return tuple(int(part) for part in text.split("."))
+print(max(found,key=version) if found else "")' 2>/dev/null || true)"
+  fi
+fi
+if [ "$cloudlinux" -eq 1 ] || command -v passenger-config >/dev/null 2>&1 || command -v passenger >/dev/null 2>&1; then passenger=1; else passenger=0; fi
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemd=1; else systemd=0; fi
 if command -v crontab >/dev/null 2>&1; then cron=1; else cron=0; fi
 if [ -d "$root" ]; then
@@ -175,6 +205,8 @@ def parse_probe(
         free_disk_mb=max(0, free_disk),
         passenger_wsgi_adapter=bool(passenger_wsgi_adapter),
         shared_host_tick=bool(shared_host_tick),
+        cloudlinux_selector=_parse_bool(values.get("cloudlinux_selector", "0")),
+        managed_python_version=values.get("managed_python", ""),
     )
 
 
