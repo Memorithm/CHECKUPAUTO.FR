@@ -34,7 +34,10 @@ def healthy_patches():
         }),
         mock.patch.object(readiness.gsc_client, "credential_info", return_value={}),
         mock.patch.object(readiness.integration_hub, "status", return_value={
-            "oauthAuthorized": True, "oauthHealth": {"state": "ready", "usable": True}, "connectors": [{"connected": True}],
+            "oauthAuthorized": True,
+            "oauthHealth": {"state": "ready", "usable": True},
+            "oauthClient": {"webClientVerified": True, "redirectUriCount": 1},
+            "connectors": [{"connected": True}],
         }),
         mock.patch.object(readiness.analytics_store, "summary", return_value={"pageViews": 7, "bookingClicks": 1}),
         mock.patch.object(readiness.referral_engine, "list_accounts", return_value=[]),
@@ -121,6 +124,37 @@ class ProductionReadinessTest(unittest.TestCase):
         email = next(item for item in result["components"] if item["id"] == "email_delivery")
         self.assertEqual(email["remediation"]["code"], "configure_email_transport")
         self.assertTrue(email["remediation"]["external"])
+
+    def test_authorized_google_oauth_with_unverified_web_client_is_degraded_without_blocking_launch(self):
+        patches = healthy_patches()
+        patches[6] = mock.patch.object(readiness.integration_hub, "status", return_value={
+            "oauthAuthorized": True,
+            "oauthHealth": {"state": "ready", "usable": True},
+            "oauthClient": {"configured": True, "webClientVerified": False, "redirectUriCount": 0},
+            "connectors": [{"connected": True}],
+        })
+        result = self._run_with(patches)
+        google = next(item for item in result["components"] if item["id"] == "google_integration")
+        self.assertEqual(google["state"], "degraded")
+        self.assertFalse(google["metrics"]["webClientVerified"])
+        self.assertEqual(google["metrics"]["redirectUriCount"], 0)
+        self.assertIn("Application Web", google["detail"])
+        self.assertTrue(result["activationGate"]["allowed"])
+
+    def test_non_oauth_google_connector_does_not_require_web_client(self):
+        patches = healthy_patches()
+        patches[6] = mock.patch.object(readiness.integration_hub, "status", return_value={
+            "oauthAuthorized": False,
+            "oauthHealth": {"state": "awaiting_authorization", "usable": False},
+            "oauthClient": {"configured": False, "webClientVerified": False, "redirectUriCount": 0},
+            "connectors": [{"connected": True}],
+        })
+        result = self._run_with(patches)
+        google = next(item for item in result["components"] if item["id"] == "google_integration")
+        self.assertEqual(google["state"], "ready")
+        self.assertFalse(google["metrics"]["webClientVerified"])
+        self.assertEqual(google["metrics"]["redirectUriCount"], 0)
+        self.assertTrue(result["activationGate"]["allowed"])
 
     def test_stale_google_oauth_is_degraded_without_blocking_launch(self):
         patches = healthy_patches()

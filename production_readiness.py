@@ -408,8 +408,14 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         oauth = bool(integrations.get("oauthAuthorized"))
         oauth_health = integrations.get("oauthHealth") or {}
         oauth_state = str(oauth_health.get("state") or ("ready" if oauth else "awaiting_authorization"))
+        oauth_client = integrations.get("oauthClient") or {}
+        web_client_verified = bool(oauth_client.get("webClientVerified"))
+        redirect_uri_count = int(oauth_client.get("redirectUriCount") or 0)
         connected = sum(1 for item in integrations.get("connectors") or [] if item.get("connected"))
-        if oauth or connected:
+        if oauth and not web_client_verified:
+            google_state = "degraded"
+            google_detail = "OAuth actif · client Application Web à réimporter avant toute réautorisation"
+        elif oauth or connected:
             google_state = "ready"
             google_detail = f"{connected} connecteur(s) connecté(s)"
         elif oauth_state in {"token_expired", "reauthorization_required", "oauth_client_missing"}:
@@ -424,6 +430,8 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             metrics={
                 "oauthAuthorized": oauth,
                 "oauthState": oauth_state,
+                "webClientVerified": web_client_verified,
+                "redirectUriCount": redirect_uri_count,
                 "connectedConnectors": connected,
             },
         ))
