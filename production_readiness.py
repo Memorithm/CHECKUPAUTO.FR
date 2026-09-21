@@ -210,7 +210,35 @@ def _google_integration_component(integrations: dict) -> dict:
     failed = sum(1 for item in connectors if item.get("verification") == "failed")
     unavailable = sum(1 for item in connectors if item.get("verification") == "unavailable")
     unverified = sum(1 for item in connectors if item.get("verification") == "unverified")
-    remote_checked = verified + failed + unavailable
+
+    def verification_source(item):
+        explicit = str(item.get("verificationSource") or "").strip()
+        if explicit:
+            return explicit
+        # Backward-compatible inference for older IntegrationHub payloads and tests.
+        if item.get("id") == "gmail" and item.get("verification"):
+            return "operational_delivery"
+        if item.get("id") == "maps_places" and item.get("verification") == "unverified":
+            return "configuration"
+        if item.get("verification") in {"verified", "failed", "unavailable"}:
+            return "remote_api"
+        return ""
+
+    remote_checked = sum(
+        1 for item in connectors
+        if verification_source(item) == "remote_api"
+        and item.get("verification") in {"verified", "failed", "unavailable"}
+    )
+    operational_checked = sum(
+        1 for item in connectors
+        if verification_source(item) == "operational_delivery"
+        and item.get("verification") in {"verified", "failed", "unavailable"}
+    )
+    configuration_only = sum(
+        1 for item in connectors
+        if verification_source(item) == "configuration"
+        and item.get("verification") == "unverified"
+    )
 
     if oauth and not redirect_uri_allowed:
         google_state = "degraded"
@@ -220,10 +248,10 @@ def _google_integration_component(integrations: dict) -> dict:
         google_detail = f"{failed} connecteur(s) configuré(s) refusé(s) par Google"
     elif unavailable:
         google_state = "degraded"
-        google_detail = f"{unavailable} vérification(s) Google temporairement indisponible(s)"
+        google_detail = f"{unavailable} vérification(s) d’intégration temporairement indisponible(s)"
     elif unverified:
         google_state = "degraded"
-        google_detail = f"{unverified} connecteur(s) configuré(s) sans vérification distante"
+        google_detail = f"{unverified} connecteur(s) configuré(s) sans preuve de vérification exploitable"
     elif oauth or connected:
         google_state = "ready"
         google_detail = f"{connected} connecteur(s) connecté(s)"
@@ -249,6 +277,8 @@ def _google_integration_component(integrations: dict) -> dict:
             "unavailableVerifications": unavailable,
             "unverifiedVerifications": unverified,
             "remoteCheckedConnectors": remote_checked,
+            "operationalCheckedConnectors": operational_checked,
+            "configurationOnlyConnectors": configuration_only,
         },
     )
 

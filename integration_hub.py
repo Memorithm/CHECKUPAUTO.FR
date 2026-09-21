@@ -866,20 +866,28 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
         }
         if meta["mode"] == "api_key" and extra_ok:
             row["verification"] = "unverified"
+            row["verificationSource"] = "configuration"
         if row["connected"] and verify_remote:
             if key == "analytics":
+                row["verificationSource"] = "remote_api"
                 _apply_analytics_probe(row, cfg)
             elif key == "business_profile":
+                row["verificationSource"] = "remote_api"
                 _apply_business_profile_probe(row, cfg)
             elif key == "tag_manager":
+                row["verificationSource"] = "remote_api"
                 _apply_tag_manager_probe(row, cfg)
             elif key == "google_ads":
+                row["verificationSource"] = "remote_api"
                 _apply_google_ads_probe(row, cfg)
             elif key == "gmail":
+                row["verificationSource"] = "operational_delivery"
                 _apply_gmail_operational_evidence(row)
             elif key == "calendar":
+                row["verificationSource"] = "remote_api"
                 _apply_calendar_probe(row)
             elif key == "drive":
+                row["verificationSource"] = "remote_api"
                 _apply_drive_probe(row)
         rows.append(row)
     return {
