@@ -16,6 +16,7 @@ import time
 from urllib.parse import quote, urlencode
 
 import qrcode
+from qrcode.image.svg import SvgPathImage
 
 
 COOKIE_NAME = "CyberCheckAdmin2FA"
@@ -228,12 +229,19 @@ def begin_enrollment(
     }
 
 
-def pending_qr_png() -> bytes:
+def pending_qr_svg() -> bytes:
     pending = _pending()
     uri = provisioning_uri(pending["secret"])
-    image = qrcode.make(uri)
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=4,
+    )
+    qr.add_data(uri)
+    qr.make(fit=True)
+    image = qr.make_image(image_factory=SvgPathImage)
     output = BytesIO()
-    image.save(output, format="PNG")
+    image.save(output)
     return output.getvalue()
 
 
