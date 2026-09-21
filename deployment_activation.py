@@ -242,16 +242,36 @@ def bootstrap_update_source() -> bool:
         "repository": repository,
         "branch": branch,
     }
-    atomic_write(
-        config_path,
-        (json.dumps(config, sort_keys=True) + "\n").encode("utf-8"),
-        0o600,
-    )
-    atomic_write(
-        token_path,
-        (token + "\n").encode("ascii"),
-        0o600,
-    )
+
+    snapshots = {}
+    for path in (config_path, token_path):
+        if path.exists():
+            snapshots[path] = (True, path.read_bytes(), path.stat().st_mode & 0o777)
+        else:
+            snapshots[path] = (False, b"", 0o600)
+    try:
+        atomic_write(
+            config_path,
+            (json.dumps(config, sort_keys=True) + "\n").encode("utf-8"),
+            0o600,
+        )
+        atomic_write(
+            token_path,
+            (token + "\n").encode("ascii"),
+            0o600,
+        )
+    except Exception:
+        for path, (existed, content, mode) in snapshots.items():
+            try:
+                if existed:
+                    atomic_write(path, content, mode)
+                else:
+                    path.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+        raise
     return True
 
 
