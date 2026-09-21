@@ -26,6 +26,16 @@ class GeoMarketingPolicyTest(unittest.TestCase):
         self.assertEqual([row["name"] for row in markets], ["Proche", "Limite"])
         self.assertTrue(all(row["distanceKm"] <= 15.0 for row in markets))
 
+    def test_quote_and_priority_markets_share_the_same_radius_boundary(self):
+        config = {"geoAcquisition": {"enabled": True, "radiusKm": 15.0}}
+        with mock.patch.object(geo, "catalog", return_value=CATALOG):
+            quote = geo.quote(config, "Limite", SERVICES)
+            with self.assertRaises(ValueError):
+                geo.quote(config, "Lointaine", SERVICES)
+            markets = geo.priority_markets(config, SERVICES)
+        self.assertEqual(quote["city"], "Limite")
+        self.assertNotIn("Lointaine", [row["name"] for row in markets])
+
     def test_disabled_acquisition_has_no_priority_markets(self):
         config = {"geoAcquisition": {"enabled": False, "radiusKm": 50.01}}
         with mock.patch.object(geo, "catalog", return_value=CATALOG):
