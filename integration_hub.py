@@ -19,6 +19,8 @@ STATE_FILE = INTEGRATION_DIR / "google-oauth-state.json"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+ANALYTICS_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
+ANALYTICS_METADATA_URL = "https://analyticsdata.googleapis.com/v1beta/properties/{property_id}/metadata"
 
 CONNECTORS = {
     "search_console": {
@@ -40,7 +42,7 @@ CONNECTORS = {
         "label": "Google Analytics 4",
         "category": "Mesure",
         "description": "Audience, acquisition et conversions via la Google Analytics Data API.",
-        "scopes": ["https://www.googleapis.com/auth/analytics.readonly"],
+        "scopes": [ANALYTICS_SCOPE],
         "mode": "oauth_plus_setting",
         "setting": "analyticsPropertyId",
     },
@@ -251,6 +253,11 @@ def _valid_email(value):
     return bool(local and "." in domain and not domain.startswith(".") and not domain.endswith("."))
 
 
+def _valid_analytics_property_id(value):
+    raw = str(value or "").strip()
+    return bool(raw and raw != "0" and raw.isascii() and raw.isdigit())
+
+
 def save_settings(payload):
     if not isinstance(payload, dict):
         raise IntegrationError("Paramètres Google invalides.")
@@ -263,6 +270,8 @@ def save_settings(payload):
             raise IntegrationError(f"{key} est trop long.")
         if key == "gmailSender" and value and not _valid_email(value):
             raise IntegrationError("Adresse d’envoi Gmail invalide.")
+        if key == "analyticsPropertyId" and value and not _valid_analytics_property_id(value):
+            raise IntegrationError("Identifiant de propriété Google Analytics invalide.")
         if value:
             current[key] = value
         else:
@@ -338,12 +347,87 @@ def has_usable_scopes(required):
     return bool(oauth_health().get("usable")) and required.issubset(_granted_scopes())
 
 
-def status(legacy_search_console=None, base_url=""):
+def analytics_property_probe(property_id=None):
+    raw = str(property_id or settings().get("analyticsPropertyId") or "").strip()
+    if not _valid_analytics_property_id(raw):
+        raise IntegrationError("Identifiant de propriété Google Analytics invalide.")
+    token = google_access_token([ANALYTICS_SCOPE])
+    try:
+        response = requests.get(
+            ANALYTICS_METADATA_URL.format(property_id=raw),
+            headers={"Authorization": "Bearer " + token},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise IntegrationHTTPError(
+            "Connexion à Google Analytics impossible.",
+            retryable=True,
+        ) from exc
+    if response.status_code >= 400:
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google Analytics a refusé la vérification de la propriété.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
+    try:
+        payload = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse Google Analytics invalide.") from exc
+    expected_name = f"properties/{raw}/metadata"
+    if (
+        not isinstance(payload, dict)
+        or payload.get("name") != expected_name
+        or not isinstance(payload.get("dimensions"), list)
+        or not isinstance(payload.get("metrics"), list)
+    ):
+        raise IntegrationError("Réponse Google Analytics invalide.")
+    return {
+        "connected": True,
+        "verification": "verified",
+        "dimensionCount": len(payload["dimensions"]),
+        "metricCount": len(payload["metrics"]),
+    }
+
+
+def _apply_analytics_probe(row, cfg):
+    try:
+        probe = analytics_property_probe(cfg.get("analyticsPropertyId"))
+    except IntegrationHTTPError as exc:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "unavailable" if exc.retryable else "failed"
+        row["detail"] = (
+            "Configuration présente · vérification API Google Analytics indisponible"
+            if exc.retryable
+            else "API Google Analytics joignable · propriété non accessible"
+        )
+    except IntegrationError:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "failed"
+        row["detail"] = "Configuration Google Analytics invalide ou non vérifiable"
+    else:
+        row["connected"] = True
+        row["state"] = "connected"
+        row["verification"] = "verified"
+        row["detail"] = "API Google Analytics vérifiée"
+        row["probe"] = {
+            "dimensionCount": int(probe.get("dimensionCount") or 0),
+            "metricCount": int(probe.get("metricCount") or 0),
+        }
+    return row
+
+
+def status(legacy_search_console=None, base_url="", *, verify_remote=None):
     legacy_search_console = legacy_search_console or {}
     scopes = _granted_scopes()
     cfg = settings()
     client = oauth_client_info(base_url)
     health = oauth_health()
+    if verify_remote is None:
+        verify_remote = bool(base_url)
     rows = []
     for key, meta in CONNECTORS.items():
         required = set(meta.get("scopes") or [])
@@ -380,7 +464,7 @@ def status(legacy_search_console=None, base_url=""):
             else:
                 state = "connected" if connected else "available"
                 detail = "Connecté" if connected else "À connecter"
-        rows.append({
+        row = {
             "id": key,
             "label": meta["label"],
             "category": meta["category"],
@@ -390,7 +474,10 @@ def status(legacy_search_console=None, base_url=""):
             "state": state,
             "detail": detail,
             "requiredScopes": list(meta.get("scopes") or []),
-        })
+        }
+        if key == "analytics" and row["connected"] and verify_remote:
+            _apply_analytics_probe(row, cfg)
+        rows.append(row)
     return {
         "provider": "google",
         "oauthClient": client,
