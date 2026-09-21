@@ -221,7 +221,7 @@ class Handler(SimpleHTTPRequestHandler):
    if not self.authorized(): return self.require_auth()
    try:
     c=load_config(); return self.send_json(production_readiness.status(c,build_seo_health(c)))
-   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
+   except Exception as exc: return self.send_json({'ok':False,'error':'readiness_unavailable'},500)
   if path=='/api/admin/integrations/google/status':
    if not self.authorized(): return self.require_auth()
    try:
@@ -235,81 +235,81 @@ class Handler(SimpleHTTPRequestHandler):
     q=parse_qs(parsed.query); limit=int((q.get('limit') or ['100'])[0])
     return self.send_json(referral_admin.status(limit))
    except (TypeError,ValueError): return self.send_json({'ok':False,'error':'referral_request_invalid'},400)
-   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
+   except Exception as exc: return self.send_json({'ok':False,'error':'referral_admin_unavailable'},500)
   if path=='/api/admin/referrals/summary':
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); code=(q.get('code') or [''])[0]
     return self.send_json(referrals.account_summary(code))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'referral_summary_unavailable'},400)
   if path=='/api/admin/reminders/status':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(reminder_dispatch.status())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'reminder_status_unavailable'},400)
   if path=='/api/admin/reminders/plan':
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); due=(q.get('due') or [''])[0]; timezone=(q.get('timezone') or [reminders.DEFAULT_TIMEZONE])[0]
     return self.send_json({'dueDate':due,'timezone':timezone,'events':reminders.plan_dicts(due,timezone=timezone)})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'reminder_plan_invalid'},400)
   if path=='/api/admin/mobile/devices/status':
    if not self.authorized(): return self.require_auth()
    try:
     result=mobile_devices.status(); result['reminderDispatch']=mobile_reminder_dispatch.status(); result['claimDelivery']=mobile_claim_delivery.status(load_config()); return self.send_json(result)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mobile_status_unavailable'},400)
   if path=='/api/admin/mobile/claims/candidates':
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); limit=int((q.get('limit') or ['30'])[0])
     return self.send_json({'ok':True,'claimDelivery':mobile_claim_delivery.status(load_config()),'candidates':mobile_claim_delivery.candidates(limit)})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mobile_claim_candidates_unavailable'},400)
   if path=='/api/admin/notifications/status':
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); limit=int((q.get('limit') or ['20'])[0])
     return self.send_json(notifications.status(limit))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'notification_status_unavailable'},400)
   if path=='/api/admin/analytics':
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); days=int(q.get('days',['30'])[0]); return self.send_json(booking.merge_into_analytics(analytics.summary(days)))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'analytics_summary_unavailable'},400)
   if path=='/api/admin/seo-health':
    if not self.authorized(): return self.require_auth()
    return self.send_json(build_seo_health(load_config()))
   if path=='/api/admin/reviews/status':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(reviews.status())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'review_status_unavailable'},400)
   if path=='/api/admin/competitive/summary':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(competitive.summary())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'competitive_summary_unavailable'},400)
   if path=='/api/admin/competitive/connectors':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(competitive.connector_status())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'competitive_connectors_unavailable'},400)
   if path=='/api/admin/security/status':
    if not self.authorized(): return self.require_auth()
    try:
     q=parse_qs(parsed.query); days=int((q.get('days') or ['1'])[0]); return self.send_json(security.status(days))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_status_unavailable'},400)
   if path=='/api/admin/security/ai':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(security_ai.latest())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_ai_unavailable'},400)
   if path=='/api/admin/security/posture':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(security_integrity.posture())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_posture_unavailable'},400)
   if path=='/api/admin/security/alerts':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(security_alerts.summary())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_alerts_unavailable'},400)
   if path=='/api/admin/security/sbom':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(security_integrity.generate_sbom())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_sbom_unavailable'},400)
   if path=='/api/booking-test/status':
    try:
     q=parse_qs(parsed.query); token=(q.get('token') or [''])[0]
@@ -367,7 +367,7 @@ class Handler(SimpleHTTPRequestHandler):
      return self.send_json({'promotions':mercure_admin.list_promotions(),'events':mercure_admin.promotion_events(start,end),'start':start,'end':end})
     if path=='/api/admin/mercure/secret': return self.send_json(booking.secret_info(True))
     return self.send_json({'error':'not_found'},404)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mercure_admin_request_failed'},400)
   if path.startswith('/api/admin/google/'):
    if not self.authorized(): return self.require_auth()
    c=load_config(); site=c['seo'].get('searchConsoleProperty') or c['seo']['canonicalUrl']
@@ -544,19 +544,19 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     payload=self._read_json(); claim=mobile_claim_delivery.issue_for_vehicle(load_config(),payload.get('vehicleId'),payload.get('ttlSeconds'))
     return self.send_json({'ok':True,'claim':claim},201)
-   except LookupError as exc: return self.send_json({'ok':False,'error':str(exc)},404)
-   except RuntimeError as exc: return self.send_json({'ok':False,'error':str(exc)},409)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except LookupError as exc: return self.send_json({'ok':False,'error':'mobile_claim_not_found'},404)
+   except RuntimeError as exc: return self.send_json({'ok':False,'error':'mobile_claim_conflict'},409)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mobile_claim_request_invalid'},400)
   if path=='/api/admin/referrals/account':
    try:
     payload=self._read_json(allow_empty=True); account=referrals.create_account(payload.get('code') or '',payload.get('rewardCents'))
     return self.send_json({'ok':True,'account':account},201)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'referral_request_invalid'},400)
   if path=='/api/admin/referrals/redeem':
    try:
     payload=self._read_json(); result=referrals.redeem(payload.get('code'),int(payload.get('amountCents')),payload.get('reference'))
     return self.send_json({'ok':True,'account':result})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'referral_request_invalid'},400)
   if path=='/api/admin/integrations/google/oauth-client':
    try:
     payload=self._read_json(); return self.send_json({'ok':True,'oauthClient':integrations.save_oauth_client(payload)})
@@ -576,8 +576,8 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     payload=self._read_json(); result=mercure_admin.login(payload.get('username'),payload.get('password'))
     return self.send_json({'ok':True,**result})
-   except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)},401)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mercure_auth_failed'},401)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mercure_login_failed'},400)
   if path=='/api/admin/booking-test/session':
    try:
     booking_test.purge_expired(); result=booking_test.create_session(); c=load_config()
@@ -585,58 +585,58 @@ class Handler(SimpleHTTPRequestHandler):
     origin=(proto+'://'+host) if host else canonical_origin(c['seo']['canonicalUrl'])
     result['url']=origin+'/?bookingTest='+result['token']+'#reservation'
     return self.send_json({'ok':True,**result},201)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'booking_test_session_failed'},400)
   if path=='/api/admin/notifications/preflight':
    try:
     self._read_json(allow_empty=True); return self.send_json(notification_preflight.run())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'notification_preflight_failed'},400)
   if path=='/api/admin/notifications/permanent/recipient-check':
    try:
     payload=self._read_json(); return self.send_json(reminder_dispatch.permanent_recipient_check(payload.get('incidentId')))
-   except LookupError as exc: return self.send_json({'ok':False,'error':str(exc)},404)
-   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
-   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
+   except LookupError as exc: return self.send_json({'ok':False,'error':'permanent_failure_not_found'},404)
+   except ValueError as exc: return self.send_json({'ok':False,'error':'recipient_check_invalid'},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'recipient_check_unavailable'},500)
   if path=='/api/admin/notifications/permanent/retry':
    try:
     payload=self._read_json(); result=reminder_dispatch.permanent_recipient_retry(payload.get('incidentId'))
     return self.send_json(result,200 if result.get('ok') else 409)
-   except LookupError as exc: return self.send_json({'ok':False,'error':str(exc)},404)
-   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
-   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
+   except LookupError as exc: return self.send_json({'ok':False,'error':'permanent_failure_not_found'},404)
+   except ValueError as exc: return self.send_json({'ok':False,'error':'recipient_retry_invalid'},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'recipient_retry_unavailable'},500)
   if path=='/api/admin/notifications/permanent/action':
    try:
     payload=self._read_json(); return self.send_json(notifications.permanent_failure_action(payload.get('incidentId'),payload.get('action')))
    except LookupError: return self.send_json({'ok':False,'error':'permanent_failure_not_found'},404)
-   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
-   except Exception as exc: return self.send_json({'ok':False,'error':type(exc).__name__},500)
+   except ValueError as exc: return self.send_json({'ok':False,'error':'permanent_failure_action_invalid'},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'permanent_failure_action_unavailable'},500)
   if path=='/api/admin/reminders/process':
    try: return self.send_json(reminder_dispatch.process_once())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'reminder_process_failed'},400)
   if path=='/api/admin/reviews/process':
    try: return self.send_json(reviews.process_once())
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'review_process_failed'},400)
   if path=='/api/admin/competitive/observation':
    try:
     payload=self._read_json(); cid=str(payload.get('competitorId') or '').strip(); category=str(payload.get('category') or '').strip(); source=str(payload.get('source') or 'admin').strip(); data=payload.get('data')
     if not cid or not category or not isinstance(data,dict): raise ValueError('Observation invalide')
     competitive.add_observation(cid,source,category,data,str(payload.get('sourceUrl') or '')); return self.send_json({'ok':True},201)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'competitive_request_invalid'},400)
   if path=='/api/admin/competitive/review':
    try:
     payload=self._read_json(); cid=str(payload.get('competitorId') or '').strip(); review_text=str(payload.get('text') or '').strip()
     if not cid or not review_text: raise ValueError('Avis invalide')
     competitive.add_review(cid,str(payload.get('source') or 'admin'),review_text,payload.get('rating'),str(payload.get('externalId') or ''),str(payload.get('reviewedAt') or ''),bool(payload.get('ownerResponse'))); return self.send_json({'ok':True},201)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'competitive_request_invalid'},400)
   if path=='/api/admin/security/alerts/ack':
    try:
     payload=self._read_json(); return self.send_json(security_alerts.acknowledge(int(payload.get('id'))))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_alert_request_invalid'},400)
   if path=='/api/admin/security/vulnerability-refresh':
    try: return self.send_json({'ok':True,'audit':security_integrity.audit_vulnerabilities(True)})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},502)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_vulnerability_refresh_failed'},502)
   if path=='/api/admin/security/assess':
    try: return self.send_json({'ok':True,'assessment':security_ai.assess()})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'security_assessment_failed'},400)
   if path=='/api/admin/mercure/promo-slot':
    try:
     payload=self._read_json(); c=load_config(); policy=incentive_config(c)
@@ -668,10 +668,10 @@ class Handler(SimpleHTTPRequestHandler):
     name=f"CYBERCHECK · {policy['label']} · {meta['label']} · {final:.2f} EUR"
     result=mercure_admin.plan_promotion_slot(name=name,final_price=final,prestation_id=meta['id'],date_start=ds,date_end=de,time_start=ts,time_end=te,weekdays=[str(v) for v in weekdays])
     return self.send_json({'ok':True,'service':service_key,'basePrice':base,'finalPrice':round(final,2),'discountPercent':discount,'policy':policy,**result},201)
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mercure_promotion_invalid'},400)
   if path=='/api/admin/mercure/rotate-secret':
    try: return self.send_json({'ok':True,**booking.rotate_secret()})
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mercure_secret_rotation_failed'},400)
   if path.startswith('/api/admin/google/'):
    c=load_config(); site=c['seo'].get('searchConsoleProperty') or c['seo']['canonicalUrl']
    try:
@@ -699,7 +699,7 @@ class Handler(SimpleHTTPRequestHandler):
     except production_readiness.ProductionActivationBlocked as exc:
      return self.send_json({'ok':False,'error':'production_activation_blocked','blockingComponents':list(exc.blockers)},409)
    site_config_store.save(validated); return self.send_json({'ok':True,'config':validated})
-  except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+  except Exception as exc: return self.send_json({'ok':False,'error':'config_update_invalid'},400)
  def do_DELETE(self):
   if not self._guard(): return
   parsed=urlparse(self.path); path=parsed.path
@@ -715,7 +715,7 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     q=parse_qs(parsed.query); cid=(q.get('id') or [''])[0]
     return self.send_json(mercure_admin.remove_promotion_slot(cid))
-   except Exception as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except Exception as exc: return self.send_json({'ok':False,'error':'mercure_promotion_delete_failed'},400)
   return self.send_json({'error':'not_found'},404)
 
 def build_seo_health(c):
