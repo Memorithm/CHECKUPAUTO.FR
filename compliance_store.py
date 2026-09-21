@@ -441,7 +441,7 @@ def create_rights_request(payload: dict, db_path: Path | str | None = None) -> d
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO rights_requests(request_id,request_type,status,subject_ref_hash,received_at,due_at,notes)
-               VALUES(?,?,'open',?,?,?,?,?)""".replace("?,?,?,?,?)", "?,?,?,?,?)"),
+               VALUES(?,?,'open',?,?,?,?)""",
             (request_id, request_type, subject_hash, received.isoformat(timespec="seconds"), due.isoformat(timespec="seconds"), notes),
         )
     return next(row for row in rights_requests(db_path) if row["id"] == request_id)
@@ -506,7 +506,7 @@ def create_incident(payload: dict, db_path: Path | str | None = None) -> dict:
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO data_incidents(incident_id,risk_level,status,detected_at,cnil_due_at,summary,notes)
-               VALUES(?,?,'open',?,?,?,?,?)""".replace("?,?,?,?,?)", "?,?,?,?,?)"),
+               VALUES(?,?,'open',?,?,?,?)""",
             (incident_id, risk, detected.isoformat(timespec="seconds"), due.isoformat(timespec="seconds") if due else "", summary, notes),
         )
     return next(row for row in incidents(db_path) if row["id"] == incident_id)
