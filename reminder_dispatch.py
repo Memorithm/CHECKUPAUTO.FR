@@ -270,7 +270,7 @@ def deadlines_for_vehicle_ids(vehicle_ids: list[str]) -> list[dict]:
 
 def sync_once(today: datetime.date | None = None) -> dict:
     init_db()
-    today = today or datetime.date.today()
+    today = today or mercure.business_today()
     session = mercure.session_status()
     if not session.get("connected"):
         return {"ok": False, "state": "waiting_mercure", "error": session.get("error", "Session Mercure indisponible")}

@@ -1,11 +1,21 @@
 from pathlib import Path
 import datetime, json, os, requests
 from collections import Counter, defaultdict
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent
 PRIVATE_DIR = Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
 SESSION_FILE = PRIVATE_DIR / 'mercure-admin-session.json'
 BASE = 'https://rdv.checkupauto.fr'
+MERCURE_TIMEZONE = ZoneInfo('Europe/Paris')
+
+def business_today(now=None):
+    current = now if now is not None else datetime.datetime.now(datetime.timezone.utc)
+    if not isinstance(current, datetime.datetime):
+        raise TypeError('datetime attendu')
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=datetime.timezone.utc)
+    return current.astimezone(MERCURE_TIMEZONE).date()
 
 class MercureSessionError(RuntimeError):
     pass
@@ -67,7 +77,7 @@ def _price(value):
 
 def _period(days):
     days = max(1, min(int(days), 365))
-    today = datetime.date.today()
+    today = business_today()
     start = today - datetime.timedelta(days=days - 1)
     end = today + datetime.timedelta(days=1)
     return days, start.isoformat(), end.isoformat()
@@ -275,7 +285,7 @@ def remove_synthetic_test_appointment(appointment_id, appointment_at=''):
     if appointment_at:
         date_value=str(appointment_at).split('T',1)[0]
     else:
-        date_value=datetime.date.today().isoformat()
+        date_value=business_today().isoformat()
     end=(datetime.date.fromisoformat(date_value)+datetime.timedelta(days=1)).isoformat()
     events=_calendar_events(s,date_value,end)
     verified=all(_event_id(e)!=appointment_id for e in events)
@@ -445,7 +455,7 @@ def reminder_source_rows(start, end):
 
 def review_followup_rows(days=2):
     days=max(1,min(int(days),7))
-    today=datetime.date.today()
+    today=business_today()
     start=(today-datetime.timedelta(days=days-1)).isoformat()
     end=(today+datetime.timedelta(days=1)).isoformat()
     s=_session(); rows=_appointments(s,start,end); events=_calendar_events(s,start,end)
