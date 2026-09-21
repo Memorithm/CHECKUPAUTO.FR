@@ -399,6 +399,17 @@ def update_status(name: str) -> dict:
             {"sha": row.sha, "mtime": row.mtime}
             for row in remote.releases
         ]
+        backups = [
+            {
+                "snapshot": row.snapshot,
+                "created_at": row.created_at,
+                "from_sha": row.from_sha,
+                "to_sha": row.to_sha,
+                "database_count": row.database_count,
+                "file_count": row.file_count,
+            }
+            for row in remote.backups
+        ]
         rollback = [
             row.sha for row in remote.releases
             if row.sha != remote.deployed_sha
@@ -412,6 +423,9 @@ def update_status(name: str) -> dict:
             "updateAvailable": False,
             "sourceBuildCapable": False,
             "releases": releases,
+            "backups": backups,
+            "backupCount": len(backups),
+            "latestBackup": backups[0] if backups else None,
             "rollbackCandidates": rollback,
         }
     result = deployment_update.update_status(
