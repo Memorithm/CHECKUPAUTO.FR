@@ -319,7 +319,7 @@ class ProductionReadinessTest(unittest.TestCase):
 
     def test_ios_release_preflight_surfaces_repository_mismatch(self):
         patches = healthy_patches()
-        patches[-1] = mock.patch.object(readiness.ios_release_preflight, "status", return_value={
+        patches[13] = mock.patch.object(readiness.ios_release_preflight, "status", return_value={
             "state": "degraded", "projectReady": False, "associationReady": True,
             "publicationReady": False, "channel": "pending",
             "checks": [
