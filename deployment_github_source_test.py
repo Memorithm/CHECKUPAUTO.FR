@@ -97,6 +97,38 @@ class DeploymentGitHubSourceTest(unittest.TestCase):
         self.assertNotIn("github_pat_", text)
         self.assertNotIn(str(self.token), text)
 
+    def test_saved_source_config_is_private_and_takes_precedence(self):
+        github.save_config("Memorithm/CHECKUPAUTO.FR", "stable")
+        config_path = github._config_path()
+        self.assertEqual(config_path.stat().st_mode & 0o777, 0o600)
+        cfg = github.config()
+        self.assertEqual(cfg.repository, "Memorithm/CHECKUPAUTO.FR")
+        self.assertEqual(cfg.branch, "stable")
+        self.assertNotIn("github_pat_", config_path.read_text(encoding="utf-8"))
+
+    def test_configure_source_never_returns_token(self):
+        token = "github_pat_" + "C" * 40
+        result = github.configure_source(
+            "Memorithm/CHECKUPAUTO.FR",
+            "main",
+            token=token,
+        )
+        self.assertTrue(result["tokenConfigured"])
+        self.assertNotIn(token, str(result))
+        self.assertNotIn("token", {key.lower() for key in result if key != "tokenConfigured"})
+
+    def test_invalid_token_does_not_change_saved_configuration(self):
+        github.save_config("Memorithm/CHECKUPAUTO.FR", "stable")
+        with self.assertRaisesRegex(ValueError, "token GitHub"):
+            github.configure_source(
+                "Memorithm/OTHER",
+                "main",
+                token="short",
+            )
+        cfg = github.config()
+        self.assertEqual(cfg.repository, "Memorithm/CHECKUPAUTO.FR")
+        self.assertEqual(cfg.branch, "stable")
+
     def test_token_requires_private_permissions(self):
         self.token.chmod(0o644)
         self.assertFalse(github.token_configured())
