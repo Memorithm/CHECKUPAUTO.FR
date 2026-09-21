@@ -536,7 +536,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         ],
         "partialSystemAdapters": ["mercure"],
         "remainingSystemAdapters": [
-            "mercure_mutations",
+            "mercure",
             "referral_wallet",
             "compliance_contracts",
             "retention_purge",
