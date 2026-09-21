@@ -14,9 +14,6 @@ import privacy_suppression
 import reminder_dispatch
 import retention_enforcement as retention
 import review_followup
-import security_alerts
-import security_behavior
-import security_guard
 
 
 class RetentionEnforcementTest(unittest.TestCase):
@@ -32,6 +29,13 @@ class RetentionEnforcementTest(unittest.TestCase):
         os.environ["CYBERCHECK_PRIVATE_DIR"] = str(self.root / "private")
         self.addCleanup(self._restore_env)
 
+        import security_alerts
+        import security_behavior
+        import security_guard
+        self.security_alerts = security_alerts
+        self.security_behavior = security_behavior
+        self.security_guard = security_guard
+
         self.originals = {
             "analytics_db": analytics_store.DB,
             "booking_secret": booking_bridge.SECRET_FILE,
@@ -43,13 +47,13 @@ class RetentionEnforcementTest(unittest.TestCase):
             "review_db": review_followup.DB,
             "reminder_dir": reminder_dispatch.DATA_DIR,
             "reminder_db": reminder_dispatch.DB,
-            "security_guard_dir": security_guard.STATE_DIR,
-            "security_guard_db": security_guard.DB,
-            "security_guard_secret": security_guard.SECRET_FILE,
-            "security_behavior_dir": security_behavior.STATE_DIR,
-            "security_behavior_db": security_behavior.DB,
-            "security_alerts_dir": security_alerts.STATE_DIR,
-            "security_alerts_db": security_alerts.DB,
+            "security_guard_dir": self.security_guard.STATE_DIR,
+            "security_guard_db": self.security_guard.DB,
+            "security_guard_secret": self.security_guard.SECRET_FILE,
+            "security_behavior_dir": self.security_behavior.STATE_DIR,
+            "security_behavior_db": self.security_behavior.DB,
+            "security_alerts_dir": self.security_alerts.STATE_DIR,
+            "security_alerts_db": self.security_alerts.DB,
         }
         analytics_store.DB = self.root / "analytics.sqlite3"
         booking_bridge.SECRET_FILE = self.root / "private" / "mercure-webhook-secret"
@@ -62,13 +66,13 @@ class RetentionEnforcementTest(unittest.TestCase):
         reminder_dispatch.DATA_DIR = self.root / "reminders"
         reminder_dispatch.DB = reminder_dispatch.DATA_DIR / "reminder.sqlite3"
         security_dir = self.root / "security"
-        security_guard.STATE_DIR = security_dir
-        security_guard.DB = security_dir / "security.sqlite3"
-        security_guard.SECRET_FILE = security_dir / "client-hmac-secret"
-        security_behavior.STATE_DIR = security_dir
-        security_behavior.DB = security_guard.DB
-        security_alerts.STATE_DIR = security_dir
-        security_alerts.DB = security_guard.DB
+        self.security_guard.STATE_DIR = security_dir
+        self.security_guard.DB = security_dir / "security.sqlite3"
+        self.security_guard.SECRET_FILE = security_dir / "client-hmac-secret"
+        self.security_behavior.STATE_DIR = security_dir
+        self.security_behavior.DB = self.security_guard.DB
+        self.security_alerts.STATE_DIR = security_dir
+        self.security_alerts.DB = self.security_guard.DB
         self.addCleanup(self._restore_globals)
 
         self.db = self.root / "compliance.sqlite3"
@@ -93,13 +97,13 @@ class RetentionEnforcementTest(unittest.TestCase):
         review_followup.DB = self.originals["review_db"]
         reminder_dispatch.DATA_DIR = self.originals["reminder_dir"]
         reminder_dispatch.DB = self.originals["reminder_db"]
-        security_guard.STATE_DIR = self.originals["security_guard_dir"]
-        security_guard.DB = self.originals["security_guard_db"]
-        security_guard.SECRET_FILE = self.originals["security_guard_secret"]
-        security_behavior.STATE_DIR = self.originals["security_behavior_dir"]
-        security_behavior.DB = self.originals["security_behavior_db"]
-        security_alerts.STATE_DIR = self.originals["security_alerts_dir"]
-        security_alerts.DB = self.originals["security_alerts_db"]
+        self.security_guard.STATE_DIR = self.originals["security_guard_dir"]
+        self.security_guard.DB = self.originals["security_guard_db"]
+        self.security_guard.SECRET_FILE = self.originals["security_guard_secret"]
+        self.security_behavior.STATE_DIR = self.originals["security_behavior_dir"]
+        self.security_behavior.DB = self.originals["security_behavior_db"]
+        self.security_alerts.STATE_DIR = self.originals["security_alerts_dir"]
+        self.security_alerts.DB = self.originals["security_alerts_db"]
 
     @staticmethod
     def _iso(days_ago):
@@ -254,13 +258,13 @@ class RetentionEnforcementTest(unittest.TestCase):
             "justification": "Fenêtre de détection Sentinel limitée aux investigations courantes.",
             "enabled": True,
         }, self.db)
-        security_guard.init_db()
-        security_behavior.init_db()
-        security_alerts.init_db()
+        self.security_guard.init_db()
+        self.security_behavior.init_db()
+        self.security_alerts.init_db()
         old = self._iso(45)
         new = self._iso(2)
         old_day = old[:10]
-        with __import__("sqlite3").connect(security_guard.DB) as db:
+        with __import__("sqlite3").connect(self.security_guard.DB) as db:
             db.execute(
                 """INSERT INTO security_events(
                      occurred_at,client_hash,method,path,status,risk,action,reason
@@ -301,7 +305,7 @@ class RetentionEnforcementTest(unittest.TestCase):
         row = next(item for item in result["rules"] if item["ruleId"] == "security_telemetry")
         self.assertEqual(row["state"], "ready")
         self.assertGreaterEqual(row["removedCount"], 3)
-        with __import__("sqlite3").connect(security_guard.DB) as db:
+        with __import__("sqlite3").connect(self.security_guard.DB) as db:
             events = db.execute("SELECT COUNT(*) FROM security_events").fetchone()[0]
             profiles = db.execute("SELECT COUNT(*) FROM behavior_profiles").fetchone()[0]
             open_alert = db.execute(
