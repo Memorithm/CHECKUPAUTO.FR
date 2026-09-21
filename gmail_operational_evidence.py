@@ -97,4 +97,7 @@ def status(db_path: str | Path | None = None) -> dict:
         return _empty("unavailable")
     except (OSError, sqlite3.Error):
         return _empty("unavailable")
-    return from_health_row(row)
+    try:
+        return from_health_row(row)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return _empty("unavailable")
