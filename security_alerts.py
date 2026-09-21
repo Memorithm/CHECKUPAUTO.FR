@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 import requests
 
-STATE_DIR = Path('/root/CyberCheckSecurity')
+STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
 _LOCK = threading.RLock()
 _STOP = threading.Event()
