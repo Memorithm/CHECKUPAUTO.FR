@@ -625,6 +625,226 @@ def list_accounts(limit: int = 100) -> list[dict]:
     return [account_summary(code) for code in codes]
 
 
+def _canonical_reward_for_reference_locked(
+    db,
+    account_id: str,
+    reference: str,
+) -> tuple[str, int, str] | None:
+    rewards = db.execute(
+        """SELECT provider,external_id,reward_cents,status
+           FROM referral_rewards
+           WHERE account_id=? AND status IN ('earned','reversed')""",
+        (account_id,),
+    ).fetchall()
+    modern = [
+        row for row in rewards
+        if _reward_ledger_reference(row["provider"], row["external_id"]) == reference
+    ]
+    if len(modern) == 1:
+        row = modern[0]
+        return (
+            _reward_ledger_reference(row["provider"], row["external_id"]),
+            int(row["reward_cents"]),
+            str(row["status"]),
+        )
+    legacy = [
+        row for row in rewards
+        if _legacy_reward_ledger_reference(row["provider"], row["external_id"]) == reference
+    ]
+    if len(legacy) == 1:
+        row = legacy[0]
+        return (
+            _reward_ledger_reference(row["provider"], row["external_id"]),
+            int(row["reward_cents"]),
+            str(row["status"]),
+        )
+    if modern or legacy:
+        raise RuntimeError("Référence historique de parrainage ambiguë")
+    return None
+
+
+def _upsert_compacted_reward_locked(
+    db,
+    account_id: str,
+    reference: str,
+    amount_cents: int,
+    reversed_state: bool,
+    stamp: str,
+) -> None:
+    existing = db.execute(
+        """SELECT amount_cents,reversed FROM referral_compacted_reward_evidence
+           WHERE account_id=? AND reference=?""",
+        (account_id, reference),
+    ).fetchone()
+    if existing and int(existing["amount_cents"]) != int(amount_cents):
+        raise RuntimeError("Intégrité du crédit compacté incohérente")
+    reversed_value = bool(reversed_state) or bool(existing and existing["reversed"])
+    material = (
+        f"{account_id}|{reference}|{int(amount_cents)}|{int(reversed_value)}"
+    )
+    evidence_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    db.execute(
+        """INSERT INTO referral_compacted_reward_evidence(
+             account_id,reference,amount_cents,reversed,compacted_at,evidence_hash
+           ) VALUES(?,?,?,?,?,?)
+           ON CONFLICT(account_id,reference) DO UPDATE SET
+             amount_cents=excluded.amount_cents,
+             reversed=MAX(referral_compacted_reward_evidence.reversed,excluded.reversed),
+             compacted_at=excluded.compacted_at,
+             evidence_hash=excluded.evidence_hash""",
+        (
+            account_id, reference, int(amount_cents), int(reversed_value),
+            stamp, evidence_hash,
+        ),
+    )
+
+
+def compact_ledger(
+    retention_days: int,
+    *,
+    now: datetime.datetime | None = None,
+    dry_run: bool = False,
+) -> dict:
+    days = int(retention_days)
+    if days < 1 or days > 36500:
+        raise ValueError("Durée de compaction invalide")
+    current = now or datetime.datetime.now(datetime.timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=datetime.timezone.utc)
+    cutoff = (current - datetime.timedelta(days=days)).isoformat(timespec="seconds")
+    stamp = current.isoformat(timespec="seconds")
+    init_db()
+    with analytics.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        rows = db.execute(
+            """SELECT id,account_id,kind,amount_cents,reference,created_at
+               FROM referral_ledger WHERE created_at<?
+               ORDER BY id""",
+            (cutoff,),
+        ).fetchall()
+        eligible: list[dict] = []
+        skipped = 0
+        for row in rows:
+            item = dict(row)
+            kind = str(item["kind"])
+            if kind in {"earn", "reverse"}:
+                reward = _canonical_reward_for_reference_locked(
+                    db, str(item["account_id"]), str(item["reference"])
+                )
+                if reward is None:
+                    skipped += 1
+                    continue
+                canonical, reward_cents, reward_status = reward
+                expected = reward_cents if kind == "earn" else -reward_cents
+                if int(item["amount_cents"]) != expected:
+                    raise RuntimeError("Montant historique de parrainage incohérent")
+                item["canonical_reference"] = canonical
+                item["reward_cents"] = reward_cents
+                item["reward_reversed"] = reward_status == "reversed" or kind == "reverse"
+                eligible.append(item)
+            elif kind == "redeem":
+                eligible.append(item)
+            else:
+                skipped += 1
+
+        net_by_account: dict[str, int] = {}
+        count_by_account: dict[str, int] = {}
+        if not dry_run:
+            for item in eligible:
+                account_id = str(item["account_id"])
+                kind = str(item["kind"])
+                if kind in {"earn", "reverse"}:
+                    _upsert_compacted_reward_locked(
+                        db,
+                        account_id,
+                        str(item["canonical_reference"]),
+                        int(item["reward_cents"]),
+                        bool(item["reward_reversed"]),
+                        stamp,
+                    )
+                else:
+                    reference_hash = _reference_hash(str(item["reference"]))
+                    material = (
+                        f"{account_id}|redeem|{reference_hash}|{int(item['amount_cents'])}"
+                    )
+                    evidence_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+                    existing = db.execute(
+                        """SELECT amount_cents FROM referral_redeem_tombstone
+                           WHERE account_id=? AND reference_hash=?""",
+                        (account_id, reference_hash),
+                    ).fetchone()
+                    if existing and int(existing["amount_cents"]) != int(item["amount_cents"]):
+                        raise RuntimeError("Intégrité du redemption compacté incohérente")
+                    db.execute(
+                        """INSERT INTO referral_redeem_tombstone(
+                             account_id,reference_hash,amount_cents,compacted_at,evidence_hash
+                           ) VALUES(?,?,?,?,?)
+                           ON CONFLICT(account_id,reference_hash) DO UPDATE SET
+                             compacted_at=excluded.compacted_at,
+                             evidence_hash=excluded.evidence_hash""",
+                        (
+                            account_id, reference_hash, int(item["amount_cents"]),
+                            stamp, evidence_hash,
+                        ),
+                    )
+                net_by_account[account_id] = (
+                    net_by_account.get(account_id, 0) + int(item["amount_cents"])
+                )
+                count_by_account[account_id] = count_by_account.get(account_id, 0) + 1
+
+            for account_id, net in net_by_account.items():
+                count = count_by_account[account_id]
+                previous = db.execute(
+                    """SELECT balance_cents,compacted_entries
+                       FROM referral_ledger_checkpoint WHERE account_id=?""",
+                    (account_id,),
+                ).fetchone()
+                balance = (int(previous["balance_cents"]) if previous else 0) + net
+                entries = (int(previous["compacted_entries"]) if previous else 0) + count
+                material = f"{account_id}|{balance}|{entries}|{stamp}"
+                evidence_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+                db.execute(
+                    """INSERT INTO referral_ledger_checkpoint(
+                         account_id,balance_cents,compacted_entries,updated_at,evidence_hash
+                       ) VALUES(?,?,?,?,?)
+                       ON CONFLICT(account_id) DO UPDATE SET
+                         balance_cents=excluded.balance_cents,
+                         compacted_entries=excluded.compacted_entries,
+                         updated_at=excluded.updated_at,
+                         evidence_hash=excluded.evidence_hash""",
+                    (account_id, balance, entries, stamp, evidence_hash),
+                )
+            if eligible:
+                placeholders = ",".join("?" for _ in eligible)
+                db.execute(
+                    f"DELETE FROM referral_ledger WHERE id IN ({placeholders})",
+                    tuple(int(item["id"]) for item in eligible),
+                )
+
+        net = sum(int(item["amount_cents"]) for item in eligible)
+        evidence = hashlib.sha256(
+            json.dumps(
+                {
+                    "cutoff": cutoff,
+                    "eligibleCount": len(eligible),
+                    "skippedCount": skipped,
+                    "netCents": net,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return {
+            "ok": True,
+            "dryRun": bool(dry_run),
+            "cutoffAt": cutoff,
+            "compactedEntries": len(eligible),
+            "skippedEntries": skipped,
+            "netCents": net,
+            "evidenceHash": evidence,
+        }
+
+
 def reward_status(provider: str, external_id: object) -> dict | None:
     init_db()
     with analytics.connect() as db:
