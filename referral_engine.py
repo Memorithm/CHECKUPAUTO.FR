@@ -107,34 +107,59 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_referral_ledger_account
               ON referral_ledger(account_id, created_at);
+            CREATE TABLE IF NOT EXISTS referral_ledger_checkpoint(
+              account_id TEXT PRIMARY KEY,
+              balance_cents INTEGER NOT NULL DEFAULT 0,
+              compacted_entries INTEGER NOT NULL DEFAULT 0,
+              updated_at TEXT NOT NULL,
+              evidence_hash TEXT NOT NULL,
+              FOREIGN KEY(account_id) REFERENCES referral_accounts(id)
+            );
+            CREATE TABLE IF NOT EXISTS referral_compacted_reward_evidence(
+              account_id TEXT NOT NULL,
+              reference TEXT NOT NULL,
+              amount_cents INTEGER NOT NULL,
+              reversed INTEGER NOT NULL DEFAULT 0,
+              compacted_at TEXT NOT NULL,
+              evidence_hash TEXT NOT NULL,
+              PRIMARY KEY(account_id,reference),
+              FOREIGN KEY(account_id) REFERENCES referral_accounts(id)
+            );
+            CREATE TABLE IF NOT EXISTS referral_redeem_tombstone(
+              account_id TEXT NOT NULL,
+              reference_hash TEXT NOT NULL,
+              amount_cents INTEGER NOT NULL,
+              compacted_at TEXT NOT NULL,
+              evidence_hash TEXT NOT NULL,
+              PRIMARY KEY(account_id,reference_hash),
+              FOREIGN KEY(account_id) REFERENCES referral_accounts(id)
+            );
             """
         )
-        trigger = db.execute(
-            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='trg_referral_ledger_nonnegative'"
-        ).fetchone()
-        trigger_sql = str(trigger["sql"] or "") if trigger else ""
-        if "NEW.kind <> 'reverse'" not in trigger_sql:
-            db.executescript(
-                """
-                BEGIN IMMEDIATE;
-                DROP TRIGGER IF EXISTS trg_referral_ledger_nonnegative;
-                CREATE TRIGGER trg_referral_ledger_nonnegative
-                  BEFORE INSERT ON referral_ledger
-                  WHEN NEW.amount_cents < 0
-                   AND NEW.kind <> 'reverse'
-                   AND (
-                     SELECT COALESCE(SUM(amount_cents),0)
-                     FROM referral_ledger
-                     WHERE account_id=NEW.account_id
-                   ) + NEW.amount_cents < 0
-                BEGIN
-                  SELECT RAISE(ABORT, 'referral balance would be negative');
-                END;
-                COMMIT;
-                """
-            )
-        db.execute(
-            """CREATE TRIGGER IF NOT EXISTS trg_referral_ledger_reverse_matches_earn
+        db.executescript(
+            """
+            DROP TRIGGER IF EXISTS trg_referral_ledger_nonnegative;
+            CREATE TRIGGER trg_referral_ledger_nonnegative
+              BEFORE INSERT ON referral_ledger
+              WHEN NEW.amount_cents < 0
+               AND NEW.kind <> 'reverse'
+               AND (
+                 COALESCE((
+                   SELECT balance_cents FROM referral_ledger_checkpoint
+                   WHERE account_id=NEW.account_id
+                 ),0)
+                 + COALESCE((
+                   SELECT SUM(amount_cents) FROM referral_ledger
+                   WHERE account_id=NEW.account_id
+                 ),0)
+                 + NEW.amount_cents
+               ) < 0
+            BEGIN
+              SELECT RAISE(ABORT, 'referral balance would be negative');
+            END;
+
+            DROP TRIGGER IF EXISTS trg_referral_ledger_reverse_matches_earn;
+            CREATE TRIGGER trg_referral_ledger_reverse_matches_earn
               BEFORE INSERT ON referral_ledger
               WHEN NEW.kind = 'reverse'
                AND NOT EXISTS(
@@ -144,9 +169,16 @@ def init_db() -> None:
                    AND reference=NEW.reference
                    AND amount_cents=-NEW.amount_cents
                )
+               AND NOT EXISTS(
+                 SELECT 1 FROM referral_compacted_reward_evidence
+                 WHERE account_id=NEW.account_id
+                   AND reference=NEW.reference
+                   AND amount_cents=-NEW.amount_cents
+               )
             BEGIN
               SELECT RAISE(ABORT, 'referral reversal must match earn');
-            END"""
+            END;
+            """
         )
     analytics.DB.chmod(0o600)
 
