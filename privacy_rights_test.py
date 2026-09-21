@@ -1,3 +1,4 @@
+import hashlib
 import os
 import tempfile
 import unittest
@@ -39,6 +40,14 @@ class PrivacyRightsTest(unittest.TestCase):
         }
         payload.update(extra)
         return rights.create_request(payload, self.db)
+
+    def test_main_register_uses_private_key_hmac_not_plain_sha256(self):
+        request = self.create()
+        import compliance_store
+        rows = compliance_store.rights_requests(self.db)
+        row = next(item for item in rows if item["id"] == request["id"])
+        plain = hashlib.sha256(b"alice@example.test").hexdigest()[:16]
+        self.assertNotEqual(row["subjectRefHash"], plain)
 
     def test_objection_closes_after_enforced_marketing_suppression(self):
         request = self.create()
