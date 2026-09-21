@@ -12,7 +12,7 @@ _PROVIDER_PROFILES = {
         "label": "PlanetHoster World / N0C",
         "defaultPort": 5022,
         "runtime": "passenger",
-        "defaultRoot": "public_html",
+        "defaultRoot": "checkupauto",
         "sharedHosting": True,
         "supportsSystemd": False,
         "supportsCron": True,
@@ -84,6 +84,8 @@ class CapabilityReport:
     free_disk_mb: int = 0
     passenger_wsgi_adapter: bool = False
     shared_host_tick: bool = False
+    cloudlinux_selector: bool = False
+    managed_python_version: str = ""
 
 
 def provider_profiles() -> dict[str, dict[str, Any]]:
@@ -188,10 +190,16 @@ def assess(target: DeploymentTarget, capabilities: CapabilityReport) -> dict[str
         if blocking and not ok:
             blockers.append(code)
 
+    effective_python = (
+        capabilities.managed_python_version
+        if _PROVIDER_PROFILES[target.provider]["runtime"] == "passenger"
+        and capabilities.managed_python_version
+        else capabilities.python_version
+    )
     check(
         "python",
-        _python_tuple(capabilities.python_version) >= (3, 11),
-        capabilities.python_version or "python3 absent",
+        _python_tuple(effective_python) >= (3, 11),
+        effective_python or "python3 absent",
     )
     check("writable_root", capabilities.writable_root, target.root_path)
     check("free_disk", capabilities.free_disk_mb >= 1024, f"{capabilities.free_disk_mb} MB")
@@ -199,6 +207,7 @@ def assess(target: DeploymentTarget, capabilities: CapabilityReport) -> dict[str
 
     runtime = profile["runtime"]
     if runtime == "passenger":
+        check("cloudlinux_selector", capabilities.cloudlinux_selector, "cloudlinux-selector")
         check("passenger", capabilities.passenger, "Passenger Python")
         check(
             "passenger_wsgi_adapter",
