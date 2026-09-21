@@ -55,7 +55,7 @@ class AdminMFATest(unittest.TestCase):
         self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
-    def test_pending_qr_contains_png_without_exposing_secret_to_disk(self):
+    def test_pending_qr_contains_svg_without_exposing_secret_to_disk(self):
         mfa.begin_enrollment(now=1000)
         png = mfa.pending_qr_png()
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
