@@ -9,6 +9,13 @@ import tempfile
 
 import requests
 
+from google_ads_probe import (
+    GOOGLE_ADS_SCOPE,
+    GoogleAdsProbeError,
+    GoogleAdsProbeHTTPError,
+    verify_access as verify_google_ads_access,
+)
+
 PRIVATE_DIR = Path(os.environ.get("CYBERCHECK_PRIVATE_DIR", "/root/CyberCheckPrivate"))
 INTEGRATION_DIR = PRIVATE_DIR / "integrations"
 CLIENT_FILE = INTEGRATION_DIR / "google-oauth-client.json"
@@ -66,7 +73,7 @@ CONNECTORS = {
         "label": "Google Ads",
         "category": "Publicité",
         "description": "Campagnes, dépenses et conversions publicitaires.",
-        "scopes": ["https://www.googleapis.com/auth/adwords"],
+        "scopes": [GOOGLE_ADS_SCOPE],
         "mode": "oauth_plus_setting",
         "setting": "googleAdsDeveloperToken",
     },
@@ -583,6 +590,31 @@ def drive_files_probe():
     return {"connected": True, "verification": "verified"}
 
 
+def google_ads_access_probe(developer_token=None):
+    developer = str(
+        developer_token or settings().get("googleAdsDeveloperToken") or ""
+    ).strip()
+    if not developer:
+        raise IntegrationError("Jeton développeur Google Ads requis.")
+    token = google_access_token([GOOGLE_ADS_SCOPE])
+    try:
+        return verify_google_ads_access(
+            token,
+            developer,
+            request_get=requests.get,
+            timeout=20,
+        )
+    except GoogleAdsProbeHTTPError as exc:
+        raise IntegrationHTTPError(
+            "Vérification Google Ads impossible.",
+            status=exc.status,
+            retry_after=exc.retry_after,
+            retryable=exc.retryable,
+        ) from exc
+    except GoogleAdsProbeError as exc:
+        raise IntegrationError("Réponse Google Ads invalide.") from exc
+
+
 def _apply_analytics_probe(row, cfg):
     try:
         probe = analytics_property_probe(cfg.get("analyticsPropertyId"))
@@ -659,6 +691,39 @@ def _apply_tag_manager_probe(row, cfg):
         row["state"] = "connected"
         row["verification"] = "verified"
         row["detail"] = "API Google Tag Manager vérifiée"
+    return row
+
+
+def _apply_google_ads_probe(row, cfg):
+    try:
+        probe = google_ads_access_probe(cfg.get("googleAdsDeveloperToken"))
+    except IntegrationHTTPError as exc:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "unavailable" if exc.retryable else "failed"
+        row["detail"] = (
+            "Configuration présente · vérification API Google Ads indisponible"
+            if exc.retryable
+            else "API Google Ads joignable · accès refusé"
+        )
+    except IntegrationError:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "failed"
+        row["detail"] = "Configuration Google Ads invalide ou non vérifiable"
+    else:
+        count = int(probe.get("accessibleCustomerCount") or 0)
+        row["probe"] = {"accessibleCustomerCount": count}
+        if not probe.get("usable"):
+            row["connected"] = False
+            row["state"] = "attention"
+            row["verification"] = "failed"
+            row["detail"] = "API Google Ads vérifiée · aucun compte accessible"
+        else:
+            row["connected"] = True
+            row["state"] = "connected"
+            row["verification"] = "verified"
+            row["detail"] = "API Google Ads vérifiée"
     return row
 
 
@@ -774,6 +839,8 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
                 _apply_business_profile_probe(row, cfg)
             elif key == "tag_manager":
                 _apply_tag_manager_probe(row, cfg)
+            elif key == "google_ads":
+                _apply_google_ads_probe(row, cfg)
             elif key == "calendar":
                 _apply_calendar_probe(row)
             elif key == "drive":
