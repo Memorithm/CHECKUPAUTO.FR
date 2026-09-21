@@ -13,6 +13,7 @@ import email_gateway as mail
 import mercure_admin_client as mercure
 import notification_broker as notifications
 import reminder_engine as reminders
+import privacy_suppression as privacy
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
@@ -480,6 +481,12 @@ def permanent_recipient_retry(incident_id: object) -> dict:
         return {"ok": False, "state": "recipient_lookup_failed", "retryEligible": False}
     if not mail.valid_email(recipient):
         return {"ok": False, "state": "recipient_missing", "retryEligible": False}
+    subject_kind = "mercure_account" if target["client_kind"] == "account" else "mercure_free"
+    if privacy.any_suppressed(
+        [(subject_kind, target["client_id"]), ("email", recipient)],
+        "ct_reminder",
+    ):
+        return {"ok": False, "state": "privacy_suppressed", "retryEligible": False}
     comparison = notifications.permanent_failure_recipient_state(context["incidentId"], recipient)
     if comparison.get("recipientState") != "changed":
         return {"ok": False, "state": "recipient_unchanged", "retryEligible": False}
@@ -568,12 +575,19 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
         }
         _set_meta("last_process", json.dumps(result, separators=(",", ":")))
         return result
-    sent = already = deferred = failed = missing = in_flight = permanent_suppressed = 0
+    sent = already = deferred = failed = missing = in_flight = permanent_suppressed = privacy_suppressed = 0
     for row in eligible:
         try:
             recipient = mercure.customer_email(row["client_kind"], row["client_id"])
             if not mail.valid_email(recipient):
                 missing += 1
+                continue
+            subject_kind = "mercure_account" if row["client_kind"] == "account" else "mercure_free"
+            if privacy.any_suppressed(
+                [(subject_kind, row["client_id"]), ("email", recipient)],
+                "ct_reminder",
+            ):
+                privacy_suppressed += 1
                 continue
             subject, text = _message(row["due_date"])
             delivery = notifications.send_email(
@@ -595,7 +609,10 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
             permanent_suppressed += 1
         except Exception:
             failed += 1
-    state = "partial_failure" if failed else ("active_with_permanent_suppressions" if permanent_suppressed else "active")
+    state = "partial_failure" if failed else (
+        "active_with_privacy_suppressions" if privacy_suppressed else
+        ("active_with_permanent_suppressions" if permanent_suppressed else "active")
+    )
     result = {
         "ok": failed == 0,
         "state": state,
@@ -606,6 +623,7 @@ def process_once(now: datetime.datetime | None = None, *, do_sync: bool = True) 
         "deferred": deferred,
         "missingRecipient": missing,
         "permanentSuppressed": permanent_suppressed,
+        "privacySuppressed": privacy_suppressed,
         "failed": failed,
         "sync": sync,
     }
