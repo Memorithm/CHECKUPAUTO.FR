@@ -63,7 +63,7 @@ class DeploymentActivationTest(unittest.TestCase):
         self.assertIn("CYBERCHECK_GSC_CREDENTIALS_PATH", script)
         self.assertIn("*/5 * * * *", script)
         self.assertIn("checkupauto-shared-tick.py", script)
-        self.assertIn("tmp/restart.txt", script)
+        self.assertIn('restart = restart_dir / "restart.txt"', script)
         self.assertIn("/api/admin/readiness", script)
         self.assertIn("launch_ready is not gate", script)
         self.assertIn("rollback completed", script)
