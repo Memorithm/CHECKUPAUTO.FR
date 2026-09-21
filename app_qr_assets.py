@@ -10,6 +10,7 @@ QR_TARGETS = {
     "qr-site": "https://www.checkupauto.fr/app?src=qr-site",
     "qr-centre": "https://www.checkupauto.fr/app?src=qr-centre",
 }
+QR_PRINT_SIZE_MM = 37
 
 
 def payload(name: str) -> str:
@@ -37,8 +38,8 @@ def render_svg(name: str) -> bytes:
     )
     return (
         "<?xml version='1.0' encoding='UTF-8'?>\n"
-        f'<svg width="{size}mm" height="{size}mm" version="1.1" viewBox="0 0 {size} {size}" '
-        'xmlns="http://www.w3.org/2000/svg">'
+        f'<svg width="{QR_PRINT_SIZE_MM}mm" height="{QR_PRINT_SIZE_MM}mm" version="1.1" '
+        f'viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg">'
         f'<rect x="0" y="0" width="{size}" height="{size}" fill="#ffffff"/>'
         f'<path d="{path}" id="qr-path" fill="#000000" fill-opacity="1" '
         'fill-rule="nonzero" stroke="none" /></svg>\n'
