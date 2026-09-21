@@ -60,6 +60,14 @@ class DeploymentHelperContractTest(unittest.TestCase):
         self.assertNotIn('git checkout -f', self.helper)
         self.assertNotIn('git push --force', self.helper)
 
+    def test_fast_forward_uses_public_source_umask_then_restores_private_umask(self):
+        merge = self.helper.index('git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"')
+        public_umask = self.helper.rfind('umask 022', 0, merge)
+        private_umask = self.helper.index('umask 077', merge)
+        self.assertGreaterEqual(public_umask, 0)
+        self.assertGreater(private_umask, merge)
+        self.assertLess(private_umask - merge, 160)
+
     def test_verified_sqlite_backup_happens_before_git_mutation(self):
         backup = self.helper.index('source.backup(target)')
         quick_check = self.helper.index('PRAGMA quick_check')
