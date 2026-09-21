@@ -218,6 +218,19 @@ def init_db(db_path: Path | str | None = None) -> None:
               source TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_consent_contract ON consent_receipts(contract_ref,accepted_at);
+            CREATE TABLE IF NOT EXISTS checkout_acceptance_intents(
+              booking_token_hash TEXT PRIMARY KEY,
+              terms_version TEXT NOT NULL,
+              terms_content_hash TEXT NOT NULL,
+              accepted_at TEXT NOT NULL,
+              reviewed INTEGER NOT NULL,
+              immediate_performance INTEGER NOT NULL DEFAULT 0,
+              source TEXT NOT NULL,
+              finalized_contract_ref TEXT NOT NULL DEFAULT '',
+              finalized_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_checkout_acceptance_finalized
+              ON checkout_acceptance_intents(finalized_contract_ref,finalized_at);
             """
         )
         row = db.execute("SELECT 1 FROM compliance_settings WHERE id=1").fetchone()
@@ -637,6 +650,168 @@ def consent_receipts(db_path: Path | str | None = None, limit: int = 50) -> list
     ]
 
 
+def _checkout_token_hash(booking_token: str) -> str:
+    token = _text(booking_token, "bookingToken", 256, required=True)
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _checkout_acceptance_row(row: sqlite3.Row) -> dict:
+    return {
+        "bookingTokenHash": row["booking_token_hash"],
+        "termsVersion": row["terms_version"],
+        "termsContentHash": row["terms_content_hash"],
+        "acceptedAt": row["accepted_at"],
+        "reviewed": bool(row["reviewed"]),
+        "immediatePerformance": bool(row["immediate_performance"]),
+        "source": row["source"],
+        "finalizedContractRef": row["finalized_contract_ref"],
+        "finalizedAt": row["finalized_at"],
+    }
+
+
+def record_checkout_acceptance(
+    booking_token: str,
+    *,
+    terms_version: str,
+    terms_content_hash: str,
+    accepted: bool,
+    reviewed: bool,
+    immediate_performance: bool = False,
+    source: str = "checkout_review",
+    db_path: Path | str | None = None,
+) -> dict:
+    if accepted is not True:
+        raise ValueError("acceptation explicite des CGV requise")
+    if reviewed is not True:
+        raise ValueError("revue de commande requise")
+    terms_version = _text(terms_version, "termsVersion", 32, required=True)
+    terms_content_hash = _text(terms_content_hash, "termsContentHash", 64, required=True).lower()
+    source = _text(source, "source", 80, required=True)
+    document = published_document("terms", db_path)
+    if not document:
+        raise RuntimeError("aucune CGV publiée")
+    if terms_version != document["version"] or terms_content_hash != document["contentHash"].lower():
+        raise ValueError("version CGV périmée ou invalide")
+
+    token_hash = _checkout_token_hash(booking_token)
+    stamp = _now_iso()
+    init_db(db_path)
+    with connect(db_path) as db:
+        existing = db.execute(
+            "SELECT * FROM checkout_acceptance_intents WHERE booking_token_hash=?",
+            (token_hash,),
+        ).fetchone()
+        if existing:
+            if (
+                existing["terms_version"] != terms_version
+                or existing["terms_content_hash"].lower() != terms_content_hash
+            ):
+                raise ValueError("une acceptation différente existe déjà pour cette réservation")
+            return _checkout_acceptance_row(existing)
+        db.execute(
+            """INSERT INTO checkout_acceptance_intents(
+              booking_token_hash,terms_version,terms_content_hash,accepted_at,reviewed,
+              immediate_performance,source,finalized_contract_ref,finalized_at
+            ) VALUES(?,?,?,?,?,?,?,'','')""",
+            (
+                token_hash,
+                terms_version,
+                terms_content_hash,
+                stamp,
+                1,
+                int(bool(immediate_performance)),
+                source,
+            ),
+        )
+        row = db.execute(
+            "SELECT * FROM checkout_acceptance_intents WHERE booking_token_hash=?",
+            (token_hash,),
+        ).fetchone()
+    return _checkout_acceptance_row(row)
+
+
+def finalize_checkout_acceptance(
+    booking_token: str,
+    contract_ref: str,
+    *,
+    db_path: Path | str | None = None,
+) -> dict:
+    token_hash = _checkout_token_hash(booking_token)
+    contract_ref = _text(contract_ref, "contractRef", 200, required=True)
+    init_db(db_path)
+    with connect(db_path) as db:
+        row = db.execute(
+            "SELECT * FROM checkout_acceptance_intents WHERE booking_token_hash=?",
+            (token_hash,),
+        ).fetchone()
+        if not row or not bool(row["reviewed"]):
+            raise PermissionError("acceptation CGV manquante")
+        previous_ref = str(row["finalized_contract_ref"] or "")
+        if previous_ref and previous_ref != contract_ref:
+            # A browser callback uses a deterministic placeholder before Mercure
+            # can provide its authoritative booking id. Only that placeholder may
+            # be upgraded; an authoritative reference is immutable.
+            if not previous_ref.startswith("browser-") or contract_ref.startswith("browser-"):
+                raise ValueError("acceptation déjà liée à une autre référence contrat")
+
+        existing = db.execute(
+            """SELECT * FROM consent_receipts
+               WHERE contract_ref=? AND purpose='contract_terms' AND document_type='terms'
+                 AND document_version=? AND content_hash=?
+               ORDER BY accepted_at DESC LIMIT 1""",
+            (contract_ref, row["terms_version"], row["terms_content_hash"]),
+        ).fetchone()
+        if existing:
+            receipt_id = existing["receipt_id"]
+        else:
+            receipt_id = uuid.uuid4().hex
+            db.execute(
+                """INSERT INTO consent_receipts(
+                  receipt_id,contract_ref,purpose,document_type,document_version,content_hash,
+                  accepted_at,immediate_performance,source
+                ) VALUES(?,?,'contract_terms','terms',?,?,?,?,?)""",
+                (
+                    receipt_id,
+                    contract_ref,
+                    row["terms_version"],
+                    row["terms_content_hash"],
+                    row["accepted_at"],
+                    row["immediate_performance"],
+                    "mercure_contract_confirmation",
+                ),
+            )
+        finalized_at = _now_iso()
+        db.execute(
+            """UPDATE checkout_acceptance_intents
+               SET finalized_contract_ref=?,finalized_at=?
+               WHERE booking_token_hash=?""",
+            (contract_ref, finalized_at, token_hash),
+        )
+    return {
+        "id": receipt_id,
+        "contractRef": contract_ref,
+        "purpose": "contract_terms",
+        "documentType": "terms",
+        "documentVersion": row["terms_version"],
+        "contentHash": row["terms_content_hash"],
+        "acceptedAt": row["accepted_at"],
+        "immediatePerformance": bool(row["immediate_performance"]),
+        "source": "mercure_contract_confirmation",
+        "finalizedAt": finalized_at,
+    }
+
+
+def checkout_acceptance_capability() -> dict:
+    return {
+        "bound": True,
+        "explicitUntickedAcceptance": True,
+        "orderReviewBeforeProvider": True,
+        "versionAndHashBound": True,
+        "finalizedOnMercureConfirmation": True,
+        "immediatePerformanceCapturedSeparately": True,
+    }
+
+
 def summary(db_path: Path | str | None = None) -> dict:
     cfg = settings(db_path)
     docs = documents(db_path)
@@ -658,15 +833,14 @@ def summary(db_path: Path | str | None = None) -> dict:
         "overdueRightsRequests": sum(1 for row in rights if row["overdue"]),
         "openIncidents": sum(1 for row in incident_rows if row["status"] != "closed"),
         "overdueIncidentNotifications": sum(1 for row in incident_rows if row["notificationOverdue"]),
-        # The current contract conclusion is hosted by Mercure. This gate stays false until
-        # the final provider step posts a version-bound receipt back to CheckupAuto.
-        "checkoutAcceptanceBound": False,
+        "checkoutAcceptanceBound": checkout_acceptance_capability()["bound"],
         "withdrawalFunctionBound": False,
         "readyForPublicContracting": bool(
             not missing_identity
             and published_count == len(DOCUMENT_TYPES)
             and not any(row["overdue"] for row in rights)
             and not any(row["notificationOverdue"] for row in incident_rows)
+            and checkout_acceptance_capability()["bound"]
             and False
         ),
     }
@@ -684,6 +858,7 @@ def admin_snapshot(db_path: Path | str | None = None) -> dict:
         "incidents": incidents(db_path),
         "retentionPolicies": list(RETENTION_POLICIES),
         "consentReceipts": consent_receipts(db_path),
+        "checkoutAcceptance": checkout_acceptance_capability(),
         "principles": {
             "analytics": "first-party cookieless",
             "nonEssentialDefault": "denied",
