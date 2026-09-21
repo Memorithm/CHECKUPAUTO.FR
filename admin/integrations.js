@@ -30,10 +30,16 @@ function ihRender(data){
 
   const client=data.oauthClient||{};
   const oauthHealth=data.oauthHealth||{};
+  const webClientReady=Boolean(client.webClientVerified);
   ih('googleOAuthRedirectUri').textContent=data.redirectUri||'—';
-  ih('googleOAuthIdentity').textContent=client.configured
-    ? `Client OAuth installé · ${client.projectId||'projet Google'} · …${client.clientIdSuffix||''} · ${ihOauthHealthText(oauthHealth)}`
-    : 'Aucun client OAuth Google installé.';
+  if(client.configured&&webClientReady){
+    ih('googleOAuthIdentity').textContent=`Client OAuth Web vérifié · ${client.projectId||'projet Google'} · …${client.clientIdSuffix||''} · ${ihOauthHealthText(oauthHealth)}`;
+  }else if(client.configured){
+    ih('googleOAuthIdentity').textContent=`Client OAuth historique · ${ihOauthHealthText(oauthHealth)} · réimporter un client Google « Application Web »`;
+    badge.className='gsc-status warning';
+  }else{
+    ih('googleOAuthIdentity').textContent='Aucun client OAuth Google installé.';
+  }
   if(!oauthHealth.usable&&['token_expired','reauthorization_required','oauth_client_missing'].includes(oauthHealth.state)){
     badge.className='gsc-status offline';
   }
@@ -87,7 +93,7 @@ function ihRender(data){
   ih('googleAdsDeveloperToken').placeholder=s.googleAdsDeveloperTokenConfigured?'Jeton déjà enregistré · laisser vide pour conserver':'Jeton développeur Google Ads';
 
   ih('integrationDisconnectGoogle').disabled=!data.oauthAuthorized;
-  ih('integrationConnectSelected').disabled=!client.configured;
+  ih('integrationConnectSelected').disabled=!client.configured||!webClientReady;
 }
 
 async function ihLoad(){
