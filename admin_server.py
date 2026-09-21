@@ -31,7 +31,8 @@ import notification_broker as notifications
 import notification_preflight as notification_preflight
 import production_readiness as production_readiness
 import deployment_admin as deployment_admin
-import site_config_store as site_config_store\nimport compliance_store as compliance
+import site_config_store as site_config_store
+import compliance_store as compliance
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
