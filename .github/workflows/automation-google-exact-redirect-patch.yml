@@ -1,0 +1,45 @@
+name: Apply exact Google redirect policy patch
+
+on:
+  push:
+    branches:
+      - automation/google-exact-redirect-readiness
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: automation/google-exact-redirect-readiness
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python3 scripts/.automation_google_exact_redirect_patch.py
+
+      - name: Create isolated test environment
+        run: |
+          python3 -m venv .automation-venv
+          .automation-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Validate focused contracts
+        run: |
+          .automation-venv/bin/python -m compileall -q integration_hub.py admin_server.py production_readiness.py
+          .automation-venv/bin/python -m unittest integration_hub_test.py integration_hub_web_oauth_policy_test.py production_readiness_test.py admin_integrations_web_oauth_ui_test.py
+          node --check admin/integrations.js
+
+      - name: Commit final branch state
+        run: |
+          set -euo pipefail
+          rm -rf .automation-venv
+          rm .github/workflows/automation-google-exact-redirect-patch.yml
+          rm scripts/.automation_google_exact_redirect_patch.py
+          git config user.name "CHECKUPAUTO Automation"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: verify the exact Google OAuth callback"
+          git push origin HEAD:automation/google-exact-redirect-readiness
