@@ -141,6 +141,31 @@ class DeploymentVault:
             raise KeyError("cible de déploiement inconnue")
         return records[key]
 
+    def ensure_admin_password(self, name: str) -> str:
+        key = self._name(name)
+        records = self._read_records()
+        if key not in records:
+            raise KeyError("cible de déploiement inconnue")
+        runtime = records[key].setdefault("applicationSecrets", {})
+        password = str(runtime.get("adminPassword") or "")
+        if not password:
+            password = secrets.token_urlsafe(32)
+            runtime["adminPassword"] = password
+            self._write_records(records)
+        return password
+
+    def admin_password(self, name: str) -> str:
+        key = self._name(name)
+        records = self._read_records()
+        if key not in records:
+            raise KeyError("cible de déploiement inconnue")
+        password = str(
+            (records[key].get("applicationSecrets") or {}).get("adminPassword") or ""
+        )
+        if not password:
+            raise KeyError("mot de passe administrateur non initialisé")
+        return password
+
     def delete(self, name: str) -> bool:
         key = self._name(name)
         records = self._read_records()
