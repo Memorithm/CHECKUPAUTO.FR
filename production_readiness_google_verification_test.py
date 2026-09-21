@@ -45,6 +45,17 @@ class GoogleIntegrationReadinessTest(unittest.TestCase):
         self.assertEqual(component["metrics"]["remoteCheckedConnectors"], 1)
         self.assertIn("indisponible", component["detail"])
 
+    def test_unverified_connector_degrades_without_claiming_remote_check(self):
+        component = readiness._google_integration_component(integration_status([
+            {"id": "maps_places", "connected": False, "verification": "unverified"},
+        ]))
+
+        self.assertEqual(component["state"], "degraded")
+        self.assertFalse(component["critical"])
+        self.assertEqual(component["metrics"]["unverifiedVerifications"], 1)
+        self.assertEqual(component["metrics"]["remoteCheckedConnectors"], 0)
+        self.assertIn("sans vérification distante", component["detail"])
+
     def test_verified_remote_connector_is_ready(self):
         component = readiness._google_integration_component(integration_status([
             {"id": "analytics", "connected": True, "verification": "verified"},
