@@ -54,6 +54,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import secrets
 import sys
 import time
 from urllib import request
@@ -240,7 +241,7 @@ def touch_restart(target: Path) -> None:
     os.chmod(restart, 0o600)
 
 
-def probe_http() -> tuple[str, bool, int]:
+def probe_http(probe_name: str, probe_value: str) -> tuple[str, bool, int]:
     password_path = shared_private / "admin-password"
     if password_path.is_symlink():
         fail("admin credential symlink refused")
@@ -249,10 +250,17 @@ def probe_http() -> tuple[str, bool, int]:
         fail("admin credential missing")
     authorization = base64.b64encode(("admin:" + password).encode("utf-8")).decode("ascii")
     public_url = "https://" + domain + "/"
+    probe_url = public_url + probe_name
     readiness_url = "https://" + domain + "/api/admin/readiness"
     last_kind = "Unavailable"
     for _attempt in range(20):
         try:
+            with request.urlopen(probe_url, timeout=10) as response:
+                if response.status != 200:
+                    fail("deployment target probe status invalid")
+                observed = response.read(4096).decode("utf-8").strip()
+            if not secrets.compare_digest(observed, probe_value):
+                fail("deployment target probe mismatch")
             with request.urlopen(public_url, timeout=10) as response:
                 if response.status < 200 or response.status >= 400:
                     fail("public health status invalid")
@@ -326,6 +334,11 @@ old_htaccess = htaccess.read_bytes() if had_htaccess else b""
 old_htaccess_mode = (htaccess.stat().st_mode & 0o777) if had_htaccess else 0o644
 had_cron, old_cron = cron_snapshot()
 
+probe_name = "checkupauto-deployment-probe-" + secrets.token_hex(16) + ".txt"
+probe_path = web_root / probe_name
+probe_value = secrets.token_urlsafe(32)
+atomic_write(probe_path, (probe_value + "\n").encode("utf-8"), 0o644)
+
 block_lines = [
     BEGIN,
     "PassengerEnabled on",
@@ -350,7 +363,7 @@ try:
     install_cron(old_cron)
     switch_current(release)
     touch_restart(release)
-    state, allowed, blocker_count = probe_http()
+    state, allowed, blocker_count = probe_http(probe_name, probe_value)
 except Exception as activation_error:
     rollback_failed = False
     try:
@@ -373,6 +386,13 @@ except Exception as activation_error:
     else:
         print("activation failed; rollback completed: " + kind, file=sys.stderr)
     raise SystemExit(1)
+finally:
+    try:
+        probe_path.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        print("deployment target probe cleanup failed", file=sys.stderr)
 
 history = shared_logs / "deployment-history.jsonl"
 record = {
