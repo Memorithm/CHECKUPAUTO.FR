@@ -67,6 +67,20 @@ def healthy_patches(reminder):
                 "endpointHost": "alerts.example.test",
             },
         }),
+        mock.patch.object(readiness.compliance_admin, "snapshot", return_value={
+            "summary": {
+                "readyForPublicContracting": True,
+                "operationalRegistersReady": True,
+                "identityComplete": True,
+                "publishedDocuments": 4,
+                "requiredDocuments": 4,
+                "checkoutAcceptanceBound": True,
+                "withdrawalFunctionBound": True,
+                "overdueRightsRequests": 0,
+                "overdueIncidentNotifications": 0,
+                "operationalBlockers": [],
+            },
+        }),
     ]
 
 
