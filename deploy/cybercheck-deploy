@@ -218,7 +218,9 @@ PY
 
 log "backup complete path=$BACKUP_DIR source=$CURRENT"
 
+umask 022
 git -c core.hooksPath=/dev/null merge --ff-only "$EXPECTED"
+umask 077
 [[ "$(git rev-parse HEAD)" == "$EXPECTED" ]] || fail 18 "HEAD mismatch after fast-forward"
 [[ -z "$(git status --porcelain=v1)" ]] || fail 19 "working tree changed during deployment"
 
