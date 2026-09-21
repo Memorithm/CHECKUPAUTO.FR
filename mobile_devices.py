@@ -10,6 +10,8 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+import privacy_suppression as privacy
+
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
 DB = DATA_DIR / "mobile-devices.sqlite3"
 _TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32,400}$")
@@ -338,6 +340,11 @@ def issue_vehicle_claim(
     vehicle = _provider_id(vehicle_id, "vehicleId")
     kind = _client_kind(client_kind)
     client = _provider_id(client_id, "clientId")
+    if privacy.any_suppressed(
+        [("mercure_"+kind,client),("vehicle",vehicle)],
+        "all_processing",
+    ):
+        raise PermissionError("claim mobile refusé")
     ttl = int(ttl_seconds)
     if ttl < 60 or ttl > 86400:
         raise ValueError("ttlSeconds invalide")
@@ -380,6 +387,12 @@ def consume_vehicle_claim(payload: dict) -> dict:
             (token_hash,),
         ).fetchone()
         if not claim or claim["consumed_at"]:
+            raise PermissionError("claim mobile refusé")
+        if privacy.any_suppressed(
+            [("mercure_"+str(claim["client_kind"]),str(claim["client_id"])),
+             ("vehicle",str(claim["vehicle_id"]))],
+            "all_processing",
+        ):
             raise PermissionError("claim mobile refusé")
         try:
             expires = datetime.datetime.fromisoformat(str(claim["expires_at"]))

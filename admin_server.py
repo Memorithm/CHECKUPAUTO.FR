@@ -35,6 +35,7 @@ import admin_mfa as admin_mfa
 import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
+import data_subject_rights as data_subject_rights
 import withdrawal_service as withdrawals
 ROOT=Path(__file__).resolve().parent
 USER='admin'
@@ -726,9 +727,36 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/compliance/request':
    try: return self.send_json({'ok':True,'request':compliance.create_rights_request(self._read_json())},201)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
+  if path=='/api/admin/compliance/request-execute':
+   try:
+    payload=self._read_json()
+    result=data_subject_rights.execute(
+      payload.get('id'),payload.get('subjectRef'),
+      adapter=str(payload.get('adapter') or ''),
+      purpose=str(payload.get('purpose') or ''),
+    )
+    return self.send_json({'ok':True,'execution':result})
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except PermissionError: return self.send_json({'ok':False,'error':'compliance_subject_ref_denied'},403)
+   except NotImplementedError: return self.send_json({'ok':False,'error':'compliance_adapter_right_not_supported'},409)
+   except RuntimeError: return self.send_json({'ok':False,'error':'compliance_adapter_already_executed'},409)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_request_execution_invalid'},400)
+  if path=='/api/admin/compliance/request-bind-mercure':
+   try:
+    payload=self._read_json()
+    result=data_subject_rights.bind_mercure_from_mobile(
+      payload.get('id'),payload.get('installationId'),payload.get('mercureSubjectRef')
+    )
+    return self.send_json({'ok':True,'binding':result})
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except PermissionError: return self.send_json({'ok':False,'error':'compliance_subject_binding_denied'},403)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_subject_binding_invalid'},400)
   if path=='/api/admin/compliance/request-status':
    try:
-    payload=self._read_json(); return self.send_json({'ok':True,'request':compliance.set_rights_request_status(payload.get('id'),payload.get('status'))})
+    payload=self._read_json(); status=str(payload.get('status') or '')
+    if status=='closed':
+     return self.send_json({'ok':False,'error':'compliance_request_completion_not_bound'},409)
+    return self.send_json({'ok':True,'request':compliance.set_rights_request_status(payload.get('id'),status)})
    except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
   if path=='/api/admin/compliance/incident':

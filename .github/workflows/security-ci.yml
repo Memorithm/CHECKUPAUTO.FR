@@ -41,6 +41,7 @@ jobs:
           node --check admin/notifications.js
           node --check admin/competitive.js
           node --check admin/review-followup.js
+          node --check admin/compliance.js
       - name: Verify no runtime-private paths are tracked
         run: |
           ! git ls-files | grep -E '(^|/)(private/|\.admin-password$|\.env($|\.)|.*\.(sqlite3?|db|log)$)'

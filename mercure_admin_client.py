@@ -485,5 +485,7 @@ def review_followup_rows(days=2):
           'id':rid,'dateRdv':str(row.get('date_rdv') or ''),
           'honored':bool(row.get('est_honore')),'finished':bool(item.get('finished')),
           'name':str(row.get('name') or '')[:120],'email':email[:254],
+          'clientKind':str(item.get('clientKind') or ''),
+          'clientId':str(item.get('clientId') or ''),
         })
     return out
