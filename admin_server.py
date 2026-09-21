@@ -32,6 +32,7 @@ import notification_preflight as notification_preflight
 import production_readiness as production_readiness
 import deployment_admin as deployment_admin
 import site_config_store as site_config_store
+import compliance_store as compliance
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -85,6 +86,24 @@ def asset_url(c,path):
  if path.startswith('https://'): return path
  return canonical_origin(c['seo']['canonicalUrl'])+'/'+path.lstrip('/')
 def esc(v): return html.escape(str(v),quote=True)
+
+def render_legal_document(doc,c):
+ title=esc(doc['title']); canonical=canonical_origin(c['seo']['canonicalUrl'])+doc['slug']
+ robots='index,follow' if c['seo'].get('indexingEnabled') else 'noindex,nofollow'
+ chunks=[]
+ for paragraph in str(doc.get('body') or '').split('\n\n'):
+  paragraph=paragraph.strip()
+  if not paragraph: continue
+  chunks.append('<p>'+esc(paragraph).replace('\n','<br>')+'</p>')
+ body=''.join(chunks)
+ published=esc(doc.get('publishedAt') or '')
+ version=esc(doc.get('version') or '')
+ return (f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+   f'<meta name="robots" content="{robots}"><link rel="canonical" href="{esc(canonical)}"><title>{title} | Checkup Auto</title>'
+   '<style>body{font-family:system-ui;margin:0;background:#f6f7f3;color:#17372b}main{max-width:860px;margin:auto;padding:48px 22px 80px}'
+   'a{color:#1f5845}h1{font-size:clamp(36px,6vw,68px);letter-spacing:-.04em;margin:28px 0}p{line-height:1.75;color:#40584d}'
+   '.meta{padding:14px 16px;background:#fff;border:1px solid #dbe1d8;border-radius:12px;font-size:12px;color:#66776e}</style></head>'
+   f'<body><main><a href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">Version {version} · publiée {published}</div>{body}</main></body></html>').encode()
 
 def configure_internal_proxy(token):
  raw=str(token or '').strip()
@@ -193,7 +212,7 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/app','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote'}
+  dynamic={'/','/index.html','/app','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
@@ -583,6 +602,31 @@ class Handler(SimpleHTTPRequestHandler):
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  if path=='/api/admin/compliance/settings':
+   try: return self.send_json({'ok':True,'settings':compliance.save_settings(self._read_json())})
+   except Exception: return self.send_json({'ok':False,'error':'compliance_settings_invalid'},400)
+  if path=='/api/admin/compliance/document':
+   try: return self.send_json({'ok':True,'document':compliance.save_document(self._read_json())})
+   except Exception: return self.send_json({'ok':False,'error':'compliance_document_invalid'},400)
+  if path=='/api/admin/compliance/cookie':
+   try: return self.send_json({'ok':True,'cookie':compliance.upsert_cookie(self._read_json())})
+   except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_invalid'},400)
+  if path=='/api/admin/compliance/request':
+   try: return self.send_json({'ok':True,'request':compliance.create_rights_request(self._read_json())},201)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
+  if path=='/api/admin/compliance/request-status':
+   try:
+    payload=self._read_json(); return self.send_json({'ok':True,'request':compliance.set_rights_request_status(payload.get('id'),payload.get('status'))})
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
+  if path=='/api/admin/compliance/incident':
+   try: return self.send_json({'ok':True,'incident':compliance.create_incident(self._read_json())},201)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_incident_invalid'},400)
+  if path=='/api/admin/compliance/incident-status':
+   try:
+    payload=self._read_json(); return self.send_json({'ok':True,'incident':compliance.set_incident_status(payload.get('id'),payload.get('status'))})
+   except LookupError: return self.send_json({'ok':False,'error':'compliance_incident_not_found'},404)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_incident_invalid'},400)
   if path=='/api/admin/deployment/target':
    try: return self.send_json(deployment_admin.save_target(self._read_json()),201)
    except ValueError: return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
