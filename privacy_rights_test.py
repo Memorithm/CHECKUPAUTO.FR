@@ -103,6 +103,46 @@ class PrivacyRightsTest(unittest.TestCase):
         self.assertEqual(closed["status"], "closed")
         self.assertTrue(closed["locatorCleared"])
 
+    def test_manual_provider_evidence_is_not_downgraded_by_reexport(self):
+        request = self.create("access")
+        patches = (
+            mock.patch.object(rights, "_reminder_rows", return_value=[]),
+            mock.patch.object(rights, "_mobile_rows", return_value=[]),
+            mock.patch.object(rights, "_notification_rows", return_value=[]),
+            mock.patch.object(rights, "_review_rows", return_value=[]),
+            mock.patch.object(rights, "_booking_rows", return_value=[]),
+            mock.patch.object(
+                rights,
+                "_compliance_contract_rows",
+                return_value={"consentReceipts": [], "withdrawalRequests": []},
+            ),
+            mock.patch.object(rights, "_mercure_snapshot", return_value=None),
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            first = rights.execute_request(request["id"], self.db)
+        manual = next(
+            step for step in first["steps"]
+            if step["store"] == "mercure" and step["action"] == "access"
+        )
+        self.assertEqual(manual["status"], "manual_required")
+
+        rights.complete_manual_step(
+            request["id"],
+            "mercure",
+            "access",
+            evidence_code="provider-access-proof",
+            db_path=self.db,
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            second = rights.execute_request(request["id"], self.db)
+        mercure = next(
+            step for step in second["steps"]
+            if step["store"] == "mercure" and step["action"] == "access"
+        )
+        self.assertEqual(mercure["status"], "applied")
+        closed = rights.complete_request(request["id"], self.db)
+        self.assertEqual(closed["status"], "closed")
+
     def test_access_export_is_generated_without_persisting_payload(self):
         request = self.create("access")
         with mock.patch.object(rights, "_reminder_rows", return_value=[{"vehicleId": "v1"}]), \
