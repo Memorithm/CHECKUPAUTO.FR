@@ -132,8 +132,13 @@ def _calendar_month_later(value: datetime.datetime) -> datetime.datetime:
     return value.replace(year=year, month=month, day=day)
 
 
+def runtime_db_path() -> Path:
+    data_dir = Path(os.environ.get("CYBERCHECK_DATA_DIR", str(DATA_DIR)))
+    return data_dir / "compliance.sqlite3"
+
+
 def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
-    target = Path(db_path) if db_path is not None else DB
+    target = Path(db_path) if db_path is not None else runtime_db_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         target.parent.chmod(0o700)
@@ -145,7 +150,7 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
 
 
 def init_db(db_path: Path | str | None = None) -> None:
-    target = Path(db_path) if db_path is not None else DB
+    target = Path(db_path) if db_path is not None else runtime_db_path()
     with connect(target) as db:
         db.executescript(
             """
