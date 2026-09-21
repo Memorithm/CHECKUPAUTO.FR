@@ -7,6 +7,7 @@ import datetime, html, os, sqlite3, threading
 
 import email_gateway as mail
 import notification_broker as notifications
+import privacy_suppression as privacy
 import mercure_admin_client as mercure
 
 DATA_DIR=Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
@@ -137,7 +138,7 @@ def process_once():
     if not review_url:
         return {'ok':False,'state':'waiting_review_url','error':'URL avis Google non configurée'}
     plain,rich=_review_message(review_url)
-    now=_now(); sent=deferred=failed=eligible=missing=0
+    now=_now(); sent=deferred=failed=eligible=missing=privacy_suppressed=0
     for row in mercure.review_followup_rows(2):
         rid=str(row.get('id') or '').strip()
         if not rid or not row.get('honored') or not row.get('finished'): continue
@@ -150,6 +151,8 @@ def process_once():
         recipient=str(row.get('email') or '').strip()
         if not mail.valid_email(recipient):
             missing+=1; continue
+        if privacy.is_suppressed("email",recipient,"google_review"):
+            privacy_suppressed+=1; continue
         state=_state(rid)
         if state and state.get('status')=='sent': continue
         if state and int(state.get('attempts') or 0)>=MAX_ATTEMPTS: continue
@@ -165,7 +168,7 @@ def process_once():
             _mark(rid,'sent'); sent+=1
         except Exception as exc:
             _mark(rid,'failed',notifications.safe_delivery_error(exc)); failed+=1
-    return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'deferred':deferred,'failed':failed,'missingRecipient':missing}
+    return {'ok':True,'state':'active','eligible':eligible,'sent':sent,'deferred':deferred,'failed':failed,'missingRecipient':missing,'privacySuppressed':privacy_suppressed}
 
 def status():
     session=mercure.session_status()
