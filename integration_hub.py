@@ -807,9 +807,13 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
                 state = "available"
                 detail = "À connecter"
         elif meta["mode"] == "api_key":
-            connected = extra_ok
-            state = "connected" if connected else "available"
-            detail = "Clé API configurée" if connected else "Clé API requise"
+            connected = False
+            if extra_ok:
+                state = "attention"
+                detail = "Clé API configurée · vérification distante non exécutée"
+            else:
+                state = "available"
+                detail = "Clé API requise"
         else:
             connected = oauth_ok and extra_ok
             if oauth_stale:
@@ -832,6 +836,8 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
             "detail": detail,
             "requiredScopes": list(meta.get("scopes") or []),
         }
+        if meta["mode"] == "api_key" and extra_ok:
+            row["verification"] = "unverified"
         if row["connected"] and verify_remote:
             if key == "analytics":
                 _apply_analytics_probe(row, cfg)
