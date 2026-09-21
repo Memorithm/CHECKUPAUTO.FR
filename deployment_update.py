@@ -9,6 +9,7 @@ import subprocess
 from typing import Any
 
 import deployment_transport as transport
+import deployment_github_source as github_source
 from deployment_center import DeploymentTarget
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -225,6 +226,10 @@ def _git_is_ancestor(repo_root: str | Path, older: str, newer: str) -> bool:
     root = Path(repo_root).resolve()
     if not (_SHA_RE.fullmatch(older) and _SHA_RE.fullmatch(newer)):
         return False
+    if not (root / ".git").exists():
+        if not github_source.token_configured():
+            return False
+        return github_source.is_ancestor(older, newer)
     result = subprocess.run(
         [
             "git",
