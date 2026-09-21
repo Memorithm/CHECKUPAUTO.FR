@@ -382,14 +382,43 @@ def probe(name: str) -> dict:
 
 def update_status(name: str) -> dict:
     target, credential = _load_target(name)
-    return deployment_update.update_status(
+    source = _source_state()
+    if not source.build_capable:
+        remote = deployment_update.read_remote_state(
+            target,
+            _known_hosts_path(),
+            credential,
+            timeout=30,
+        )
+        releases = [
+            {"sha": row.sha, "mtime": row.mtime}
+            for row in remote.releases
+        ]
+        rollback = [
+            row.sha for row in remote.releases
+            if row.sha != remote.deployed_sha
+        ][:8]
+        return {
+            "schemaVersion": 1,
+            "state": "source_unavailable",
+            "installed": remote.installed,
+            "deployedSha": remote.deployed_sha,
+            "desiredSha": source.sha,
+            "updateAvailable": False,
+            "sourceBuildCapable": False,
+            "releases": releases,
+            "rollbackCandidates": rollback,
+        }
+    result = deployment_update.update_status(
         target,
         _known_hosts_path(),
         credential,
-        _current_sha(),
+        source.sha,
         ROOT,
         timeout=30,
     )
+    result["sourceBuildCapable"] = True
+    return result
 
 
 def plan(name: str, sha: str = "") -> dict:
