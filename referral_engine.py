@@ -139,8 +139,9 @@ def init_db() -> None:
         )
         db.executescript(
             """
-            DROP TRIGGER IF EXISTS trg_referral_ledger_nonnegative;
-            CREATE TRIGGER trg_referral_ledger_nonnegative
+            -- Never DROP these invariant triggers during normal init: concurrent
+            -- callers could otherwise observe a missing trigger or race on CREATE.
+            CREATE TRIGGER IF NOT EXISTS trg_referral_ledger_nonnegative
               BEFORE INSERT ON referral_ledger
               WHEN NEW.amount_cents < 0
                AND NEW.kind <> 'reverse'
@@ -159,8 +160,7 @@ def init_db() -> None:
               SELECT RAISE(ABORT, 'referral balance would be negative');
             END;
 
-            DROP TRIGGER IF EXISTS trg_referral_ledger_reverse_matches_earn;
-            CREATE TRIGGER trg_referral_ledger_reverse_matches_earn
+            CREATE TRIGGER IF NOT EXISTS trg_referral_ledger_reverse_matches_earn
               BEFORE INSERT ON referral_ledger
               WHEN NEW.kind = 'reverse'
                AND NOT EXISTS(
