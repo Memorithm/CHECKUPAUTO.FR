@@ -31,6 +31,7 @@ import notification_broker as notifications
 import notification_preflight as notification_preflight
 import production_readiness as production_readiness
 import deployment_admin as deployment_admin
+import admin_mfa as admin_mfa
 import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
@@ -181,9 +182,11 @@ class Handler(SimpleHTTPRequestHandler):
   if clean=='/admin': clean='/admin/'
   if clean=='/admin/': clean='/admin/index.html'
   return str(ROOT/clean.lstrip('/'))
- def send_bytes(self,data,ctype,status=200,cache='no-store'):
-  self.send_response(status); self.send_header('Content-Type',ctype); self.send_header('Cache-Control',cache); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
- def send_json(self,obj,status=200): self.send_bytes(json.dumps(obj,ensure_ascii=False).encode(),'application/json; charset=utf-8',status)
+ def send_bytes(self,data,ctype,status=200,cache='no-store',headers=None):
+  self.send_response(status); self.send_header('Content-Type',ctype); self.send_header('Cache-Control',cache)
+  for name,value in (headers or {}).items(): self.send_header(str(name),str(value))
+  self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
+ def send_json(self,obj,status=200,headers=None): self.send_bytes(json.dumps(obj,ensure_ascii=False).encode(),'application/json; charset=utf-8',status,headers=headers)
  def send_redirect(self,location,status=302):
   self.send_response(status); self.send_header('Location',str(location)); self.send_header('Cache-Control','no-store'); self.send_header('Content-Length','0'); self.end_headers()
  def authorized(self):
@@ -192,6 +195,12 @@ class Handler(SimpleHTTPRequestHandler):
   try: userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
   except Exception: return False
   return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
+ def _mfa_session_valid(self):
+  if not admin_mfa.configured(): return True
+  token=admin_mfa.token_from_cookie(self.headers.get('Cookie',''))
+  return admin_mfa.validate_session(token)
+ def require_mfa(self):
+  return self.send_json({'ok':False,'error':'two_factor_required'},403)
  def _request_origin(self):
   return canonical_origin(load_config()['seo']['canonicalUrl'])
  def _admin_origin_ok(self):
@@ -268,6 +277,16 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_bytes(('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow">'
       '<title>Connexion Google impossible</title></head><body><h1>Connexion Google impossible</h1><p>'+'La connexion Google n’a pas pu être finalisée.'+'</p>'
       '<p><a href="/admin/#integrations">Retour à l’administration</a></p></body></html>').encode(),'text/html; charset=utf-8',400,'no-store')
+  if path=='/api/admin/auth/2fa/status':
+   if not self.authorized(): return self.require_auth()
+   return self.send_json({'ok':True,'twoFactor':admin_mfa.status(self.headers.get('Cookie',''))})
+  if path=='/api/admin/auth/2fa/qr':
+   if not self.authorized(): return self.require_auth()
+   try: return self.send_bytes(admin_mfa.pending_qr_svg(),'image/svg+xml; charset=utf-8',200,'no-store')
+   except Exception: return self.send_json({'ok':False,'error':'two_factor_enrollment_unavailable'},400)
+  if path.startswith('/api/admin/'):
+   if not self.authorized(): return self.require_auth()
+   if admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
   if path=='/api/admin/compliance':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(compliance_admin.snapshot())
@@ -607,6 +626,40 @@ class Handler(SimpleHTTPRequestHandler):
    if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+   mfa_exempt={'/api/admin/auth/2fa/setup','/api/admin/auth/2fa/confirm','/api/admin/auth/2fa/verify','/api/admin/auth/2fa/logout'}
+   if path not in mfa_exempt and admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
+  if path=='/api/admin/auth/2fa/setup':
+   try:
+    result=admin_mfa.begin_enrollment(account=USER,issuer='CheckupAuto')
+    return self.send_json({'ok':True,'enrollment':result})
+   except RuntimeError: return self.send_json({'ok':False,'error':'two_factor_already_configured'},409)
+   except Exception: return self.send_json({'ok':False,'error':'two_factor_setup_failed'},400)
+  if path=='/api/admin/auth/2fa/confirm':
+   try:
+    payload=self._read_json(); result=admin_mfa.confirm_enrollment(str(payload.get('code') or ''))
+    token=result.pop('sessionToken')
+    return self.send_json({'ok':True,**result},200,{'Set-Cookie':admin_mfa.session_cookie(token)})
+   except PermissionError:
+    if getattr(self,'_security_client',''):
+     try: security.auth_failure(self._security_client,path)
+     except Exception: pass
+    return self.send_json({'ok':False,'error':'two_factor_code_invalid'},403)
+   except RuntimeError: return self.send_json({'ok':False,'error':'two_factor_enrollment_invalid'},409)
+   except Exception: return self.send_json({'ok':False,'error':'two_factor_confirmation_failed'},400)
+  if path=='/api/admin/auth/2fa/verify':
+   try:
+    payload=self._read_json(); result=admin_mfa.verify_login(str(payload.get('code') or ''))
+    token=result.pop('sessionToken')
+    return self.send_json({'ok':True,**result},200,{'Set-Cookie':admin_mfa.session_cookie(token)})
+   except PermissionError:
+    if getattr(self,'_security_client',''):
+     try: security.auth_failure(self._security_client,path)
+     except Exception: pass
+    return self.send_json({'ok':False,'error':'two_factor_code_invalid'},403)
+   except RuntimeError: return self.send_json({'ok':False,'error':'two_factor_not_configured'},409)
+   except Exception: return self.send_json({'ok':False,'error':'two_factor_verification_failed'},400)
+  if path=='/api/admin/auth/2fa/logout':
+   return self.send_json({'ok':True},200,{'Set-Cookie':admin_mfa.clear_session_cookie()})
   if path=='/api/admin/compliance/settings':
    try: return self.send_json({'ok':True,'settings':compliance.save_settings(self._read_json())})
    except Exception: return self.send_json({'ok':False,'error':'compliance_settings_invalid'},400)

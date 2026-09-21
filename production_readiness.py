@@ -3,6 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 import analytics_store
+import admin_mfa
 import app_download
 import compliance_admin
 import gsc_client
@@ -137,6 +138,13 @@ _REMEDIATION = {
         "code": "restore_security_posture",
         "summary": "Corriger Sentinel, intégrité ou dépendances avant toute activation publique.",
         "verify": "Sentinel doit retourner ok=true et zéro vulnérabilité connue.",
+        "target": "#security",
+        "external": False,
+    },
+    "admin_mfa": {
+        "code": "configure_admin_mfa",
+        "summary": "Enrôler Google Authenticator et conserver au moins un code de récupération hors ligne.",
+        "verify": "La 2FA administrateur doit être configurée et disposer d'un code de récupération.",
         "target": "#security",
         "external": False,
     },
@@ -293,6 +301,39 @@ def _google_integration_component(integrations: dict) -> dict:
 
 def status(config: dict, seo_health: dict | None = None) -> dict:
     components: list[dict] = [_public_site(config)]
+
+    mfa_state, mfa_error = _safe(
+        "admin mfa",
+        lambda: {
+            "configured": admin_mfa.configured(),
+            "recoveryRemaining": admin_mfa.recovery_remaining(),
+        },
+    )
+    if mfa_error:
+        components.append(_failed("admin_mfa", "2FA administrateur", True, mfa_error))
+    else:
+        mfa_configured = bool(mfa_state.get("configured"))
+        recovery_remaining = int(mfa_state.get("recoveryRemaining") or 0)
+        if not mfa_configured:
+            mfa_readiness = "configuration_required"
+            mfa_detail = "Google Authenticator non enrôlé"
+        elif recovery_remaining < 1:
+            mfa_readiness = "degraded"
+            mfa_detail = "2FA active mais aucun code de récupération disponible"
+        else:
+            mfa_readiness = "ready"
+            mfa_detail = "TOTP administrateur actif"
+        components.append(_component(
+            "admin_mfa",
+            "2FA administrateur",
+            mfa_readiness,
+            mfa_detail,
+            critical=True,
+            metrics={
+                "configured": mfa_configured,
+                "recoveryCodesRemaining": recovery_remaining,
+            },
+        ))
 
     compliance_state, compliance_error = _safe("compliance", compliance_admin.snapshot)
     if compliance_error:

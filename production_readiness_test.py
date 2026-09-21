@@ -56,6 +56,8 @@ def healthy_patches():
             "state": "ready", "projectReady": True, "associationReady": True,
             "publicationReady": True, "channel": "app-store", "checks": [],
         }),
+        mock.patch.object(readiness.admin_mfa, "configured", return_value=True),
+        mock.patch.object(readiness.admin_mfa, "recovery_remaining", return_value=10),
         mock.patch.object(readiness.compliance_admin, "snapshot", return_value={
             "summary": {
                 "readyForPublicContracting": True,
