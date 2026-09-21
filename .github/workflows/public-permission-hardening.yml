@@ -1,0 +1,66 @@
+name: Apply public permission error hardening
+
+on:
+  push:
+    branches:
+      - automation/public-permission-error-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Bound public permission diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('admin_server.py')
+          lines = path.read_text().splitlines()
+          codes = {
+              "if path=='/api/integrations/mercure/browser-confirmed':": 'mercure_browser_confirmation_denied',
+              "if path=='/api/mobile/installations/register':": 'mobile_request_forbidden',
+              "if path=='/api/mobile/installations/delete':": 'mobile_request_forbidden',
+              "if path=='/api/mobile/devices/register':": 'mobile_request_forbidden',
+              "if path=='/api/mobile/devices/unregister':": 'mobile_request_forbidden',
+              "if path=='/api/mobile/claims/consume':": 'mobile_request_forbidden',
+              "if path=='/api/mobile/inventory':": 'mobile_request_forbidden',
+              "if path=='/api/mobile/reminders/sync':": 'mobile_request_forbidden',
+              "if path=='/api/booking-test/create':": 'booking_test_forbidden',
+              "if path=='/api/booking-test/remove':": 'booking_test_forbidden',
+          }
+          current = None
+          changed = 0
+          output = []
+          for line in lines:
+              if line.startswith('  if ') and 'path' in line:
+                  current = line.strip()
+              if current in codes and 'except PermissionError as exc:' in line and "'error':str(exc)" in line:
+                  line = line.replace("'error':str(exc)", f"'error':'{codes[current]}'")
+                  changed += 1
+              output.append(line)
+          if changed != len(codes):
+              raise SystemExit(f'expected {len(codes)} permission boundaries, changed {changed}')
+          path.write_text('\n'.join(output) + '\n')
+
+          Path('public_permission_error_boundary_test.py').write_text('''from pathlib import Path\nimport unittest\n\n\nclass PublicPermissionErrorBoundaryTest(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n        cls.source = Path("admin_server.py").read_text()\n\n    def test_public_post_permission_errors_are_bounded(self):\n        post = self.source.find(' def do_POST(self):')\n        self.assertGreaterEqual(post, 0)\n        start = self.source.find("  if path=='/api/integrations/mercure/browser-confirmed':", post)\n        end = self.source.find("  if path.startswith('/api/admin/'):", start)\n        self.assertGreaterEqual(start, 0)\n        self.assertGreaterEqual(end, 0)\n        block = self.source[start:end]\n        self.assertNotIn("except PermissionError as exc: return self.send_json({'ok':False,'error':str(exc)}", block)\n        self.assertEqual(block.count("'error':'mercure_browser_confirmation_denied'"), 1)\n        self.assertEqual(block.count("'error':'mobile_request_forbidden'"), 7)\n        self.assertEqual(block.count("'error':'booking_test_forbidden'"), 2)\n\n    def test_permission_codes_do_not_embed_exception_details(self):\n        for code in ('mercure_browser_confirmation_denied','mobile_request_forbidden','booking_test_forbidden'):\n            self.assertNotIn('@', code)\n            self.assertNotIn(':', code)\n            self.assertLessEqual(len(code), 40)\n\n\nif __name__ == '__main__':\n    unittest.main()\n''')
+          Path('.github/workflows/public-permission-hardening.yml').unlink()
+          PY
+      - name: Validate targeted patch
+        run: |
+          python3 -m unittest public_permission_error_boundary_test.py admin_public_error_sanitization_test.py
+          python3 -m py_compile admin_server.py
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: bound public permission error diagnostics'
+          git push origin HEAD:${GITHUB_REF_NAME}
