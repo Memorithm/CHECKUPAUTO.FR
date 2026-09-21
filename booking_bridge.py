@@ -1,6 +1,7 @@
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import datetime, hashlib, hmac, json, os, secrets, unicodedata, html
+from zoneinfo import ZoneInfo
 import analytics_store as analytics
 import referral_engine as referrals
 import compliance_store as compliance
@@ -52,6 +53,10 @@ def init_db():
         intent_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_intents)')}
         if 'referral_code' not in intent_cols:
             db.execute("ALTER TABLE booking_intents ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
+        if 'preferred_date' not in intent_cols:
+            db.execute("ALTER TABLE booking_intents ADD COLUMN preferred_date TEXT NOT NULL DEFAULT ''")
+        if 'preferred_time' not in intent_cols:
+            db.execute("ALTER TABLE booking_intents ADD COLUMN preferred_time TEXT NOT NULL DEFAULT ''")
         conversion_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_conversions)')}
         if 'referral_code' not in conversion_cols:
             db.execute("ALTER TABLE booking_conversions ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
