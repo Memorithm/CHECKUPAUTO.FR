@@ -12,6 +12,7 @@ import ssl
 import requests
 
 import integration_hub as google_integration
+import email_settings
 
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
@@ -92,6 +93,20 @@ def _env(name: str) -> str:
     return str(os.environ.get(name, "") or "").strip()
 
 
+def _stored_settings() -> dict:
+    try:
+        return email_settings.load()
+    except RuntimeError as exc:
+        raise ValueError("configuration e-mail chiffrée invalide") from exc
+
+
+def _configuration_source() -> str:
+    try:
+        return "admin" if bool(email_settings.summary().get("configured")) else "environment"
+    except RuntimeError:
+        return "admin-invalid"
+
+
 def _bool_env(name: str) -> bool:
     return _env(name).lower() in {"1", "true", "yes", "on"}
 
@@ -128,24 +143,39 @@ def valid_email(value: object) -> bool:
 
 
 def load_config() -> SMTPConfig | None:
-    sender = _env("CYBERCHECK_SMTP_FROM")
-    if not sender:
-        return None
-    host = _env("CYBERCHECK_SMTP_HOST") or "127.0.0.1"
-    mode = (_env("CYBERCHECK_SMTP_MODE") or "plain").lower()
+    stored = _stored_settings()
+    if stored:
+        smtp = stored.get("smtp")
+        smtp = smtp if isinstance(smtp, dict) else {}
+        if not smtp:
+            return None
+        sender = str(smtp.get("sender") or "").strip()
+        host = str(smtp.get("host") or "").strip()
+        mode = str(smtp.get("mode") or "").strip().lower()
+        port_raw = smtp.get("port")
+        username = str(smtp.get("username") or "").strip()
+        password = str(smtp.get("password") or "")
+    else:
+        sender = _env("CYBERCHECK_SMTP_FROM")
+        if not sender:
+            return None
+        host = _env("CYBERCHECK_SMTP_HOST") or "127.0.0.1"
+        mode = (_env("CYBERCHECK_SMTP_MODE") or "plain").lower()
+        port_raw = _env("CYBERCHECK_SMTP_PORT")
+        username = _env("CYBERCHECK_SMTP_USERNAME")
+        password = _env("CYBERCHECK_SMTP_PASSWORD")
+
     if mode not in {"starttls", "ssl", "plain"}:
         raise ValueError("CYBERCHECK_SMTP_MODE must be starttls, ssl or plain")
     default_port = 465 if mode == "ssl" else (587 if mode == "starttls" else 25)
     try:
-        port = int(_env("CYBERCHECK_SMTP_PORT") or default_port)
-    except ValueError as exc:
+        port = int(port_raw or default_port)
+    except (TypeError, ValueError) as exc:
         raise ValueError("CYBERCHECK_SMTP_PORT invalid") from exc
     if port < 1 or port > 65535:
         raise ValueError("CYBERCHECK_SMTP_PORT invalid")
     if not valid_email(sender):
         raise ValueError("CYBERCHECK_SMTP_FROM invalid")
-    username = _env("CYBERCHECK_SMTP_USERNAME")
-    password = _env("CYBERCHECK_SMTP_PASSWORD")
     if bool(username) != bool(password):
         raise ValueError("CYBERCHECK_SMTP_USERNAME and CYBERCHECK_SMTP_PASSWORD must be configured together")
     if username and mode == "plain":
@@ -154,7 +184,12 @@ def load_config() -> SMTPConfig | None:
 
 
 def _transport_mode() -> str:
-    mode = (_env("CYBERCHECK_EMAIL_TRANSPORT") or "auto").lower()
+    stored = _stored_settings()
+    mode = (
+        str(stored.get("transportMode") or "auto")
+        if stored
+        else (_env("CYBERCHECK_EMAIL_TRANSPORT") or "auto")
+    ).lower()
     if mode not in {"auto", "smtp", "gmail"}:
         raise ValueError("CYBERCHECK_EMAIL_TRANSPORT must be auto, smtp or gmail")
     return mode
@@ -239,6 +274,7 @@ def transport_status() -> dict:
         "smtpAvailable": smtp_available,
         "gmailAvailable": gmail_available,
         "state": state,
+        "configurationSource": _configuration_source(),
         "error": config_error,
     }
 
