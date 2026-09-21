@@ -16,6 +16,7 @@ import admin_server
 import booking_test
 import mobile_authoritative_sync
 import mobile_reminder_dispatch
+import places_competitive_sync
 import reminder_dispatch
 import review_followup
 import security_alerts
@@ -48,6 +49,7 @@ def tick() -> dict:
         ("mobile_authoritative_sync", mobile_authoritative_sync.sync_once),
         ("mobile_reminder_dispatch", mobile_reminder_dispatch.process_once),
         ("review_followup", review_followup.process_once),
+        ("places_competitive_sync", places_competitive_sync.sync_once),
         ("security_alert_retry", security_alerts.retry_pending),
     ]
     rows = [_run(name, fn) for name, fn in tasks]
