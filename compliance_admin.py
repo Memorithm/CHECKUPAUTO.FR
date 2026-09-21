@@ -5,9 +5,10 @@ from pathlib import Path
 import compliance_operations
 import compliance_store
 import data_subject_rights
-import withdrawal_service
-import retention_enforcement
+import marketing_campaigns
 import marketing_consent
+import retention_enforcement
+import withdrawal_service
 
 
 def snapshot(db_path: Path | str | None = None) -> dict:
@@ -25,6 +26,8 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     rights_execution = data_subject_rights.capability(db_path)
     retention = retention_enforcement.status(db_path)
     marketing = marketing_consent.capability(db_path)
+    campaigns = marketing_campaigns.capability(db_path)
+    campaign_runs = marketing_campaigns.recent_runs(db_path, 100)
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
 
@@ -58,6 +61,8 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["retentionEnforcementBound"] = bool(retention.get("bound"))
     summary["retentionBlockerCount"] = int(retention.get("blockerCount") or 0)
     summary["marketingConsentBound"] = bool(marketing.get("bound"))
+    summary["marketingCampaignsBound"] = bool(campaigns.get("bound"))
+    summary["marketingCampaignRunCount"] = len(campaign_runs)
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
 
@@ -83,6 +88,10 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["marketingConsent"] = {
         "capability": marketing,
         "recent": marketing_consent.recent(db_path, 100),
+    }
+    result["marketingCampaigns"] = {
+        "capability": campaigns,
+        "recent": campaign_runs,
     }
     result["retention"] = retention
     return result

@@ -5,6 +5,7 @@ from pathlib import Path
 import compliance_admin
 import compliance_operations
 import compliance_store
+import marketing_campaigns
 
 
 class ComplianceAdminSnapshotTest(unittest.TestCase):
@@ -103,6 +104,45 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
             "dpia_unresolved",
             {item["type"] for item in state["summary"]["operationalBlockers"]},
         )
+
+    def test_marketing_campaign_evidence_is_visible_without_raw_audience_or_content(self):
+        marketing_campaigns.init_db(self.db)
+        with compliance_store.connect(self.db) as db:
+            db.execute(
+                """INSERT INTO marketing_campaign_run(
+                     run_id,channel,reference_hash,content_hash,audience_count,
+                     attempted_count,delivered_count,blocked_count,failed_count,
+                     pending_count,status,started_at,completed_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    "run-test",
+                    "email",
+                    "a" * 64,
+                    "b" * 64,
+                    5,
+                    5,
+                    3,
+                    1,
+                    1,
+                    0,
+                    "partial",
+                    "2026-09-21T20:00:00+00:00",
+                    "2026-09-21T20:01:00+00:00",
+                ),
+            )
+
+        state = compliance_admin.snapshot(self.db)
+        self.assertTrue(state["summary"]["marketingCampaignsBound"])
+        self.assertEqual(state["summary"]["marketingCampaignRunCount"], 1)
+        self.assertEqual(state["marketingCampaigns"]["capability"]["channels"], ["email", "push"])
+        run = state["marketingCampaigns"]["recent"][0]
+        self.assertEqual(run["deliveredCount"], 3)
+        self.assertEqual(run["blockedCount"], 1)
+        self.assertEqual(run["failedCount"], 1)
+        self.assertEqual(run["pendingCount"], 0)
+        serialized = str(state["marketingCampaigns"])
+        self.assertNotIn("client@example.test", serialized)
+        self.assertNotIn("message secret", serialized)
 
 
 if __name__ == "__main__":
