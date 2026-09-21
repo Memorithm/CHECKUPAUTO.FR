@@ -19,6 +19,7 @@ import mobile_reminder_dispatch
 import reminder_dispatch
 import review_followup
 import security_alerts
+import retention_enforcement
 import withdrawal_service
 
 
@@ -50,6 +51,7 @@ def tick() -> dict:
         ("mobile_reminder_dispatch", mobile_reminder_dispatch.process_once),
         ("review_followup", review_followup.process_once),
         ("withdrawal_receipts", withdrawal_service.dispatch_pending),
+        ("retention_enforcement", retention_enforcement.process_once),
         ("security_alert_retry", security_alerts.retry_pending),
     ]
     rows = [_run(name, fn) for name, fn in tasks]
