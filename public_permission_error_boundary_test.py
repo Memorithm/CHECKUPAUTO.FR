@@ -7,6 +7,15 @@ class PublicPermissionErrorBoundaryTest(unittest.TestCase):
     def setUpClass(cls):
         cls.source = Path("admin_server.py").read_text()
 
+    def test_booking_test_status_permission_error_is_bounded(self):
+        start = self.source.find("  if path=='/api/booking-test/status':")
+        end = self.source.find("  if path=='/api/booking/services':", start)
+        self.assertGreaterEqual(start, 0)
+        self.assertGreaterEqual(end, 0)
+        block = self.source[start:end]
+        self.assertIn("except PermissionError: return self.send_json({'ok':False,'error':'booking_test_forbidden'},403)", block)
+        self.assertNotIn("str(exc)", block)
+
     def test_public_post_permission_errors_are_bounded(self):
         post = self.source.find(' def do_POST(self):')
         self.assertGreaterEqual(post, 0)
