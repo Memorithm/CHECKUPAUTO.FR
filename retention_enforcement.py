@@ -15,6 +15,9 @@ import notification_broker
 import privacy_suppression
 import reminder_dispatch
 import review_followup
+import security_alerts
+import security_behavior
+import security_guard
 import site_config_store
 
 
@@ -117,10 +120,9 @@ CONFIGURABLE_RULES = {
     },
     "security_telemetry": {
         "label": "Télémétrie sécurité pseudonymisée",
-        "store": "security telemetry",
+        "store": "security events / behavior / acknowledged alerts",
         "trigger": "event timestamp",
         "minimumDays": 1,
-        "implementationRequired": True,
     },
     "referral_ledger": {
         "label": "Parrainage / ledger",
@@ -376,6 +378,46 @@ def _purge_inactive_suppressions(*, dry_run: bool, db_path: Path | str | None = 
     return count
 
 
+def _purge_security_telemetry(days: int, *, dry_run: bool) -> int:
+    security_guard.init_db()
+    security_behavior.init_db()
+    security_alerts.init_db()
+    cutoff = _cutoff(days)
+    cutoff_day = (
+        _now().date() - datetime.timedelta(days=int(days))
+    ).isoformat()
+    db_path = security_guard.DB
+    with sqlite3.connect(db_path, timeout=10) as db:
+        counts = [
+            int(db.execute(
+                "SELECT COUNT(*) FROM security_events WHERE occurred_at<?",
+                (cutoff,),
+            ).fetchone()[0]),
+            int(db.execute(
+                "SELECT COUNT(*) FROM security_client_state WHERE day<?",
+                (cutoff_day,),
+            ).fetchone()[0]),
+            int(db.execute(
+                "SELECT COUNT(*) FROM behavior_profiles WHERE day<?",
+                (cutoff_day,),
+            ).fetchone()[0]),
+            int(db.execute(
+                """SELECT COUNT(*) FROM security_alerts
+                   WHERE acknowledged=1 AND created_at<?""",
+                (cutoff,),
+            ).fetchone()[0]),
+        ]
+        if not dry_run:
+            db.execute("DELETE FROM security_events WHERE occurred_at<?", (cutoff,))
+            db.execute("DELETE FROM security_client_state WHERE day<?", (cutoff_day,))
+            db.execute("DELETE FROM behavior_profiles WHERE day<?", (cutoff_day,))
+            db.execute(
+                "DELETE FROM security_alerts WHERE acknowledged=1 AND created_at<?",
+                (cutoff,),
+            )
+    return sum(counts)
+
+
 def _purge_notification_delivery(days: int, *, dry_run: bool) -> int:
     notification_broker.init_db()
     cutoff = _cutoff(days)
@@ -565,6 +607,8 @@ def _run_configurable_rule(
 ) -> int:
     rule_id = str(state["id"])
     days = int(state["activeDays"])
+    if rule_id == "security_telemetry":
+        return _purge_security_telemetry(days, dry_run=dry_run)
     if rule_id == "notification_delivery":
         return _purge_notification_delivery(days, dry_run=dry_run)
     if rule_id == "review_followup":
