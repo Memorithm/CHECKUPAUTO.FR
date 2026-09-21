@@ -119,6 +119,7 @@ class DeploymentCenterTest(unittest.TestCase):
                 writable_root=True,
                 free_disk_mb=4096,
                 passenger_wsgi_adapter=True,
+                shared_host_tick=True,
             ),
         )
         self.assertTrue(report["ok"])
