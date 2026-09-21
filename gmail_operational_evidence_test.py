@@ -66,6 +66,13 @@ class GmailOperationalEvidenceTest(unittest.TestCase):
         self.assertEqual(result["verification"], "unavailable")
         self.assertNotIn("error", result)
 
+    def test_corrupt_failure_counter_fails_closed_without_error_detail(self):
+        self._row(success="2026-09-21T15:00:00+00:00", failures="invalid")
+        result = evidence.status(self.db)
+        self.assertEqual(result["verification"], "unavailable")
+        self.assertFalse(result["operationallyVerified"])
+        self.assertNotIn("error", result)
+
 
 if __name__ == "__main__":
     unittest.main()
