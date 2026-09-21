@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 import datetime, html, os, sqlite3, threading
 
 import email_gateway as mail
@@ -16,6 +17,7 @@ INTERVAL_SECONDS=900
 DELAY_MINUTES=45
 LOOKBACK_HOURS=36
 MAX_ATTEMPTS=3
+MERCURE_TIMEZONE='Europe/Paris'
 REVIEW_HOSTS={'g.page','google.com','www.google.com','search.google.com','maps.app.goo.gl'}
 
 def _review_url():
@@ -67,18 +69,19 @@ def init_db():
 def _parse_dt(value):
     raw=str(value or '').strip()
     if not raw: return None
+    local_tz=ZoneInfo(MERCURE_TIMEZONE)
     for fmt in (
         '%Y-%m-%dT%H:%M:%S','%Y-%m-%dT%H:%M','%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M',
         '%d/%m/%Y %H:%M:%S','%d/%m/%Y %H:%M',
     ):
         try:
             dt=datetime.datetime.strptime(raw[:19],fmt)
-            return dt.replace(tzinfo=datetime.datetime.now().astimezone().tzinfo).astimezone(datetime.timezone.utc)
+            return dt.replace(tzinfo=local_tz).astimezone(datetime.timezone.utc)
         except Exception:
             pass
     try:
         dt=datetime.datetime.fromisoformat(raw.replace('Z','+00:00'))
-        if dt.tzinfo is None: dt=dt.replace(tzinfo=datetime.datetime.now().astimezone().tzinfo)
+        if dt.tzinfo is None: dt=dt.replace(tzinfo=local_tz)
         return dt.astimezone(datetime.timezone.utc)
     except Exception:
         return None
