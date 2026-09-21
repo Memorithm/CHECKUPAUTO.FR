@@ -7,6 +7,7 @@ import compliance_store
 import data_subject_rights
 import withdrawal_service
 import retention_enforcement
+import marketing_consent
 
 
 def snapshot(db_path: Path | str | None = None) -> dict:
@@ -23,6 +24,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     operations = compliance_operations.snapshot(db_path)
     rights_execution = data_subject_rights.capability(db_path)
     retention = retention_enforcement.status(db_path)
+    marketing = marketing_consent.capability(db_path)
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
 
@@ -55,6 +57,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["dataSubjectExecutionBound"] = bool(rights_execution.get("bound"))
     summary["retentionEnforcementBound"] = bool(retention.get("bound"))
     summary["retentionBlockerCount"] = int(retention.get("blockerCount") or 0)
+    summary["marketingConsentBound"] = bool(marketing.get("bound"))
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
 
@@ -77,5 +80,9 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["withdrawal"] = withdrawal
     result["dataSubjectExecution"] = rights_execution
     result["rightsExecutionAudit"] = data_subject_rights.audit_rows(db_path, 200)
+    result["marketingConsent"] = {
+        "capability": marketing,
+        "recent": marketing_consent.recent(db_path, 100),
+    }
     result["retention"] = retention
     return result
