@@ -59,7 +59,7 @@ class BookingContractAcceptanceTest(unittest.TestCase):
             "termsContentHash": terms["contentHash"],
             "accepted": True,
             "reviewed": True,
-            "immediatePerformance": False,
+            "immediatePerformance": True,
         }
 
     def test_review_page_requires_explicit_unticked_acceptance(self):
@@ -71,6 +71,16 @@ class BookingContractAcceptanceTest(unittest.TestCase):
         self.assertIn("/api/booking/accept-terms", page)
         self.assertIn("/cgv", page)
         self.assertIn("Modifier mon choix", page)
+
+    def test_early_performance_acknowledgement_is_required_server_side(self):
+        intent = self.intent()
+        payload = self.acceptance_payload(intent)
+        payload["immediatePerformance"] = False
+        with self.assertRaises(ValueError):
+            booking.record_terms_acceptance(payload)
+        page = booking.auto_submit_html(intent["token"], "Contrôle technique", "nonce").decode()
+        self.assertIn("après exécution complète de la prestation", page)
+        self.assertIn("requiresImmediate=true", page)
 
     def test_browser_confirmation_fails_closed_without_acceptance(self):
         intent = self.intent()
