@@ -1,5 +1,5 @@
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from email.utils import parseaddr
 import datetime
 import json
@@ -23,6 +23,8 @@ ANALYTICS_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 ANALYTICS_METADATA_URL = "https://analyticsdata.googleapis.com/v1beta/properties/{property_id}/metadata"
 BUSINESS_PROFILE_SCOPE = "https://www.googleapis.com/auth/business.manage"
 BUSINESS_PROFILE_ACCOUNT_URL = "https://mybusinessaccountmanagement.googleapis.com/v1/{account_name}"
+TAG_MANAGER_SCOPE = "https://www.googleapis.com/auth/tagmanager.readonly"
+TAG_MANAGER_ACCOUNT_URL = "https://tagmanager.googleapis.com/tagmanager/v2/accounts/{account_id}"
 
 CONNECTORS = {
     "search_console": {
@@ -52,7 +54,7 @@ CONNECTORS = {
         "label": "Google Tag Manager",
         "category": "Mesure",
         "description": "Lecture des conteneurs et supervision des balises.",
-        "scopes": ["https://www.googleapis.com/auth/tagmanager.readonly"],
+        "scopes": [TAG_MANAGER_SCOPE],
         "mode": "oauth_plus_setting",
         "setting": "tagManagerAccountId",
     },
@@ -271,6 +273,22 @@ def _normalize_business_account_id(value):
     return "accounts/" + identifier
 
 
+def _normalize_tag_manager_account_id(value):
+    raw = str(value or "").strip()
+    if raw.startswith("accounts/"):
+        identifier = raw[len("accounts/"):]
+    else:
+        identifier = raw
+    if (
+        not identifier
+        or len(identifier) > 200
+        or "/" in identifier
+        or any(ord(ch) < 32 for ch in identifier)
+    ):
+        return ""
+    return "accounts/" + identifier
+
+
 def save_settings(payload):
     if not isinstance(payload, dict):
         raise IntegrationError("Paramètres Google invalides.")
@@ -289,6 +307,10 @@ def save_settings(payload):
             value = _normalize_business_account_id(value)
             if not value:
                 raise IntegrationError("Identifiant de compte Google Business Profile invalide.")
+        if key == "tagManagerAccountId" and value:
+            value = _normalize_tag_manager_account_id(value)
+            if not value:
+                raise IntegrationError("Identifiant de compte Google Tag Manager invalide.")
         if value:
             current[key] = value
         else:
@@ -443,6 +465,50 @@ def business_profile_account_probe(account_id=None):
     return {"connected": True, "verification": "verified"}
 
 
+def tag_manager_account_probe(account_id=None):
+    account_name = _normalize_tag_manager_account_id(
+        account_id or settings().get("tagManagerAccountId") or ""
+    )
+    if not account_name:
+        raise IntegrationError("Identifiant de compte Google Tag Manager invalide.")
+    identifier = account_name[len("accounts/"):]
+    token = google_access_token([TAG_MANAGER_SCOPE])
+    try:
+        response = requests.get(
+            TAG_MANAGER_ACCOUNT_URL.format(account_id=quote(identifier, safe="")),
+            headers={"Authorization": "Bearer " + token},
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise IntegrationHTTPError(
+            "Connexion à Google Tag Manager impossible.",
+            retryable=True,
+        ) from exc
+    if response.status_code >= 400:
+        status_code = int(response.status_code)
+        raise IntegrationHTTPError(
+            "Google Tag Manager a refusé la vérification du compte.",
+            status=status_code,
+            retry_after=response.headers.get("Retry-After", ""),
+            retryable=status_code in {429, 500, 502, 503, 504},
+        )
+    try:
+        payload = response.json()
+    except (TypeError, ValueError) as exc:
+        raise IntegrationError("Réponse Google Tag Manager invalide.") from exc
+    if not isinstance(payload, dict):
+        raise IntegrationError("Réponse Google Tag Manager invalide.")
+    response_path = str(payload.get("path") or "").strip()
+    response_account_id = str(payload.get("accountId") or "").strip()
+    if not response_path and not response_account_id:
+        raise IntegrationError("Réponse Google Tag Manager invalide.")
+    if response_path and response_path != account_name:
+        raise IntegrationError("Réponse Google Tag Manager incohérente.")
+    if response_account_id and response_account_id != identifier:
+        raise IntegrationError("Réponse Google Tag Manager incohérente.")
+    return {"connected": True, "verification": "verified"}
+
+
 def _apply_analytics_probe(row, cfg):
     try:
         probe = analytics_property_probe(cfg.get("analyticsPropertyId"))
@@ -494,6 +560,31 @@ def _apply_business_profile_probe(row, cfg):
         row["state"] = "connected"
         row["verification"] = "verified"
         row["detail"] = "API Google Business Profile vérifiée"
+    return row
+
+
+def _apply_tag_manager_probe(row, cfg):
+    try:
+        tag_manager_account_probe(cfg.get("tagManagerAccountId"))
+    except IntegrationHTTPError as exc:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "unavailable" if exc.retryable else "failed"
+        row["detail"] = (
+            "Configuration présente · vérification API Tag Manager indisponible"
+            if exc.retryable
+            else "API Tag Manager joignable · compte non accessible"
+        )
+    except IntegrationError:
+        row["connected"] = False
+        row["state"] = "attention"
+        row["verification"] = "failed"
+        row["detail"] = "Configuration Tag Manager invalide ou non vérifiable"
+    else:
+        row["connected"] = True
+        row["state"] = "connected"
+        row["verification"] = "verified"
+        row["detail"] = "API Google Tag Manager vérifiée"
     return row
 
 
@@ -557,6 +648,8 @@ def status(legacy_search_console=None, base_url="", *, verify_remote=None):
                 _apply_analytics_probe(row, cfg)
             elif key == "business_profile":
                 _apply_business_profile_probe(row, cfg)
+            elif key == "tag_manager":
+                _apply_tag_manager_probe(row, cfg)
         rows.append(row)
     return {
         "provider": "google",
