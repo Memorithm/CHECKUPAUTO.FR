@@ -6,6 +6,7 @@ from pathlib import Path
 import deployment_activation as activation
 import deployment_release as release
 import deployment_transport as transport
+import deployment_update as deployment_update
 from deployment_center import CapabilityReport, DeploymentTarget, assess
 
 
@@ -60,6 +61,39 @@ def probe_deployment_target(
     return capabilities
 
 
+def _assert_action_state(
+    action: str,
+    target: DeploymentTarget,
+    known_hosts: str | Path,
+    credential: transport.SSHCredential,
+    repo_root: str | Path,
+    release_sha: str,
+    *,
+    timeout: int = 30,
+) -> None:
+    remote = deployment_update.read_remote_state(
+        target,
+        known_hosts,
+        credential,
+        timeout=timeout,
+    )
+    if action == "install":
+        if remote.installed:
+            raise RuntimeError("cible déjà installée; utiliser update")
+        return
+
+    state = deployment_update.classify_update(
+        remote,
+        release_sha,
+        repo_root,
+    )
+    if state.get("state") != "update_available":
+        reason = str(state.get("state") or "unknown")
+        raise RuntimeError(
+            "mise à jour distante non autorisée: " + reason
+        )
+
+
 def execute_deployment(
     action: str,
     target: DeploymentTarget,
@@ -82,6 +116,15 @@ def execute_deployment(
         known_hosts,
         credential,
         repo_root,
+        timeout=probe_timeout,
+    )
+    _assert_action_state(
+        normalized_action,
+        target,
+        known_hosts,
+        credential,
+        repo_root,
+        release_sha,
         timeout=probe_timeout,
     )
     staged = release.stage_release(
