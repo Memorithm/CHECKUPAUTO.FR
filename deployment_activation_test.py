@@ -169,6 +169,26 @@ class DeploymentActivationTest(unittest.TestCase):
         provision = script.index("update_source_provisioned = bootstrap_update_source()")
         self.assertLess(verify, provision)
 
+    def test_update_source_secret_never_enters_deployment_history_fields(self):
+        token = "github" + "_pat_" + "T" * 40
+        script = activation.remote_activation_script(
+            self.target(),
+            SHA,
+            admin_password="local-admin-secret-value",
+            update_source={
+                "repository": "Memorithm/CHECKUPAUTO.FR",
+                "branch": "main",
+                "token": token,
+            },
+        )
+        history_start = script.index('record = {')
+        history_end = script.index('with history.open', history_start)
+        history_block = script[history_start:history_end]
+        self.assertIn('"updateSourceProvisioned"', history_block)
+        self.assertNotIn(token, history_block)
+        self.assertNotIn("BOOTSTRAP_UPDATE_SOURCE_B64", history_block)
+        self.assertNotIn('"token"', history_block)
+
     def test_invalid_update_source_material_is_rejected_locally(self):
         with self.assertRaisesRegex(ValueError, "source GitHub"):
             activation.remote_activation_script(
