@@ -114,15 +114,19 @@ def remote_stage_script(target: DeploymentTarget, bundle: ReleaseBundle) -> str:
         raise ValueError("empreinte d archive invalide")
     if bundle.file_count < 1:
         raise ValueError("archive de release vide")
-    encoded = base64.b64encode(bundle.archive).decode("ascii")
-    root = shlex.quote(target.root_path)
-    expected_digest = shlex.quote(bundle.sha256)
-
-    return f"""set -eu
+    replacements = {
+        "__PRIVATE_ROOT__": shlex.quote(target.root_path),
+        "__RELEASE_SHA__": sha,
+        "__ARCHIVE_DIGEST__": shlex.quote(bundle.sha256),
+        "__ARCHIVE_PAYLOAD__": base64.b64encode(bundle.archive).decode("ascii"),
+        "__STAGE_OK_PREFIX__": _STAGE_OK_PREFIX,
+        "__STAGE_PATH_PREFIX__": _STAGE_PATH_PREFIX,
+    }
+    script = """set -eu
 umask 077
-root={root}
-sha={sha}
-expected_digest={expected_digest}
+root=__PRIVATE_ROOT__
+sha=__RELEASE_SHA__
+expected_digest=__ARCHIVE_DIGEST__
 case "$root" in /*|*../*|../*|*'/..') echo 'invalid private root' >&2; exit 20 ;; esac
 private_root="$HOME/$root"
 releases="$private_root/releases"
@@ -147,15 +151,15 @@ except Exception as exc:
 if payload.get("sha") != sha or payload.get("archiveSha256") != digest or payload.get("verified") is not True:
     raise SystemExit("existing release does not match requested bundle")
 CHECKUPAUTO_VERIFY_EXISTING
-  printf '{_STAGE_OK_PREFIX}%s\n' "$sha"
-  printf '{_STAGE_PATH_PREFIX}%s\n' "$release"
+  printf '__STAGE_OK_PREFIX__%s\n' "$sha"
+  printf '__STAGE_PATH_PREFIX__%s\n' "$release"
   exit 0
 fi
 incoming="$releases/.incoming-$sha-$$"
 trap 'rm -rf "$incoming"' EXIT HUP INT TERM
 mkdir "$incoming"
 cat > "$incoming/archive.b64" <<'CHECKUPAUTO_ARCHIVE'
-{encoded}
+__ARCHIVE_PAYLOAD__
 CHECKUPAUTO_ARCHIVE
 mkdir "$incoming/release"
 python3 - "$incoming/archive.b64" "$incoming/release" "$expected_digest" <<'CHECKUPAUTO_EXTRACT'
@@ -230,9 +234,12 @@ path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
 os.chmod(path, 0o600)
 CHECKUPAUTO_MARK
 mv "$candidate" "$release"
-printf '{_STAGE_OK_PREFIX}%s\n' "$sha"
-printf '{_STAGE_PATH_PREFIX}%s\n' "$release"
+printf '__STAGE_OK_PREFIX__%s\n' "$sha"
+printf '__STAGE_PATH_PREFIX__%s\n' "$release"
 """
+    for token, value in replacements.items():
+        script = script.replace(token, value)
+    return script
 
 
 def _parse_stage_output(output: str, bundle: ReleaseBundle) -> StageResult:
