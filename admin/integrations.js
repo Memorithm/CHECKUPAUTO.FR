@@ -21,6 +21,33 @@ function ihOauthHealthText(health={}){
   return 'autorisation requise';
 }
 
+function ihApplySearchConsoleProbe(data,probe,unavailable=false){
+  const row=(data.connectors||[]).find(x=>x.id==='search_console');
+  if(!row||!row.connected)return data;
+  if(unavailable){
+    row.connected=false;
+    row.state='attention';
+    row.verification='unavailable';
+    row.detail='Configuration présente · vérification API Search Console indisponible';
+    return data;
+  }
+  if(probe?.connected===true){
+    row.connected=true;
+    row.state='connected';
+    row.verification='verified';
+    const permission=String(probe.permissionLevel||'').trim();
+    row.detail=permission?`API Search Console vérifiée · ${permission}`:'API Search Console vérifiée';
+    return data;
+  }
+  row.connected=false;
+  row.state='attention';
+  row.verification='failed';
+  row.detail=probe?.credentials?.configured
+    ?'API Google joignable · propriété Search Console non accessible'
+    :'Configuration Search Console à compléter';
+  return data;
+}
+
 function ihRender(data){
   const badge=ih('integrationGoogleStatus');
   const rows=data.connectors||[];
@@ -58,7 +85,7 @@ function ihRender(data){
     title.textContent=row.label;
     const status=document.createElement('span');
     status.className='gsc-status '+ihStatusClass(row.state);
-    status.textContent=row.connected?'Connecté':row.state==='attention'?'À compléter':'À connecter';
+    status.textContent=row.verification==='verified'?'Vérifié':row.verification==='unavailable'?'À vérifier':row.connected?'Connecté':row.state==='attention'?'À compléter':'À connecter';
     head.append(title,status);
 
     const category=document.createElement('small');
@@ -103,8 +130,15 @@ async function ihLoad(){
   const badge=ih('integrationGoogleStatus');
   badge.textContent='Diagnostic…';
   badge.className='gsc-status warning';
-  try{ihRender(await ihApi('/api/admin/integrations/google/status'))}
-  catch(e){
+  try{
+    const data=await ihApi('/api/admin/integrations/google/status');
+    const searchConsole=(data.connectors||[]).find(x=>x.id==='search_console');
+    if(searchConsole?.connected){
+      try{ihApplySearchConsoleProbe(data,await ihApi('/api/admin/google/status'))}
+      catch{ihApplySearchConsoleProbe(data,null,true)}
+    }
+    ihRender(data);
+  }catch(e){
     badge.textContent='Diagnostic impossible';
     badge.className='gsc-status offline';
     ih('googleIntegrationMessage').textContent=e.message;
