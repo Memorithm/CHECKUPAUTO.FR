@@ -111,12 +111,12 @@ def process_once():
     if native.get('nativeFavorableOnlyEmailEnabled'):
         try:
             mercure.disable_native_review_email_automation()
-        except Exception as exc:
-            return {'ok':False,'state':'native_positive_only_enabled','error':str(exc)}
+        except Exception:
+            return {'ok':False,'state':'native_positive_only_enabled','error':'Politique avis Mercure non modifiable'}
     try:
         transport_ready=mail.configured()
-    except Exception as exc:
-        return {'ok':False,'state':'invalid_email_transport','error':str(exc)}
+    except Exception:
+        return {'ok':False,'state':'invalid_email_transport','error':'Transport email Checkup Auto invalide'}
     if not transport_ready:
         return {'ok':False,'state':'waiting_email_transport','error':'Transport email Checkup Auto non configuré'}
     try:
@@ -132,8 +132,8 @@ def process_once():
         }
     try:
         review_url=_review_url()
-    except Exception as exc:
-        return {'ok':False,'state':'invalid_review_url','error':str(exc)}
+    except Exception:
+        return {'ok':False,'state':'invalid_review_url','error':'URL avis Google invalide'}
     if not review_url:
         return {'ok':False,'state':'waiting_review_url','error':'URL avis Google non configurée'}
     plain,rich=_review_message(review_url)
@@ -178,6 +178,10 @@ def status():
     except ValueError:
         review_url_configured=False
     try:
+        email_transport_configured=mail.configured()
+    except Exception:
+        email_transport_configured=False
+    try:
         email_preflight=mail.preflight()
     except Exception:
         email_preflight={'ok':False,'state':'unavailable'}
@@ -198,7 +202,7 @@ def status():
       'nativeFavorableOnlyEmailEnabled':native.get('nativeFavorableOnlyEmailEnabled'),
       'delivery':'notification_broker','mercureDeliveryDisabled':True,
       'notificationBroker':notifications.status(5),
-      'emailTransportConfigured':mail.configured(),
+      'emailTransportConfigured':bool(email_transport_configured),
       'emailTransportReady':bool(email_preflight.get('ok')),
       'emailPreflightState':str(email_preflight.get('state') or 'unknown'),
       'mercureEmailSource':'calendar_extendedProps.email',
