@@ -132,6 +132,7 @@
     const payload = await api('/api/admin/deployment/status');
     state = payload;
     $('deploymentCurrentSha').textContent = (state.currentSha || '—').slice(0, 12);
+    renderSourceState();
     $('deploymentKnownHosts').textContent = state.knownHostsConfigured ? 'Configuré' : 'À confirmer';
     populateProfiles();
     populateTargets();
@@ -144,6 +145,7 @@
     const payload = await api('/api/admin/deployment/status');
     state = payload;
     $('deploymentCurrentSha').textContent = (state.currentSha || '—').slice(0, 12);
+    renderSourceState();
     $('deploymentKnownHosts').textContent = state.knownHostsConfigured ? 'Configuré' : 'À confirmer';
     populateProfiles();
     populateTargets();
@@ -244,6 +246,25 @@
     setMessage(plan.assessment?.ok ? 'Plan prêt pour activation.' : 'Plan bloqué par le diagnostic.');
   }
 
+  function sourceBuildCapable() {
+    return Boolean(state.source && state.source.buildCapable);
+  }
+
+  function renderSourceState() {
+    const source = state.source || {};
+    const labels = {
+      git_checkout: 'Git prêt',
+      packaged_release: 'Release packagée',
+      git_invalid: 'Git invalide',
+      unavailable: 'Indisponible'
+    };
+    $('deploymentSourceState').textContent = labels[source.mode] || 'Inconnue';
+    $('deploymentInstall').disabled = !sourceBuildCapable();
+    if (!sourceBuildCapable()) {
+      $('deploymentUpdate').disabled = true;
+    }
+  }
+
   function resetUpdateState() {
     updateState = null;
     $('deploymentRemoteSha').textContent = '—';
@@ -264,10 +285,11 @@
       up_to_date: 'À jour',
       update_available: 'Disponible',
       remote_ahead: 'Cible en avance',
-      diverged: 'Divergence'
+      diverged: 'Divergence',
+      source_unavailable: 'Source indisponible'
     };
     $('deploymentUpdateState').textContent = labels[updateState.state] || 'Inconnue';
-    $('deploymentUpdate').disabled = !updateState.updateAvailable;
+    $('deploymentUpdate').disabled = !updateState.updateAvailable || !sourceBuildCapable();
 
     const candidates = $('deploymentRollbackCandidates');
     candidates.replaceChildren();
@@ -290,7 +312,10 @@
         releaseCount + ' release(s) vérifiée(s) conservée(s).';
     } else if (updateState.state === 'not_installed') {
       $('deploymentUpdateDetail').textContent =
-        'Aucune release active détectée : utilise Installer.';
+        'Aucune release active détectée : utilise Installer depuis un contrôleur Git.';
+    } else if (updateState.state === 'source_unavailable') {
+      $('deploymentUpdateDetail').textContent =
+        'Cette instance est une release packagée sans checkout Git. La version est lisible et le rollback reste disponible, mais Install/Update exigent un contrôleur de source.';
     } else if (updateState.state === 'remote_ahead') {
       $('deploymentUpdateDetail').textContent =
         'La cible distante est plus récente que le checkout local. Mise à jour bloquée.';
@@ -364,6 +389,9 @@
   }
 
   async function startJob(action) {
+    if ((action === 'install' || action === 'update') && !sourceBuildCapable()) {
+      throw new Error('Source Git de build indisponible sur cette instance');
+    }
     const payload = {name: currentName(), action};
     if (action === 'rollback') {
       payload.sha = $('deploymentRollbackSha').value.trim();

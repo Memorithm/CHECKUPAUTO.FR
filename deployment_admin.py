@@ -14,6 +14,7 @@ import uuid
 
 import deployment_center as center
 import deployment_executor as executor
+import deployment_source as deployment_source
 import deployment_transport as transport
 import deployment_update as deployment_update
 from deployment_vault import DeploymentVault
@@ -104,34 +105,30 @@ def _load_target(name: str):
     return target, credential
 
 
+def _source_state() -> deployment_source.DeploymentSourceState:
+    return deployment_source.detect_source(ROOT)
+
+
 def _current_sha() -> str:
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={ROOT}",
-            "-C",
-            str(ROOT),
-            "rev-parse",
-            "HEAD",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
-    sha = result.stdout.strip().lower()
-    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise RuntimeError("SHA Git local indisponible")
-    return sha
+    state = _source_state()
+    if not state.sha:
+        raise RuntimeError("SHA de release local indisponible")
+    return state.sha
 
 
 def status() -> dict:
+    source = _source_state()
     return {
         "ok": True,
         "profiles": center.provider_profiles(),
         "targets": targets(),
-        "currentSha": _current_sha(),
+        "currentSha": source.sha,
+        "source": {
+            "mode": source.mode,
+            "sha": source.sha,
+            "buildCapable": source.build_capable,
+            "reason": source.reason,
+        },
         "knownHostsConfigured": _known_hosts_path().is_file(),
         "jobs": list_jobs(12),
     }
@@ -390,14 +387,43 @@ def probe(name: str) -> dict:
 
 def update_status(name: str) -> dict:
     target, credential = _load_target(name)
-    return deployment_update.update_status(
+    source = _source_state()
+    if not source.build_capable:
+        remote = deployment_update.read_remote_state(
+            target,
+            _known_hosts_path(),
+            credential,
+            timeout=30,
+        )
+        releases = [
+            {"sha": row.sha, "mtime": row.mtime}
+            for row in remote.releases
+        ]
+        rollback = [
+            row.sha for row in remote.releases
+            if row.sha != remote.deployed_sha
+        ][:8]
+        return {
+            "schemaVersion": 1,
+            "state": "source_unavailable",
+            "installed": remote.installed,
+            "deployedSha": remote.deployed_sha,
+            "desiredSha": source.sha,
+            "updateAvailable": False,
+            "sourceBuildCapable": False,
+            "releases": releases,
+            "rollbackCandidates": rollback,
+        }
+    result = deployment_update.update_status(
         target,
         _known_hosts_path(),
         credential,
-        _current_sha(),
+        source.sha,
         ROOT,
         timeout=30,
     )
+    result["sourceBuildCapable"] = True
+    return result
 
 
 def plan(name: str, sha: str = "") -> dict:
@@ -571,9 +597,12 @@ def start_job(
     if action not in {"install", "update", "rollback"}:
         raise ValueError("action de déploiement invalide")
     _load_target(name)
+    source = _source_state()
+    if action in {"install", "update"} and not source.build_capable:
+        raise RuntimeError("source de build indisponible pour install/update")
     selected_sha = str(sha or "").strip().lower()
     if action in {"install", "update"} and not selected_sha:
-        selected_sha = _current_sha()
+        selected_sha = source.sha
     if not re.fullmatch(r"[0-9a-f]{40}", selected_sha):
         raise ValueError("SHA de release invalide")
 
