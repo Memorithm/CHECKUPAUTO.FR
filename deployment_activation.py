@@ -19,6 +19,10 @@ _BLOCKER_COUNT_PREFIX = "CHECKUPAUTO_BLOCKER_COUNT="
 _ADMIN_PASSWORD_MIN = 12
 _ADMIN_PASSWORD_MAX = 256
 _ADMIN_PASSWORD_PLACEHOLDER = "__CHECKUPAUTO_ADMIN_PASSWORD_B64__"
+_UPDATE_SOURCE_PLACEHOLDER = "__CHECKUPAUTO_UPDATE_SOURCE_B64__"
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]{1,160}$")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-\.]{20,500}$")
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,32 @@ def _admin_password(value: object) -> str:
     if "\n" in raw or "\r" in raw or "\x00" in raw:
         raise ValueError("mot de passe admin de déploiement invalide")
     return raw
+
+
+def _update_source_material(value: dict | None) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("source GitHub de déploiement invalide")
+    repository = str(value.get("repository") or "").strip()
+    branch = str(value.get("branch") or "").strip()
+    token = str(value.get("token") or "").strip()
+    if not _REPOSITORY_RE.fullmatch(repository):
+        raise ValueError("source GitHub de déploiement invalide")
+    if (
+        not _BRANCH_RE.fullmatch(branch)
+        or branch.startswith("/")
+        or branch.endswith("/")
+        or ".." in Path(branch).parts
+    ):
+        raise ValueError("source GitHub de déploiement invalide")
+    if not _TOKEN_RE.fullmatch(token):
+        raise ValueError("source GitHub de déploiement invalide")
+    return {
+        "repository": repository,
+        "branch": branch,
+        "token": token,
+    }
 
 
 def remote_activation_program() -> str:
