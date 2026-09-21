@@ -10,6 +10,7 @@ readonly SERVICE="cybercheck.service"
 readonly HEALTH_URL="http://127.0.0.1:8765/"
 readonly READINESS_URL="http://127.0.0.1:8765/api/admin/readiness"
 readonly ADMIN_PASSWORD_FILE="/root/CyberCheckPrivate/admin-password"
+readonly DEPLOYMENT_STATE_DIR="/root/CyberCheckPrivate/deployment"
 readonly LOCK_FILE="/run/cybercheck-deploy.lock"
 readonly INSTALLED_HELPER="/usr/local/sbin/cybercheck-deploy"
 export READINESS_URL ADMIN_PASSWORD_FILE
@@ -108,6 +109,8 @@ flock -n 9 || fail 6 "another deployment is already running"
 [[ -d "$ROOT/.git" ]] || fail 7 "production repository is missing"
 [[ "$(stat -c '%U' "$ROOT")" == "root" ]] || fail 8 "production repository must be root-owned"
 [[ "$(stat -c '%U' "$ROOT/.git")" == "root" ]] || fail 9 "production .git directory must be root-owned"
+
+install -d -o cybercheck -g cybercheck -m 0700 "$DEPLOYMENT_STATE_DIR"
 
 cd "$ROOT"
 [[ "$(git branch --show-current)" == "main" ]] || fail 10 "production repository must be on main"

@@ -40,6 +40,19 @@ class DeploymentHelperContractTest(unittest.TestCase):
         )
         self.assertNotIn('.venv/bin/python', self.helper)
 
+    def test_helper_provisions_narrow_writable_deployment_state(self):
+        self.assertIn(
+            'readonly DEPLOYMENT_STATE_DIR="/root/CyberCheckPrivate/deployment"',
+            self.helper,
+        )
+        provision = self.helper.index(
+            'install -d -o cybercheck -g cybercheck -m 0700 "$DEPLOYMENT_STATE_DIR"'
+        )
+        current_check = self.helper.index('if [[ "$CURRENT" == "$EXPECTED" ]]; then')
+        self.assertLess(provision, current_check)
+        self.assertNotIn('chmod 0770 /root/CyberCheckPrivate', self.helper)
+        self.assertNotIn('chown cybercheck:cybercheck /root/CyberCheckPrivate', self.helper)
+
     def test_helper_pins_repository_and_current_main(self):
         self.assertIn('Memorithm/CHECKUPAUTO.FR', self.helper)
         self.assertIn('[[ "$(git branch --show-current)" == "main" ]]', self.helper)
