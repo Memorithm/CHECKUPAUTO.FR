@@ -48,7 +48,24 @@ def capability(db_path: Path | str | None = None) -> dict:
     result["subjectBindingProvenance"] = list(SUPPORTED_BINDING_PROVENANCE)
     result["observedSubjectBindingProvenance"] = observed
     result["subjectBindingEvidenceObserved"] = bool(observed)
-    result["rectificationExecution"] = rights_rectification.capability()
+
+    rectification = rights_rectification.capability()
+    result["rectificationExecution"] = rectification
+    if rectification.get("partial"):
+        adapter = str(rectification.get("adapter") or "").strip()
+        request_type = str(rectification.get("requestType") or "").strip()
+        if adapter and request_type:
+            supported = dict(result.get("supportedAdapters") or {})
+            supported[adapter] = [request_type]
+            result["supportedAdapters"] = supported
+
+            partial = set(result.get("partialSystemAdapters") or [])
+            partial.add(adapter)
+            result["partialSystemAdapters"] = sorted(partial)
+
+            partial_rights = set(result.get("partiallySupportedRightTypes") or [])
+            partial_rights.add(request_type)
+            result["partiallySupportedRightTypes"] = sorted(partial_rights)
 
     wallet = _wallet_capability(db_path)
     result["referralWalletExecution"] = wallet
