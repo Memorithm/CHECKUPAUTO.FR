@@ -170,4 +170,5 @@ jobs:
           if [ -n "$key" ]; then
             rm -f "$key"
           fi
-          rm -f .ios-mac-key .ios-mac-auth .ios-remote-dir
+          rm -f .ios-mac-key .ios-remote-dir
+          rm -f .ios-mac-auth
