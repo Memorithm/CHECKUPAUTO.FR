@@ -12,9 +12,17 @@ class IOSCIContractTest(unittest.TestCase):
         self.assertIn("CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}", text)
         self.assertIn("$RUNNER_TEMP/checkupauto-mac-key", text)
         self.assertIn('printf \'%s\\n\' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"', text)
-        self.assertIn('cp "$source_key" "$tmp_key"', text)
+        self.assertIn('if verify_key "$tmp_key"; then', text)
         self.assertNotIn("BEGIN OPENSSH PRIVATE KEY", text)
         self.assertNotIn("BEGIN RSA PRIVATE KEY", text)
+
+    def test_unauthorized_secret_falls_back_to_runner_provisioned_identity(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("trying runner-provisioned identities", text)
+        self.assertIn("remoteops_thor_ed25519", text)
+        self.assertIn('if verify_key "$candidate"; then', text)
+        self.assertIn('cp "$resolved" "$tmp_key"', text)
+        self.assertIn("/opt/actions-runner/.ssh", text)
 
     def test_mac_network_preflight_precedes_ssh_identity_resolution(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -29,7 +37,12 @@ class IOSCIContractTest(unittest.TestCase):
         self.assertIn("- name: Clean remote staging directory and ephemeral identity", text)
         self.assertIn("if: always()", text)
         self.assertIn('rm -f "$key"', text)
-        self.assertIn("rm -f .ios-mac-key .ios-remote-dir", text)
+        self.assertIn("rm -f .ios-mac-key .ios-remote-dir .ios-mac-auth", text)
+
+    def test_remote_apple_toolchain_includes_homebrew_path_and_fails_fast(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"', text)
+        self.assertIn("'set -euo pipefail; export PATH=", text)
 
     def test_xcode_ci_reuses_release_runner_simulator_discovery(self):
         text = WORKFLOW.read_text(encoding="utf-8")

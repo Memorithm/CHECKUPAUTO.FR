@@ -2,16 +2,24 @@ name: iOS Core CI
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'ios/CheckupAutoReminder/**'
+      - 'ios_release_runner.py'
+      - '.github/workflows/ios-core-ci.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ios-core-${{ github.workflow }}-${{ github.ref }}
+  group: ios-core-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   swift-and-xcode:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 30
     env:
@@ -36,66 +44,124 @@ jobs:
         run: |
           set -euo pipefail
           tmp_key="$RUNNER_TEMP/checkupauto-mac-key"
-          rm -f "$tmp_key"
+          auth_file=".ios-mac-auth"
+          rm -f "$tmp_key" "$auth_file" .ios-mac-key
           umask 077
+
+          verify_key() {
+            candidate="$1"
+            [ -r "$candidate" ] || return 1
+            timeout 3 ssh-keygen -y -f "$candidate" >/dev/null 2>&1 || return 1
+            timeout 8 ssh -i "$candidate" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
+          }
+
+          resolved=""
           if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
             printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
-          else
-            source_key=""
+            if verify_key "$tmp_key"; then
+              resolved="$tmp_key"
+            else
+              echo '::warning::Configured CHECKUPAUTO_MAC_SSH_KEY is not authorized; trying runner-provisioned identities'
+              rm -f "$tmp_key"
+            fi
+          fi
+
+          if [ -z "$resolved" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 \
+            -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
+            printf '%s\n' default > "$auth_file"
+          fi
+
+          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
             for candidate in \
               /root/.ssh/checkupauto_macmini_ed25519 \
               "$HOME/.ssh/checkupauto_macmini_ed25519" \
-              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519; do
-              if [ -r "$candidate" ]; then
-                source_key="$candidate"
+              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519 \
+              /root/.ssh/remoteops_thor_ed25519 \
+              "$HOME/.ssh/remoteops_thor_ed25519" \
+              /opt/actions-runner/.ssh/remoteops_thor_ed25519 \
+              /root/.ssh/id_ed25519 \
+              "$HOME/.ssh/id_ed25519" \
+              /opt/actions-runner/.ssh/id_ed25519 \
+              /root/.ssh/id_rsa \
+              "$HOME/.ssh/id_rsa" \
+              /opt/actions-runner/.ssh/id_rsa; do
+              if verify_key "$candidate"; then
+                resolved="$candidate"
                 break
               fi
             done
-            if [ -z "$source_key" ]; then
-              source_key="$(find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \( -name '*macmini*' -o -name 'checkupauto*ed25519' \) -readable -print -quit 2>/dev/null || true)"
-            fi
-            if [ -z "$source_key" ]; then
-              echo '::error::No authorized Mac mini SSH identity is available. Configure the CHECKUPAUTO_MAC_SSH_KEY Actions secret or provision a private key on the internal runner.'
+          fi
+
+          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
+            while IFS= read -r candidate; do
+              if verify_key "$candidate"; then
+                resolved="$candidate"
+                break
+              fi
+            done < <(
+              find /root/.ssh "$HOME/.ssh" /opt/actions-runner/.ssh /home \
+                -maxdepth 4 -type f -readable -print 2>/dev/null | sort -u || true
+            )
+          fi
+
+          if [ ! -s "$auth_file" ]; then
+            if [ -z "$resolved" ]; then
+              echo '::error::No authorized Mac mini SSH identity is available on the internal runner'
               exit 2
             fi
-            cp "$source_key" "$tmp_key"
+            if [ "$resolved" != "$tmp_key" ]; then
+              cp "$resolved" "$tmp_key"
+            fi
+            chmod 600 "$tmp_key"
+            printf '%s\n' key > "$auth_file"
+            printf '%s\n' "$tmp_key" > .ios-mac-key
           fi
-          chmod 600 "$tmp_key"
-          printf '%s\n' "$tmp_key" > .ios-mac-key
       - name: Verify remote Apple toolchain
         run: |
           set -euo pipefail
-          key="$(cat .ios-mac-key)"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            'sw_vers; xcodebuild -version; xcodegen --version; swift --version'
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            'set -euo pipefail; export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; sw_vers; xcodebuild -version; xcodegen --version; swift --version'
       - name: Stage exact iOS source on Mac mini
         run: |
           set -euo pipefail
-          key="$(cat .ios-mac-key)"
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
           remote_dir="/tmp/checkupauto-ios-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf '%s\n' "$remote_dir" > .ios-remote-dir
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
           tar -czf - ios/CheckupAutoReminder ios_release_runner.py | \
-            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xzf - -C '$remote_dir'"
+            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+              "tar -xzf - -C '$remote_dir'"
       - name: Run Swift package tests on Mac mini
         run: |
           set -euo pipefail
-          key="$(cat .ios-mac-key)"
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
           remote_dir="$(cat .ios-remote-dir)"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "cd '$remote_dir/ios/CheckupAutoReminder' && swift package resolve && swift test --parallel"
       - name: Generate Xcode project and run iOS simulator tests
         run: |
           set -euo pipefail
-          key="$(cat .ios-mac-key)"
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
           remote_dir="$(cat .ios-remote-dir)"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$PATH\"; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
       - name: Clean remote staging directory and ephemeral identity
         if: always()
         run: |
@@ -104,12 +170,16 @@ jobs:
           if [ -s .ios-mac-key ]; then
             key="$(cat .ios-mac-key)"
           fi
-          if [ -s .ios-remote-dir ] && [ -n "$key" ]; then
+          if [ -s .ios-mac-auth ] && [ -s .ios-remote-dir ]; then
+            ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+            if [ "$(cat .ios-mac-auth)" = key ] && [ -n "$key" ]; then
+              ssh_args+=(-i "$key" -o IdentitiesOnly=yes)
+            fi
             remote_dir="$(cat .ios-remote-dir)"
-            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir'" || true
+            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+              "rm -rf '$remote_dir'" || true
           fi
           if [ -n "$key" ]; then
             rm -f "$key"
           fi
-          rm -f .ios-mac-key .ios-remote-dir
+          rm -f .ios-mac-key .ios-remote-dir .ios-mac-auth
