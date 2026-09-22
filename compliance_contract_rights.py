@@ -6,6 +6,9 @@ import analytics_store
 import compliance_store
 
 
+CONTRACT_PROVIDER = "mercure-rdv"
+
+
 def _contract_ref(value: object) -> str:
     raw = str(value or "").strip()
     if not raw or len(raw) > 200 or any(ord(c) < 32 or ord(c) == 127 for c in raw):
@@ -14,6 +17,13 @@ def _contract_ref(value: object) -> str:
 
 
 def _booking_conversions(contract_ref: str) -> list[dict]:
+    """Return only the Mercure conversion bound to this contract reference.
+
+    ``external_id`` is not globally namespaced in analytics: another provider may
+    legally reuse the same opaque identifier. Contract evidence originates from
+    the Mercure checkout/finalisation path, so rights exports must constrain both
+    provider and external identifier to avoid cross-provider disclosure.
+    """
     if not Path(analytics_store.DB).exists():
         return []
     with analytics_store.connect() as db:
@@ -27,9 +37,9 @@ def _booking_conversions(contract_ref: str) -> list[dict]:
         rows = db.execute(
             f"""SELECT provider,external_id,status,first_seen_at,updated_at,confirmed_at,
                        appointment_at,amount_cents,service,source,campaign,device,{referral_expr}
-                FROM booking_conversions WHERE external_id=?
+                FROM booking_conversions WHERE provider=? AND external_id=?
                 ORDER BY first_seen_at,provider""",
-            (contract_ref,),
+            (CONTRACT_PROVIDER, contract_ref),
         ).fetchall()
     return [{
         "provider": str(r["provider"]),
