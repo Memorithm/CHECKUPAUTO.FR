@@ -1,0 +1,67 @@
+name: Temporary wallet lifecycle route patch
+
+on:
+  push:
+    branches:
+      - fix/referral-wallet-installation-lifecycle
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+      - name: Apply bounded wallet lifecycle route patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('admin_server.py')
+          source = path.read_text()
+
+          old_import = 'import referral_admin as referral_admin\nimport reminder_engine as reminders\n'
+          new_import = 'import referral_admin as referral_admin\nimport referral_wallet_lifecycle as referral_wallet_lifecycle\nimport reminder_engine as reminders\n'
+          if source.count(old_import) != 1:
+              raise SystemExit('unexpected referral import boundary')
+          source = source.replace(old_import, new_import, 1)
+
+          start_marker = "  if path=='/api/mobile/installations/delete':\n"
+          end_marker = "  if path=='/api/mobile/devices/register':\n"
+          if source.count(start_marker) != 1 or source.count(end_marker) != 1:
+              raise SystemExit('unexpected installation delete route markers')
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+          old_block = source[start:end]
+          if 'mobile_devices.delete_installation(self._read_json())' not in old_block:
+              raise SystemExit('unexpected installation delete route contents')
+          new_block = '\n'.join([
+              "  if path=='/api/mobile/installations/delete':",
+              "   try:",
+              "    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()",
+              "    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)",
+              "    return self.send_json(referral_wallet_lifecycle.delete_installation(self._read_json()),200)",
+              "   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)",
+              "   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)",
+              "",
+          ])
+          source = source[:start] + new_block + source[end:]
+          path.write_text(source)
+          PY
+          python3 -m py_compile admin_server.py referral_wallet_lifecycle.py
+          python3 -m unittest referral_wallet_lifecycle_test.py mobile_claim_api_test.py
+      - name: Commit bounded route patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/branch-patch-wallet-lifecycle.yml
+          git add admin_server.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: bind installation deletion to wallet lifecycle'
+          git push origin HEAD:fix/referral-wallet-installation-lifecycle
