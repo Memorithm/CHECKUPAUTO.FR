@@ -733,6 +733,14 @@ class Handler(SimpleHTTPRequestHandler):
      return self.send_json({'ok':False,'error':'retention_purge_confirmation_required'},409)
     return self.send_json({'ok':True,'retentionRun':retention_enforcement.run_once(dry_run=dry)})
    except Exception: return self.send_json({'ok':False,'error':'retention_run_failed'},400)
+  if path=='/api/admin/compliance/register-attestation':
+   try:
+    payload=self._read_json()
+    result=compliance_admin.attest_operational_registers(payload)
+    return self.send_json({'ok':True,'attestation':result},201)
+   except PermissionError: return self.send_json({'ok':False,'error':'compliance_register_attestation_confirmation_required'},403)
+   except RuntimeError: return self.send_json({'ok':False,'error':'compliance_register_attestation_conflict'},409)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_register_attestation_invalid'},400)
   if path=='/api/admin/compliance/request':
    try: return self.send_json({'ok':True,'request':compliance.create_rights_request(self._read_json())},201)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
