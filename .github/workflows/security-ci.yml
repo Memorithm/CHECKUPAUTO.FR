@@ -25,6 +25,11 @@ jobs:
         run: |
           python3 -m venv .ci-venv
           .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Prepare isolated runtime data
+        run: |
+          runtime_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-security-ci.XXXXXX")"
+          chmod 700 "$runtime_dir"
+          printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
       - name: Run Python unit tests
         run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
       - name: Check JavaScript syntax
@@ -45,3 +50,9 @@ jobs:
       - name: Verify no runtime-private paths are tracked
         run: |
           ! git ls-files | grep -E '(^|/)(private/|\.admin-password$|\.env($|\.)|.*\.(sqlite3?|db|log)$)'
+      - name: Clean isolated runtime data
+        if: always()
+        run: |
+          if [ -n "${CYBERCHECK_DATA_DIR:-}" ]; then
+            rm -rf "$CYBERCHECK_DATA_DIR"
+          fi

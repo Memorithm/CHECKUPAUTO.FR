@@ -17,6 +17,7 @@ final class AuthoritativeInventoryTests: XCTestCase {
         XCTAssertEqual(validated.vehicles.count, 1)
         XCTAssertNotNil(validated.vehicles[0].dueDateValue)
         XCTAssertNotNil(validated.vehicles[0].bindingUUID)
+        XCTAssertNil(validated.referralWalletStatus)
     }
 
     func testResponseAllowsBindingWhileAuthoritativeDateIsPending() throws {
@@ -47,6 +48,66 @@ final class AuthoritativeInventoryTests: XCTestCase {
             bindingId: binding,
             dueDate: "2027-02-31"
         ).validated())
+    }
+
+    func testResponseValidatesCombinedReferralWalletStatus() throws {
+        let wallet = ReferralWalletProductStatus(
+            referralCode: "OWNER-7K4P",
+            active: true,
+            currency: "EUR",
+            rewardCents: 500,
+            balanceCents: 1000,
+            pendingCents: 500,
+            earnedReferrals: 2,
+            pendingReferrals: 1,
+            cancelledReferrals: 0,
+            reversedReferrals: 0
+        )
+        let walletStatus = ReferralWalletStatusResponse(
+            ok: true,
+            walletCount: 1,
+            wallets: [wallet],
+            ownershipProvenance: "authenticated_mobile_wallet_claim",
+            shareCodeIsOwnershipProof: false,
+            accountIdentifiersExposed: false,
+            thirdPartyAppointmentIdentifiersExposed: false,
+            ledgerReferencesExposed: false
+        )
+        let validated = try AuthoritativeInventoryResponse(
+            ok: true,
+            vehicles: [],
+            source: "mercure",
+            referralWalletStatus: walletStatus
+        ).validated()
+        XCTAssertEqual(validated.referralWalletStatus?.wallets, [wallet])
+    }
+
+    func testResponseRejectsUnsafeReferralWalletProjection() {
+        let unsafe = ReferralWalletStatusResponse(
+            ok: true,
+            walletCount: 0,
+            wallets: [],
+            ownershipProvenance: "authenticated_mobile_wallet_claim",
+            shareCodeIsOwnershipProof: false,
+            accountIdentifiersExposed: true,
+            thirdPartyAppointmentIdentifiersExposed: false,
+            ledgerReferencesExposed: false
+        )
+        XCTAssertThrowsError(try AuthoritativeInventoryResponse(
+            ok: true,
+            vehicles: [],
+            source: "mercure",
+            referralWalletStatus: unsafe
+        ).validated())
+    }
+
+    func testLegacyInventoryJSONWithoutWalletStatusRemainsDecodable() throws {
+        let data = Data("""
+        {"ok":true,"vehicles":[],"source":"mercure"}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(AuthoritativeInventoryResponse.self, from: data)
+        let validated = try decoded.validated()
+        XCTAssertNil(validated.referralWalletStatus)
     }
 
     func testOpaqueInventoryPersistsAndClears() {
