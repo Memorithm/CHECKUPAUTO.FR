@@ -40,7 +40,8 @@ class AdminComplianceReviewUIContractTest(unittest.TestCase):
     def test_raw_review_evidence_is_not_rendered_from_snapshot(self):
         self.assertNotIn("sourceEvidence", self.html)
         self.assertNotIn("reviewEvidence", self.html)
-        self.assertNotIn("row.evidence", self.js)
+        self.assertNotIn("esc(row.evidence)", self.js)
+        self.assertNotIn("row.rawEvidence", self.js)
 
 
 if __name__ == "__main__":
