@@ -1,0 +1,41 @@
+name: Temporary register attestation HTTP patch
+
+on:
+  push:
+    branches: [feat/admin-register-attestation-http]
+    paths:
+      - 'scripts/tmp_patch_admin_register_attestation.py'
+      - '.github/workflows/tmp-patch-admin-register-attestation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/admin-register-attestation-http
+      - name: Create isolated Python environment
+        run: |
+          python3 -m venv .tmp-attestation-venv
+          .tmp-attestation-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Apply bounded source patch
+        run: .tmp-attestation-venv/bin/python scripts/tmp_patch_admin_register_attestation.py
+      - name: Compile changed boundary and tests
+        run: .tmp-attestation-venv/bin/python -m py_compile admin_server.py compliance_admin.py admin_register_attestation_api_test.py
+      - name: Run targeted attestation tests
+        run: .tmp-attestation-venv/bin/python -m unittest compliance_admin_attestation_action_test.py admin_register_attestation_api_test.py
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          test "$(git diff --name-only)" = "admin_server.py"
+      - name: Commit bounded server change
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add admin_server.py
+          test "$(git diff --cached --name-only)" = "admin_server.py"
+          git commit -m 'feat: expose MFA-protected register attestation endpoint'
+          git push origin HEAD:feat/admin-register-attestation-http
