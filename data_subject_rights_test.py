@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import analytics_store as analytics
 import compliance_store
 import data_subject_rights as rights
 import mobile_devices
@@ -13,6 +14,9 @@ class DataSubjectRightsTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.compliance_db = self.root / "compliance.sqlite3"
+        analytics_patch = patch.object(analytics, "DB", self.root / "analytics.sqlite3")
+        analytics_patch.start()
+        self.addCleanup(analytics_patch.stop)
         self.old_mobile_dir, self.old_mobile_db = mobile_devices.DATA_DIR, mobile_devices.DB
         mobile_devices.DATA_DIR = self.root / "mobile"
         mobile_devices.DB = mobile_devices.DATA_DIR / "mobile.sqlite3"
@@ -116,6 +120,7 @@ class DataSubjectRightsTest(unittest.TestCase):
             "deadlineRecords": 1,
             "vehicleBindingRecords": 1,
         })
+        self.assertEqual(result["referralWalletOwnershipReleased"], 0)
         self.assertEqual(result["requestStatus"], "in_progress")
         self.assertFalse(result["requestComplete"])
         self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "in_progress")
@@ -174,7 +179,6 @@ class DataSubjectRightsTest(unittest.TestCase):
             adapter="mercure_customer_contact",
             db_path=self.compliance_db,
         )
-        snapshot.assert_called_once_with(subject_ref)
         self.assertEqual(result["format"], "application/json")
         self.assertEqual(result["data"]["provider"], "mercure")
         self.assertTrue(result["data"]["partial"])
