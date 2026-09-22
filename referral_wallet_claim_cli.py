@@ -8,7 +8,7 @@ import referral_wallet_claims as claims
 
 
 MAX_STDIN_BYTES = 16 * 1024
-_COMMANDS = {"issue", "status"}
+_COMMANDS = {"issue", "consume", "status"}
 
 
 def _read_payload(stream: TextIO) -> dict:
@@ -26,6 +26,18 @@ def _read_payload(stream: TextIO) -> dict:
 
 def _write(stream: TextIO, value: dict) -> None:
     stream.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _consume_projection(result: dict) -> dict:
+    """Return operational evidence without exposing internal wallet/account IDs."""
+    return {
+        "ok": bool(result.get("ok")),
+        "claimType": str(result.get("claimType") or ""),
+        "claimedAt": str(result.get("claimedAt") or ""),
+        "provenance": str(result.get("provenance") or ""),
+        "rawInstallationPersisted": bool(result.get("rawInstallationPersisted")),
+        "rawClaimTokenPersisted": bool(result.get("rawClaimTokenPersisted")),
+    }
 
 
 def main(
@@ -46,10 +58,16 @@ def main(
             _write(output_stream, {"ok": True, "capability": claims.capability()})
             return 0
         payload = _read_payload(input_stream)
-        if set(payload) - {"code", "ttlSeconds"} or not payload.get("code"):
+        if command == "issue":
+            if set(payload) - {"code", "ttlSeconds"} or not payload.get("code"):
+                raise ValueError("invalid_payload")
+            result = claims.issue(payload.get("code"), payload.get("ttlSeconds", 1800))
+            _write(output_stream, {"ok": True, "claim": result})
+            return 0
+        if set(payload) != {"installationId", "registrationSecret", "claimToken"}:
             raise ValueError("invalid_payload")
-        result = claims.issue(payload.get("code"), payload.get("ttlSeconds", 1800))
-        _write(output_stream, {"ok": True, "claim": result})
+        result = claims.consume(payload)
+        _write(output_stream, _consume_projection(result))
         return 0
     except (ValueError, LookupError, PermissionError):
         _write(output_stream, {"ok": False, "error": "invalid_or_unauthorized_request"})
