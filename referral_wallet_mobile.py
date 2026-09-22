@@ -16,6 +16,10 @@ def status(payload: dict) -> dict:
     The response deliberately omits internal account IDs, reward appointment IDs,
     and ledger references. The referral code is returned because it is the public,
     shareable product code and is never accepted as ownership evidence.
+
+    Legacy or corrupted ownership state that exceeds the mobile contract bound is
+    rejected instead of being truncated. Silent truncation could make the app
+    display an incomplete balance while presenting it as server-verified state.
     """
     if not isinstance(payload, dict) or set(payload) != _REQUIRED_KEYS:
         raise ValueError("payload invalide")
@@ -25,6 +29,8 @@ def status(payload: dict) -> dict:
         payload.get("registrationSecret"),
     )
     account_ids = referral_wallet_claims.owned_account_ids(installation)
+    if len(account_ids) > referral_wallet_claims._MAX_WALLETS_PER_INSTALLATION:
+        raise RuntimeError("état de cagnotte mobile hors limite")
     referral_engine.init_db()
 
     wallets: list[dict] = []
