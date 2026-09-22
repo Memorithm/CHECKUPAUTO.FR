@@ -46,21 +46,50 @@ jobs:
           tmp_key="$RUNNER_TEMP/checkupauto-mac-key"
           rm -f "$tmp_key"
           umask 077
+
+          verify_key() {
+            candidate="$1"
+            [ -r "$candidate" ] || return 1
+            timeout 3 ssh-keygen -y -f "$candidate" >/dev/null 2>&1 || return 1
+            timeout 8 ssh -i "$candidate" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
+          }
+
           if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
             printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
+            verify_key "$tmp_key" || {
+              echo '::error::Configured CHECKUPAUTO_MAC_SSH_KEY is not authorized on the Mac mini'
+              exit 2
+            }
           else
             source_key=""
             for candidate in \
               /root/.ssh/checkupauto_macmini_ed25519 \
               "$HOME/.ssh/checkupauto_macmini_ed25519" \
-              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519; do
-              if [ -r "$candidate" ]; then
+              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519 \
+              /root/.ssh/id_ed25519 \
+              "$HOME/.ssh/id_ed25519" \
+              /opt/actions-runner/.ssh/id_ed25519 \
+              /root/.ssh/id_rsa \
+              "$HOME/.ssh/id_rsa" \
+              /opt/actions-runner/.ssh/id_rsa; do
+              if verify_key "$candidate"; then
                 source_key="$candidate"
                 break
               fi
             done
             if [ -z "$source_key" ]; then
-              source_key="$(find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \( -name '*macmini*' -o -name 'checkupauto*ed25519' \) -readable -print -quit 2>/dev/null || true)"
+              while IFS= read -r candidate; do
+                if verify_key "$candidate"; then
+                  source_key="$candidate"
+                  break
+                fi
+              done < <(
+                find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \
+                  \( -name '*macmini*' -o -name 'checkupauto*ed25519' -o -name 'id_ed25519' -o -name 'id_rsa' \) \
+                  -readable -print 2>/dev/null || true
+              )
             fi
             if [ -z "$source_key" ]; then
               echo '::error::No authorized Mac mini SSH identity is available. Configure the CHECKUPAUTO_MAC_SSH_KEY Actions secret or provision a private key on the internal runner.'
@@ -74,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           key="$(cat .ios-mac-key)"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             'sw_vers; xcodebuild -version; xcodegen --version; swift --version'
       - name: Stage exact iOS source on Mac mini
@@ -83,17 +112,17 @@ jobs:
           key="$(cat .ios-mac-key)"
           remote_dir="/tmp/checkupauto-ios-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf '%s\n' "$remote_dir" > .ios-remote-dir
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
           tar -czf - ios/CheckupAutoReminder ios_release_runner.py | \
-            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xzf - -C '$remote_dir'"
       - name: Run Swift package tests on Mac mini
         run: |
           set -euo pipefail
           key="$(cat .ios-mac-key)"
           remote_dir="$(cat .ios-remote-dir)"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "cd '$remote_dir/ios/CheckupAutoReminder' && swift package resolve && swift test --parallel"
       - name: Generate Xcode project and run iOS simulator tests
@@ -101,7 +130,7 @@ jobs:
           set -euo pipefail
           key="$(cat .ios-mac-key)"
           remote_dir="$(cat .ios-remote-dir)"
-          ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+          ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "set -euo pipefail; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
       - name: Clean remote staging directory and ephemeral identity
@@ -114,7 +143,7 @@ jobs:
           fi
           if [ -s .ios-remote-dir ] && [ -n "$key" ]; then
             remote_dir="$(cat .ios-remote-dir)"
-            ssh -i "$key" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+            ssh -i "$key" -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "rm -rf '$remote_dir'" || true
           fi
           if [ -n "$key" ]; then
