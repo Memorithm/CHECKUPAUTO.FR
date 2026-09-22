@@ -9,6 +9,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+import compliance_contract_rights
 import compliance_store
 import mercure_rights
 import mobile_devices
@@ -19,6 +20,7 @@ import rights_subject_bindings
 SUPPORTED_ADAPTERS = {
     "mobile_installation": ("access", "portability", "erasure"),
     "mercure_customer_contact": ("access", "portability"),
+    "compliance_contracts": ("access", "portability"),
     "privacy_suppression": ("restriction", "objection", "consent_withdrawal", "erasure"),
 }
 
@@ -479,6 +481,28 @@ def execute(
                 json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest(),
         }
+    elif adapter == "compliance_contracts":
+        data = compliance_contract_rights.snapshot(ref, db_path)
+        action = "export"
+        result = {
+            "ok": True,
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": adapter,
+            "format": "application/json",
+            "data": data,
+        }
+        evidence = {
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": adapter,
+            "partial": True,
+            "consentReceiptCount": len(data["consentReceipts"]),
+            "checkoutAcceptanceCount": len(data["checkoutAcceptances"]),
+            "exportHash": hashlib.sha256(
+                json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+        }
     elif adapter == "privacy_suppression":
         result, evidence = _execute_privacy_suppression(row, ref, purpose, db_path)
         action = "suppress"
@@ -534,7 +558,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         "remainingRightTypes": [
             "rectification",
         ],
-        "partialSystemAdapters": ["mercure"],
+        "partialSystemAdapters": ["mercure", "compliance_contracts"],
         "remainingSystemAdapters": [
             "mercure",
             "referral_wallet",
