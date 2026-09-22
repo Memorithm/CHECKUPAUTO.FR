@@ -28,6 +28,8 @@ def _bounded(state: dict) -> dict:
                 "adapter": str(item.get("adapter") or ""),
                 "disposition": str(item.get("disposition") or ""),
                 "executed": bool(item.get("executed")),
+                "executionComplete": bool(item.get("executionComplete")),
+                "executionLimitation": str(item.get("executionLimitation") or ""),
                 "satisfied": bool(item.get("satisfied")),
                 "justificationHash": str(item.get("justificationHash") or ""),
                 "updatedAt": str(item.get("updatedAt") or ""),
@@ -92,5 +94,8 @@ def capability() -> dict:
         "closureMutationExposed": False,
         "coverageScope": str(core.get("coverageScope") or ""),
         "globalCoverageComplete": bool(core.get("globalCoverageComplete")),
+        "partialExecutionDoesNotSatisfyRequiredPlan": bool(
+            core.get("partialExecutionDoesNotSatisfyRequiredPlan")
+        ),
         "rawJustificationPersisted": False,
     }

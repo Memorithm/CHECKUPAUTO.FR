@@ -72,6 +72,26 @@ class RightsCompletionPlanTest(unittest.TestCase):
             )
         return rows
 
+    def _mercure_required_access_plan(self) -> list[dict]:
+        return [
+            {
+                "adapter": "mobile_installation",
+                "disposition": "not_applicable",
+                "justification": "aucune installation mobile ne correspond à la demande",
+            },
+            {"adapter": "mercure_customer_contact", "disposition": "required"},
+            {
+                "adapter": "compliance_contracts",
+                "disposition": "not_applicable",
+                "justification": "aucun contrat local ne correspond à la demande",
+            },
+            {
+                "adapter": "referral_wallet",
+                "disposition": "not_applicable",
+                "justification": "aucune cagnotte ne correspond à la demande",
+            },
+        ]
+
     def test_plan_requires_exact_classification_of_every_known_adapter(self):
         request = self._request()
         with self.assertRaises(ValueError):
@@ -125,7 +145,7 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 self.db_path,
             )
 
-    def test_known_scope_completion_is_derived_from_execution_audit(self):
+    def test_known_scope_completion_is_derived_from_complete_mobile_execution(self):
         request = self._request()
         state = rights_completion_plan.configure(request["id"], self._access_plan(), self.db_path)
         self.assertFalse(state["knownScopeComplete"])
@@ -138,9 +158,29 @@ class RightsCompletionPlanTest(unittest.TestCase):
         self.assertFalse(state["closureReady"])
         required = next(item for item in state["items"] if item["adapter"] == "mobile_installation")
         self.assertTrue(required["executed"])
+        self.assertTrue(required["executionComplete"])
+        self.assertEqual(required["executionLimitation"], "")
         self.assertTrue(required["satisfied"])
 
-    def test_close_fails_closed_while_global_store_coverage_is_incomplete(self):
+    def test_partial_mercure_execution_never_satisfies_required_plan_item(self):
+        request = self._request()
+        rights_completion_plan.configure(
+            request["id"],
+            self._mercure_required_access_plan(),
+            self.db_path,
+        )
+        self._record_execution(request["id"], "mercure_customer_contact")
+
+        state = rights_completion_plan.status(request["id"], self.db_path)
+        mercure = next(item for item in state["items"] if item["adapter"] == "mercure_customer_contact")
+        self.assertTrue(mercure["executed"])
+        self.assertFalse(mercure["executionComplete"])
+        self.assertEqual(mercure["executionLimitation"], "bounded_provider_export")
+        self.assertFalse(mercure["satisfied"])
+        self.assertFalse(state["knownScopeComplete"])
+        self.assertFalse(state["closureReady"])
+
+    def test_partial_rectification_execution_is_not_completion_proof(self):
         request = self._request("rectification")
         rights_completion_plan.configure(
             request["id"],
@@ -152,6 +192,21 @@ class RightsCompletionPlanTest(unittest.TestCase):
             "mobile_deadline_rectification",
             "rectification",
         )
+
+        state = rights_completion_plan.status(request["id"], self.db_path)
+        item = state["items"][0]
+        self.assertTrue(item["executed"])
+        self.assertFalse(item["executionComplete"])
+        self.assertEqual(item["executionLimitation"], "local_deadline_field_only")
+        self.assertFalse(item["satisfied"])
+        self.assertFalse(state["knownScopeComplete"])
+        with self.assertRaisesRegex(RuntimeError, "plan d'exécution incomplet"):
+            rights_completion_plan.close(request["id"], self.db_path)
+
+    def test_close_fails_closed_while_global_store_coverage_is_incomplete(self):
+        request = self._request("access")
+        rights_completion_plan.configure(request["id"], self._access_plan(), self.db_path)
+        self._record_execution(request["id"], "mobile_installation", "access")
 
         state = rights_completion_plan.status(request["id"], self.db_path)
         self.assertTrue(state["knownScopeComplete"])
@@ -181,6 +236,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
         self.assertEqual(capability["coverageScope"], "implemented_adapters")
         self.assertFalse(capability["globalCoverageComplete"])
         self.assertTrue(capability["closureFailClosedOnGlobalCoverage"])
+        self.assertTrue(capability["partialExecutionDoesNotSatisfyRequiredPlan"])
+        self.assertEqual(
+            capability["partialExecutionAdapters"]["mercure_customer_contact"],
+            "bounded_provider_export",
+        )
         self.assertTrue(capability["notApplicableRequiresHashedJustification"])
         self.assertFalse(capability["rawJustificationPersisted"])
 

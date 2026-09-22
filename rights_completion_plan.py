@@ -14,6 +14,17 @@ DISPOSITIONS = {"required", "not_applicable"}
 # disabled until that gap is removed with evidence; a per-request plan must not
 # be mistaken for proof that every CheckupAuto/Mercure store is implemented.
 GLOBAL_COVERAGE_COMPLETE = False
+# These adapters can execute useful bounded work, but their own implementation
+# explicitly remains partial. Recording an execution must therefore not make a
+# required applicability-plan item "satisfied". The codes are intentionally
+# non-personal and surface the remaining boundary to the operator.
+PARTIAL_EXECUTION_ADAPTERS = {
+    "mercure_customer_contact": "bounded_provider_export",
+    "compliance_contracts": "partial_contract_store_export",
+    "privacy_suppression": "suppression_without_all_store_mutation",
+    rights_rectification.ADAPTER: "local_deadline_field_only",
+    referral_wallet_rights.ADAPTER: "bounded_wallet_or_retained_erasure",
+}
 
 
 def _init(db_path: Path | str | None = None) -> None:
@@ -57,6 +68,13 @@ def _executed_adapters(request_id: str, db_path: Path | str | None = None) -> se
             (request_id,),
         ).fetchall()
     return {str(row["adapter"]) for row in rows}
+
+
+def _execution_state(adapter: str, executed: bool) -> tuple[bool, str]:
+    if not executed:
+        return False, ""
+    limitation = PARTIAL_EXECUTION_ADAPTERS.get(adapter, "")
+    return not bool(limitation), limitation
 
 
 def _justification_hash(value: object) -> str:
@@ -155,8 +173,9 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
         row = planned.get(adapter)
         disposition = str(row["disposition"]) if row else "unplanned"
         was_executed = adapter in executed
+        execution_complete, execution_limitation = _execution_state(adapter, was_executed)
         satisfied = (
-            disposition == "required" and was_executed
+            disposition == "required" and execution_complete
         ) or (
             disposition == "not_applicable"
             and bool(row and str(row["justification_hash"]))
@@ -166,6 +185,8 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
                 "adapter": adapter,
                 "disposition": disposition,
                 "executed": was_executed,
+                "executionComplete": execution_complete,
+                "executionLimitation": execution_limitation,
                 "satisfied": satisfied,
                 "justificationHash": (
                     str(row["justification_hash"]) if row else ""
@@ -211,6 +232,8 @@ def capability() -> dict:
         "coverageScope": "implemented_adapters",
         "globalCoverageComplete": GLOBAL_COVERAGE_COMPLETE,
         "closureFailClosedOnGlobalCoverage": True,
+        "partialExecutionDoesNotSatisfyRequiredPlan": True,
+        "partialExecutionAdapters": dict(sorted(PARTIAL_EXECUTION_ADAPTERS.items())),
         "notApplicableRequiresHashedJustification": True,
         "rawJustificationPersisted": False,
     }
