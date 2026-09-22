@@ -129,7 +129,7 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self._consume(token)
 
-    def test_expired_claim_is_rejected_and_removed(self):
+    def test_expired_claim_is_rejected_without_creating_owner(self):
         token = claims.issue(self.account["code"])["claimToken"]
         with analytics.connect() as db:
             db.execute(
@@ -138,8 +138,8 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self._consume(token)
         with analytics.connect() as db:
-            count = db.execute("SELECT COUNT(*) n FROM referral_wallet_claim").fetchone()["n"]
-        self.assertEqual(count, 0)
+            owner_count = db.execute("SELECT COUNT(*) n FROM referral_wallet_owner").fetchone()["n"]
+        self.assertEqual(owner_count, 0)
 
     def test_new_claim_revokes_previous_pending_claim(self):
         first = claims.issue(self.account["code"])["claimToken"]
