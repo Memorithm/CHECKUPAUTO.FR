@@ -17,15 +17,13 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.old_analytics = analytics.DB
-        self.old_compliance = compliance_store.DB
         analytics.DB = Path(self.tmp.name) / "analytics.sqlite3"
-        compliance_store.DB = Path(self.tmp.name) / "compliance.sqlite3"
+        self.compliance_db = Path(self.tmp.name) / "compliance.sqlite3"
         self.addCleanup(setattr, analytics, "DB", self.old_analytics)
-        self.addCleanup(setattr, compliance_store, "DB", self.old_compliance)
         analytics.init_db()
         referral_engine.init_db()
         referral_wallet_claims.init_db()
-        compliance_store.init_db()
+        compliance_store.init_db(self.compliance_db)
         self.now = datetime.datetime(2026, 9, 22, 20, 0, tzinfo=datetime.timezone.utc)
 
     def retire(self, account_id):
@@ -35,11 +33,19 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
                 (final_purge._retired_code(account_id), account_id),
             )
 
+    def purge(self, days=30, *, dry_run=False):
+        return final_purge.purge_retired_wallets(
+            days,
+            now=self.now,
+            dry_run=dry_run,
+            db_path=self.compliance_db,
+        )
+
     def test_empty_retired_wallet_is_physically_deleted(self):
         account = referral_engine.create_account("PURGE-EMPTY")
         self.retire(account["id"])
 
-        result = final_purge.purge_retired_wallets(30, now=self.now)
+        result = self.purge()
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["purgedAccounts"], 1)
@@ -47,7 +53,7 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         self.assertFalse(result["rawAccountIdentifiersPersisted"])
         with analytics.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) n FROM referral_accounts").fetchone()["n"], 0)
-        with compliance_store.connect() as db:
+        with compliance_store.connect(self.compliance_db) as db:
             row = db.execute(
                 "SELECT account_hash,state,evidence_hash FROM referral_wallet_final_purge_audit"
             ).fetchone()
@@ -60,14 +66,14 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         account = referral_engine.create_account("PURGE-DRY")
         self.retire(account["id"])
 
-        result = final_purge.purge_retired_wallets(30, now=self.now, dry_run=True)
+        result = self.purge(dry_run=True)
 
         self.assertEqual(result["eligibleAccounts"], 1)
         self.assertEqual(result["purgedAccounts"], 0)
         with analytics.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) n FROM referral_accounts").fetchone()["n"], 1)
-        final_purge._init_audit()
-        with compliance_store.connect() as db:
+        final_purge._init_audit(self.compliance_db)
+        with compliance_store.connect(self.compliance_db) as db:
             self.assertEqual(
                 db.execute("SELECT COUNT(*) n FROM referral_wallet_final_purge_audit").fetchone()["n"],
                 0,
@@ -79,7 +85,7 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         referral_engine.cancel_pending("mercure-rdv", "rdv-private")
         self.retire(account["id"])
 
-        first = final_purge.purge_retired_wallets(30, now=self.now, dry_run=True)
+        first = self.purge(dry_run=True)
         self.assertEqual(first["eligibleAccounts"], 0)
 
         old = (self.now - datetime.timedelta(days=60)).isoformat(timespec="seconds")
@@ -88,7 +94,7 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
                 "UPDATE referral_rewards SET updated_at=?,cancelled_at=? WHERE account_id=?",
                 (old, old, account["id"]),
             )
-        second = final_purge.purge_retired_wallets(30, now=self.now)
+        second = self.purge()
         self.assertEqual(second["purgedAccounts"], 1)
         with analytics.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) n FROM referral_rewards").fetchone()["n"], 0)
@@ -105,16 +111,10 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
             db.execute("UPDATE referral_rewards SET updated_at=?,reversed_at=? WHERE account_id=?", (old, old, account["id"]))
             db.execute("UPDATE referral_ledger SET created_at=? WHERE account_id=?", (old, account["id"]))
 
-        self.assertEqual(
-            final_purge.purge_retired_wallets(30, now=self.now, dry_run=True)["eligibleAccounts"],
-            0,
-        )
+        self.assertEqual(self.purge(dry_run=True)["eligibleAccounts"], 0)
         compacted = referral_engine.compact_ledger(30, now=self.now)
         self.assertGreater(compacted["compactedEntries"], 0)
-        self.assertEqual(
-            final_purge.purge_retired_wallets(30, now=self.now, dry_run=True)["eligibleAccounts"],
-            0,
-        )
+        self.assertEqual(self.purge(dry_run=True)["eligibleAccounts"], 0)
 
         with analytics.connect() as db:
             db.execute(
@@ -125,7 +125,7 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
                 "UPDATE referral_compacted_reward_evidence SET compacted_at=? WHERE account_id=?",
                 (old, account["id"]),
             )
-        done = final_purge.purge_retired_wallets(30, now=self.now)
+        done = self.purge()
         self.assertEqual(done["purgedAccounts"], 1)
 
     def test_owner_evidence_blocks_final_purge(self):
@@ -143,7 +143,7 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
                     "b" * 64,
                 ),
             )
-        result = final_purge.purge_retired_wallets(30, now=self.now, dry_run=True)
+        result = self.purge(dry_run=True)
         self.assertEqual(result["eligibleAccounts"], 0)
 
     def test_planned_audit_is_recovered_after_post_commit_failure(self):
@@ -151,18 +151,18 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         self.retire(account["id"])
         with mock.patch.object(final_purge, "_complete", side_effect=RuntimeError("simulated audit outage")):
             with self.assertRaisesRegex(RuntimeError, "audit outage"):
-                final_purge.purge_retired_wallets(30, now=self.now)
+                self.purge()
         with analytics.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) n FROM referral_accounts").fetchone()["n"], 0)
-        with compliance_store.connect() as db:
+        with compliance_store.connect(self.compliance_db) as db:
             self.assertEqual(
                 db.execute("SELECT state FROM referral_wallet_final_purge_audit").fetchone()["state"],
                 "planned",
             )
 
-        recovered = final_purge.purge_retired_wallets(30, now=self.now)
+        recovered = self.purge()
         self.assertEqual(recovered["recoveredPlannedOperations"], 1)
-        with compliance_store.connect() as db:
+        with compliance_store.connect(self.compliance_db) as db:
             row = db.execute(
                 "SELECT state,purged_rows FROM referral_wallet_final_purge_audit"
             ).fetchone()
@@ -173,7 +173,7 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         account = referral_engine.create_account("PURGE-POLICY")
         self.retire(account["id"])
         with self.assertRaisesRegex(RuntimeError, "politique"):
-            final_purge.run_policy(now=self.now)
+            final_purge.run_policy(now=self.now, db_path=self.compliance_db)
 
         retention_enforcement.save_policy(
             {
@@ -182,9 +182,10 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
                 "justification": "Durée validée par la revue juridique de test.",
                 "legalReviewConfirmed": True,
                 "enabled": True,
-            }
+            },
+            self.compliance_db,
         )
-        result = final_purge.run_policy(now=self.now)
+        result = final_purge.run_policy(now=self.now, db_path=self.compliance_db)
         self.assertEqual(result["ruleId"], "referral_ledger")
         self.assertTrue(result["legalReviewConfirmed"])
         self.assertEqual(result["purgedAccounts"], 1)
