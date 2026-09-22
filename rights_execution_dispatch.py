@@ -4,6 +4,7 @@ from pathlib import Path
 
 import data_subject_rights
 import referral_wallet_rights
+import rights_completion_plan
 import rights_rectification
 
 
@@ -76,7 +77,7 @@ def capability(db_path: Path | str | None = None) -> dict:
     rectification = rights_rectification.capability()
     wallet = referral_wallet_rights.capability(db_path)
     adapters = dict(central)
-    adapters[rights_rectification.ADAPTER] = [rights_rectification.capability()["requestType"]]
+    adapters[rights_rectification.ADAPTER] = [rectification["requestType"]]
     adapters[referral_wallet_rights.ADAPTER] = list(wallet.get("supportedRights") or [])
     return {
         "dispatchReady": True,
@@ -84,5 +85,6 @@ def capability(db_path: Path | str | None = None) -> dict:
         "supportedAdapters": adapters,
         "rectification": rectification,
         "referralWallet": wallet,
+        "completionPlan": rights_completion_plan.capability(),
         "rawPayloadPersistedByDispatcher": False,
     }
