@@ -41,6 +41,19 @@ struct AuthoritativeInventoryResponse: Codable, Equatable, Sendable {
     let ok: Bool
     let vehicles: [AuthoritativeVehicleDeadline]
     let source: String
+    let referralWalletStatus: ReferralWalletStatusResponse?
+
+    init(
+        ok: Bool,
+        vehicles: [AuthoritativeVehicleDeadline],
+        source: String,
+        referralWalletStatus: ReferralWalletStatusResponse? = nil
+    ) {
+        self.ok = ok
+        self.vehicles = vehicles
+        self.source = source
+        self.referralWalletStatus = referralWalletStatus
+    }
 
     func validated() throws -> AuthoritativeInventoryResponse {
         guard ok, source == "mercure", vehicles.count <= 24 else {
@@ -50,7 +63,13 @@ struct AuthoritativeInventoryResponse: Codable, Equatable, Sendable {
         guard Set(checked.map(\.bindingId)).count == checked.count else {
             throw AuthoritativeInventoryError.invalidResponse
         }
-        return AuthoritativeInventoryResponse(ok: true, vehicles: checked, source: source)
+        let walletStatus = try referralWalletStatus?.validated()
+        return AuthoritativeInventoryResponse(
+            ok: true,
+            vehicles: checked,
+            source: source,
+            referralWalletStatus: walletStatus
+        )
     }
 }
 
