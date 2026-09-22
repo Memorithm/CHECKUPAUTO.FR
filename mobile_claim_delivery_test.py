@@ -46,7 +46,7 @@ class MobileClaimDeliveryTest(unittest.TestCase):
         reminder_dispatch.DATA_DIR, reminder_dispatch.DB = self.old_reminder
         self.tmp.cleanup()
 
-    def test_aasa_is_scoped_to_claim_path_and_real_bundle_identifier(self):
+    def test_aasa_is_scoped_to_shared_claim_path_and_real_bundle_identifier(self):
         state = delivery.status(self.config)
         self.assertTrue(state["ready"])
         self.assertEqual(
@@ -57,7 +57,10 @@ class MobileClaimDeliveryTest(unittest.TestCase):
         self.assertEqual(
             detail["appIDs"], ["ABCDE12345.fr.checkupauto.reminder"]
         )
-        self.assertEqual(detail["components"][0]["/"], "/app/claim")
+        component = detail["components"][0]
+        self.assertEqual(component["/"], "/app/claim")
+        self.assertEqual(component["comment"], "Rattachement one-shot Checkup Auto")
+        self.assertNotIn("vehicule", component["comment"].lower())
 
     def test_issue_uses_authoritative_inventory_and_keeps_raw_claim_hash_only(self):
         claim = delivery.issue_for_vehicle(self.config, "vehicle-77", 900)
@@ -109,12 +112,15 @@ class MobileClaimDeliveryTest(unittest.TestCase):
         self.assertNotIn("clientId", rows[0])
         self.assertNotIn("clientKind", rows[0])
 
-    def test_claim_landing_does_not_read_or_forward_fragment(self):
+    def test_claim_landing_is_type_neutral_and_does_not_forward_fragment(self):
         page = delivery.claim_landing_html(self.config).decode()
         self.assertIn(
             'name="robots" content="noindex,nofollow,noarchive"', page
         )
         self.assertIn("name=\"referrer\" content=\"no-referrer\"", page)
+        self.assertIn("Rattachement sécurisé", page)
+        self.assertIn("rattachement demandé", page)
+        self.assertNotIn("Rattachez votre véhicule", page)
         self.assertIn("/app?src=claim", page)
         self.assertNotIn("location.hash", page)
         self.assertNotIn("/api/events", page)
