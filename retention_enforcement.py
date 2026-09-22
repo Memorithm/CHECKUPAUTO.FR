@@ -15,6 +15,7 @@ import mobile_devices
 import notification_broker
 import privacy_suppression
 import referral_engine
+import referral_wallet_claims
 import reminder_dispatch
 import review_followup
 import site_config_store
@@ -45,6 +46,13 @@ AUTO_RULES = {
         "source": "claim expiry / consumption",
         "store": "mobile.mobile_vehicle_claim",
         "trigger": "expires_at / consumed_at",
+    },
+    "referral_wallet_claims": {
+        "label": "Claims temporaires de propriété de cagnotte",
+        "mode": "event",
+        "source": "claim expiry / one-time consumption",
+        "store": "analytics.referral_wallet_claim",
+        "trigger": "expires_at / consumption",
     },
     "inactive_privacy_suppressions": {
         "label": "Liste repoussoir désactivée",
@@ -384,6 +392,22 @@ def _purge_mobile_claims(*, dry_run: bool) -> int:
     return count
 
 
+def _purge_referral_wallet_claims(*, dry_run: bool) -> int:
+    referral_wallet_claims.init_db()
+    now = _now_iso()
+    with analytics_store.connect() as db:
+        count = int(db.execute(
+            "SELECT COUNT(*) n FROM referral_wallet_claim WHERE expires_at<=?",
+            (now,),
+        ).fetchone()["n"])
+        if not dry_run:
+            db.execute(
+                "DELETE FROM referral_wallet_claim WHERE expires_at<=?",
+                (now,),
+            )
+    return count
+
+
 def _purge_inactive_suppressions(*, dry_run: bool, db_path: Path | str | None = None) -> int:
     privacy_suppression.init_db(db_path)
     cutoff = _cutoff(CNIL_OPPOSITION_MIN_DAYS)
@@ -694,6 +718,9 @@ def run_once(
         elif rule_id == "mobile_vehicle_claims":
             cutoff_at = _now_iso()
             removed = _purge_mobile_claims(dry_run=dry_run)
+        elif rule_id == "referral_wallet_claims":
+            cutoff_at = _now_iso()
+            removed = _purge_referral_wallet_claims(dry_run=dry_run)
         elif rule_id == "inactive_privacy_suppressions":
             cutoff_at = _cutoff(CNIL_OPPOSITION_MIN_DAYS)
             removed = _purge_inactive_suppressions(dry_run=dry_run, db_path=db_path)
