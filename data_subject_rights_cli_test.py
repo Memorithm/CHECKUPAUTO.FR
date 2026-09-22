@@ -105,6 +105,46 @@ class DataSubjectRightsCliTest(unittest.TestCase):
             {"error": "invalid_or_unauthorized_request", "ok": False},
         )
 
+    def test_prove_contract_fails_closed_without_explicit_privacy_evidence(self):
+        payload = {
+            "requestId": "e" * 32,
+            "installationId": "33333333-3333-4333-8333-333333333333",
+            "mercureSubjectRef": "account:customer-private",
+            "contractRef": "appointment-private",
+        }
+        output = io.StringIO()
+        with mock.patch.object(
+            cli.data_subject_rights,
+            "bind_mercure_from_mobile",
+            return_value={
+                "bound": True,
+                "adapter": "mercure_customer_contact",
+                "provenance": "mobile_vehicle_binding",
+                "bindingCount": 1,
+                "rawSubjectReferencePersisted": False,
+            },
+        ), mock.patch.object(
+            cli.rights_subject_bindings,
+            "bind_contract_from_mercure",
+            return_value={
+                "bound": True,
+                "adapter": "compliance_contracts",
+                "provenance": "mercure_appointment",
+                "appointmentMatchCount": 1,
+                "checkoutAcceptanceCount": 1,
+            },
+        ):
+            code = cli.main(
+                ["prove-contract"],
+                stdin=io.StringIO(json.dumps(payload)),
+                stdout=output,
+            )
+        self.assertEqual(code, 2)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {"error": "invalid_or_unauthorized_request", "ok": False},
+        )
+
     def test_oversized_stdin_is_rejected_before_proof_calls(self):
         output = io.StringIO()
         oversized = '{"padding":"' + ("x" * cli.MAX_STDIN_BYTES) + '"}'
