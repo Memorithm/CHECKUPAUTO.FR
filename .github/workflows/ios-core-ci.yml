@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           tmp_key="$RUNNER_TEMP/checkupauto-mac-key"
           auth_file=".ios-mac-auth"
-          rm -f "$tmp_key" "$auth_file"
+          rm -f "$tmp_key" "$auth_file" .ios-mac-key
           umask 077
 
           verify_key() {
@@ -57,22 +57,31 @@ jobs:
               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
           }
 
+          resolved=""
           if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
             printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
-            verify_key "$tmp_key" || {
-              echo '::error::Configured CHECKUPAUTO_MAC_SSH_KEY is not authorized on the Mac mini'
-              exit 2
-            }
-            printf '%s\n' key > "$auth_file"
-          elif timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+            if verify_key "$tmp_key"; then
+              resolved="$tmp_key"
+            else
+              echo '::warning::Configured CHECKUPAUTO_MAC_SSH_KEY is not authorized; trying runner-provisioned identities'
+              rm -f "$tmp_key"
+            fi
+          fi
+
+          if [ -z "$resolved" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 \
+            -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
             printf '%s\n' default > "$auth_file"
-          else
-            source_key=""
+          fi
+
+          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
             for candidate in \
               /root/.ssh/checkupauto_macmini_ed25519 \
               "$HOME/.ssh/checkupauto_macmini_ed25519" \
               /opt/actions-runner/.ssh/checkupauto_macmini_ed25519 \
+              /root/.ssh/remoteops_thor_ed25519 \
+              "$HOME/.ssh/remoteops_thor_ed25519" \
+              /opt/actions-runner/.ssh/remoteops_thor_ed25519 \
               /root/.ssh/id_ed25519 \
               "$HOME/.ssh/id_ed25519" \
               /opt/actions-runner/.ssh/id_ed25519 \
@@ -80,31 +89,34 @@ jobs:
               "$HOME/.ssh/id_rsa" \
               /opt/actions-runner/.ssh/id_rsa; do
               if verify_key "$candidate"; then
-                source_key="$candidate"
+                resolved="$candidate"
                 break
               fi
             done
-            if [ -z "$source_key" ]; then
-              while IFS= read -r candidate; do
-                if verify_key "$candidate"; then
-                  source_key="$candidate"
-                  break
-                fi
-              done < <(
-                find /root/.ssh /opt/actions-runner /home -maxdepth 4 -type f \
-                  \( -name '*macmini*' -o -name 'checkupauto*ed25519' -o -name 'id_ed25519' -o -name 'id_rsa' \) \
-                  -readable -print 2>/dev/null || true
-              )
-            fi
-            if [ -z "$source_key" ]; then
-              echo '::error::No authorized Mac mini SSH identity is available. Configure the CHECKUPAUTO_MAC_SSH_KEY Actions secret or provision a private key on the internal runner.'
+          fi
+
+          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
+            while IFS= read -r candidate; do
+              if verify_key "$candidate"; then
+                resolved="$candidate"
+                break
+              fi
+            done < <(
+              find /root/.ssh "$HOME/.ssh" /opt/actions-runner/.ssh /home \
+                -maxdepth 4 -type f -readable -print 2>/dev/null | sort -u || true
+            )
+          fi
+
+          if [ ! -s "$auth_file" ]; then
+            if [ -z "$resolved" ]; then
+              echo '::error::No authorized Mac mini SSH identity is available on the internal runner'
               exit 2
             fi
-            cp "$source_key" "$tmp_key"
+            if [ "$resolved" != "$tmp_key" ]; then
+              cp "$resolved" "$tmp_key"
+            fi
             chmod 600 "$tmp_key"
             printf '%s\n' key > "$auth_file"
-          fi
-          if [ -s "$tmp_key" ]; then
             printf '%s\n' "$tmp_key" > .ios-mac-key
           fi
       - name: Verify remote Apple toolchain
@@ -170,5 +182,4 @@ jobs:
           if [ -n "$key" ]; then
             rm -f "$key"
           fi
-          rm -f .ios-mac-key .ios-remote-dir
-          rm -f .ios-mac-auth
+          rm -f .ios-mac-key .ios-remote-dir .ios-mac-auth
