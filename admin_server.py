@@ -628,13 +628,13 @@ class Handler(SimpleHTTPRequestHandler):
    except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/claims/consume':
- try:
-  ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
-  if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
-  result=mobile_claim_dispatch.consume_with_authoritative_refresh(self._read_json())
-  return self.send_json(result,200)
- except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
- except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
+   try:
+    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+    result=mobile_claim_dispatch.consume_with_authoritative_refresh(self._read_json())
+    return self.send_json(result,200)
+   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
+   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/inventory':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
