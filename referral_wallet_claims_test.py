@@ -43,10 +43,12 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         payload.update(changes)
         return claims.consume(payload)
 
-    def test_issue_persists_only_token_hash(self):
+    def test_issue_persists_only_token_hash_in_dedicated_namespace(self):
         issued = claims.issue(self.account["code"])
         token = issued["claimToken"]
-        self.assertGreaterEqual(len(token), 32)
+        self.assertTrue(token.startswith("rw_"))
+        self.assertEqual(issued["claimType"], "referral_wallet")
+        self.assertGreaterEqual(len(token), 35)
         self.assertTrue(issued["singleUse"])
         self.assertFalse(issued["rawTokenPersisted"])
         with analytics.connect() as db:
@@ -62,6 +64,7 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         result = self._consume(token)
         self.assertTrue(result["ok"])
         self.assertEqual(result["accountId"], self.account["id"])
+        self.assertEqual(result["claimType"], "referral_wallet")
         self.assertEqual(result["provenance"], "authenticated_mobile_wallet_claim")
         self.assertTrue(claims.ownership_matches(self.account["id"], self.installation))
         with analytics.connect() as db:
@@ -101,6 +104,11 @@ class ReferralWalletClaimsTest(unittest.TestCase):
             })
         self.assertTrue(self._consume(issued["claimToken"])["ok"])
 
+    def test_non_wallet_token_namespace_is_rejected(self):
+        token = "x" * 43
+        with self.assertRaises(ValueError):
+            self._consume(token)
+
     def test_second_installation_cannot_take_over_bound_wallet(self):
         first_token = claims.issue(self.account["code"])["claimToken"]
         self._consume(first_token)
@@ -129,8 +137,9 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self._consume(token)
 
-    def test_expired_claim_is_rejected_without_creating_owner(self):
+    def test_expired_claim_is_rejected_and_physically_retired(self):
         token = claims.issue(self.account["code"])["claimToken"]
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
         with analytics.connect() as db:
             db.execute(
                 "UPDATE referral_wallet_claim SET expires_at='2000-01-01T00:00:00+00:00'"
@@ -139,7 +148,12 @@ class ReferralWalletClaimsTest(unittest.TestCase):
             self._consume(token)
         with analytics.connect() as db:
             owner_count = db.execute("SELECT COUNT(*) n FROM referral_wallet_owner").fetchone()["n"]
+            pending = db.execute(
+                "SELECT COUNT(*) n FROM referral_wallet_claim WHERE token_hash=?",
+                (token_hash,),
+            ).fetchone()["n"]
         self.assertEqual(owner_count, 0)
+        self.assertEqual(pending, 0)
 
     def test_new_claim_revokes_previous_pending_claim(self):
         first = claims.issue(self.account["code"])["claimToken"]
@@ -153,6 +167,8 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         before = claims.capability()
         self.assertEqual(before["liveClaimCount"], 1)
         self.assertEqual(before["ownerEvidenceCount"], 0)
+        self.assertEqual(before["claimType"], "referral_wallet")
+        self.assertEqual(before["claimTokenPrefix"], "rw_")
         self.assertNotIn(self.account["id"], str(before))
         self.assertNotIn(self.installation, str(before))
         self._consume(token)
