@@ -215,7 +215,7 @@ def build(root: Path, sha: str) -> bytes:
         raise ValueError('An exact source commit SHA is required')
     source = public_bytes(root, 'index.html', 256 * 1024).decode('utf-8')
     # A real production QR must not be presented as a functioning demo download.
-    source, count = re.subn(r'<a class="app-qr-card"\b.*?</a>', '<div class="preview-app-card"><strong>APPLICATION IPHONE</strong><br>Présentation visuelle uniquement.<br>Le téléchargement et les notifications nécessitent l’application publiée et le serveur.</div>', source, flags=re.S)
+    source, count = re.subn(r'<a class="app-qr-card"\s.*?</a>', '<div class="preview-app-card"><strong>APPLICATION IPHONE</strong><br>Présentation visuelle uniquement.<br>Le téléchargement et les notifications nécessitent l’application publiée et le serveur.</div>', source, flags=re.S)
     if count != 1:
         raise ValueError('Expected application card was not found')
     source, count = re.subn(r'(<div class="booking-intro">.*?<p>).*?</p>', r'\1Parcours interactif simulé. Tous les créneaux ci-dessous sont fictifs ; aucune réservation ni réduction ne sera enregistrée dans Mercure.</p>', source, count=1, flags=re.S)
