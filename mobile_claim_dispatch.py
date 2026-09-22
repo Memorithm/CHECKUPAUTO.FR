@@ -8,6 +8,7 @@ import referral_wallet_claims
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 _REFERRAL_WALLET_PREFIX = "rw_"
+_VEHICLE_PREFIX = "vc_"
 
 
 def claim_kind(token: object) -> str:
@@ -21,8 +22,10 @@ def consume(payload: dict) -> dict:
     """Consume a typed mobile claim without mixing claim trust domains.
 
     Vehicle and referral-wallet claims deliberately keep independent validators and
-    storage. This dispatcher classifies only the reserved token namespace, then lets
-    the owning subsystem authenticate the installation and validate the claim.
+    storage. New vehicle tokens use the reserved ``vc_`` namespace while legacy
+    vehicle tokens remain classifiable as vehicle during migration. Wallet tokens
+    are always routed to the dedicated ``rw_`` trust domain and are never allowed
+    to fall through to the vehicle store.
     """
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
@@ -52,7 +55,9 @@ def capability() -> dict:
     return {
         "bound": True,
         "claimTypes": ["vehicle", "referral_wallet"],
+        "vehicleTokenPrefix": _VEHICLE_PREFIX,
         "walletTokenPrefix": _REFERRAL_WALLET_PREFIX,
+        "legacyVehicleTokensAccepted": True,
         "sharedEndpointReady": False,
         "rawClaimTokenPersisted": False,
     }
