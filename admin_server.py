@@ -12,6 +12,7 @@ import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
 import mobile_bootstrap as mobile_bootstrap
 import mobile_devices as mobile_devices
+import mobile_claim_dispatch as mobile_claim_dispatch
 import mobile_claim_delivery as mobile_claim_delivery
 import mobile_authoritative_sync as mobile_authoritative_sync
 import mobile_reminder_dispatch as mobile_reminder_dispatch
@@ -627,18 +628,13 @@ class Handler(SimpleHTTPRequestHandler):
    except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/claims/consume':
-   try:
-    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
-    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
-    payload=self._read_json()
-    result=mobile_devices.consume_vehicle_claim(payload)
-    try:
-     mobile_authoritative_sync.sync_installation(str(payload.get('installationId') or ''))
-    except Exception:
-     pass
-    return self.send_json(result,200)
-   except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
-   except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
+ try:
+  ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
+  if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
+  result=mobile_claim_dispatch.consume_with_authoritative_refresh(self._read_json())
+  return self.send_json(result,200)
+ except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
+ except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/inventory':
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
