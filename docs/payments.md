@@ -1,94 +1,134 @@
-# Paiements CheckupAuto — PayPal et VAD Crédit Mutuel
+# Paiements CheckupAuto — PayPal direct et Payline / Monext
 
-État de cette tranche : fondation technique sandbox, non raccordée au checkout.
-Date de recherche et de validation locale : 22 septembre 2026.
+État : fondations sandbox, non raccordées au checkout. Aucune transaction réelle.
+Mise à jour : 22 septembre 2026.
+
+## Plateforme bancaire identifiée : Payline / Monext, pas Monetico
+
+La fiche de raccordement fournie par le commerçant indique explicitement **Payline Monext** et la devise EUR. Le fournisseur bancaire à intégrer pour ce contrat est donc Payline / Monext. Le nom de la banque acquéreuse ne permet pas de déduire le protocole technique à employer.
+
+L'adaptateur Monetico de la première tranche reste une bibliothèque sandbox distincte, **non sélectionnée pour ce contrat**. Ce n'est pas un adaptateur Payline. Il ne faut ni lui injecter les références de cette fiche, ni réutiliser son MAC ou son format de notification comme s'ils étaient compatibles avec Payline.
+
+La fiche originale, son image, le SIRET et ses références TPE/BIN/NLSA/3DS ne sont pas copiés dans le dépôt. Les fixtures de tests sont entièrement synthétiques. Le présent document en conserve seulement la conclusion technique utile.
+
+La fiche distingue un TPE libellé « Merchant Id » et un identifiant Mastercard. Elle ne suffit pas à établir la correspondance avec le **merchantId API Payline**, ni le **contractNumber** configuré dans le compte Payline. Ces correspondances doivent être vérifiées auprès du centre d'administration ou du support, pas devinées à partir des libellés ou du format des chiffres. Elle ne contient pas d'Access Key API explicitement identifiée, et ne prouve pas l'activation des services API, du compte d'homologation, d'Apple Pay, de PayPal via Payline ou d'un mode d'encaissement donné.
 
 ## Périmètre effectivement codé
 
-`payment_core.py` fournit les valeurs monétaires en centimes entiers, les intentions de paiement et un journal SQLite privé explicitement fourni par l'appelant. La création est idempotente par réservation ; changer le prestataire, le montant ou l'empreinte des CGV pour cette même réservation est refusé. Une référence prestataire ne peut pas être réaffectée. Les notifications répétées sont dédupliquées de façon persistante. Une autorisation ne devient jamais une capture par simple changement de libellé.
+### Socle et connecteurs antérieurs
 
-`payment_paypal.py` fournit un client OAuth et Orders v2 limité à `api-m.sandbox.paypal.com`. Il prépare une commande, contrôle son URL d'approbation sandbox, effectue une capture avec un identifiant d'idempotence propre à l'opération et vérifie le marchand, l'ordre, la référence interne, la devise EUR, le montant et la capture complète. Une notification n'est acceptée qu'après vérification de sa signature par l'API PayPal et relecture authentifiée de l'ordre. Les certificats fournis dans les notifications ne sont pas téléchargés par notre serveur.
+`payment_core.py` fournit les montants en centimes entiers, les intentions et un journal SQLite privé. La création est idempotente par réservation ; une modification incohérente de prestataire, montant ou empreinte de CGV est refusée. Les références prestataires sont uniques et immuables, les événements répétés dédupliqués, les états autorisé et capturé distincts.
 
-`payment_monetico.py` prépare un formulaire vers la page hébergée de test, signe tous les champs selon la méthode MAC documentée et vérifie les notifications serveur à serveur. Le code sandbox `payetest` est enregistré comme `authorized`, pas comme argent capturé ou crédité sur le compte bancaire. Les champs bruts du callback ne sont pas conservés dans le journal.
+`payment_paypal.py` contient le client sandbox OAuth / Orders v2, le contrôle des URL d'approbation, la capture avec identifiant d'idempotence et la validation ordre/marchand/référence/devise/montant. La vérification d'un webhook est suivie d'une relecture authentifiée de l'ordre. Les réponses sont minimisées ; les certificats transmis dans les notifications ne sont pas téléchargés par notre serveur.
 
-Les 43 tests de `payment_connectors_test.py` ont été exécutés localement. Ils utilisent exclusivement des identités synthétiques, un secret de test explicite et des transports PayPal simulés. Le vecteur MAC UTF-8 est également calculé indépendamment avec OpenSSL. Cette validation n'est PAS un échange réussi avec un compte PayPal ou un TPE Monetico.
+`payment_monetico.py` reste le connecteur de test Monetico précédemment développé. Sa présence ne sélectionne aucune banque et ne valide pas le contrat Payline. Le socle `Intent` / `SandboxJournal` n'accepte encore que les fournisseurs `paypal` et `monetico` : l'ajout de Payline et la migration de son schéma ne sont **pas** réalisés par la présente tranche. Ne pas renommer un fournisseur existant dans une base ni réinterpréter ses anciens événements.
 
-La fonction `payment_core.capability()` expose des indicateurs fermés : `livePaymentsEnabled=false`, `checkoutBound=false`, `httpCallbacksBound=false`, `refundsBound=false`, `merchantSecretsConfigured=false`. Ils décrivent cette tranche, pas un diagnostic d'un coffre de production.
+La PR #222 a ajouté 43 tests de paiement et sa CI a exécuté 985 tests avec succès. C'est une preuve historique de cette tranche, pas le nombre garanti de la suite courante. Aucun échange bancaire authentifié n'avait été effectué.
 
-Aucun serveur, tunnel Cloudflare, port réseau, formulaire public, paiement réel, compte marchand ou configuration bancaire n'est créé ou modifié. La démonstration HTML sur le T430 demeure sans paiement réel.
+### Configuration Payline nouvellement préparée
 
-## Offres bancaires à ne pas confondre
+`payment_payline_config.py` fournit :
 
-Le Crédit Mutuel présente Monetico Online Starter et Premium pour le paiement sur Internet. Sa grille commerciale de juin 2026 mentionne CB/Visa/Mastercard, Apple Pay et PayPal dans les deux formules, avec des modes d'encaissement plus étendus dans Premium. Les options disponibles restent celles du contrat réellement souscrit ; leur présence dans cette grille ne les active pas dans CheckupAuto.
+- une configuration explicite avec `environment`, `merchantId`, `accessKey`, `contractNumber` et `publicOrigin` ;
+- le refus des champs inconnus, des alias de la fiche acquéreur, des valeurs mal formées et des environnements autres que `sandbox` ;
+- la conservation des identifiants comme chaînes, y compris leurs zéros initiaux ;
+- un endpoint WebPayment fixé à l'homologation, non fourni par le navigateur ;
+- la préparation de l'authentification HTTP Basic attendue, uniquement pour un futur transport TLS ;
+- un compte rendu local qui n'expose aucun identifiant ni secret et conserve tous les indicateurs opérationnels à false.
 
-PayPal direct et PayPal proposé dans Monetico sont deux intégrations possibles, pas deux encaissements à exécuter pour une commande. Le journal interdit pour l'instant le changement de prestataire d'une même intention ; une bascule après échec nécessitera une procédure explicite de rapprochement et de révocation.
+Les limites de longueur et de caractères sont des politiques d'entrée bornées du projet, pas une attestation de validité du compte. `configurationSyntaxValid=true` ne signifie jamais que le secret fonctionne ou que le contrat est actif. Le code ne peut pas détecter qu'un opérateur a manuellement recopié une mauvaise valeur dans un champ correctement nommé : la vérification fournisseur reste indispensable.
 
-Une option VAD sur un TPE physique ou une offre par lien de paiement n'établit pas automatiquement un contrat d'intégration Monetico compatible avec ce code. L'intitulé exact de l'offre, la caisse/fédération, l'environnement de test et les options contractuelles sont à confirmer. Aucune API Pay Pro n'est supposée ni inventée.
+Le module ne lit aucun coffre, aucune variable d'environnement et aucune fiche bancaire. Il ne contacte pas Monext, n'implémente pas encore doWebPayment/getWebPaymentDetails et n'est pas raccordé aux routes HTTP, au journal ou au back-office. Aucun statut « paiement autorisé », « capturé » ou « remboursé » ne peut provenir de ce simple préflight.
 
-Source commerciale officielle, Crédit Mutuel, juin 2026 :
-https://www.creditmutuel.fr/fr/professionnels/comptes/monetico-paiement.html
-https://www.creditmutuel.fr/fr/professionnels/comptes/monetico-online-premium.html
+Les en-têtes retournés par `authentication_headers()` contiennent un secret encodé : **ne jamais les journaliser, les envoyer au navigateur ou les sauvegarder dans Git**. Base64 n'est pas un chiffrement. `repr(config)` masque les valeurs, mais ce masquage ne remplace pas la protection des objets en mémoire ni un coffre adapté.
 
-## Références techniques et limite de validation
+Quatorze nouveaux tests locaux ont réussi sur Python 3.13 : séparation des champs API et acquéreur, refus du réel, conservation des zéros, authentification correcte, origine HTTPS, masquage des valeurs et absence d'effet réseau. Ils n'utilisent aucun paramètre réel du commerçant.
 
-PayPal, documentation Orders v2 et webhooks consultée le 22 septembre 2026 :
+## Accès à préparer avec Monext
+
+Les données à obtenir depuis le **compte marchand Payline**, séparément pour les tests, sont :
+
+| Paramètre | Origine / rôle |
+| --- | --- |
+| `merchantId` | Identifiant du compte commerçant API Payline, à confirmer dans le centre d'administration. |
+| `accessKey` | Secret d'API de cet environnement ; à déposer exclusivement dans un coffre privé. |
+| `contractNumber` | Contrat du moyen de paiement configuré et rattaché à ce compte. |
+| Environnement | Compte d'homologation et contrat de test disponibles ; ne pas supposer que des références de production fonctionnent en test. |
+| Origine HTTPS | Instance applicative capable de traiter les retours et notifications ; la démonstration HTML seule ne remplit pas ce rôle. |
+
+Les codes banque, BIN, NLSA, ERT et références d'authentification carte sont à conserver pour le raccordement par les acteurs concernés. Leur présence ne remplace pas les trois paramètres API ci-dessus et ne doit pas conduire à inventer leur correspondance.
+
+La première question opérationnelle est l'accès au centre d'administration Payline / Monext et à son environnement d'homologation. Aucune clé, aucun mot de passe ni numéro de carte ne doit être demandé dans une conversation. Ne pas régénérer un secret de production déjà utilisé sans inventorier ses consommateurs et préparer leur rotation.
+
+## Parcours Payline à implémenter
+
+La cible est une page de paiement hébergée par le prestataire, sans collecte du PAN/CVV sur CheckupAuto. Les droits précis et le kit courant du compte doivent encore être confirmés.
+
+1. Établir côté serveur la réservation, son prix réellement applicable et une preuve d'acceptation des CGV.
+2. Créer l'intention persistante et appeler **doWebPayment** avec les paramètres du compte d'homologation.
+3. Conserver la liaison de l'intention au token émis par Payline avant la redirection du client.
+4. Au retour navigateur **ou** à réception d'une notification, demander **getWebPaymentDetails** avec ce token. La notification n'est qu'un signal de relecture : aucun statut ni montant fourni par le navigateur ou le callback n'est accepté comme preuve de paiement.
+5. Vérifier l'identité du contrat, la référence de commande, le montant, la devise, le résultat et la nature autorisation/capture avant une transition durable et idempotente.
+6. Rapprocher paiement et réservation, traiter les réponses perdues et les compensations, puis confirmer au client une seule fois.
+
+La documentation Monext précise qu'un résultat final doit être récupéré dès le retour du client, sans attendre une notification. Cette dernière sert aussi au cas où le client ne revient pas. Les deux chemins doivent converger vers le même traitement idempotent.
+
+PayPal direct reste un canal séparé. PayPal proposé par Payline, Apple Pay ou un paiement fractionné ne sont pas activés par déduction à partir de la fiche bancaire. Une même commande ne doit jamais déclencher deux encaissements concurrents auprès de prestataires différents.
+
+## Frontières de confiance et limites communes
+
+`Quote` est une valeur interne : elle ne prouve ni l'identité du payeur, ni l'existence du créneau, ni le consentement. Le futur adaptateur doit vérifier la réservation et son tarif côté serveur. Un montant, une remise ou une empreinte de CGV fournis par le navigateur ne sont jamais suffisants.
+
+Les catégories actuellement représentées sont `technical` jusqu'à 8000 centimes et `fitted` jusqu'à 9000. Ces plafonds permettent les remises autorisées mais n'en prouvent pas la légitimité. Les autres prestations restent hors du parcours en ligne.
+
+`VerifiedEvent` est une valeur interne, pas une preuve cryptographique inviolable. Seul un vérificateur prestataire peut en produire un pour `_apply_verified`. Aucun JSON public ne doit être converti directement en cet objet. Un retour navigateur n'est jamais une preuve de règlement.
+
+Les bases, journaux et clés demeurent hors racine Web. Ne pas enregistrer les réponses complètes, le contexte de facturation, les données carte ou les en-têtes d'autorisation dans les traces. Les références et empreintes ne sont pas qualifiées d'anonymes : conservation et droits RGPD restent à raccorder.
+
+Une autorisation n'est pas une capture ; une capture n'est pas une preuve de règlement bancaire définitif ni d'absence de litige. Remboursements, réversions, contestations et rapprochement restent nécessaires avant exploitation réelle.
+
+`booking_bridge.py` transfère encore le client vers Mercure après acceptation locale des CGV. Aucun maintien atomique du créneau pendant un paiement n'est prouvé. Une capture suivie d'une réservation impossible nécessite une compensation vérifiée, jamais une réussite fictive. Le choix entre paiement intégral, acompte et règlement au centre reste une décision métier à valider.
+
+## Feuille de route et critères de sortie
+
+1. **Compte Payline et contrat.** Confirmer accès, environnement, identifiant API, rattachement du contrat et droits autorisation/capture/remboursement. Ne pas utiliser la fiche comme credential.
+2. **Transport Payline sandbox.** Implémenter le protocole documenté, bornes des corps/temps, TLS, erreurs minimisées, contrôle des redirections et lecture authentifiée des résultats. Ajouter le fournisseur au journal avec migration testée sans altérer les données PayPal/Monetico existantes.
+3. **Liaison Mercure/prix/CGV.** Prouver le devis, la remise, le créneau et l'acceptation, couvrir expiration et échec de réservation. Définir les compensations avant toute offre publique d'encaissement.
+4. **Reprises persistantes et routes sandbox.** Traiter les pannes entre appel réseau et écriture locale, doubles clics, notifications répétées/retardées/perdues. Pour PayPal, ne pas supposer que PayPal-Request-ID offre une idempotence illimitée. Sessions, CSRF, droits d'accès, limites de débit et boîte de réception durable doivent précéder l'exposition.
+5. **Annulations et rapprochement.** Implémenter remboursements complets/partiels bornés par le réellement capturé, réversions, litiges et contrôle périodique. Les accusés de réception seuls ne sont pas des récepteurs HTTP achevés.
+6. **Back-office Paiements.** Séparer configuration test/production, ne jamais renvoyer un secret, afficher transactions et anomalies minimisées, soumettre les remboursements aux droits/MFA et à l'audit ; intégrer export comptable et conservation/droits RGPD.
+7. **Recette puis production distincte.** Effectuer des échanges authentifiés de test avec les comptes dédiés, rapprocher le résultat du centre d'administration, tester interruption et restauration, puis obtenir la validation du commerçant avant le réel. Aucun test simulé ne remplace cette recette.
+
+Aucun de ces éléments ne modifie le T430, OwnCloud, la démonstration, ses tunnels ou les blocages de contractualisation publique existants.
+
+## Références primaires
+
+Monext, documentation consultée le 22 septembre 2026 :
+
+- API Key, authentification HTTP Basic par merchantId/accessKey : https://api-docs.retail.monext.com/docs/api-key
+- Intégration pas à pas, compte d'homologation et distinction merchantID/merchantAccesskey/contractNumber : https://docs.monext.fr/spaces/DT/pages/747146908
+- Endpoints SOAP et homologation WebPayment : https://docs.monext.fr/spaces/DT/pages/747146806
+- doWebPaymentRequest, page mise à jour le 16 mai 2025 : https://docs.monext.fr/spaces/DT/pages/747145165
+- getWebPaymentDetailsResponse : https://docs.monext.fr/spaces/DT/pages/747145170
+- Notification par URL, page mise à jour le 5 juillet 2024 : https://docs.payline.com/spaces/DT/pages/747147276
+
+Les mentions SSL V3 présentes dans certaines anciennes pages ne constituent pas notre politique TLS : la future connexion HTTPS doit employer une pile TLS maintenue avec vérification de certificat, sans dégradation vers SSL obsolète.
+
+PayPal, références de l'adaptateur antérieur :
 https://developer.paypal.com/api/orders/v2/orders-create
 https://developer.paypal.com/api/orders/v2/orders-capture
 https://developer.paypal.com/api/rest/webhooks/rest/
 
-Monetico : base de protocole vérifiée dans la documentation technique Euro-Information v2.0, février 2025, version filaire `3.0`, sections 1.4.2, 1.4.3, 9.3, 9.5 et 9.8 :
+Monetico, référence historique de l'adaptateur non sélectionné pour ce contrat (Euro-Information v2.0, février 2025, version filaire 3.0) :
 https://www.monetico-paiement.fr/fr/info/documentations/Monetico_Paiement_documentation_technique_v2.0.pdf
-
-Le formulaire utilise la page complète hébergée, sans numéro de carte ni cryptogramme. Le contexte de facturation attendu est obligatoire ; aucun renseignement client manquant n'est inventé. La clé MAC est convertie depuis sa représentation hexadécimale en octets et couvre tous les champs, sauf MAC, triés par nom et encodés en UTF-8. Aucun repli vers l'ancien MAC positionnel n'est accepté.
-
-Le kit actuel livré avec le contrat devra être comparé à cette base AVANT de déclarer l'intégration bancaire validée. Le téléchargement du kit courant n'a pas été validé dans cette tranche. Les pages officielles de distribution sont :
-https://www.monetico.com/online/fr/espace-developpeur.html
-https://www.monetico.com/online/fr/support-technique.html
-
-## Frontières de confiance
-
-`Quote` est une valeur INTERNE. Ses contrôles de type et son empreinte de CGV ne prouvent ni l'identité du payeur, ni l'existence du créneau, ni le consentement. Le futur adaptateur devra vérifier la réservation côté serveur, son prix réellement applicable et une acceptation enregistrée. Ne jamais construire Quote directement depuis un montant ou un hash fournis par le navigateur.
-
-Les plages `technical` jusqu'à 8000 centimes et `fitted` jusqu'à 9000 permettent de représenter les réductions existantes. Elles n'autorisent pas une remise arbitraire : son montant devra être prouvé depuis le parcours tarifaire serveur/Mercure. Les autres catégories demeurent exclues.
-
-`VerifiedEvent` est également une valeur INTERNE et non une attestation cryptographique inviolable. Seuls les vérificateurs prestataires peuvent en produire une pour appeler `_apply_verified`. Une route HTTP ne doit jamais convertir un JSON client en VerifiedEvent ni appeler directement `capture_evidence` sur ce JSON.
-
-Une URL de retour navigateur ne constitue pas une preuve de règlement. Les futures pages de retour liront uniquement l'état serveur. L'URL de notification Monetico devra être enregistrée séparément auprès de la banque ; `url_retour_ok` ne la remplace pas.
-
-Un `COMPLETED` PayPal accepté représente une capture selon l'API, pas une garantie d'absence de remboursement ou de contestation ultérieure. Les événements de remboursement, litige, réversion et règlement bancaire sont encore hors périmètre et doivent précéder l'exploitation réelle.
-
-Le journal et les clés sont hors racine Web. Ne jamais journaliser les réponses prestataires complètes, les en-têtes d'autorisation, le formulaire bancaire et son contexte de facturation, ou les corps bruts des notifications. Les empreintes et références de paiement ne sont pas présentées comme des données anonymes : leur conservation et les droits applicables devront être intégrés aux moteurs RGPD existants.
-
-## Parcours existant et chantier à raccorder
-
-`booking_bridge.py` transmet encore l'utilisateur vers Mercure après le contrôle local des CGV. Cette tranche ne prouve pas de réservation atomique d'un créneau pendant un paiement. Il faut donc définir puis vérifier l'ordre exact des opérations avant de proposer l'encaissement.
-
-Cible de travail : devis serveur et preuve de CGV → réservation ou maintien vérifié du créneau → intention persistée → prestataire choisi → confirmation serveur authentifiée → rapprochement paiement/réservation → confirmation client idempotente. Une capture suivie d'une réservation impossible nécessite une compensation, jamais une réussite fictive.
-
-Le choix métier entre règlement intégral, acompte et paiement au centre n'est pas décidé par ce code. L'activation d'un règlement intégral de contrôle technique devra être explicitement validée. Le prépaiement d'un service n'est pas automatiquement la confirmation d'un rendez-vous Mercure.
-
-## Feuille de route et critères de sortie
-
-1. **Liaison réservation/prix/CGV.** Ajouter l'adaptateur de confiance sans modifier le prix depuis le navigateur ; couvrir créneau expiré, remise réelle, modification de CGV, échec Mercure et réservation préexistante. Documenter le maintien de créneau disponible ou son absence. Aucun encaissement public tant que le scénario de compensation n'est pas défini et testé.
-2. **Exécution persistante et reprises.** Ajouter les opérations create/capture en cours, les délais, le rapprochement prestataire et les cas de panne entre appel réseau et écriture SQLite. La stabilité de PayPal-Request-ID n'est pas une garantie d'idempotence illimitée dans le temps. Ne jamais recréer silencieusement un ordre après une réponse perdue ou une fenêtre fournisseur expirée.
-3. **Routes sandbox et expérience client.** Raccorder les sessions, CSRF, limites de débit et de taille, l'authentification des droits d'accès, les pages de retour et une origine HTTPS stable. Prévoir une boîte de réception durable des notifications et un traitement compatible avec les délais des prestataires ; la séquence de relecture PayPal n'est pas à exécuter sans limite dans une réponse HTTP synchrone. Un callback bancaire correctement signé mais incohérent avec la commande doit être isolé et rapproché, sans être déclaré payé ni confondu avec un MAC invalide. Le générateur d'accusé de réception seul n'est pas un récepteur HTTP achevé.
-4. **Gestion des opérations.** Ajouter annulation, remboursement complet et partiel bornés par le total réellement capturé, réversions, litiges, rapprochement périodique et retour après panne. Confirmer les modes Monetico souscrits et la différence autorisation/capture/remise.
-5. **Back-office Paiements.** Fournir configuration séparée test/production, état des connecteurs, listes et détail minimisés, liens de rapprochement, remboursement soumis aux droits administrateur/MFA et audit. Ne jamais renvoyer un secret enregistré au navigateur. Ajouter export comptable et intégration conservation/droits RGPD sans exposer le registre financier publiquement.
-6. **Recette prestataires puis production.** Utiliser de vrais comptes sandbox dédiés, des événements issus de transactions sandbox et le kit du TPE souscrit. Vérifier les notifications répétées, retardées et perdues, les retours sans notification, le double clic, l'interruption réseau, la restauration du journal et les remboursements. Les événements du simulateur webhook PayPal ne remplacent pas une recette avec signature vérifiable. Activer le réel dans une tranche distincte seulement après ces preuves et validation du commerçant.
 
 ## Validation développeur
 
-Aucun secret n'est requis pour ces tests :
+Aucune clé n'est nécessaire :
 
 ```bash
-python3 -m unittest -v payment_connectors_test
-python3 -m compileall -q payment_core.py payment_paypal.py payment_monetico.py
+python3 -m unittest -v payment_payline_config_test payment_connectors_test
+python3 -m compileall -q payment_payline_config.py payment_core.py payment_paypal.py payment_monetico.py
 ```
 
-La Security CI existante découvre `*_test.py` et exécute donc aussi ces tests. Les résultats de la CI et le SHA fusionné doivent être consultés dans la PR ; le nombre de tests local ne prouve pas le succès de toute la suite du dépôt.
-
-## Préparation des accès — sans les communiquer dans une conversation
-
-À préparer ensuite dans un coffre privé : pour PayPal, compte Business de test, application sandbox, identifiant marchand et identifiant de webhook ; pour Monetico, TPE/code société et clé du contrat de test. Les identifiants synthétiques des tests ne sont pas utilisables auprès des prestataires.
-
-La première information à obtenir du commerçant est l'intitulé exact du contrat VAD et son état de souscription. Aucun mot de passe, aucune clé, aucun numéro de carte n'est nécessaire pour cette clarification.
+La Security CI découvre tous les fichiers `*_test.py`. Son résultat doit être vérifié au SHA de la PR puis après fusion. Les indicateurs du module Payline restent fermés même lorsque tous ces tests passent.
