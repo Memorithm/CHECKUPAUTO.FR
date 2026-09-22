@@ -64,10 +64,61 @@ class MobileClaimDispatchTest(unittest.TestCase):
         wallet.assert_not_called()
         vehicle.assert_not_called()
 
+    def test_vehicle_claim_refreshes_authoritative_inventory_after_consumption(self):
+        payload = {**self.identity, "claimToken": "vc_" + "D" * 40}
+        vehicle_result = {
+            "ok": True,
+            "bindingId": "22222222-2222-4222-8222-222222222222",
+            "claimedAt": "2026-09-22T06:00:00+00:00",
+        }
+        with mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim", return_value=vehicle_result) as vehicle, \
+             mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation", return_value={"ok": True}) as sync:
+            result = dispatch.consume_with_authoritative_refresh(payload)
+        vehicle.assert_called_once_with(payload)
+        sync.assert_called_once_with(self.identity["installationId"])
+        self.assertEqual(result["claimType"], "vehicle")
+
+    def test_wallet_claim_never_triggers_authoritative_vehicle_refresh(self):
+        payload = {**self.identity, "claimToken": "rw_" + "C" * 43}
+        wallet_result = {
+            "ok": True,
+            "accountId": "33333333-3333-4333-8333-333333333333",
+            "claimedAt": "2026-09-22T06:00:00+00:00",
+            "provenance": "authenticated_mobile_wallet_claim",
+        }
+        with mock.patch.object(dispatch.referral_wallet_claims, "consume", return_value=wallet_result) as wallet, \
+             mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation") as sync:
+            result = dispatch.consume_with_authoritative_refresh(payload)
+        wallet.assert_called_once_with(payload)
+        sync.assert_not_called()
+        self.assertEqual(result["claimType"], "referral_wallet")
+
+    def test_vehicle_claim_survives_best_effort_refresh_failure(self):
+        payload = {**self.identity, "claimToken": "vc_" + "E" * 40}
+        vehicle_result = {
+            "ok": True,
+            "bindingId": "22222222-2222-4222-8222-222222222222",
+            "claimedAt": "2026-09-22T06:00:00+00:00",
+        }
+        with mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim", return_value=vehicle_result), \
+             mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation", side_effect=RuntimeError("upstream unavailable")):
+            result = dispatch.consume_with_authoritative_refresh(payload)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["claimType"], "vehicle")
+        self.assertEqual(result["bindingId"], vehicle_result["bindingId"])
+
+    def test_malformed_payload_never_triggers_authoritative_refresh(self):
+        payload = {**self.identity, "claimToken": "rw_short"}
+        with mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation") as sync:
+            with self.assertRaises(ValueError):
+                dispatch.consume_with_authoritative_refresh(payload)
+        sync.assert_not_called()
+
     def test_capability_is_explicitly_not_http_bound_yet(self):
         capability = dispatch.capability()
         self.assertTrue(capability["bound"])
         self.assertEqual(capability["claimTypes"], ["vehicle", "referral_wallet"])
+        self.assertTrue(capability["vehicleAuthoritativeRefreshBound"])
         self.assertFalse(capability["sharedEndpointReady"])
         self.assertFalse(capability["rawClaimTokenPersisted"])
 
