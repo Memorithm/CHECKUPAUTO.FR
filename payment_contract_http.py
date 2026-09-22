@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -47,7 +48,7 @@ def handle(handler, *, secret: str) -> bool:
             return reject("payments_origin_not_allowed", 403)
         supplied = handler.headers.get("X-CheckupAuto-Payments-CSRF", "")
         current = int(time.time() // 3600)
-        if not isinstance(supplied, str) or len(supplied) != 64 or not any(
+        if not isinstance(supplied, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied) or not any(
             hmac.compare_digest(supplied, csrf_token(secret, handler.headers, hour)) for hour in (current, current - 1)
         ):
             return reject("payments_csrf_invalid", 403)
