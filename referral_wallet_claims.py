@@ -17,6 +17,7 @@ _CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 _CLAIM_PREFIX = "rw_"
 _DEFAULT_TTL_SECONDS = 1800
 _MAX_TTL_SECONDS = 86400
+_MAX_WALLETS_PER_INSTALLATION = 16
 
 
 def _now() -> datetime.datetime:
@@ -157,6 +158,11 @@ def consume(payload: dict) -> dict:
     Ownership is established only by possession of both the installation's
     registration secret and a fresh one-time wallet claim. The referral code is
     deliberately not accepted as ownership evidence because it is shareable.
+
+    A single installation is deliberately bounded to the same maximum number of
+    wallets accepted by the iOS read model. This keeps the server-side ownership
+    graph and the mobile validation boundary consistent and prevents an otherwise
+    valid installation from accumulating an unbounded wallet collection.
     """
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
@@ -205,6 +211,15 @@ def consume(payload: dict) -> dict:
             ).fetchone()
             if owner and not hmac.compare_digest(str(owner["installation_hash"]), installation_hash):
                 raise PermissionError("propriété de cagnotte déjà établie")
+            if not owner:
+                owned_count = int(
+                    db.execute(
+                        "SELECT COUNT(*) n FROM referral_wallet_owner WHERE installation_hash=?",
+                        (installation_hash,),
+                    ).fetchone()["n"]
+                )
+                if owned_count >= _MAX_WALLETS_PER_INSTALLATION:
+                    raise PermissionError("limite de cagnottes mobiles atteinte")
 
             evidence = {
                 "accountIdHash": _hash(account_id),
@@ -285,6 +300,7 @@ def capability() -> dict:
         "claimTokenPrefix": _CLAIM_PREFIX,
         "claimEntropyBits": 256,
         "singleUseClaims": True,
+        "maxWalletsPerInstallation": _MAX_WALLETS_PER_INSTALLATION,
         "rawClaimTokenPersisted": False,
         "rawInstallationPersisted": False,
         "ownerEvidenceCount": owner_count,
