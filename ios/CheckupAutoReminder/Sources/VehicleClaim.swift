@@ -5,6 +5,11 @@ enum MobileClaimKind: Equatable, Sendable {
     case referralWallet
 }
 
+struct MobileClaim: Equatable, Sendable {
+    let kind: MobileClaimKind
+    let token: String
+}
+
 enum MobileClaimToken {
     private static let allowed = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
@@ -92,6 +97,11 @@ enum MobileClaimLink {
             throw VehicleClaimError.invalidLink
         }
         return try MobileClaimToken.validated(raw)
+    }
+
+    static func claim(from url: URL) throws -> MobileClaim {
+        let token = try token(from: url)
+        return MobileClaim(kind: try MobileClaimToken.kind(of: token), token: token)
     }
 }
 
