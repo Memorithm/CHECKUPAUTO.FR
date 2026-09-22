@@ -15,6 +15,13 @@ import withdrawal_service
 
 
 REGISTER_REVIEW_CONFIRMATION = "CURRENT-REGISTERS-REVIEWED"
+PROCESSING_REVIEW_FIELDS = {
+    "activityId",
+    "expectedActivityHash",
+    "securityStatus",
+    "privacyStatus",
+    "evidence",
+}
 
 
 def attest_operational_registers(
@@ -46,6 +53,53 @@ def attest_operational_registers(
         "reviewedAt": str(state.get("reviewedAt") or ""),
         "evidenceHash": str(state.get("evidenceHash") or ""),
         "attestationCount": int(state.get("attestationCount") or 0),
+    }
+
+
+def review_high_risk_processing(
+    payload: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Record one bounded security/privacy review from the admin trust boundary.
+
+    The caller must submit the exact activity digest that was reviewed. Raw
+    review evidence is forwarded to the core only long enough to derive its
+    SHA-256 digest and is never reflected in the admin response.
+    """
+    if not isinstance(payload, dict) or set(payload) != PROCESSING_REVIEW_FIELDS:
+        raise ValueError("payload de revue de traitement invalide")
+
+    activity_id = str(payload.get("activityId") or "").strip()
+    state = processing_risk_review.record_review(
+        activity_id,
+        expected_activity_hash=payload.get("expectedActivityHash"),
+        security_status=payload.get("securityStatus"),
+        privacy_status=payload.get("privacyStatus"),
+        evidence=payload.get("evidence"),
+        db_path=db_path,
+    )
+    row = next(
+        (
+            item
+            for item in state.get("activities", [])
+            if str(item.get("activityId") or "") == activity_id
+        ),
+        None,
+    )
+    if row is None:
+        raise RuntimeError("preuve de revue de traitement indisponible")
+
+    return {
+        "activityId": str(row.get("activityId") or ""),
+        "name": str(row.get("name") or ""),
+        "currentActivityHash": str(row.get("currentActivityHash") or ""),
+        "reviewedActivityHash": str(row.get("reviewedActivityHash") or ""),
+        "securityStatus": str(row.get("securityStatus") or ""),
+        "privacyStatus": str(row.get("privacyStatus") or ""),
+        "stale": bool(row.get("stale")),
+        "reviewedAt": str(row.get("reviewedAt") or ""),
+        "sourceEvidenceHash": str(row.get("sourceEvidenceHash") or ""),
+        "reviewEvidenceHash": str(row.get("reviewEvidenceHash") or ""),
     }
 
 
