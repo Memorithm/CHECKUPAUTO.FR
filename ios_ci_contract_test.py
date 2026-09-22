@@ -39,6 +39,11 @@ class IOSCIContractTest(unittest.TestCase):
         self.assertIn('rm -f "$key"', text)
         self.assertIn("rm -f .ios-mac-key .ios-remote-dir .ios-mac-auth", text)
 
+    def test_remote_apple_toolchain_includes_homebrew_path_and_fails_fast(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"', text)
+        self.assertIn("'set -euo pipefail; export PATH=", text)
+
     def test_xcode_ci_reuses_release_runner_simulator_discovery(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("tar -czf - ios/CheckupAutoReminder ios_release_runner.py", text)
