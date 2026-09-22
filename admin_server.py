@@ -38,6 +38,7 @@ import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
 import data_subject_rights as data_subject_rights
+import rights_execution_dispatch as rights_execution_dispatch
 import withdrawal_service as withdrawals
 import retention_enforcement as retention_enforcement
 ROOT=Path(__file__).resolve().parent
@@ -738,11 +739,7 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/compliance/request-execute':
    try:
     payload=self._read_json()
-    result=data_subject_rights.execute(
-      payload.get('id'),payload.get('subjectRef'),
-      adapter=str(payload.get('adapter') or ''),
-      purpose=str(payload.get('purpose') or ''),
-    )
+    result=rights_execution_dispatch.execute(payload)
     return self.send_json({'ok':True,'execution':result})
    except LookupError: return self.send_json({'ok':False,'error':'compliance_request_not_found'},404)
    except PermissionError: return self.send_json({'ok':False,'error':'compliance_subject_ref_denied'},403)
