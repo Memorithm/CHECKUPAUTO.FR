@@ -19,6 +19,11 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _retired_code(account_id: str) -> str:
+    """Return a non-shareable deterministic tombstone for a retired wallet code."""
+    return "erased:" + _hash("referral-wallet-code:" + account_id)
+
+
 def _retention_state(db_path: Path | str | None = None) -> dict:
     state = retention_enforcement.policy(RETENTION_RULE_ID, db_path)
     ready = bool(state.get("ready")) and bool(state.get("legalReviewConfirmed"))
@@ -111,17 +116,19 @@ def _retire_account(account_id: str, installation_id: str, checkpoint_verified: 
 
     Erasure is deliberately refused while the wallet has a non-zero balance or a
     pending reward. That prevents a privacy operation from silently destroying a
-    monetary entitlement or debt. Once financially neutral, the shareable code is
-    disabled, pending ownership claims are revoked and mobile ownership evidence is
-    removed atomically from the analytics database. Ledger/reward history remains
-    under the separately configured, legally reviewed retention policy.
+    monetary entitlement or debt. Once financially neutral, the public referral
+    code and terminal attribution tokens are pseudonymized, pending ownership
+    claims are revoked, and mobile ownership evidence is removed atomically.
+    Provider/reward and ledger history remains under the separately configured,
+    legally reviewed retention policy.
     """
     referral_wallet_claims.init_db()
     expected_owner = _hash(installation_id)
+    retired_code = _retired_code(account_id)
     with analytics.connect() as db:
         db.execute("BEGIN IMMEDIATE")
         account = db.execute(
-            "SELECT active FROM referral_accounts WHERE id=?",
+            "SELECT active,code FROM referral_accounts WHERE id=?",
             (account_id,),
         ).fetchone()
         if not account:
@@ -192,15 +199,34 @@ def _retire_account(account_id: str, installation_id: str, checkpoint_verified: 
                 (account_id,),
             ).fetchone()["n"]
         )
-        was_active = bool(account["active"])
+        attribution_tokens = int(
+            db.execute(
+                """SELECT COUNT(*) n FROM referral_rewards
+                   WHERE account_id=? AND attribution_token<>''""",
+                (account_id,),
+            ).fetchone()["n"]
+        )
+        code_already_retired = str(account["code"]) == retired_code
 
-        db.execute("UPDATE referral_accounts SET active=0 WHERE id=?", (account_id,))
+        db.execute(
+            "UPDATE referral_accounts SET active=0,code=? WHERE id=?",
+            (retired_code, account_id),
+        )
+        db.execute(
+            """UPDATE referral_rewards
+               SET referral_code=?,attribution_token=''
+               WHERE account_id=?""",
+            (retired_code, account_id),
+        )
         db.execute("DELETE FROM referral_wallet_claim WHERE account_id=?", (account_id,))
         db.execute("DELETE FROM referral_wallet_owner WHERE account_id=?", (account_id,))
 
     return {
-        "accountDeactivated": was_active,
-        "ownershipReleased": owners,
+        "accountDeactivated": True,
+        "referralCodePseudonymized": True,
+        "referralCodeChanged": not code_already_retired,
+        "attributionTokensCleared": attribution_tokens,
+        "ownershipReleased": owners if owners else (1 if checkpoint_verified else 0),
         "pendingClaimsRevoked": pending_claims,
         "balanceCentsAtErasure": 0,
         "pendingRewardsAtErasure": 0,
@@ -239,6 +265,8 @@ def capability(db_path: Path | str | None = None) -> dict:
         "noPendingRewardsRequired": True,
         "ownershipReleasedOnExecution": True,
         "futureReferralUseDisabled": True,
+        "shareableReferralCodePseudonymized": True,
+        "terminalAttributionTokensCleared": True,
         "financialHistoryRetainedUntilPolicyProcessing": True,
         "rawIdentifiersPersistedByErasureCheckpoint": False,
         "finalPhysicalPurgeComplete": False,
