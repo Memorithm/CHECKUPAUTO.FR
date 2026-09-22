@@ -36,6 +36,22 @@ function fillDocument(type){
  $('#complianceDocBody').value=row?.body||'';
  $('#complianceDocState').textContent=row?(row.status+' · '+(row.contentHash?.slice(0,12)||'—')):'Aucune version';
 }
+function rightsExecutionPayload(requestId){
+ const adapter=$('#complianceRightAdapter').value;
+ const payload={id:requestId,subjectRef:$('#complianceRightExecutionRef').value,adapter:adapter};
+ if(adapter==='privacy_suppression')payload.purpose=$('#complianceRightPurpose').value;
+ if(adapter==='referral_wallet')payload.accountId=$('#complianceRightAccountId').value;
+ if(adapter==='mobile_deadline_rectification')payload.correction={deadlineId:$('#complianceRightDeadlineId').value,dueDate:$('#complianceRightDueDate').value};
+ return payload
+}
+function updateRightsExecutor(){
+ const adapter=$('#complianceRightAdapter')?.value||'';
+ const purpose=$('#complianceRightPurposeWrap'),wallet=$('#complianceRightWalletWrap'),rectification=$('#complianceRightRectificationWrap'),hint=$('#complianceRightSubjectHint');
+ if(purpose)purpose.hidden=adapter!=='privacy_suppression';
+ if(wallet)wallet.hidden=adapter!=='referral_wallet';
+ if(rectification)rectification.hidden=adapter!=='mobile_deadline_rectification';
+ if(hint)hint.textContent=(adapter==='referral_wallet'||adapter==='mobile_deadline_rectification')?'UUID de l’installation mobile ayant créé la demande.':'Référence du sujet correspondant à la demande.';
+}
 function render(){
  if(!snapshot)return;
  const s=snapshot.summary||{}, settings=snapshot.settings||{};
@@ -61,6 +77,7 @@ function render(){
  const cookies=snapshot.cookies?.registry||[];
  $('#complianceCookieRows').innerHTML=cookies.length?cookies.map(row=>'<tr><td>'+esc(row.key)+'</td><td>'+esc(row.provider)+'</td><td>'+esc(row.category)+'</td><td>'+(row.essential?'Exempté/nécessaire':'Consentement')+'</td><td>'+(row.enabled?'Actif':'Inactif')+'</td><td>'+esc(row.durationDays)+' j</td></tr>').join(''):'<tr><td colspan="6">Aucun traceur enregistré. La mesure actuelle reste cookieless.</td></tr>';
  const rights=snapshot.rightsRequests||[],audit=snapshot.rightsExecutionAudit||[];
+ updateRightsExecutor();
  $('#complianceRightsRows').innerHTML=rights.length?rights.map(row=>{
   const executed=audit.filter(item=>item.requestId===row.id);
   const execText=executed.length?executed.map(item=>esc(item.adapter)+' / '+esc(item.action)).join('<br>'):'Aucun adaptateur exécuté';
@@ -120,12 +137,7 @@ function render(){
  }).join('');
  document.querySelectorAll('.compliance-execute-right').forEach(b=>b.onclick=async()=>{
   try{
-   const result=await api('/api/admin/compliance/request-execute',{
-    id:b.dataset.id,
-    adapter:$('#complianceRightAdapter').value,
-    subjectRef:$('#complianceRightExecutionRef').value,
-    purpose:$('#complianceRightPurpose').value
-   });
+   const result=await api('/api/admin/compliance/request-execute',rightsExecutionPayload(b.dataset.id));
    const data=result.execution?.data;
    if(data){
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -133,7 +145,7 @@ function render(){
     a.href=url;a.download='checkupauto-rgpd-'+b.dataset.id+'-'+($('#complianceRightAdapter').value||'export')+'.json';
     document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
    }
-   $('#complianceRightExecutionRef').value='';
+   $('#complianceRightExecutionRef').value='';$('#complianceRightAccountId').value='';$('#complianceRightDeadlineId').value='';$('#complianceRightDueDate').value='';
    await load();setMessage(data?'Export généré et téléchargé.':'Adaptateur RGPD exécuté.');
   }catch(e){setMessage(e.message,true)}
  });
@@ -174,6 +186,7 @@ $('#complianceCookieSave')?.addEventListener('click',async()=>{
   });await load();setMessage('Registre des traceurs mis à jour.');
  }catch(e){setMessage(e.message,true)}
 });
+$('#complianceRightAdapter')?.addEventListener('change',updateRightsExecutor);
 $('#complianceRightCreate')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/request',{type:$('#complianceRightType').value,subjectRef:$('#complianceRightRef').value,notes:$('#complianceRightNotes').value});$('#complianceRightRef').value='';$('#complianceRightNotes').value='';await load();setMessage('Demande RGPD enregistrée avec échéance à un mois.')}catch(e){setMessage(e.message,true)}
 });
