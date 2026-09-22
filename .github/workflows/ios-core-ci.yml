@@ -16,12 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mac-mini:
-    name: Mac mini validation
+  swift-and-xcode:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    continue-on-error: true
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 30
     env:
@@ -156,52 +154,20 @@ jobs:
         if: always()
         run: |
           set -u
+          key=""
+          if [ -s .ios-mac-key ]; then
+            key="$(cat .ios-mac-key)"
+          fi
           if [ -s .ios-mac-auth ] && [ -s .ios-remote-dir ]; then
             ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-            if [ "$(cat .ios-mac-auth)" = key ] && [ -s .ios-mac-key ]; then
-              ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+            if [ "$(cat .ios-mac-auth)" = key ] && [ -n "$key" ]; then
+              ssh_args+=(-i "$key" -o IdentitiesOnly=yes)
             fi
             remote_dir="$(cat .ios-remote-dir)"
             ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
               "rm -rf '$remote_dir'" || true
           fi
-          if [ -s .ios-mac-key ]; then
-            rm -f "$(cat .ios-mac-key)"
+          if [ -n "$key" ]; then
+            rm -f "$key"
           fi
           rm -f .ios-mac-key .ios-mac-auth .ios-remote-dir
-
-  hosted-apple-validation:
-    name: Hosted Apple validation
-    runs-on: macos-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v5
-      - name: Verify Apple toolchain
-        run: |
-          set -euo pipefail
-          sw_vers
-          xcodebuild -version
-          swift --version
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
-          xcodegen --version
-      - name: Run Swift package tests
-        run: |
-          set -euo pipefail
-          cd ios/CheckupAutoReminder
-          swift package resolve
-          swift test --parallel
-      - name: Generate Xcode project and run simulator tests
-        run: |
-          set -euo pipefail
-          destination="$(python3 -c 'import ios_release_runner as r; print(r.discover_simulator()["destination"])')"
-          cd ios/CheckupAutoReminder
-          xcodegen generate
-          xcodebuild test \
-            -project CheckupAutoReminder.xcodeproj \
-            -scheme CheckupAutoReminder \
-            -configuration Debug \
-            -destination "$destination" \
-            -derivedDataPath "$RUNNER_TEMP/CheckupAutoDerivedData" \
-            CODE_SIGNING_ALLOWED=NO
