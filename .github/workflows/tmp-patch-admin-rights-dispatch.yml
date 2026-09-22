@@ -17,12 +17,16 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: feat/admin-rights-dispatch-http
+      - name: Create isolated Python environment
+        run: |
+          python3 -m venv .tmp-rights-venv
+          .tmp-rights-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Apply bounded source patch
-        run: python3 scripts/tmp_patch_admin_rights_dispatch.py
+        run: .tmp-rights-venv/bin/python scripts/tmp_patch_admin_rights_dispatch.py
       - name: Compile changed boundary and tests
-        run: python3 -m py_compile admin_server.py rights_execution_dispatch.py admin_rights_dispatch_api_test.py
+        run: .tmp-rights-venv/bin/python -m py_compile admin_server.py rights_execution_dispatch.py admin_rights_dispatch_api_test.py
       - name: Run targeted rights dispatch tests
-        run: python3 -m unittest rights_execution_dispatch_test.py admin_rights_dispatch_api_test.py
+        run: .tmp-rights-venv/bin/python -m unittest rights_execution_dispatch_test.py admin_rights_dispatch_api_test.py
       - name: Verify patch scope
         run: |
           git diff --check
