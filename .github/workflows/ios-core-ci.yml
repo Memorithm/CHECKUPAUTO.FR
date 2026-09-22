@@ -127,7 +127,7 @@ jobs:
             ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
           fi
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            'sw_vers; xcodebuild -version; xcodegen --version; swift --version'
+            'set -euo pipefail; export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; sw_vers; xcodebuild -version; xcodegen --version; swift --version'
       - name: Stage exact iOS source on Mac mini
         run: |
           set -euo pipefail
@@ -161,7 +161,7 @@ jobs:
           fi
           remote_dir="$(cat .ios-remote-dir)"
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
+            "set -euo pipefail; export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$PATH\"; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
       - name: Clean remote staging directory and ephemeral identity
         if: always()
         run: |
