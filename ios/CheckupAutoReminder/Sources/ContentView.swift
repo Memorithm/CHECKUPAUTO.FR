@@ -26,6 +26,13 @@ struct ContentView: View {
                     }
                 }
 
+                if let notice = model.claimNotice {
+                    Section("Rattachement") {
+                        Label(notice, systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                    }
+                }
+
                 if !model.authoritativeVehicles.isEmpty {
                     Section("Véhicules Checkup Auto") {
                         ForEach(model.authoritativeVehicles) { vehicle in
@@ -86,7 +93,7 @@ struct ContentView: View {
                 } header: {
                     Text("Données")
                 } footer: {
-                    Text("Supprime l’installation, ses rattachements véhicule, les véhicules enregistrés sur cet iPhone et les rappels programmés.")
+                    Text("Supprime l’installation, ses rattachements véhicule et cagnotte, les véhicules enregistrés sur cet iPhone et les rappels programmés.")
                 }
 
                 if let message = model.errorMessage {
@@ -107,7 +114,7 @@ struct ContentView: View {
                 }
             }
             .onOpenURL { url in
-                model.consumeVehicleClaim(url: url)
+                model.consumeMobileClaim(url: url)
             }
             .onReceive(NotificationCenter.default.publisher(for: DeviceRegistrationState.changedNotification)) { _ in
                 model.refreshRegistrationState()
@@ -122,7 +129,7 @@ struct ContentView: View {
                 }
                 Button("Annuler", role: .cancel) {}
             } message: {
-                Text("Cette action supprime aussi le rattachement véhicule côté Checkup Auto. Elle ne modifie pas les données réglementaires conservées dans Mercure.")
+                Text("Cette action supprime aussi les rattachements véhicule et cagnotte de cet iPhone côté Checkup Auto. Elle ne modifie pas les données réglementaires conservées dans Mercure.")
             }
             .sheet(isPresented: $showingAddVehicle) {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate in
