@@ -3,6 +3,7 @@ import XCTest
 
 final class VehicleClaimTests: XCTestCase {
     private let token = String(repeating: "A", count: 43)
+    private let walletToken = "rw_" + String(repeating: "B", count: 43)
 
     func testClaimRequestAcceptsOpaqueIdentityOnly() throws {
         let request = VehicleClaimRequest(
@@ -18,9 +19,23 @@ final class VehicleClaimTests: XCTestCase {
         ).validated())
     }
 
+    func testMobileClaimNamespaceDistinguishesVehicleAndReferralWallet() throws {
+        XCTAssertEqual(try MobileClaimToken.kind(of: token), .vehicle)
+        XCTAssertEqual(try MobileClaimToken.kind(of: walletToken), .referralWallet)
+        XCTAssertThrowsError(try MobileClaimToken.kind(of: "rw_short"))
+    }
+
+    func testVehicleClaimRejectsReferralWalletNamespace() throws {
+        XCTAssertThrowsError(try VehicleClaimToken.validated(walletToken))
+        XCTAssertNoThrow(try VehicleClaimToken.validated(token))
+    }
+
     func testClaimLinkRequiresCheckupAutoHttpsAndFragmentToken() throws {
         let valid = URL(string: "https://www.checkupauto.fr/app/claim#token=\(token)")!
         XCTAssertEqual(try VehicleClaimLink.token(from: valid), token)
+
+        let wallet = URL(string: "https://www.checkupauto.fr/app/claim#token=\(walletToken)")!
+        XCTAssertThrowsError(try VehicleClaimLink.token(from: wallet))
 
         let queryToken = URL(string: "https://www.checkupauto.fr/app/claim?token=\(token)")!
         XCTAssertThrowsError(try VehicleClaimLink.token(from: queryToken))

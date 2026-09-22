@@ -1,5 +1,30 @@
 import Foundation
 
+enum MobileClaimKind: Equatable, Sendable {
+    case vehicle
+    case referralWallet
+}
+
+enum MobileClaimToken {
+    private static let allowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+    )
+
+    static func validated(_ value: String) throws -> String {
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (32...128).contains(token.count),
+              token.unicodeScalars.allSatisfy(allowed.contains) else {
+            throw VehicleClaimError.invalidToken
+        }
+        return token
+    }
+
+    static func kind(of value: String) throws -> MobileClaimKind {
+        let token = try validated(value)
+        return token.hasPrefix("rw_") ? .referralWallet : .vehicle
+    }
+}
+
 struct VehicleClaimRequest: Codable, Equatable, Sendable {
     let installationId: String
     let registrationSecret: String
@@ -14,10 +39,11 @@ struct VehicleClaimRequest: Codable, Equatable, Sendable {
               registrationSecret.unicodeScalars.allSatisfy(identityChars.contains) else {
             throw VehicleClaimError.invalidIdentity
         }
+        let token = try VehicleClaimToken.validated(claimToken)
         return VehicleClaimRequest(
             installationId: installationId.lowercased(),
             registrationSecret: registrationSecret,
-            claimToken: try VehicleClaimToken.validated(claimToken)
+            claimToken: token
         )
     }
 }
@@ -45,14 +71,9 @@ enum VehicleClaimError: Error {
 }
 
 enum VehicleClaimToken {
-    private static let allowed = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
-    )
-
     static func validated(_ value: String) throws -> String {
-        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (32...128).contains(token.count),
-              token.unicodeScalars.allSatisfy(allowed.contains) else {
+        let token = try MobileClaimToken.validated(value)
+        guard try MobileClaimToken.kind(of: token) == .vehicle else {
             throw VehicleClaimError.invalidToken
         }
         return token
