@@ -26,6 +26,7 @@ import review_followup as reviews
 import integration_hub as integrations
 import referral_engine as referrals
 import referral_admin as referral_admin
+import referral_wallet_lifecycle as referral_wallet_lifecycle
 import reminder_engine as reminders
 import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
@@ -610,7 +611,7 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
-    return self.send_json(mobile_devices.delete_installation(self._read_json()),200)
+    return self.send_json(referral_wallet_lifecycle.delete_installation(self._read_json()),200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
   if path=='/api/mobile/devices/register':
