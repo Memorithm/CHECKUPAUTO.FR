@@ -84,6 +84,35 @@ function render(){
  const retentionAudit=retention.audit||[];
  $('#complianceRetentionAuditRows').innerHTML=retentionAudit.length?retentionAudit.map(row=>'<tr><td>'+new Date(row.createdAt).toLocaleString('fr-FR')+'</td><td>'+esc(row.ruleId)+'</td><td>'+esc(row.mode)+'</td><td>'+esc(row.removedCount)+'</td><td>'+esc(row.cutoffAt||'—')+'</td><td>'+esc((row.evidenceHash||'').slice(0,16))+'</td></tr>').join(''):'<tr><td colspan="6">Aucune exécution.</td></tr>';
  fillRetentionPolicy();
+ const registerReview=snapshot.operationalRegisterAttestation||{};
+ const registerState=$('#complianceRegisterReviewState');
+ if(registerState){
+  const label=registerReview.current?'À JOUR':(registerReview.stale?'OBSOLÈTE':'À ATTESTER');
+  registerState.textContent=label;registerState.className='gsc-status '+(registerReview.current?'online':'warning');
+ }
+ if($('#complianceRegisterCurrentHash'))$('#complianceRegisterCurrentHash').value=registerReview.currentRegisterHash||'';
+ if($('#complianceRegisterAttestedHash'))$('#complianceRegisterAttestedHash').value=registerReview.attestedRegisterHash||'';
+ if($('#complianceRegisterReviewedAt'))$('#complianceRegisterReviewedAt').textContent=registerReview.reviewedAt?new Date(registerReview.reviewedAt).toLocaleString('fr-FR'):'Jamais';
+ if($('#complianceRegisterAttest'))$('#complianceRegisterAttest').disabled=!registerReview.currentRegisterHash||!!registerReview.current;
+ const processingReview=snapshot.processingRiskReview||{};
+ const processingState=$('#complianceProcessingReviewState');
+ if(processingState){processingState.textContent=processingReview.ready?'PRÊT':String(processingReview.blockerCount||0)+' BLOQUEUR(S)';processingState.className='gsc-status '+(processingReview.ready?'online':'warning')}
+ const processingRows=processingReview.activities||[];
+ $('#complianceProcessingReviewRows').innerHTML=processingRows.length?processingRows.map(row=>{
+  const reviewed=row.reviewedActivityHash||'—',reviewedAt=row.reviewedAt?new Date(row.reviewedAt).toLocaleString('fr-FR'):'Jamais';
+  const state=row.stale?'OBSOLÈTE':reviewedAt;
+  const sec=['in_progress','approved','changes_required'].includes(row.securityStatus)?row.securityStatus:'in_progress';
+  const priv=['in_progress','approved','changes_required'].includes(row.privacyStatus)?row.privacyStatus:'in_progress';
+  return '<tr><td>'+esc(row.name||row.activityId)+'</td><td>'+esc(row.securityStatus||'not_reviewed')+'</td><td>'+esc(row.privacyStatus||'not_reviewed')+'</td><td><code>'+esc(row.currentActivityHash||'')+'</code></td><td><code>'+esc(reviewed)+'</code></td><td>'+esc(state)+'<br><button type="button" class="compact-action compliance-select-processing-review" data-id="'+esc(row.activityId)+'" data-hash="'+esc(row.currentActivityHash||'')+'" data-security="'+esc(sec)+'" data-privacy="'+esc(priv)+'">Revoir</button></td></tr>';
+ }).join(''):'<tr><td colspan="6">Aucun traitement actif à risque élevé.</td></tr>';
+ document.querySelectorAll('.compliance-select-processing-review').forEach(button=>button.onclick=()=>{
+  $('#complianceProcessingActivityId').value=button.dataset.id||'';
+  $('#complianceProcessingExpectedHash').value=button.dataset.hash||'';
+  $('#complianceProcessingSecurityStatus').value=button.dataset.security||'in_progress';
+  $('#complianceProcessingPrivacyStatus').value=button.dataset.privacy||'in_progress';
+  $('#complianceProcessingEvidence').value='';
+  setMessage('Activité sélectionnée. Relisez le traitement correspondant à cette empreinte avant de soumettre la revue.');
+ });
  const docs=snapshot.documents||[];
  $('#complianceDocumentRows').innerHTML=Object.entries(types).map(([type,m])=>{
   const pub=docs.find(x=>x.type===type&&x.status==='published');
@@ -173,6 +202,30 @@ $('#complianceRetentionPurge')?.addEventListener('click',async()=>{
   const result=await api('/api/admin/compliance/retention-run',{dryRun:false,confirm:'PURGE'});
   const removed=(result.retentionRun?.rules||[]).reduce((sum,row)=>sum+Number(row.removedCount||0),0);
   await load();setMessage('Purge terminée · '+String(removed)+' enregistrement(s) supprimé(s).');
+ }catch(e){setMessage(e.message,true)}
+});
+$('#complianceRegisterAttest')?.addEventListener('click',async()=>{
+ if(!$('#complianceRegisterReviewConfirm').checked){setMessage('Confirmez explicitement la revue des registres avant l’attestation.',true);return}
+ const expected=$('#complianceRegisterCurrentHash').value;
+ if(!/^[0-9a-f]{64}$/.test(expected)){setMessage('Empreinte de registre invalide ou absente.',true);return}
+ try{
+  await api('/api/admin/compliance/register-attestation',{confirm:'CURRENT-REGISTERS-REVIEWED',expectedRegisterHash:$('#complianceRegisterCurrentHash').value});
+  $('#complianceRegisterReviewConfirm').checked=false;await load();setMessage('Revue des registres attestée pour l’empreinte affichée.');
+ }catch(e){setMessage(e.message,true)}
+});
+$('#complianceProcessingReviewSubmit')?.addEventListener('click',async()=>{
+ const activityId=$('#complianceProcessingActivityId').value,expected=$('#complianceProcessingExpectedHash').value,evidence=$('#complianceProcessingEvidence').value;
+ if(!activityId||!/^[0-9a-f]{64}$/.test(expected)){setMessage('Sélectionnez d’abord une activité et son empreinte courante.',true);return}
+ if(!evidence.trim()){setMessage('Une preuve de revue est requise et sera hachée côté serveur.',true);return}
+ try{
+  await api('/api/admin/compliance/processing-review',{
+   activityId:activityId,
+   expectedActivityHash:$('#complianceProcessingExpectedHash').value,
+   securityStatus:$('#complianceProcessingSecurityStatus').value,
+   privacyStatus:$('#complianceProcessingPrivacyStatus').value,
+   evidence:$('#complianceProcessingEvidence').value
+  });
+  $('#complianceProcessingEvidence').value='';await load();setMessage('Revue sécurité / vie privée enregistrée pour l’empreinte affichée.');
  }catch(e){setMessage(e.message,true)}
 });
 $('#complianceIncidentCreate')?.addEventListener('click',async()=>{
