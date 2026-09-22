@@ -37,6 +37,7 @@ import admin_mfa as admin_mfa
 import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
+import compliance_admin_http as compliance_admin_http
 import data_subject_rights as data_subject_rights
 import rights_execution_dispatch as rights_execution_dispatch
 import withdrawal_service as withdrawals
@@ -741,6 +742,11 @@ class Handler(SimpleHTTPRequestHandler):
    except PermissionError: return self.send_json({'ok':False,'error':'compliance_register_attestation_confirmation_required'},403)
    except RuntimeError: return self.send_json({'ok':False,'error':'compliance_register_attestation_conflict'},409)
    except Exception: return self.send_json({'ok':False,'error':'compliance_register_attestation_invalid'},400)
+  if path=='/api/admin/compliance/processing-review':
+   try: payload=self._read_json()
+   except Exception: return self.send_json({'ok':False,'error':'compliance_processing_review_invalid'},400)
+   status, body=compliance_admin_http.review_high_risk_processing(payload)
+   return self.send_json(body,status)
   if path=='/api/admin/compliance/request':
    try: return self.send_json({'ok':True,'request':compliance.create_rights_request(self._read_json())},201)
    except Exception: return self.send_json({'ok':False,'error':'compliance_request_invalid'},400)
