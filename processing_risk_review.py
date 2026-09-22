@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
 import json
@@ -14,6 +15,10 @@ REVIEW_STATUSES = {"in_progress", "approved", "changes_required"}
 _VOLATILE_ACTIVITY_FIELDS = {"createdAt", "updatedAt", "reviewOverdue"}
 _MAX_EVIDENCE_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
 def _activity_id(value: object) -> str:
@@ -124,7 +129,7 @@ def record_review(
     if not hmac.compare_digest(expected, current_hash):
         raise RuntimeError("l'activité a changé depuis la revue")
 
-    reviewed_at = compliance_operations._now_iso()
+    reviewed_at = _now_iso()
     evidence_payload = {
         "activityId": aid,
         "activityHash": current_hash,
