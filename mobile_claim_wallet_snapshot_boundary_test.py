@@ -34,9 +34,9 @@ class MobileClaimWalletSnapshotBoundaryTest(unittest.TestCase):
 
         self.assertIsNotNone(result)
         serialized = repr(result)
-        self.assertNotIn("accountId", serialized)
-        self.assertNotIn("appointmentId", serialized)
-        self.assertNotIn("internalTrace", serialized)
+        self.assertNotIn("internal-account-id", serialized)
+        self.assertNotIn("internal-appointment-id", serialized)
+        self.assertNotIn("must-not-cross-mobile-boundary", serialized)
         self.assertEqual(result["walletCount"], 1)
         self.assertEqual(
             set(result["wallets"][0]),
