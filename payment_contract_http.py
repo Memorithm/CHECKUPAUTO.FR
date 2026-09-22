@@ -7,6 +7,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
+import rights_completion_admin_route
 from payment_contract_store import (ContractStore, ContractInvalid, ContractConflict,
                                     MAX_BYTES, parse_json)
 
@@ -24,7 +25,12 @@ def handle(handler, *, secret: str) -> bool:
 
     Return False only for unrelated paths. The editor inherits the global request
     guard, header policy and no-store response helpers of admin_server.Handler.
+    The DSAR completion-plan mutation is delegated first because admin_server
+    calls this early adapter before its shared admin POST router.
     """
+    if rights_completion_admin_route.handle(handler):
+        return True
+
     parsed = urlsplit(handler.path)
     if parsed.path != ROUTE:
         return False
