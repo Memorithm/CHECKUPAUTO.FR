@@ -13,6 +13,41 @@ import rights_readiness
 import withdrawal_service
 
 
+REGISTER_REVIEW_CONFIRMATION = "CURRENT-REGISTERS-REVIEWED"
+
+
+def attest_operational_registers(
+    payload: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Create a register-review attestation from an explicit admin action.
+
+    This is the narrow application boundary intended for a future admin HTTP
+    route. It accepts only the digest that was displayed to the operator and an
+    explicit review confirmation. The underlying attestation primitive performs
+    the final digest comparison so a register edit between display and submit
+    fails closed.
+    """
+    if not isinstance(payload, dict) or set(payload) != {"confirm", "expectedRegisterHash"}:
+        raise ValueError("payload d'attestation invalide")
+    if str(payload.get("confirm") or "") != REGISTER_REVIEW_CONFIRMATION:
+        raise PermissionError("confirmation de revue requise")
+    expected_hash = str(payload.get("expectedRegisterHash") or "").strip().lower()
+    state = compliance_register_attestation.attest(
+        db_path,
+        expected_register_hash=expected_hash,
+    )
+    return {
+        "current": bool(state.get("current")),
+        "stale": bool(state.get("stale")),
+        "currentRegisterHash": str(state.get("currentRegisterHash") or ""),
+        "attestedRegisterHash": str(state.get("attestedRegisterHash") or ""),
+        "reviewedAt": str(state.get("reviewedAt") or ""),
+        "evidenceHash": str(state.get("evidenceHash") or ""),
+        "attestationCount": int(state.get("attestationCount") or 0),
+    }
+
+
 def snapshot(db_path: Path | str | None = None) -> dict:
     """Return the Compliance Center payload with operational-register evidence.
 
