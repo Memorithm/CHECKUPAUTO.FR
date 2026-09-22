@@ -15,6 +15,8 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, ARM64, internal]
+    env:
+      CYBERCHECK_DATA_DIR: ${{ runner.temp }}/checkupauto-security-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
       - name: Check tracked files for secrets
@@ -25,6 +27,10 @@ jobs:
         run: |
           python3 -m venv .ci-venv
           .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Prepare isolated runtime data
+        run: |
+          rm -rf "$CYBERCHECK_DATA_DIR"
+          install -d -m 700 "$CYBERCHECK_DATA_DIR"
       - name: Run Python unit tests
         run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
       - name: Check JavaScript syntax
@@ -45,3 +51,6 @@ jobs:
       - name: Verify no runtime-private paths are tracked
         run: |
           ! git ls-files | grep -E '(^|/)(private/|\.admin-password$|\.env($|\.)|.*\.(sqlite3?|db|log)$)'
+      - name: Clean isolated runtime data
+        if: always()
+        run: rm -rf "$CYBERCHECK_DATA_DIR"
