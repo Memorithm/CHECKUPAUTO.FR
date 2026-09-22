@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+import mobile_authoritative_sync
 import mobile_devices
 import referral_wallet_claims
 
@@ -51,6 +52,26 @@ def consume(payload: dict) -> dict:
     }
 
 
+def consume_with_authoritative_refresh(payload: dict) -> dict:
+    """Consume a typed claim and refresh Mercure data only for vehicle claims.
+
+    The public HTTP surface historically refreshed authoritative Mercure inventory
+    after a successful vehicle claim and treated refresh failures as best-effort.
+    Keep that behavior at this trust boundary while guaranteeing that referral
+    wallet claims never trigger a Mercure synchronization.
+    """
+    result = consume(payload)
+    if result.get("claimType") != "vehicle":
+        return result
+    try:
+        mobile_authoritative_sync.sync_installation(
+            str(payload.get("installationId") or "")
+        )
+    except Exception:
+        pass
+    return result
+
+
 def capability() -> dict:
     return {
         "bound": True,
@@ -58,6 +79,7 @@ def capability() -> dict:
         "vehicleTokenPrefix": _VEHICLE_PREFIX,
         "walletTokenPrefix": _REFERRAL_WALLET_PREFIX,
         "legacyVehicleTokensAccepted": True,
+        "vehicleAuthoritativeRefreshBound": True,
         "sharedEndpointReady": False,
         "rawClaimTokenPersisted": False,
     }
