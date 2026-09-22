@@ -1,0 +1,168 @@
+name: PlanetHoster staging deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Staging action
+        required: true
+        type: choice
+        options:
+          - probe
+          - install
+          - update
+          - rollback
+      sha:
+        description: Exact 40-character commit SHA
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: checkupauto-planethoster-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 20
+    env:
+      STAGING_HOST: nodels49-eu.n0c.com
+      STAGING_PORT: "5022"
+      STAGING_USER: eqcrhuya
+      STAGING_DOMAIN: test-v3.checkupauto.fr
+      STAGING_PRIVATE_ROOT: .checkupauto-staging-v3
+      STAGING_WEB_ROOT: test-v3.checkupauto.fr
+      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
+      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+      STAGING_ADMIN_PASSWORD_FILE: /opt/actions-runner/.checkupauto-staging-admin-password
+      CYBERCHECK_DEPLOYMENT_VAULT: /opt/actions-runner/.checkupauto-staging-vault
+    steps:
+      - name: Validate staging request against GitHub main
+        env:
+          DEPLOY_ACTION: ${{ inputs.action }}
+          DEPLOY_SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.parse
+          import urllib.request
+
+          action = os.environ["DEPLOY_ACTION"]
+          sha = os.environ["DEPLOY_SHA"]
+          if action not in {"probe", "install", "update", "rollback"}:
+              raise SystemExit("Unsupported staging action")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("Staging requires an exact 40-character lowercase commit SHA")
+
+          api = os.environ["GH_API"].rstrip("/")
+          repo = os.environ["GH_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+
+          def get(path, query=None):
+              url = f"{api}/repos/{repo}{path}"
+              if query:
+                  url += "?" + urllib.parse.urlencode(query)
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=15) as response:
+                  return json.load(response)
+
+          commit = get(f"/commits/{sha}")
+          verification = ((commit.get("commit") or {}).get("verification") or {})
+          if verification.get("verified") is not True:
+              raise SystemExit("Requested commit is not signature-verified by GitHub")
+
+          if action in {"install", "update"}:
+              branch = get("/branches/main")
+              if (branch.get("commit") or {}).get("sha") != sha:
+                  raise SystemExit("Install/update may deploy only the current main SHA")
+              runs = get(
+                  "/actions/workflows/security-ci.yml/runs",
+                  {
+                      "head_sha": sha,
+                      "event": "push",
+                      "status": "completed",
+                      "per_page": 20,
+                  },
+              ).get("workflow_runs") or []
+              if not any(
+                  run.get("head_sha") == sha
+                  and run.get("event") == "push"
+                  and run.get("status") == "completed"
+                  and run.get("conclusion") == "success"
+                  for run in runs
+              ):
+                  raise SystemExit("No successful push Security CI exists for the current main SHA")
+          print(f"Staging gate approved: action={action} sha={sha}")
+          PY
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify dedicated PlanetHoster SSH material
+        run: |
+          set -euo pipefail
+          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS" "$STAGING_ADMIN_PASSWORD_FILE"; do
+            test -f "$path" || { echo "::error::Missing staging material: $path"; exit 2; }
+            mode="$(stat -c '%a' "$path")"
+            case "$mode" in
+              400|600) ;;
+              *) echo "::error::Unsafe permissions on $path: $mode"; exit 2 ;;
+            esac
+          done
+          timeout 12 ssh             -p "$STAGING_PORT"             -i "$STAGING_KEY"             -o BatchMode=yes             -o IdentitiesOnly=yes             -o StrictHostKeyChecking=yes             -o UserKnownHostsFile="$STAGING_KNOWN_HOSTS"             "$STAGING_USER@$STAGING_HOST"             'printf "STAGING_SSH_OK\n"'
+
+      - name: Create isolated deploy controller environment
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/checkupauto-staging-venv"
+          "$RUNNER_TEMP/checkupauto-staging-venv/bin/pip"             install --disable-pip-version-check --quiet -r requirements.txt
+
+      - name: Configure isolated staging target
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/checkupauto-staging-target.json"
+          cat > "$target" <<JSON
+          {
+            "provider": "planethoster-n0c",
+            "host": "$STAGING_HOST",
+            "port": $STAGING_PORT,
+            "username": "$STAGING_USER",
+            "domain": "$STAGING_DOMAIN",
+            "rootPath": "$STAGING_PRIVATE_ROOT",
+            "webRootPath": "$STAGING_WEB_ROOT",
+            "authMode": "key"
+          }
+          JSON
+          "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py save             --name staging-v3             --target "$target"             --identity-file "$STAGING_KEY"
+
+      - name: Probe PlanetHoster staging
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py probe             --name staging-v3             --known-hosts "$STAGING_KNOWN_HOSTS"
+
+      - name: Execute staging action
+        if: inputs.action != 'probe'
+        env:
+          CYBERCHECK_DEPLOY_ADMIN_PASSWORD_FILE: ${{ env.STAGING_ADMIN_PASSWORD_FILE }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py "${{ inputs.action }}"             --name staging-v3             --known-hosts "$STAGING_KNOWN_HOSTS"             --sha "${{ inputs.sha }}"
