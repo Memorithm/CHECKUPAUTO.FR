@@ -24,18 +24,22 @@ SAMPLE_STATE = {
         {
             "adapter": "mobile_installation",
             "disposition": "required",
-            "executed": False,
-            "satisfied": False,
+            "executed": True,
+            "executionComplete": True,
+            "executionLimitation": "",
+            "satisfied": True,
             "justificationHash": "",
             "updatedAt": "2026-09-23T00:00:00+00:00",
             "rawJustification": "MUST-NOT-LEAK",
         },
         {
             "adapter": "referral_wallet",
-            "disposition": "not_applicable",
-            "executed": False,
-            "satisfied": True,
-            "justificationHash": "a" * 64,
+            "disposition": "required",
+            "executed": True,
+            "executionComplete": False,
+            "executionLimitation": "bounded_wallet_or_retained_erasure",
+            "satisfied": False,
+            "justificationHash": "",
             "updatedAt": "2026-09-23T00:00:00+00:00",
         },
     ],
@@ -69,7 +73,12 @@ class RightsCompletionAdminTest(unittest.TestCase):
         self.assertNotIn("MUST-NOT-LEAK", encoded)
         self.assertFalse(result["globalCoverageComplete"])
         self.assertFalse(result["closureReady"])
-        self.assertEqual(result["items"][1]["justificationHash"], "a" * 64)
+        self.assertTrue(result["items"][0]["executionComplete"])
+        self.assertEqual(
+            result["items"][1]["executionLimitation"],
+            "bounded_wallet_or_retained_erasure",
+        )
+        self.assertFalse(result["items"][1]["satisfied"])
 
     def test_configure_rejects_missing_or_extra_fields_before_core(self):
         for payload in (
@@ -106,6 +115,7 @@ class RightsCompletionAdminTest(unittest.TestCase):
         self.assertTrue(capability["configureReady"])
         self.assertFalse(capability["closureMutationExposed"])
         self.assertFalse(capability["globalCoverageComplete"])
+        self.assertTrue(capability["partialExecutionDoesNotSatisfyRequiredPlan"])
 
     def test_http_adapter_maps_conflicts_and_sanitizes_internal_errors(self):
         with mock.patch(
