@@ -179,6 +179,7 @@ class DataSubjectRightsTest(unittest.TestCase):
             adapter="mercure_customer_contact",
             db_path=self.compliance_db,
         )
+        snapshot.assert_called_once_with(subject_ref)
         self.assertEqual(result["format"], "application/json")
         self.assertEqual(result["data"]["provider"], "mercure")
         self.assertTrue(result["data"]["partial"])
