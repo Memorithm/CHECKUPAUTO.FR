@@ -43,6 +43,11 @@ def main() -> int:
         required=True,
         help="Confirmation explicite: CURRENT-REGISTERS-REVIEWED",
     )
+    attest.add_argument(
+        "--expected-hash",
+        required=True,
+        help="Empreinte SHA-256 affichée par attestation-status et effectivement revue.",
+    )
     activity = sub.add_parser("upsert-activity")
     activity.add_argument("json_file")
     processor = sub.add_parser("upsert-processor")
@@ -63,7 +68,12 @@ def main() -> int:
     elif args.command == "attest":
         if args.confirm != "CURRENT-REGISTERS-REVIEWED":
             parser.error("--confirm doit valoir CURRENT-REGISTERS-REVIEWED")
-        _print(register_attestation.attest(db))
+        _print(
+            register_attestation.attest(
+                db,
+                expected_register_hash=args.expected_hash,
+            )
+        )
     elif args.command == "upsert-activity":
         _print(operations.upsert_processing_activity(_payload(args.json_file), db))
     elif args.command == "upsert-processor":
