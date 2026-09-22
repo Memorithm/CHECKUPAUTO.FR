@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var authoritativeVehicles: [AuthoritativeVehicleDeadline] = []
     @Published var notificationAuthorized = false
     @Published var errorMessage: String?
+    @Published private(set) var claimNotice: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
     @Published private(set) var deletingAllData = false
@@ -99,21 +100,34 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func consumeVehicleClaim(url: URL) {
+    func consumeMobileClaim(url: URL) {
         Task {
             do {
-                let token = try VehicleClaimLink.token(from: url)
-                _ = try await VehicleClaimClient.consume(token: token)
-                installationRegistrationSuppressed =
-                    InstallationLifecycleState.isAutoRegistrationSuppressed()
-                await refreshAuthoritativeInventory()
-                if notificationAuthorized {
-                    registerForRemoteNotifications()
+                let claim = try MobileClaimLink.claim(from: url)
+                switch claim.kind {
+                case .vehicle:
+                    _ = try await VehicleClaimClient.consume(token: claim.token)
+                    installationRegistrationSuppressed =
+                        InstallationLifecycleState.isAutoRegistrationSuppressed()
+                    await refreshAuthoritativeInventory()
+                    if notificationAuthorized {
+                        registerForRemoteNotifications()
+                    }
+                    await rescheduleAll()
+                    claimNotice = "Véhicule rattaché à cet iPhone."
+                case .referralWallet:
+                    _ = try await ReferralWalletClaimClient.consume(token: claim.token)
+                    installationRegistrationSuppressed =
+                        InstallationLifecycleState.isAutoRegistrationSuppressed()
+                    if notificationAuthorized {
+                        registerForRemoteNotifications()
+                    }
+                    claimNotice = "Cagnotte rattachée à cet iPhone."
                 }
-                await rescheduleAll()
                 errorMessage = nil
             } catch {
-                errorMessage = "Ce lien de rattachement véhicule est invalide ou a expiré."
+                claimNotice = nil
+                errorMessage = "Ce lien de rattachement est invalide ou a expiré."
             }
         }
     }
@@ -143,6 +157,7 @@ final class AppModel: ObservableObject {
                 vehicles = []
                 authoritativeVehicles = []
                 remotePushRegistered = false
+                claimNotice = nil
                 installationRegistrationSuppressed =
                     InstallationLifecycleState.isAutoRegistrationSuppressed()
                 errorMessage = nil
