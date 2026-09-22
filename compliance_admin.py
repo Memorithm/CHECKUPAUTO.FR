@@ -8,6 +8,7 @@ import compliance_store
 import data_subject_rights
 import marketing_campaigns
 import marketing_consent
+import processing_risk_review
 import retention_enforcement
 import rights_readiness
 import withdrawal_service
@@ -61,6 +62,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     withdrawal = withdrawal_service.status(db_path)
     operations = compliance_operations.snapshot(db_path)
     register_attestation = compliance_register_attestation.status(db_path)
+    processing_reviews = processing_risk_review.status(db_path)
     rights_execution = rights_readiness.capability(db_path)
     retention = retention_enforcement.status(db_path)
     marketing = marketing_consent.capability(db_path)
@@ -97,6 +99,11 @@ def snapshot(db_path: Path | str | None = None) -> dict:
             }
         )
 
+    # High-risk processing requires separate security and privacy reviews bound
+    # to the exact activity content. A missing, non-approved or stale review is
+    # an operational blocker independent of the DPIA status itself.
+    blockers.extend(list(processing_reviews.get("blockers") or []))
+
     # Populated registers are not proof that a human review occurred. Readiness
     # therefore requires an attestation bound to the SHA-256 digest of the exact
     # current register content. Any subsequent substantive edit changes the
@@ -118,7 +125,12 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     operations_summary["blockers"] = blockers
     operations_summary["blockerCount"] = len(blockers)
     operations_summary["operationalRegistersReady"] = operations_ready
+    operations_summary["processingRiskReviewsReady"] = bool(processing_reviews.get("ready"))
+    operations_summary["processingRiskReviewBlockerCount"] = int(
+        processing_reviews.get("blockerCount") or 0
+    )
     operations["summary"] = operations_summary
+    operations["processingRiskReview"] = processing_reviews
 
     summary = dict(result.get("summary") or {})
     summary["withdrawalFunctionBound"] = bool(withdrawal.get("bound"))
@@ -136,6 +148,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
     summary["operationalRegisterAttestationCurrent"] = bool(register_attestation.get("current"))
+    summary["processingRiskReviewsReady"] = bool(processing_reviews.get("ready"))
 
     # Recompute the public-contracting gate from explicit controls. The base
     # compliance store deliberately stayed closed until the executable
@@ -154,6 +167,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["summary"] = summary
     result["operations"] = operations
     result["operationalRegisterAttestation"] = register_attestation
+    result["processingRiskReview"] = processing_reviews
     result["withdrawal"] = withdrawal
     result["dataSubjectExecution"] = rights_execution
     result["rightsExecutionAudit"] = data_subject_rights.audit_rows(db_path, 200)
