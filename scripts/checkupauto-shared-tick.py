@@ -20,6 +20,7 @@ import reminder_dispatch
 import review_followup
 import security_alerts
 import retention_enforcement
+import referral_wallet_final_purge_runner
 import withdrawal_service
 
 
@@ -52,6 +53,7 @@ def tick() -> dict:
         ("review_followup", review_followup.process_once),
         ("withdrawal_receipts", withdrawal_service.dispatch_pending),
         ("retention_enforcement", retention_enforcement.process_once),
+        ("referral_wallet_final_purge", referral_wallet_final_purge_runner.process_once),
         ("security_alert_retry", security_alerts.retry_pending),
     ]
     rows = [_run(name, fn) for name, fn in tasks]
