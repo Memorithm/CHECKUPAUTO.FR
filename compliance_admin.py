@@ -45,6 +45,21 @@ def snapshot(db_path: Path | str | None = None) -> dict:
             },
         )
 
+    # CheckupAuto has externally operated service boundaries (hosting and
+    # integration channels). An empty processor/subprocessor inventory must not
+    # be interpreted as evidence that this register has been completed. The
+    # product therefore stays fail-closed until at least one active inventory
+    # entry has been documented; legal classification and DPA status remain
+    # operator-supplied facts, never inferred by the application.
+    if int(operations_summary.get("activeProcessorCount") or 0) == 0:
+        blockers.append(
+            {
+                "type": "processor_inventory_missing",
+                "id": "processor_inventory",
+                "name": "Inventaire des sous-traitants",
+            }
+        )
+
     operations_ready = not blockers
     operations_summary["blockers"] = blockers
     operations_summary["blockerCount"] = len(blockers)
