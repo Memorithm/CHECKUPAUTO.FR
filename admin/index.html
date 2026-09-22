@@ -163,7 +163,22 @@ X-CyberCheck-Signature: sha256=HMAC_SHA256(secret, raw_body)
 </div>
 
 <div class="integration-box">
-<div class="panel-head compact"><div><h3>7 · Vente à distance : garde de conclusion</h3><p class="hint">La preuve d’acceptation des CGV est prête côté CheckupAuto mais reste volontairement marquée non reliée tant que l’étape finale de création du contrat chez Mercure ne renvoie pas une preuve versionnée. Même principe pour la fonctionnalité de rétractation en ligne.</p></div></div>
+<div class="panel-head compact"><div><h3>7 · Attestation des registres opérationnels</h3><p class="hint">L’attestation est liée à l’empreinte SHA-256 exacte affichée ici. Si les registres changent avant la confirmation, le serveur refuse l’opération.</p></div><span id="complianceRegisterReviewState" class="gsc-status warning">Diagnostic…</span></div>
+<div class="promo-form-grid"><label>Empreinte actuelle revue<input id="complianceRegisterCurrentHash" readonly autocomplete="off"></label><label>Dernière empreinte attestée<input id="complianceRegisterAttestedHash" readonly autocomplete="off"></label></div>
+<p class="hint">Dernière revue : <span id="complianceRegisterReviewedAt">—</span></p>
+<div class="incentive-service-row"><label><input id="complianceRegisterReviewConfirm" type="checkbox">Je confirme avoir relu les registres correspondant exactement à l’empreinte affichée</label><button type="button" id="complianceRegisterAttest">Attester l’empreinte affichée</button></div>
+</div>
+
+<div class="integration-box">
+<div class="panel-head compact"><div><h3>8 · Revues sécurité & vie privée des traitements à risque élevé</h3><p class="hint">Chaque revue est liée à l’empreinte exacte de l’activité. La preuve brute sert uniquement à calculer une empreinte côté serveur et n’est pas persistée dans le registre de revue.</p></div><span id="complianceProcessingReviewState" class="gsc-status warning">Diagnostic…</span></div>
+<div class="table-scroll"><table class="funnel-table"><thead><tr><th>Activité</th><th>Sécurité</th><th>Vie privée</th><th>Empreinte actuelle</th><th>Empreinte revue</th><th>Revue</th></tr></thead><tbody id="complianceProcessingReviewRows"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div>
+<div class="promo-form-grid"><label>Activité sélectionnée<input id="complianceProcessingActivityId" readonly autocomplete="off"></label><label>Empreinte exacte à revoir<input id="complianceProcessingExpectedHash" readonly autocomplete="off"></label><label>Revue sécurité<select id="complianceProcessingSecurityStatus"><option value="in_progress">En cours</option><option value="approved">Approuvée</option><option value="changes_required">Corrections requises</option></select></label><label>Revue vie privée<select id="complianceProcessingPrivacyStatus"><option value="in_progress">En cours</option><option value="approved">Approuvée</option><option value="changes_required">Corrections requises</option></select></label></div>
+<label>Preuve de revue à hacher<textarea id="complianceProcessingEvidence" rows="4" maxlength="1000000" autocomplete="off" placeholder="Référence interne, note de revue ou contenu probant. La valeur brute n’est pas renvoyée par l’API."></textarea></label>
+<div class="button-row"><button type="button" id="complianceProcessingReviewSubmit">Enregistrer la revue liée à cette empreinte</button></div>
+</div>
+
+<div class="integration-box">
+<div class="panel-head compact"><div><h3>9 · Vente à distance : garde de conclusion</h3><p class="hint">La preuve d’acceptation des CGV est prête côté CheckupAuto mais reste volontairement marquée non reliée tant que l’étape finale de création du contrat chez Mercure ne renvoie pas une preuve versionnée. Même principe pour la fonctionnalité de rétractation en ligne.</p></div></div>
 <p class="warning-text">Ne pas considérer le parcours de vente comme juridiquement finalisé tant que « CGV / CONTRAT » et « RÉTRACTATION EN LIGNE » ne sont pas passés à l’état relié.</p>
 </div>
 </section>
