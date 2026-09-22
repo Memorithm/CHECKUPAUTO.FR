@@ -18,12 +18,15 @@ class MobileClaimAPISurfaceTest(unittest.TestCase):
         self.assertNotIn("mobile_authoritative_sync.sync_installation", block)
         self.assertNotIn("issue_vehicle_claim(", source)
 
-    def test_installation_identity_has_separate_register_and_delete_routes(self):
+    def test_installation_identity_has_separate_register_and_lifecycle_delete_routes(self):
         source = Path("admin_server.py").read_text()
         self.assertIn("/api/mobile/installations/register", source)
         self.assertIn("register_installation(self._read_json())", source)
-        self.assertIn("/api/mobile/installations/delete", source)
-        self.assertIn("delete_installation(self._read_json())", source)
+        delete_route = source.index("if path=='/api/mobile/installations/delete':")
+        end = source.index("if path=='/api/mobile/devices/register':", delete_route)
+        block = source[delete_route:end]
+        self.assertIn("referral_wallet_lifecycle.delete_installation", block)
+        self.assertNotIn("mobile_devices.delete_installation", block)
 
     def test_mobile_identity_routes_are_endpoint_rate_limited(self):
         tree = ast.parse(Path("security_guard.py").read_text())
