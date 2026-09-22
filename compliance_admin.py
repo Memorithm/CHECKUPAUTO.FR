@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import compliance_operations
+import compliance_register_attestation
 import compliance_store
 import data_subject_rights
 import marketing_campaigns
@@ -24,6 +25,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result = compliance_store.admin_snapshot(db_path)
     withdrawal = withdrawal_service.status(db_path)
     operations = compliance_operations.snapshot(db_path)
+    register_attestation = compliance_register_attestation.status(db_path)
     rights_execution = rights_readiness.capability(db_path)
     retention = retention_enforcement.status(db_path)
     marketing = marketing_consent.capability(db_path)
@@ -60,6 +62,23 @@ def snapshot(db_path: Path | str | None = None) -> dict:
             }
         )
 
+    # Populated registers are not proof that a human review occurred. Readiness
+    # therefore requires an attestation bound to the SHA-256 digest of the exact
+    # current register content. Any subsequent substantive edit changes the
+    # digest and automatically makes the previous review stale.
+    if not bool(register_attestation.get("current")):
+        blockers.append(
+            {
+                "type": (
+                    "operational_register_attestation_stale"
+                    if register_attestation.get("stale")
+                    else "operational_register_attestation_missing"
+                ),
+                "id": "operational_register_attestation",
+                "name": "Attestation de revue des registres opérationnels",
+            }
+        )
+
     operations_ready = not blockers
     operations_summary["blockers"] = blockers
     operations_summary["blockerCount"] = len(blockers)
@@ -81,6 +100,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["marketingCampaignRunCount"] = len(campaign_runs)
     summary["operationalRegistersReady"] = operations_ready
     summary["operationalBlockers"] = blockers
+    summary["operationalRegisterAttestationCurrent"] = bool(register_attestation.get("current"))
 
     # Recompute the public-contracting gate from explicit controls. The base
     # compliance store deliberately stayed closed until the executable
@@ -98,6 +118,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["readyForPublicContracting"] = legal_ready and operations_ready
     result["summary"] = summary
     result["operations"] = operations
+    result["operationalRegisterAttestation"] = register_attestation
     result["withdrawal"] = withdrawal
     result["dataSubjectExecution"] = rights_execution
     result["rightsExecutionAudit"] = data_subject_rights.audit_rows(db_path, 200)
