@@ -64,7 +64,7 @@ struct ContentView: View {
                     } header: {
                         Text("Cagnotte")
                     } footer: {
-                        Text("Solde vérifié par Checkup Auto lors du dernier rattachement de cagnotte.")
+                        Text("Solde issu de la dernière preuve vérifiée par Checkup Auto ; il peut évoluer depuis cette vérification.")
                     }
                 }
 
