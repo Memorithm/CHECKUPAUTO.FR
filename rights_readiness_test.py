@@ -28,6 +28,7 @@ class RightsReadinessTest(unittest.TestCase):
                 "subjectBindingProvenance": ["mobile_vehicle_binding"],
                 "supportedAdapters": {},
                 "partialSystemAdapters": [],
+                "remainingRightTypes": ["rectification"],
             },
         ), mock.patch.object(
             rights_readiness.rights_subject_bindings,
@@ -54,6 +55,49 @@ class RightsReadinessTest(unittest.TestCase):
         )
         self.assertIn("referral_wallet", state["partialSystemAdapters"])
         self.assertTrue(state["referralWalletExecution"]["bound"])
+        self.assertEqual(
+            state["supportedAdapters"]["mobile_deadline_rectification"],
+            ["rectification"],
+        )
+        self.assertIn("mobile_deadline_rectification", state["partialSystemAdapters"])
+        self.assertIn("rectification", state["partiallySupportedRightTypes"])
+        self.assertIn("rectification", state["remainingRightTypes"])
+
+    def test_bounded_rectification_does_not_overstate_global_readiness(self):
+        with mock.patch.object(
+            rights_readiness.data_subject_rights,
+            "capability",
+            return_value={
+                "bound": False,
+                "partial": True,
+                "supportedAdapters": {"mobile_installation": ["access", "portability", "erasure"]},
+                "partialSystemAdapters": [],
+                "remainingRightTypes": ["rectification"],
+            },
+        ), mock.patch.object(
+            rights_readiness.rights_subject_bindings,
+            "rows",
+            return_value=[],
+        ), mock.patch.object(
+            rights_readiness.referral_wallet_rights,
+            "capability",
+            return_value={"bound": False, "partial": True, "supportedRights": []},
+        ):
+            state = rights_readiness.capability()
+
+        self.assertFalse(state["bound"])
+        self.assertTrue(state["partial"])
+        self.assertIn("rectification", state["remainingRightTypes"])
+        self.assertEqual(state["partiallySupportedRightTypes"], ["rectification"])
+        self.assertEqual(
+            state["supportedAdapters"]["mobile_deadline_rectification"],
+            ["rectification"],
+        )
+        self.assertEqual(
+            state["rectificationExecution"]["supportedFields"],
+            ["device_deadline_due_date"],
+        )
+        self.assertFalse(state["rectificationExecution"]["authoritativeSourcesMutable"])
 
     def test_observed_provenance_is_aggregated_without_raw_binding_rows(self):
         sensitive = "account:must-not-surface"
