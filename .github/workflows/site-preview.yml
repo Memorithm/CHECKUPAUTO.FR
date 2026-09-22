@@ -17,10 +17,10 @@ concurrency:
 jobs:
   preview:
     if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
-    # This stdlib-only export has no need for the private ARM64/Apple runners.
-    # The full repository Security CI remains unchanged on the internal runner.
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # Keep the repository on the already-provisioned internal runner. The output
+    # path is initialized only after the runner starts, where RUNNER_TEMP exists.
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
