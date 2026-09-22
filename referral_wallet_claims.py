@@ -14,6 +14,7 @@ import referral_engine
 
 
 _CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+_CLAIM_PREFIX = "rw_"
 _DEFAULT_TTL_SECONDS = 1800
 _MAX_TTL_SECONDS = 86400
 
@@ -43,7 +44,7 @@ def _account_id(value: object) -> str:
 
 def _claim_token(value: object) -> str:
     raw = str(value or "").strip()
-    if not _CLAIM_RE.fullmatch(raw):
+    if not _CLAIM_RE.fullmatch(raw) or not raw.startswith(_CLAIM_PREFIX):
         raise ValueError("claimToken invalide")
     return raw
 
@@ -108,9 +109,13 @@ def issue(code: object, ttl_seconds: object = _DEFAULT_TTL_SECONDS) -> dict:
     The raw token is returned exactly once to the trusted caller. Only its SHA-256
     digest is persisted. Issuing a new claim revokes any still-pending claim for
     the same wallet so there is a single live transfer secret at a time.
+
+    Wallet tokens have a dedicated ``rw_`` namespace. This prevents a consumer
+    from accidentally treating a wallet claim as another mobile claim type while
+    keeping the random payload at 256 bits of entropy.
     """
     ttl = _ttl(ttl_seconds)
-    token = secrets.token_urlsafe(32)
+    token = _CLAIM_PREFIX + secrets.token_urlsafe(32)
     token_hash = _hash(token)
     now_dt = _now()
     now = now_dt.isoformat(timespec="seconds")
@@ -128,6 +133,7 @@ def issue(code: object, ttl_seconds: object = _DEFAULT_TTL_SECONDS) -> dict:
         )
     return {
         "claimToken": token,
+        "claimType": "referral_wallet",
         "expiresAt": expires,
         "singleUse": True,
         "rawTokenPersisted": False,
@@ -165,6 +171,8 @@ def consume(payload: dict) -> dict:
     installation_hash = _hash(installation)
     now_dt = _now()
     now = now_dt.isoformat(timespec="seconds")
+    expired = False
+    account_id = ""
 
     init_db()
     with analytics.connect() as db:
@@ -185,39 +193,44 @@ def consume(payload: dict) -> dict:
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=datetime.timezone.utc)
         if expires <= now_dt:
+            # Do not raise from inside the sqlite context manager: doing so would
+            # roll back this physical deletion and leave the expired secret alive.
             db.execute("DELETE FROM referral_wallet_claim WHERE token_hash=?", (token_hash,))
-            raise PermissionError("claim de cagnotte refusé")
+            expired = True
+        else:
+            account_id = _account_id(claim["account_id"])
+            owner = db.execute(
+                "SELECT installation_hash FROM referral_wallet_owner WHERE account_id=?",
+                (account_id,),
+            ).fetchone()
+            if owner and not hmac.compare_digest(str(owner["installation_hash"]), installation_hash):
+                raise PermissionError("propriété de cagnotte déjà établie")
 
-        account_id = _account_id(claim["account_id"])
-        owner = db.execute(
-            "SELECT installation_hash FROM referral_wallet_owner WHERE account_id=?",
-            (account_id,),
-        ).fetchone()
-        if owner and not hmac.compare_digest(str(owner["installation_hash"]), installation_hash):
-            raise PermissionError("propriété de cagnotte déjà établie")
+            evidence = {
+                "accountIdHash": _hash(account_id),
+                "installationHash": installation_hash,
+                "claimTokenHash": token_hash,
+                "claimedAt": now,
+            }
+            evidence_hash = _hash(
+                json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+            )
+            db.execute(
+                """INSERT INTO referral_wallet_owner(account_id,installation_hash,claimed_at,evidence_hash)
+                   VALUES(?,?,?,?)
+                   ON CONFLICT(account_id) DO UPDATE SET
+                     claimed_at=excluded.claimed_at,evidence_hash=excluded.evidence_hash
+                   WHERE referral_wallet_owner.installation_hash=excluded.installation_hash""",
+                (account_id, installation_hash, now, evidence_hash),
+            )
+            db.execute("DELETE FROM referral_wallet_claim WHERE token_hash=?", (token_hash,))
 
-        evidence = {
-            "accountIdHash": _hash(account_id),
-            "installationHash": installation_hash,
-            "claimTokenHash": token_hash,
-            "claimedAt": now,
-        }
-        evidence_hash = _hash(
-            json.dumps(evidence, sort_keys=True, separators=(",", ":"))
-        )
-        db.execute(
-            """INSERT INTO referral_wallet_owner(account_id,installation_hash,claimed_at,evidence_hash)
-               VALUES(?,?,?,?)
-               ON CONFLICT(account_id) DO UPDATE SET
-                 claimed_at=excluded.claimed_at,evidence_hash=excluded.evidence_hash
-               WHERE referral_wallet_owner.installation_hash=excluded.installation_hash""",
-            (account_id, installation_hash, now, evidence_hash),
-        )
-        db.execute("DELETE FROM referral_wallet_claim WHERE token_hash=?", (token_hash,))
-
+    if expired:
+        raise PermissionError("claim de cagnotte refusé")
     return {
         "ok": True,
         "accountId": account_id,
+        "claimType": "referral_wallet",
         "claimedAt": now,
         "provenance": "authenticated_mobile_wallet_claim",
         "rawInstallationPersisted": False,
@@ -268,6 +281,8 @@ def capability() -> dict:
     return {
         "bound": True,
         "provenance": "authenticated_mobile_wallet_claim",
+        "claimType": "referral_wallet",
+        "claimTokenPrefix": _CLAIM_PREFIX,
         "claimEntropyBits": 256,
         "singleUseClaims": True,
         "rawClaimTokenPersisted": False,
