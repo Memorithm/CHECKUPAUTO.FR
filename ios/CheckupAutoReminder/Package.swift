@@ -15,7 +15,7 @@ let package = Package(
                 "AddVehicleView.swift", "AppModel.swift", "CheckupAutoReminderApp.swift",
                 "ContentView.swift", "ReminderScheduler.swift", "PrivacyInfo.xcprivacy"
             ],
-            sources: ["Models.swift", "NotificationRouting.swift", "MobileAPI.swift", "MobileBootstrap.swift", "DeviceRegistration.swift", "MobileDeadlineSync.swift", "VehicleClaim.swift", "ReferralWalletClaim.swift", "AuthoritativeInventory.swift"]
+            sources: ["Models.swift", "NotificationRouting.swift", "MobileAPI.swift", "MobileBootstrap.swift", "DeviceRegistration.swift", "MobileDeadlineSync.swift", "VehicleClaim.swift", "ReferralWalletClaim.swift", "ReferralWalletSnapshot.swift", "AuthoritativeInventory.swift"]
         ),
         .testTarget(
             name: "CheckupAutoReminderTests",
