@@ -17,7 +17,9 @@ class AdminRightsDispatchAPITest(unittest.TestCase):
         cls.private = tempfile.TemporaryDirectory()
         Path(cls.private.name, "admin-password").write_text("test-password\n", encoding="utf-8")
         cls.previous_private = os.environ.get("CYBERCHECK_PRIVATE_DIR")
+        cls.previous_data = os.environ.get("CYBERCHECK_DATA_DIR")
         os.environ["CYBERCHECK_PRIVATE_DIR"] = cls.private.name
+        os.environ["CYBERCHECK_DATA_DIR"] = cls.private.name
         cls.admin_server = importlib.import_module("admin_server")
 
     @classmethod
@@ -26,6 +28,10 @@ class AdminRightsDispatchAPITest(unittest.TestCase):
             os.environ.pop("CYBERCHECK_PRIVATE_DIR", None)
         else:
             os.environ["CYBERCHECK_PRIVATE_DIR"] = cls.previous_private
+        if cls.previous_data is None:
+            os.environ.pop("CYBERCHECK_DATA_DIR", None)
+        else:
+            os.environ["CYBERCHECK_DATA_DIR"] = cls.previous_data
         cls.private.cleanup()
 
     def _post(self, payload, *, dispatch_result=None, dispatch_error=None, mfa=False):
