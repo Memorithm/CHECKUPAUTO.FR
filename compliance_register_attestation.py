@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -62,7 +64,20 @@ def register_hash(db_path: Path | str | None = None) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def attest(db_path: Path | str | None = None) -> dict:
+def _expected_hash(value: str | None) -> str | None:
+    if value is None:
+        return None
+    expected = str(value).strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise ValueError("empreinte de registre invalide")
+    return expected
+
+
+def attest(
+    db_path: Path | str | None = None,
+    *,
+    expected_register_hash: str | None = None,
+) -> dict:
     init_db(db_path)
     operations = compliance_operations.summary(db_path)
     if int(operations.get("activeActivityCount") or 0) == 0:
@@ -73,6 +88,10 @@ def attest(db_path: Path | str | None = None) -> dict:
         raise RuntimeError("registres opérationnels bloqués")
 
     digest = register_hash(db_path)
+    expected = _expected_hash(expected_register_hash)
+    if expected is not None and not hmac.compare_digest(expected, digest):
+        raise RuntimeError("les registres ont changé depuis la revue")
+
     reviewed_at = _now_iso()
     attestation_id = uuid.uuid4().hex
     evidence = {
