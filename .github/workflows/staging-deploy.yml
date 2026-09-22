@@ -17,6 +17,12 @@ on:
         required: true
         type: string
 
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/staging-deploy.yml'
+
 permissions:
   actions: read
   contents: read
@@ -43,8 +49,8 @@ jobs:
     steps:
       - name: Validate staging request against GitHub main
         env:
-          DEPLOY_ACTION: ${{ inputs.action }}
-          DEPLOY_SHA: ${{ inputs.sha }}
+          DEPLOY_ACTION: ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'probe' }}
+          DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
           GH_TOKEN: ${{ github.token }}
           GH_API: ${{ github.api_url }}
           GH_REPOSITORY: ${{ github.repository }}
@@ -113,7 +119,7 @@ jobs:
 
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -160,7 +166,7 @@ jobs:
           "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py probe             --name staging-v3             --known-hosts "$STAGING_KNOWN_HOSTS"
 
       - name: Execute staging action
-        if: inputs.action != 'probe'
+        if: github.event_name == 'workflow_dispatch' && inputs.action != 'probe'
         env:
           CYBERCHECK_DEPLOY_ADMIN_PASSWORD_FILE: ${{ env.STAGING_ADMIN_PASSWORD_FILE }}
         run: |
