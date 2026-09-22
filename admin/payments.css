@@ -1,0 +1,9 @@
+#paymentsEditor{border:0;padding:0;margin:0;min-width:0}
+#paymentsEditor:disabled{opacity:.65}
+.payment-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.payment-fields label{min-width:0}.payment-fields input{width:100%;min-height:44px}
+#paymentsMessage{padding:14px 18px;border:1px solid #c6d8cf;background:#fff;margin:18px 0}
+#paymentsMessage.error{border-color:#af4035;color:#822c23}
+#paymentsAudit td,#paymentsAudit th{padding:10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+#paymentsAudit{font-size:13px}
+@media(max-width:760px){.payment-fields{grid-template-columns:1fr}.shell{display:block}.shell>aside{position:static;width:auto;height:auto}.shell>main{margin:0;padding:20px}}
