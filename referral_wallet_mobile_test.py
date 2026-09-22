@@ -1,3 +1,4 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -138,6 +139,27 @@ class ReferralWalletMobileStatusTest(unittest.TestCase):
         serialized = repr(result)
         self.assertNotIn(self.account["id"], serialized)
         self.assertNotIn(second["id"], serialized)
+
+    def test_legacy_oversized_ownership_state_fails_closed(self):
+        accounts = [self.account]
+        for index in range(1, claims._MAX_WALLETS_PER_INSTALLATION + 1):
+            accounts.append(referrals.create_account(f"LEG-{index:02d}-A"))
+        installation_hash = hashlib.sha256(self.installation.encode()).hexdigest()
+        with analytics.connect() as db:
+            for index, account in enumerate(accounts):
+                db.execute(
+                    """INSERT INTO referral_wallet_owner(
+                       account_id,installation_hash,claimed_at,evidence_hash
+                       ) VALUES(?,?,?,?)""",
+                    (
+                        account["id"],
+                        installation_hash,
+                        f"2026-09-22T00:00:{index:02d}+00:00",
+                        hashlib.sha256(f"legacy-{account['id']}".encode()).hexdigest(),
+                    ),
+                )
+        with self.assertRaises(RuntimeError):
+            mobile_wallet.status(self.payload())
 
 
 if __name__ == "__main__":
