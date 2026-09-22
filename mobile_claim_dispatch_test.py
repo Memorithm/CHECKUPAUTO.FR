@@ -114,12 +114,12 @@ class MobileClaimDispatchTest(unittest.TestCase):
                 dispatch.consume_with_authoritative_refresh(payload)
         sync.assert_not_called()
 
-    def test_capability_is_explicitly_not_http_bound_yet(self):
+    def test_capability_reports_shared_http_endpoint_ready(self):
         capability = dispatch.capability()
         self.assertTrue(capability["bound"])
         self.assertEqual(capability["claimTypes"], ["vehicle", "referral_wallet"])
         self.assertTrue(capability["vehicleAuthoritativeRefreshBound"])
-        self.assertFalse(capability["sharedEndpointReady"])
+        self.assertTrue(capability["sharedEndpointReady"])
         self.assertFalse(capability["rawClaimTokenPersisted"])
 
 
