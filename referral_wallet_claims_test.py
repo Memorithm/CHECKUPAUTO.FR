@@ -162,6 +162,34 @@ class ReferralWalletClaimsTest(unittest.TestCase):
             self._consume(first)
         self.assertTrue(self._consume(second)["ok"])
 
+    def test_installation_cannot_accumulate_more_wallets_than_mobile_read_model(self):
+        accounts = [self.account]
+        for index in range(1, claims._MAX_WALLETS_PER_INSTALLATION + 1):
+            accounts.append(referrals.create_account(f"OWN-{index:02d}-A"))
+
+        for account in accounts[:claims._MAX_WALLETS_PER_INSTALLATION]:
+            self.assertTrue(self._consume(claims.issue(account["code"])["claimToken"])["ok"])
+
+        overflow = accounts[claims._MAX_WALLETS_PER_INSTALLATION]
+        overflow_token = claims.issue(overflow["code"])["claimToken"]
+        overflow_hash = hashlib.sha256(overflow_token.encode()).hexdigest()
+        with self.assertRaises(PermissionError):
+            self._consume(overflow_token)
+
+        installation_hash = hashlib.sha256(self.installation.encode()).hexdigest()
+        with analytics.connect() as db:
+            owner_count = db.execute(
+                "SELECT COUNT(*) n FROM referral_wallet_owner WHERE installation_hash=?",
+                (installation_hash,),
+            ).fetchone()["n"]
+            pending = db.execute(
+                "SELECT COUNT(*) n FROM referral_wallet_claim WHERE token_hash=?",
+                (overflow_hash,),
+            ).fetchone()["n"]
+        self.assertEqual(owner_count, claims._MAX_WALLETS_PER_INSTALLATION)
+        self.assertEqual(pending, 1)
+        self.assertFalse(claims.ownership_matches(overflow["id"], self.installation))
+
     def test_capability_exposes_counts_without_owner_identifiers(self):
         token = claims.issue(self.account["code"])["claimToken"]
         before = claims.capability()
@@ -169,6 +197,7 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         self.assertEqual(before["ownerEvidenceCount"], 0)
         self.assertEqual(before["claimType"], "referral_wallet")
         self.assertEqual(before["claimTokenPrefix"], "rw_")
+        self.assertEqual(before["maxWalletsPerInstallation"], 16)
         self.assertNotIn(self.account["id"], str(before))
         self.assertNotIn(self.installation, str(before))
         self._consume(token)
@@ -176,6 +205,7 @@ class ReferralWalletClaimsTest(unittest.TestCase):
         self.assertEqual(after["liveClaimCount"], 0)
         self.assertEqual(after["ownerEvidenceCount"], 1)
         self.assertEqual(after["claimEntropyBits"], 256)
+        self.assertEqual(after["maxWalletsPerInstallation"], 16)
         self.assertNotIn(self.account["id"], str(after))
         self.assertNotIn(self.installation, str(after))
 
