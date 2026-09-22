@@ -148,14 +148,15 @@ class ReferralWalletRightsTest(unittest.TestCase):
             request["id"], "referral_wallet", self.compliance_db
         ))
 
-    def test_erasure_deactivates_zero_balance_wallet_and_retains_financial_history(self):
+    def test_erasure_pseudonymizes_linkage_and_retains_only_policy_bound_financial_history(self):
         self._configure_retention(1095)
-        referrals.record_pending(self.account["code"], "mercure-rdv", "rdv-retained", "intent-retained")
+        original_code = self.account["code"]
+        referrals.record_pending(original_code, "mercure-rdv", "rdv-retained", "intent-retained")
         referrals.complete_control("mercure-rdv", "rdv-retained")
         referrals.cancel_pending("mercure-rdv", "rdv-retained")
-        before_ledger = referrals.account_summary(self.account["code"])["ledger"]
-        self.assertEqual(referrals.account_summary(self.account["code"])["balanceCents"], 0)
-        claim = claims.issue(self.account["code"])
+        before_ledger = referrals.account_summary(original_code)["ledger"]
+        self.assertEqual(referrals.account_summary(original_code)["balanceCents"], 0)
+        claim = claims.issue(original_code)
         self.assertTrue(claim["claimToken"].startswith("rw_"))
 
         request = self._request("erasure")
@@ -170,14 +171,33 @@ class ReferralWalletRightsTest(unittest.TestCase):
                 "SELECT COUNT(*) n FROM referral_wallet_claim WHERE account_id=?",
                 (self.account["id"],),
             ).fetchone()["n"], 0)
+            account = db.execute(
+                "SELECT code,active FROM referral_accounts WHERE id=?",
+                (self.account["id"],),
+            ).fetchone()
+            reward = db.execute(
+                """SELECT referral_code,attribution_token,provider,external_id,status
+                   FROM referral_rewards WHERE account_id=?""",
+                (self.account["id"],),
+            ).fetchone()
             after_ledger = [dict(row) for row in db.execute(
                 """SELECT kind,amount_cents amountCents,reference,created_at createdAt,note
                    FROM referral_ledger WHERE account_id=? ORDER BY id DESC LIMIT 50""",
                 (self.account["id"],),
             )]
         self.assertEqual(after_ledger, before_ledger)
+        self.assertFalse(bool(account["active"]))
+        self.assertNotEqual(account["code"], original_code)
+        self.assertTrue(str(account["code"]).startswith("erased:"))
+        self.assertEqual(reward["referral_code"], account["code"])
+        self.assertEqual(reward["attribution_token"], "")
+        self.assertEqual(reward["provider"], "mercure-rdv")
+        self.assertEqual(reward["external_id"], "rdv-retained")
+        self.assertEqual(reward["status"], "reversed")
         self.assertEqual(result["ownershipReleased"], 1)
         self.assertEqual(result["pendingClaimsRevoked"], 1)
+        self.assertTrue(result["referralCodePseudonymized"])
+        self.assertEqual(result["attributionTokensCleared"], 1)
         self.assertTrue(result["financialHistoryRetained"])
         self.assertFalse(result["finalPhysicalPurgeComplete"])
         self.assertEqual(result["retention"]["activeDays"], 1095)
@@ -186,11 +206,15 @@ class ReferralWalletRightsTest(unittest.TestCase):
         rendered = repr(result)
         self.assertNotIn(self.installation, rendered)
         self.assertNotIn(self.account["id"], rendered)
-        self.assertNotIn(self.account["code"], rendered)
+        self.assertNotIn(original_code, rendered)
+        self.assertNotIn("intent-retained", rendered)
+        self.assertNotIn("rdv-retained", rendered)
         audit = data_subject_rights.audit_rows(self.compliance_db)
         self.assertEqual(audit[0]["action"], "deactivate_retained_erasure")
         self.assertNotIn(self.installation, repr(audit))
         self.assertNotIn(self.account["id"], repr(audit))
+        self.assertNotIn(original_code, repr(audit))
+        self.assertNotIn("rdv-retained", repr(audit))
 
     def test_erasure_blocks_nonzero_balance_until_financial_resolution(self):
         self._configure_retention()
@@ -256,6 +280,7 @@ class ReferralWalletRightsTest(unittest.TestCase):
             request["id"], self.installation, self.account["id"], self.compliance_db
         )
         self.assertTrue(result["ok"])
+        self.assertTrue(result["referralCodePseudonymized"])
         with compliance_store.connect(self.compliance_db) as db:
             remaining = db.execute(
                 "SELECT COUNT(*) n FROM referral_wallet_erasure_checkpoint WHERE request_id=?",
@@ -290,6 +315,8 @@ class ReferralWalletRightsTest(unittest.TestCase):
         self.assertFalse(capability["thirdPartyAppointmentIdentifiersExposed"])
         self.assertFalse(capability["erasure"]["retention"]["ready"])
         self.assertFalse(capability["erasure"]["finalPhysicalPurgeComplete"])
+        self.assertTrue(capability["erasure"]["shareableReferralCodePseudonymized"])
+        self.assertTrue(capability["erasure"]["terminalAttributionTokensCleared"])
         self.assertIn("final_retention_expiry_purge", capability["remainingOperations"])
         rendered = str(capability)
         self.assertNotIn(self.installation, rendered)
