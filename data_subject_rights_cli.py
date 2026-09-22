@@ -41,10 +41,14 @@ def _binding_projection(row: dict) -> dict:
 
 
 def _proof_projection(result: dict) -> dict:
+    if result.get("bound") is not True:
+        raise RuntimeError("preuve non établie")
+    if result.get("rawSubjectReferencePersisted") is not False:
+        raise RuntimeError("preuve de confidentialité absente")
     projected = {
         "adapter": str(result.get("adapter") or ""),
         "provenance": str(result.get("provenance") or ""),
-        "rawSubjectReferencePersisted": bool(result.get("rawSubjectReferencePersisted", True)),
+        "rawSubjectReferencePersisted": False,
     }
     for key in ("bindingCount", "appointmentMatchCount", "checkoutAcceptanceCount"):
         if key in result:
