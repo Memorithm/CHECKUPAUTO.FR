@@ -7,6 +7,7 @@ import compliance_operations
 import compliance_register_attestation
 import compliance_store
 import marketing_campaigns
+import processing_risk_review
 
 
 class ComplianceAdminSnapshotTest(unittest.TestCase):
@@ -171,6 +172,39 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
             "dpia_unresolved",
             {item["type"] for item in state["summary"]["operationalBlockers"]},
         )
+
+    def test_high_risk_approved_dpia_still_requires_security_and_privacy_reviews(self):
+        activity = compliance_operations.upsert_processing_activity(
+            self.activity(riskLevel="high", dpiaStatus="approved"), self.db
+        )
+        compliance_operations.upsert_processor(self.processor(), self.db)
+        self.attest_registers()
+
+        state = compliance_admin.snapshot(self.db)
+        blockers = {item["type"] for item in state["summary"]["operationalBlockers"]}
+        self.assertFalse(state["summary"]["operationalRegistersReady"])
+        self.assertFalse(state["summary"]["processingRiskReviewsReady"])
+        self.assertIn("processing_security_review_not_approved", blockers)
+        self.assertIn("processing_privacy_review_not_approved", blockers)
+        self.assertTrue(state["operationalRegisterAttestation"]["current"])
+
+        review_row = state["processingRiskReview"]["activities"][0]
+        processing_risk_review.record_review(
+            activity["id"],
+            expected_activity_hash=review_row["currentActivityHash"],
+            security_status="approved",
+            privacy_status="approved",
+            evidence=b"document de revue externe borne au test",
+            db_path=self.db,
+        )
+
+        state = compliance_admin.snapshot(self.db)
+        blockers = {item["type"] for item in state["summary"]["operationalBlockers"]}
+        self.assertTrue(state["summary"]["processingRiskReviewsReady"])
+        self.assertNotIn("processing_security_review_not_approved", blockers)
+        self.assertNotIn("processing_privacy_review_not_approved", blockers)
+        self.assertTrue(state["summary"]["operationalRegistersReady"])
+        self.assertTrue(state["operationalRegisterAttestation"]["current"])
 
     def test_marketing_campaign_evidence_is_visible_without_raw_audience_or_content(self):
         marketing_campaigns.init_db(self.db)
