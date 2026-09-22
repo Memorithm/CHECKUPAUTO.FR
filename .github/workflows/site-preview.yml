@@ -20,7 +20,7 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 6
     env:
-      PREVIEW_OUT: ${{ runner.temp }}/checkupauto-preview-${{ github.run_id }}-${{ github.run_attempt }}
+      PREVIEW_OUT: ${{ github.workspace }}/.checkupauto-preview-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
