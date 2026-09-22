@@ -72,6 +72,31 @@ class ComplianceRegisterAttestationTest(unittest.TestCase):
         self.assertEqual(len(state["evidenceHash"]), 64)
         self.assertEqual(state["attestationCount"], 1)
 
+    def test_expected_register_hash_accepts_exact_reviewed_digest(self):
+        self.seed_ready_registers()
+        reviewed_hash = attestation.register_hash(self.db)
+        state = attestation.attest(self.db, expected_register_hash=reviewed_hash.upper())
+        self.assertTrue(state["current"])
+        self.assertEqual(state["attestedRegisterHash"], reviewed_hash)
+        self.assertEqual(state["attestationCount"], 1)
+
+    def test_changed_register_is_not_attested_from_stale_review(self):
+        self.seed_ready_registers()
+        reviewed_hash = attestation.register_hash(self.db)
+        activity = compliance_operations.processing_activities(self.db)[0]
+        compliance_operations.upsert_processing_activity(
+            self.activity(id=activity["id"], retention="Durée révisée après affichage"), self.db
+        )
+        with self.assertRaisesRegex(RuntimeError, "changé"):
+            attestation.attest(self.db, expected_register_hash=reviewed_hash)
+        self.assertEqual(attestation.status(self.db)["attestationCount"], 0)
+
+    def test_invalid_expected_register_hash_is_rejected(self):
+        self.seed_ready_registers()
+        with self.assertRaisesRegex(ValueError, "empreinte"):
+            attestation.attest(self.db, expected_register_hash="not-a-sha256")
+        self.assertEqual(attestation.status(self.db)["attestationCount"], 0)
+
     def test_substantive_register_change_invalidates_attestation(self):
         self.seed_ready_registers()
         first = attestation.attest(self.db)
