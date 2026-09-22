@@ -81,6 +81,11 @@ class SitePreviewTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 preview.public_bytes(root, 'actual', 3)
 
+    def test_workflow_uses_job_safe_context_for_preview_path(self):
+        workflow = (self.root / '.github' / 'workflows' / 'site-preview.yml').read_text()
+        self.assertNotIn('${{ runner.temp }}', workflow)
+        self.assertIn('${{ github.workspace }}/.checkupauto-preview-', workflow)
+
 
 if __name__ == '__main__':
     unittest.main()
