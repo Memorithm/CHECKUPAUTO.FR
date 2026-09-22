@@ -5,11 +5,12 @@ import sys
 from typing import TextIO
 
 import data_subject_rights
+import rights_rectification
 import rights_subject_bindings
 
 
 MAX_STDIN_BYTES = 64 * 1024
-_COMMANDS = {"status", "prove-contract", "bindings"}
+_COMMANDS = {"status", "prove-contract", "bindings", "rectify-mobile-deadline"}
 
 
 def _read_payload(stream: TextIO) -> dict:
@@ -80,6 +81,28 @@ def _prove_contract(payload: dict) -> dict:
     }
 
 
+def _rectification_projection(result: dict) -> dict:
+    return {
+        "ok": result.get("ok") is True,
+        "adapter": str(result.get("adapter") or ""),
+        "field": str(result.get("field") or ""),
+        "source": str(result.get("source") or ""),
+        "updated": result.get("updated") is True,
+        "executionId": str(result.get("executionId") or ""),
+        "requestStatus": str(result.get("requestStatus") or ""),
+        "requestComplete": result.get("requestComplete") is True,
+    }
+
+
+def _rectify_mobile_deadline(payload: dict) -> dict:
+    result = rights_rectification.execute(
+        payload.get("requestId"),
+        payload.get("installationId"),
+        payload.get("correction"),
+    )
+    return _rectification_projection(result)
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -106,6 +129,7 @@ def main(
                         "mercure_appointment",
                         "local_checkout_acceptance",
                     ],
+                    "rectification": rights_rectification.capability(),
                 },
             }
         elif command == "bindings":
@@ -116,9 +140,11 @@ def main(
                     for row in rights_subject_bindings.rows(limit=50)
                 ],
             }
-        else:
+        elif command == "prove-contract":
             result = _prove_contract(_read_payload(input_stream))
-    except (ValueError, LookupError, PermissionError, RuntimeError):
+        else:
+            result = _rectify_mobile_deadline(_read_payload(input_stream))
+    except (ValueError, LookupError, PermissionError, RuntimeError, NotImplementedError):
         _emit(output_stream, {"ok": False, "error": "invalid_or_unauthorized_request"})
         return 2
     except Exception:
