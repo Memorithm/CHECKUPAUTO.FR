@@ -11,10 +11,11 @@ import compliance_store
 import data_subject_rights
 import referral_engine
 import referral_wallet_claims
+import referral_wallet_erasure
 
 
 ADAPTER = "referral_wallet"
-SUPPORTED_RIGHTS = ("access", "portability")
+SUPPORTED_RIGHTS = ("access", "portability", "erasure")
 MAX_LEDGER_ENTRIES = 200
 
 
@@ -114,7 +115,15 @@ def execute(
     account_id: object,
     db_path: Path | str | None = None,
 ) -> dict:
-    """Execute access/portability for a wallet proven to belong to the DSAR subject."""
+    """Execute a bounded referral-wallet right for its proven mobile owner.
+
+    Access and portability export a privacy-bounded snapshot. Erasure is a
+    retention-aware two-stage operation: it is allowed only after an operator has
+    configured and legally reviewed the referral-ledger retention policy, and it
+    refuses to deactivate a wallet that still carries a balance or pending reward.
+    Financial history is retained for policy processing, so the global request is
+    deliberately kept in progress rather than falsely marked complete.
+    """
     rid = data_subject_rights._request_id(request_id)
     installation = _installation_id(installation_id)
     account = _account_id(account_id)
@@ -130,37 +139,86 @@ def execute(
     installation_hash = _hash(installation)
     if not hmac.compare_digest(str(row["subject_ref_hash"]), installation_hash):
         raise PermissionError("référence du demandeur refusée")
-    if not referral_wallet_claims.ownership_matches(account, installation):
-        raise PermissionError("propriété de cagnotte non prouvée")
 
-    data = snapshot(account)
-    export_hash = _hash(
-        json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if request_type in {"access", "portability"}:
+        if not referral_wallet_claims.ownership_matches(account, installation):
+            raise PermissionError("propriété de cagnotte non prouvée")
+        data = snapshot(account)
+        export_hash = _hash(
+            json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        )
+        evidence = {
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": ADAPTER,
+            "ownershipProvenance": "authenticated_mobile_wallet_claim",
+            "ledgerCount": int(data["ledgerCount"]),
+            "ledgerTruncated": bool(data["ledgerTruncated"]),
+            "thirdPartyAppointmentIdentifiersExposed": False,
+            "exportHash": export_hash,
+        }
+        execution_id = data_subject_rights._audit_execution(
+            row,
+            ADAPTER,
+            "export",
+            evidence,
+            db_path,
+        )
+        return {
+            "ok": True,
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": ADAPTER,
+            "format": "application/json",
+            "data": data,
+            "executionId": execution_id,
+            "requestStatus": "in_progress",
+            "requestComplete": False,
+        }
+
+    erased = referral_wallet_erasure.execute(
+        rid,
+        installation,
+        account,
+        db_path,
     )
     evidence = {
         "requestId": rid,
         "requestType": request_type,
         "adapter": ADAPTER,
         "ownershipProvenance": "authenticated_mobile_wallet_claim",
-        "ledgerCount": int(data["ledgerCount"]),
-        "ledgerTruncated": bool(data["ledgerTruncated"]),
+        "accountDeactivated": bool(erased["accountDeactivated"]),
+        "ownershipReleased": int(erased["ownershipReleased"]),
+        "pendingClaimsRevoked": int(erased["pendingClaimsRevoked"]),
+        "balanceCentsAtErasure": int(erased["balanceCentsAtErasure"]),
+        "pendingRewardsAtErasure": int(erased["pendingRewardsAtErasure"]),
+        "retainedFinancialRecords": dict(erased["retainedFinancialRecords"]),
+        "retentionRuleId": str(erased["retention"]["ruleId"]),
+        "retentionDays": int(erased["retention"]["activeDays"]),
+        "legalReviewConfirmed": bool(erased["retention"]["legalReviewConfirmed"]),
+        "financialHistoryRetained": True,
         "thirdPartyAppointmentIdentifiersExposed": False,
-        "exportHash": export_hash,
     }
     execution_id = data_subject_rights._audit_execution(
         row,
         ADAPTER,
-        "export",
+        "deactivate_retained_erasure",
         evidence,
         db_path,
     )
+    referral_wallet_erasure.finalize(rid, db_path)
     return {
         "ok": True,
         "requestId": rid,
         "requestType": request_type,
         "adapter": ADAPTER,
-        "format": "application/json",
-        "data": data,
+        "accountDeactivated": bool(erased["accountDeactivated"]),
+        "ownershipReleased": int(erased["ownershipReleased"]),
+        "pendingClaimsRevoked": int(erased["pendingClaimsRevoked"]),
+        "retainedFinancialRecords": dict(erased["retainedFinancialRecords"]),
+        "retention": dict(erased["retention"]),
+        "financialHistoryRetained": True,
+        "finalPhysicalPurgeComplete": False,
         "executionId": execution_id,
         "requestStatus": "in_progress",
         "requestComplete": False,
@@ -177,6 +235,7 @@ def capability(db_path: Path | str | None = None) -> dict:
             ).fetchone()["n"]
         )
     owner = referral_wallet_claims.capability()
+    erasure = referral_wallet_erasure.capability(db_path)
     return {
         "bound": True,
         "partial": True,
@@ -188,5 +247,6 @@ def capability(db_path: Path | str | None = None) -> dict:
         "thirdPartyAppointmentIdentifiersExposed": False,
         "ledgerLimit": MAX_LEDGER_ENTRIES,
         "executionCount": execution_count,
-        "remainingOperations": ["rectification_policy", "erasure_retention_policy"],
+        "erasure": erasure,
+        "remainingOperations": ["rectification_policy", "final_retention_expiry_purge"],
     }
