@@ -133,9 +133,15 @@ class ReferralWalletFinalPurgeTest(unittest.TestCase):
         self.retire(account["id"])
         with analytics.connect() as db:
             db.execute(
-                """INSERT INTO referral_wallet_owner(account_id,installation_hash,claimed_at)
-                   VALUES(?,?,?)""",
-                (account["id"], "a" * 64, self.now.isoformat(timespec="seconds")),
+                """INSERT INTO referral_wallet_owner(
+                     account_id,installation_hash,claimed_at,evidence_hash
+                   ) VALUES(?,?,?,?)""",
+                (
+                    account["id"],
+                    "a" * 64,
+                    self.now.isoformat(timespec="seconds"),
+                    "b" * 64,
+                ),
             )
         result = final_purge.purge_retired_wallets(30, now=self.now, dry_run=True)
         self.assertEqual(result["eligibleAccounts"], 0)
