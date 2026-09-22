@@ -38,24 +38,50 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         payload.update(overrides)
         return payload
 
-    def test_empty_processing_register_fails_closed(self):
+    def processor(self, **overrides):
+        payload = {
+            "name": "Prestataire documenté",
+            "service": "Service externe classifié par le responsable conformité",
+            "dpaStatus": "signed",
+            "hostingLocation": "Lieu documenté par le contrat",
+            "transferRequired": False,
+            "transferMechanism": "",
+            "subprocessors": [],
+            "reviewDueAt": "2099-12-31",
+            "status": "active",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_empty_operational_registers_fail_closed(self):
+        state = compliance_admin.snapshot(self.db)
+        self.assertFalse(state["summary"]["operationalRegistersReady"])
+        blockers = {item["type"] for item in state["summary"]["operationalBlockers"]}
+        self.assertIn("processing_register_missing", blockers)
+        self.assertIn("processor_inventory_missing", blockers)
+        self.assertFalse(state["summary"]["readyForPublicContracting"])
+        self.assertEqual(state["operations"]["summary"]["activeActivityCount"], 0)
+        self.assertEqual(state["operations"]["summary"]["activeProcessorCount"], 0)
+
+    def test_complete_activity_without_processor_inventory_fails_closed(self):
+        compliance_operations.upsert_processing_activity(self.activity(), self.db)
         state = compliance_admin.snapshot(self.db)
         self.assertFalse(state["summary"]["operationalRegistersReady"])
         self.assertIn(
-            "processing_register_missing",
+            "processor_inventory_missing",
             {item["type"] for item in state["summary"]["operationalBlockers"]},
         )
         self.assertFalse(state["summary"]["readyForPublicContracting"])
-        self.assertEqual(state["operations"]["summary"]["activeActivityCount"], 0)
 
-    def test_complete_activity_makes_operational_register_ready(self):
+    def test_complete_activity_and_processor_inventory_make_operational_register_ready(self):
         compliance_operations.upsert_processing_activity(self.activity(), self.db)
+        compliance_operations.upsert_processor(self.processor(), self.db)
         state = compliance_admin.snapshot(self.db)
         self.assertTrue(state["summary"]["operationalRegistersReady"])
         self.assertEqual(state["summary"]["operationalBlockers"], [])
         self.assertIn("settings", state)
         self.assertIn("documentTypes", state)
-        # Contracting remains blocked by the existing CGV/withdrawal gates.
+        # Contracting remains blocked by the existing CGV/withdrawal/rights gates.
         self.assertFalse(state["summary"]["readyForPublicContracting"])
 
     def test_withdrawal_ready_still_fails_closed_for_remaining_phase2_controls(self):
@@ -84,6 +110,7 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
                 "action": "publish",
             }, self.db)
         compliance_operations.upsert_processing_activity(self.activity(), self.db)
+        compliance_operations.upsert_processor(self.processor(), self.db)
 
         state = compliance_admin.snapshot(self.db)
         self.assertTrue(state["summary"]["checkoutAcceptanceBound"])
@@ -98,6 +125,7 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         compliance_operations.upsert_processing_activity(
             self.activity(riskLevel="high", dpiaStatus="required_pending"), self.db
         )
+        compliance_operations.upsert_processor(self.processor(), self.db)
         state = compliance_admin.snapshot(self.db)
         self.assertFalse(state["summary"]["operationalRegistersReady"])
         self.assertIn(
