@@ -47,6 +47,7 @@ class SharedHostTickTest(unittest.TestCase):
                 (module.review_followup, "process_once"),
                 (module.withdrawal_service, "dispatch_pending"),
                 (module.retention_enforcement, "process_once"),
+                (module.referral_wallet_final_purge_runner, "process_once"),
                 (module.security_alerts, "retry_pending"),
             ]
             for owner, name in functions:
@@ -58,7 +59,8 @@ class SharedHostTickTest(unittest.TestCase):
                 result = module.tick()
 
             self.assertTrue(result["ok"])
-            self.assertEqual(len(result["tasks"]), 8)
+            self.assertEqual(len(result["tasks"]), 9)
+            self.assertEqual(result["tasks"][7]["name"], "referral_wallet_final_purge")
             module.admin_server.initialize_runtime.assert_called_once_with(background=False)
             for owner, name in functions:
                 getattr(owner, name).assert_called_once_with()
@@ -78,6 +80,11 @@ class SharedHostTickTest(unittest.TestCase):
                 mock.patch.object(module.review_followup, "process_once", return_value={"ok": True}),
                 mock.patch.object(module.withdrawal_service, "dispatch_pending", return_value={"ok": True}),
                 mock.patch.object(module.retention_enforcement, "process_once", return_value={"ok": True}),
+                mock.patch.object(
+                    module.referral_wallet_final_purge_runner,
+                    "process_once",
+                    return_value={"ok": True},
+                ),
                 mock.patch.object(module.security_alerts, "retry_pending", return_value={"ok": True}),
             ]
             for patcher in patches:
