@@ -62,9 +62,16 @@ class ComplianceRegisterAttestationTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             attestation.attest(self.db)
 
+    def test_ready_registers_require_reviewed_digest(self):
+        self.seed_ready_registers()
+        with self.assertRaisesRegex(ValueError, "revue requise"):
+            attestation.attest(self.db)
+        self.assertEqual(attestation.status(self.db)["attestationCount"], 0)
+
     def test_attestation_matches_current_content_hash(self):
         self.seed_ready_registers()
-        state = attestation.attest(self.db)
+        reviewed_hash = attestation.register_hash(self.db)
+        state = attestation.attest(self.db, expected_register_hash=reviewed_hash)
         self.assertTrue(state["current"])
         self.assertFalse(state["stale"])
         self.assertEqual(state["currentRegisterHash"], state["attestedRegisterHash"])
@@ -99,7 +106,8 @@ class ComplianceRegisterAttestationTest(unittest.TestCase):
 
     def test_substantive_register_change_invalidates_attestation(self):
         self.seed_ready_registers()
-        first = attestation.attest(self.db)
+        reviewed_hash = attestation.register_hash(self.db)
+        first = attestation.attest(self.db, expected_register_hash=reviewed_hash)
         activity = compliance_operations.processing_activities(self.db)[0]
         compliance_operations.upsert_processing_activity(
             self.activity(id=activity["id"], retention="Durée documentée révisée"), self.db

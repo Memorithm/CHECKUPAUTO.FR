@@ -59,7 +59,11 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         compliance_operations.upsert_processor(self.processor(), self.db)
 
     def attest_registers(self):
-        return compliance_register_attestation.attest(self.db)
+        reviewed_hash = compliance_register_attestation.register_hash(self.db)
+        return compliance_register_attestation.attest(
+            self.db,
+            expected_register_hash=reviewed_hash,
+        )
 
     def test_empty_operational_registers_fail_closed(self):
         state = compliance_admin.snapshot(self.db)
