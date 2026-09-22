@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# One-shot branch patcher; removed before the pull request is opened.
 path = Path("admin_server.py")
 source = path.read_text(encoding="utf-8")
 
