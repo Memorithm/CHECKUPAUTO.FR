@@ -18,8 +18,17 @@ jobs:
         run: python3 .github/agent-patch-processing-review.py
       - name: Compile affected Python sources
         run: python3 -m py_compile admin_server.py compliance_admin_http.py admin_processing_review_api_test.py
+      - name: Create isolated Python test environment
+        run: |
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Prepare isolated runtime data
+        run: |
+          runtime_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-processing-review.XXXXXX")"
+          chmod 700 "$runtime_dir"
+          printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
       - name: Run focused regression tests
-        run: python3 -m unittest admin_processing_review_api_test.py compliance_admin_http_test.py admin_register_attestation_api_test.py
+        run: .ci-venv/bin/python -m unittest admin_processing_review_api_test.py compliance_admin_http_test.py admin_register_attestation_api_test.py
       - name: Check tracked files for secrets
         run: python3 scripts/precommit_security.py
       - name: Commit intended changes only
@@ -30,3 +39,9 @@ jobs:
           git config user.email "contact@checkupauto.fr"
           git commit -m "feat: expose MFA-protected processing review endpoint"
           git push origin HEAD:agent/compliance-processing-review-route
+      - name: Clean isolated runtime data
+        if: always()
+        run: |
+          if [ -n "${CYBERCHECK_DATA_DIR:-}" ]; then
+            rm -rf "$CYBERCHECK_DATA_DIR"
+          fi
