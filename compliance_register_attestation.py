@@ -64,9 +64,9 @@ def register_hash(db_path: Path | str | None = None) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _expected_hash(value: str | None) -> str | None:
+def _expected_hash(value: str | None) -> str:
     if value is None:
-        return None
+        raise ValueError("empreinte de registre revue requise")
     expected = str(value).strip().lower()
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise ValueError("empreinte de registre invalide")
@@ -87,9 +87,13 @@ def attest(
     if not bool(operations.get("operationalRegistersReady")):
         raise RuntimeError("registres opérationnels bloqués")
 
-    digest = register_hash(db_path)
+    # The reviewed digest is part of the trust boundary, not an optional hint.
+    # Requiring it in the core operation prevents a future HTTP/admin caller
+    # from bypassing the stale-review/TOCTOU protection already enforced by the
+    # operator CLI.
     expected = _expected_hash(expected_register_hash)
-    if expected is not None and not hmac.compare_digest(expected, digest):
+    digest = register_hash(db_path)
+    if not hmac.compare_digest(expected, digest):
         raise RuntimeError("les registres ont changé depuis la revue")
 
     reviewed_at = _now_iso()
