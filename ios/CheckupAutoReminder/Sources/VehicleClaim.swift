@@ -80,7 +80,7 @@ enum VehicleClaimToken {
     }
 }
 
-enum VehicleClaimLink {
+enum MobileClaimLink {
     static func token(from url: URL) throws -> String {
         guard url.scheme?.lowercased() == "https",
               url.host?.lowercased() == "www.checkupauto.fr",
@@ -91,7 +91,13 @@ enum VehicleClaimLink {
               let raw = parts.queryItems?.first(where: { $0.name == "token" })?.value else {
             throw VehicleClaimError.invalidLink
         }
-        return try VehicleClaimToken.validated(raw)
+        return try MobileClaimToken.validated(raw)
+    }
+}
+
+enum VehicleClaimLink {
+    static func token(from url: URL) throws -> String {
+        try VehicleClaimToken.validated(MobileClaimLink.token(from: url))
     }
 }
 
