@@ -76,7 +76,7 @@ def association_document(config: dict) -> bytes:
                     "components": [
                         {
                             "/": CLAIM_PATH,
-                            "comment": "Rattachement one-shot d un vehicule Checkup Auto",
+                            "comment": "Rattachement one-shot Checkup Auto",
                         }
                     ],
                 }
@@ -96,7 +96,7 @@ def claim_landing_html(config: dict) -> bytes:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="referrer" content="no-referrer">
-<title>Rattacher votre véhicule — Checkup Auto</title>
+<title>Rattachement sécurisé — Checkup Auto</title>
 <style>
 body{{margin:0;background:#f6f7f2;color:#213b30;font-family:Arial,Helvetica,sans-serif}}
 main{{min-height:100vh;display:grid;place-items:center;padding:24px}}
@@ -108,8 +108,8 @@ small{{display:block;margin-top:24px;line-height:1.6;color:#7b877f}}
 </head>
 <body><main><article>
 <strong>checkupauto</strong>
-<h1>Rattachez votre véhicule à l’application.</h1>
-<p>Si Checkup Auto est installé sur cet iPhone, ce lien s’ouvre directement dans l’application. Sinon, installez l’application puis rescanez le QR remis par le centre.</p>
+<h1>Rattachez votre accès Checkup Auto à l’application.</h1>
+<p>Si Checkup Auto est installé sur cet iPhone, ce lien ouvre directement le rattachement demandé dans l’application. Sinon, installez l’application puis rouvrez ce lien ou rescanez le QR remis par Checkup Auto.</p>
 <a href="{html.escape(app_url, quote=True)}">Découvrir l’application</a>
 <small>Le code de rattachement est à usage unique et expire rapidement. Cette page ne transmet pas ce code à un service tiers.</small>
 </article></main></body></html>"""
