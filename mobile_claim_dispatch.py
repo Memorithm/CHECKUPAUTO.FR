@@ -80,6 +80,6 @@ def capability() -> dict:
         "walletTokenPrefix": _REFERRAL_WALLET_PREFIX,
         "legacyVehicleTokensAccepted": True,
         "vehicleAuthoritativeRefreshBound": True,
-        "sharedEndpointReady": False,
+        "sharedEndpointReady": True,
         "rawClaimTokenPersisted": False,
     }
