@@ -16,10 +16,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  swift-and-xcode:
+  mac-mini:
+    name: Mac mini validation
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 30
     env:
@@ -167,3 +169,39 @@ jobs:
             rm -f "$(cat .ios-mac-key)"
           fi
           rm -f .ios-mac-key .ios-mac-auth .ios-remote-dir
+
+  hosted-apple-validation:
+    name: Hosted Apple validation
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify Apple toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          swift --version
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+      - name: Run Swift package tests
+        run: |
+          set -euo pipefail
+          cd ios/CheckupAutoReminder
+          swift package resolve
+          swift test --parallel
+      - name: Generate Xcode project and run simulator tests
+        run: |
+          set -euo pipefail
+          destination="$(python3 -c 'import ios_release_runner as r; print(r.discover_simulator()["destination"])')"
+          cd ios/CheckupAutoReminder
+          xcodegen generate
+          xcodebuild test \
+            -project CheckupAutoReminder.xcodeproj \
+            -scheme CheckupAutoReminder \
+            -configuration Debug \
+            -destination "$destination" \
+            -derivedDataPath "$RUNNER_TEMP/CheckupAutoDerivedData" \
+            CODE_SIGNING_ALLOWED=NO
