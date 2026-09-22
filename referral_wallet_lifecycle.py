@@ -11,6 +11,35 @@ def _installation_hash(installation_id: str) -> str:
     return hashlib.sha256(installation_id.encode("utf-8")).hexdigest()
 
 
+def _release_installation_ownership(installation_id: str) -> dict:
+    """Internal mutation for callers that have already verified the subject.
+
+    The mobile API authenticates the installation secret before calling this;
+    the rights engine re-verifies the request subject before its erasure adapter.
+    This primitive must never be exposed as a raw-installation-ID public route.
+    It deletes only ownership evidence, not wallet accounts, rewards or balances.
+    Repeating it after an interrupted deletion is safe, including when the mobile
+    row is already absent. Storage failures propagate so callers cannot report a
+    successful erasure while ownership release has failed.
+    """
+    installation_id = mobile_devices._install_id(installation_id)
+    referral_wallet_claims.init_db()
+    installation_hash = _installation_hash(installation_id)
+    with analytics.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        cursor = db.execute(
+            "DELETE FROM referral_wallet_owner WHERE installation_hash=?",
+            (installation_hash,),
+        )
+        released = max(0, int(cursor.rowcount or 0))
+
+    return {
+        "ok": True,
+        "released": released,
+        "rawInstallationPersisted": False,
+    }
+
+
 def release_for_authenticated_installation(payload: dict) -> dict:
     """Release wallet ownership evidence before deleting a mobile installation.
 
@@ -33,21 +62,7 @@ def release_for_authenticated_installation(payload: dict) -> dict:
     with mobile_devices.connect() as db:
         mobile_devices._authenticated_installation(db, installation_id, secret_hash)
 
-    referral_wallet_claims.init_db()
-    installation_hash = _installation_hash(installation_id)
-    with analytics.connect() as db:
-        db.execute("BEGIN IMMEDIATE")
-        cursor = db.execute(
-            "DELETE FROM referral_wallet_owner WHERE installation_hash=?",
-            (installation_hash,),
-        )
-        released = max(0, int(cursor.rowcount or 0))
-
-    return {
-        "ok": True,
-        "released": released,
-        "rawInstallationPersisted": False,
-    }
+    return _release_installation_ownership(installation_id)
 
 
 def delete_installation(payload: dict) -> dict:
