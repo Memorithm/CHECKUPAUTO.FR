@@ -4,6 +4,7 @@ from pathlib import Path
 
 import compliance_admin
 import compliance_operations
+import compliance_register_attestation
 import compliance_store
 import marketing_campaigns
 
@@ -53,12 +54,20 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         payload.update(overrides)
         return payload
 
+    def ready_registers(self):
+        compliance_operations.upsert_processing_activity(self.activity(), self.db)
+        compliance_operations.upsert_processor(self.processor(), self.db)
+
+    def attest_registers(self):
+        return compliance_register_attestation.attest(self.db)
+
     def test_empty_operational_registers_fail_closed(self):
         state = compliance_admin.snapshot(self.db)
         self.assertFalse(state["summary"]["operationalRegistersReady"])
         blockers = {item["type"] for item in state["summary"]["operationalBlockers"]}
         self.assertIn("processing_register_missing", blockers)
         self.assertIn("processor_inventory_missing", blockers)
+        self.assertIn("operational_register_attestation_missing", blockers)
         self.assertFalse(state["summary"]["readyForPublicContracting"])
         self.assertEqual(state["operations"]["summary"]["activeActivityCount"], 0)
         self.assertEqual(state["operations"]["summary"]["activeProcessorCount"], 0)
@@ -67,22 +76,48 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         compliance_operations.upsert_processing_activity(self.activity(), self.db)
         state = compliance_admin.snapshot(self.db)
         self.assertFalse(state["summary"]["operationalRegistersReady"])
-        self.assertIn(
-            "processor_inventory_missing",
-            {item["type"] for item in state["summary"]["operationalBlockers"]},
-        )
+        blockers = {item["type"] for item in state["summary"]["operationalBlockers"]}
+        self.assertIn("processor_inventory_missing", blockers)
+        self.assertIn("operational_register_attestation_missing", blockers)
         self.assertFalse(state["summary"]["readyForPublicContracting"])
 
-    def test_complete_activity_and_processor_inventory_make_operational_register_ready(self):
-        compliance_operations.upsert_processing_activity(self.activity(), self.db)
-        compliance_operations.upsert_processor(self.processor(), self.db)
+    def test_complete_registers_without_attestation_fail_closed(self):
+        self.ready_registers()
+        state = compliance_admin.snapshot(self.db)
+        self.assertFalse(state["summary"]["operationalRegistersReady"])
+        self.assertIn(
+            "operational_register_attestation_missing",
+            {item["type"] for item in state["summary"]["operationalBlockers"]},
+        )
+        self.assertFalse(state["summary"]["operationalRegisterAttestationCurrent"])
+
+    def test_attested_activity_and_processor_inventory_make_operational_register_ready(self):
+        self.ready_registers()
+        self.attest_registers()
         state = compliance_admin.snapshot(self.db)
         self.assertTrue(state["summary"]["operationalRegistersReady"])
+        self.assertTrue(state["summary"]["operationalRegisterAttestationCurrent"])
         self.assertEqual(state["summary"]["operationalBlockers"], [])
+        self.assertTrue(state["operationalRegisterAttestation"]["current"])
         self.assertIn("settings", state)
         self.assertIn("documentTypes", state)
         # Contracting remains blocked by the existing CGV/withdrawal/rights gates.
         self.assertFalse(state["summary"]["readyForPublicContracting"])
+
+    def test_register_edit_makes_attestation_stale_and_fails_closed(self):
+        self.ready_registers()
+        self.attest_registers()
+        activity = compliance_operations.processing_activities(self.db)[0]
+        compliance_operations.upsert_processing_activity(
+            self.activity(id=activity["id"], retention="Politique de conservation révisée"), self.db
+        )
+        state = compliance_admin.snapshot(self.db)
+        self.assertFalse(state["summary"]["operationalRegistersReady"])
+        self.assertIn(
+            "operational_register_attestation_stale",
+            {item["type"] for item in state["summary"]["operationalBlockers"]},
+        )
+        self.assertTrue(state["operationalRegisterAttestation"]["stale"])
 
     def test_withdrawal_ready_still_fails_closed_for_remaining_phase2_controls(self):
         identity = {key: "value" for key in compliance_store.SETTINGS_FIELDS}
@@ -109,8 +144,8 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
                 "body": ("Document juridiquement validé pour le test. " * 6) + doc_type,
                 "action": "publish",
             }, self.db)
-        compliance_operations.upsert_processing_activity(self.activity(), self.db)
-        compliance_operations.upsert_processor(self.processor(), self.db)
+        self.ready_registers()
+        self.attest_registers()
 
         state = compliance_admin.snapshot(self.db)
         self.assertTrue(state["summary"]["checkoutAcceptanceBound"])
