@@ -6,11 +6,16 @@ from pathlib import Path
 
 
 class MobileClaimAPISurfaceTest(unittest.TestCase):
-    def test_only_claim_consumption_is_exposed_over_http(self):
+    def test_shared_claim_consumption_is_exposed_through_typed_dispatch(self):
         source = Path("admin_server.py").read_text()
         self.assertIn("/api/mobile/claims/consume", source)
         self.assertIn("/api/mobile/inventory", source)
-        self.assertIn("consume_vehicle_claim(payload)", source)
+        route = source.index("if path=='/api/mobile/claims/consume':")
+        end = source.index("if path=='/api/mobile/inventory':", route)
+        block = source[route:end]
+        self.assertIn("mobile_claim_dispatch.consume_with_authoritative_refresh", block)
+        self.assertNotIn("mobile_devices.consume_vehicle_claim", block)
+        self.assertNotIn("mobile_authoritative_sync.sync_installation", block)
         self.assertNotIn("issue_vehicle_claim(", source)
 
     def test_installation_identity_has_separate_register_and_delete_routes(self):
