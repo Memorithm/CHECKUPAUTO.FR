@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 struct ReferralWalletClaimRequest: Codable, Equatable, Sendable {
     let installationId: String
@@ -44,6 +45,7 @@ struct ReferralWalletProductStatus: Codable, Equatable, Sendable, Identifiable {
 
     func validated() throws -> ReferralWalletProductStatus {
         guard !referralCode.isEmpty,
+              referralCode.count <= 120,
               currency.count == 3,
               rewardCents >= 0,
               pendingCents >= 0,
@@ -70,6 +72,7 @@ struct ReferralWalletStatusResponse: Codable, Equatable, Sendable {
     func validated() throws -> ReferralWalletStatusResponse {
         guard ok,
               walletCount >= 0,
+              walletCount <= 16,
               walletCount == wallets.count,
               ownershipProvenance == "authenticated_mobile_wallet_claim",
               !shareCodeIsOwnershipProof,
@@ -96,6 +99,7 @@ struct ReferralWalletClaimResponse: Codable, Equatable, Sendable {
         guard ok,
               claimType == "referral_wallet",
               !claimedAt.isEmpty,
+              ISO8601DateFormatter().date(from: claimedAt) != nil,
               provenance == "authenticated_mobile_wallet_claim" else {
             throw ReferralWalletClaimError.invalidResponse
         }
@@ -106,10 +110,89 @@ struct ReferralWalletClaimResponse: Codable, Equatable, Sendable {
     }
 }
 
+struct ReferralWalletVerifiedSnapshot: Codable, Equatable, Sendable {
+    let wallets: [ReferralWalletProductStatus]
+    let verifiedAt: String
+
+    func validated() throws -> ReferralWalletVerifiedSnapshot {
+        guard wallets.count <= 16,
+              ISO8601DateFormatter().date(from: verifiedAt) != nil else {
+            throw ReferralWalletClaimError.invalidResponse
+        }
+        for wallet in wallets {
+            _ = try wallet.validated()
+        }
+        return self
+    }
+}
+
 enum ReferralWalletClaimError: Error {
     case invalidIdentity
     case invalidToken
     case invalidResponse
+    case keychainFailure
+}
+
+enum ReferralWalletSnapshotStore {
+    private static let service = "fr.checkupauto.reminder.referral-wallet"
+    private static let account = "verified-snapshot-v1"
+
+    static func load() -> ReferralWalletVerifiedSnapshot? {
+        guard let data = readData() else { return nil }
+        return try? decode(data)
+    }
+
+    static func save(_ snapshot: ReferralWalletVerifiedSnapshot) throws {
+        let data = try encode(snapshot)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+        var add = query
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else {
+            throw ReferralWalletClaimError.keychainFailure
+        }
+    }
+
+    static func clear() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw ReferralWalletClaimError.keychainFailure
+        }
+    }
+
+    static func encode(_ snapshot: ReferralWalletVerifiedSnapshot) throws -> Data {
+        try JSONEncoder().encode(snapshot.validated())
+    }
+
+    static func decode(_ data: Data) throws -> ReferralWalletVerifiedSnapshot {
+        try JSONDecoder().decode(ReferralWalletVerifiedSnapshot.self, from: data).validated()
+    }
+
+    private static func readData() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else {
+            return nil
+        }
+        return data
+    }
 }
 
 enum ReferralWalletClaimClient {

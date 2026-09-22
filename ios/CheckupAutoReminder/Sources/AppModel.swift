@@ -28,6 +28,11 @@ final class AppModel: ObservableObject {
     init() {
         load()
         authoritativeVehicles = AuthoritativeInventoryStore.load()
+        if installationRegistrationSuppressed {
+            try? ReferralWalletSnapshotStore.clear()
+        } else if let snapshot = ReferralWalletSnapshotStore.load() {
+            referralWallets = snapshot.wallets
+        }
         Task {
             try? await DeviceRegistrationClient.registerInstallation()
             installationRegistrationSuppressed =
@@ -121,7 +126,15 @@ final class AppModel: ObservableObject {
                     installationRegistrationSuppressed =
                         InstallationLifecycleState.isAutoRegistrationSuppressed()
                     if let status = response.walletStatus {
-                        referralWallets = status.wallets
+                        let snapshot = ReferralWalletVerifiedSnapshot(
+                            wallets: status.wallets,
+                            verifiedAt: response.claimedAt
+                        )
+                        referralWallets = snapshot.wallets
+                        try? ReferralWalletSnapshotStore.save(snapshot)
+                    } else {
+                        referralWallets = []
+                        try? ReferralWalletSnapshotStore.clear()
                     }
                     if notificationAuthorized {
                         registerForRemoteNotifications()
@@ -144,6 +157,7 @@ final class AppModel: ObservableObject {
             let existingVehicles = vehicles
             do {
                 _ = try await DeviceRegistrationClient.deleteInstallation()
+                try ReferralWalletSnapshotStore.clear()
                 for vehicle in existingVehicles {
                     await scheduler.remove(
                         vehicle,

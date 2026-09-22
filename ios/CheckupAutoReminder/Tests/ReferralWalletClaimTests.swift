@@ -82,6 +82,13 @@ final class ReferralWalletClaimTests: XCTestCase {
             provenance: "unverified",
             walletStatus: nil
         ).validated())
+        XCTAssertThrowsError(try ReferralWalletClaimResponse(
+            ok: true,
+            claimType: valid.claimType,
+            claimedAt: "not-a-timestamp",
+            provenance: valid.provenance,
+            walletStatus: nil
+        ).validated())
     }
 
     func testWalletResponseAcceptsOnlyPrivacyBoundedVerifiedSnapshot() throws {
@@ -110,6 +117,43 @@ final class ReferralWalletClaimTests: XCTestCase {
             provenance: valid.provenance,
             walletStatus: walletStatus(accountIdentifiersExposed: true)
         ).validated())
+    }
+
+    func testVerifiedWalletSnapshotCodecIsBoundedAndDeterministic() throws {
+        let snapshot = ReferralWalletVerifiedSnapshot(
+            wallets: [verifiedWallet],
+            verifiedAt: "2026-09-22T08:00:00+00:00"
+        )
+        let data = try ReferralWalletSnapshotStore.encode(snapshot)
+        XCTAssertEqual(try ReferralWalletSnapshotStore.decode(data), snapshot)
+        let serialized = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(serialized.contains(identity))
+        XCTAssertFalse(serialized.contains(secret))
+        XCTAssertFalse(serialized.contains("accountId"))
+        XCTAssertFalse(serialized.contains("appointment"))
+        XCTAssertFalse(serialized.contains("ledger"))
+
+        XCTAssertThrowsError(try ReferralWalletSnapshotStore.encode(
+            ReferralWalletVerifiedSnapshot(
+                wallets: [verifiedWallet],
+                verifiedAt: "invalid"
+            )
+        ))
+    }
+
+    func testWalletStatusRejectsUnboundedWalletCollection() {
+        let wallets = Array(repeating: verifiedWallet, count: 17)
+        let response = ReferralWalletStatusResponse(
+            ok: true,
+            walletCount: wallets.count,
+            wallets: wallets,
+            ownershipProvenance: "authenticated_mobile_wallet_claim",
+            shareCodeIsOwnershipProof: false,
+            accountIdentifiersExposed: false,
+            thirdPartyAppointmentIdentifiersExposed: false,
+            ledgerReferencesExposed: false
+        )
+        XCTAssertThrowsError(try response.validated())
     }
 
     func testGenericClaimLinkResolvesWalletAndVehicleTrustDomains() throws {
