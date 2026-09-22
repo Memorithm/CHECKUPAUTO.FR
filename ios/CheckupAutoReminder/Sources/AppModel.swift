@@ -275,8 +275,23 @@ final class AppModel: ObservableObject {
             }
             authoritativeVehicles = response.vehicles
             AuthoritativeInventoryStore.save(response.vehicles)
+
+            if let walletStatus = response.referralWalletStatus {
+                if walletStatus.wallets.isEmpty {
+                    referralWallets = []
+                    try? ReferralWalletSnapshotStore.clear()
+                } else {
+                    let snapshot = ReferralWalletVerifiedSnapshot(
+                        wallets: walletStatus.wallets,
+                        verifiedAt: ISO8601DateFormatter().string(from: Date())
+                    )
+                    referralWallets = snapshot.wallets
+                    try? ReferralWalletSnapshotStore.save(snapshot)
+                }
+            }
         } catch {
-            // Preserve the last verified opaque inventory for offline fallback.
+            // Preserve the last verified opaque inventory and referral-wallet snapshot
+            // when the server is offline or does not yet expose the combined response.
         }
     }
 
