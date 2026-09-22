@@ -14,6 +14,7 @@ import compliance_store
 import mercure_rights
 import mobile_devices
 import privacy_suppression
+import referral_wallet_lifecycle
 import rights_subject_bindings
 
 
@@ -182,6 +183,9 @@ def _mobile_snapshot(installation_id: str) -> dict:
 
 
 def _erase_mobile(installation_id: str) -> dict:
+    # execute() has already re-verified the rights-request subject. Release only
+    # its ownership evidence before mobile deletion; failure must abort erasure.
+    release = referral_wallet_lifecycle._release_installation_ownership(installation_id)
     mobile_devices.init_db()
     with mobile_devices.connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -208,6 +212,7 @@ def _erase_mobile(installation_id: str) -> dict:
         db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
     return {
         "installationId": installation_id,
+        "referralWalletOwnershipReleased": int(release["released"]),
         "removed": {
             "deviceRecords": device_count,
             "deadlineRecords": deadline_count,
@@ -452,12 +457,14 @@ def execute(
                 "requestType": request_type,
                 "adapter": adapter,
                 "removed": data["removed"],
+                "referralWalletOwnershipReleased": data["referralWalletOwnershipReleased"],
             }
             evidence = {
                 "requestId": rid,
                 "requestType": request_type,
                 "adapter": adapter,
                 "removed": data["removed"],
+                "referralWalletOwnershipReleased": data["referralWalletOwnershipReleased"],
             }
     elif adapter == "mercure_customer_contact":
         data = mercure_rights.contact_snapshot(ref)
