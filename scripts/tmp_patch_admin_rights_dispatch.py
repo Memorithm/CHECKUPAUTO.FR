@@ -1,6 +1,7 @@
 from pathlib import Path
 
 # One-shot branch patcher; removed before the pull request is opened.
+# The permanent CI will validate the resulting source once the pull request exists.
 path = Path("admin_server.py")
 source = path.read_text(encoding="utf-8")
 
