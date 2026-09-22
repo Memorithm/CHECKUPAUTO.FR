@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import analytics_store
 import compliance_store
 
 
@@ -10,6 +11,41 @@ def _contract_ref(value: object) -> str:
     if not raw or len(raw) > 200 or any(ord(c) < 32 or ord(c) == 127 for c in raw):
         raise ValueError("contractRef invalide")
     return raw
+
+
+def _booking_conversions(contract_ref: str) -> list[dict]:
+    if not Path(analytics_store.DB).exists():
+        return []
+    with analytics_store.connect() as db:
+        table = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='booking_conversions'"
+        ).fetchone()
+        if not table:
+            return []
+        columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(booking_conversions)")}
+        referral_expr = "referral_code" if "referral_code" in columns else "'' AS referral_code"
+        rows = db.execute(
+            f"""SELECT provider,external_id,status,first_seen_at,updated_at,confirmed_at,
+                       appointment_at,amount_cents,service,source,campaign,device,{referral_expr}
+                FROM booking_conversions WHERE external_id=?
+                ORDER BY first_seen_at,provider""",
+            (contract_ref,),
+        ).fetchall()
+    return [{
+        "provider": str(r["provider"]),
+        "externalId": str(r["external_id"]),
+        "status": str(r["status"]),
+        "firstSeenAt": str(r["first_seen_at"]),
+        "updatedAt": str(r["updated_at"]),
+        "confirmedAt": str(r["confirmed_at"] or ""),
+        "appointmentAt": str(r["appointment_at"] or ""),
+        "amountCents": int(r["amount_cents"] or 0),
+        "service": str(r["service"] or ""),
+        "source": str(r["source"] or ""),
+        "campaign": str(r["campaign"] or ""),
+        "device": str(r["device"] or ""),
+        "referralCode": str(r["referral_code"] or ""),
+    } for r in rows]
 
 
 def snapshot(contract_ref: object, db_path: Path | str | None = None) -> dict:
@@ -38,9 +74,17 @@ def snapshot(contract_ref: object, db_path: Path | str | None = None) -> dict:
             "immediatePerformance": bool(r["immediate_performance"]), "source": str(r["source"]),
             "finalizedAt": str(r["finalized_at"]),
         } for r in acceptances],
+        "bookingConversions": _booking_conversions(ref),
         "partial": True,
     }
 
 
 def capability() -> dict:
-    return {"bound": True, "partial": True, "rights": ["access", "portability"], "crossIdentityBinding": False, "remainingStores": ["booking_conversions"]}
+    return {
+        "bound": True,
+        "partial": True,
+        "rights": ["access", "portability"],
+        "crossIdentityBinding": False,
+        "coveredStores": ["consent_receipts", "checkout_acceptance_intents", "booking_conversions"],
+        "remainingStores": [],
+    }
