@@ -8,6 +8,7 @@ import data_subject_rights
 import marketing_campaigns
 import marketing_consent
 import retention_enforcement
+import rights_readiness
 import withdrawal_service
 
 
@@ -23,7 +24,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result = compliance_store.admin_snapshot(db_path)
     withdrawal = withdrawal_service.status(db_path)
     operations = compliance_operations.snapshot(db_path)
-    rights_execution = data_subject_rights.capability(db_path)
+    rights_execution = rights_readiness.capability(db_path)
     retention = retention_enforcement.status(db_path)
     marketing = marketing_consent.capability(db_path)
     campaigns = marketing_campaigns.capability(db_path)
