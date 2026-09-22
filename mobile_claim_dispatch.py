@@ -11,6 +11,18 @@ import referral_wallet_mobile
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 _REFERRAL_WALLET_PREFIX = "rw_"
 _VEHICLE_PREFIX = "vc_"
+_WALLET_FIELDS = (
+    "referralCode",
+    "active",
+    "currency",
+    "rewardCents",
+    "balanceCents",
+    "pendingCents",
+    "earnedReferrals",
+    "pendingReferrals",
+    "cancelledReferrals",
+    "reversedReferrals",
+)
 
 
 def claim_kind(token: object) -> str:
@@ -18,6 +30,40 @@ def claim_kind(token: object) -> str:
     if not _TOKEN_RE.fullmatch(raw):
         raise ValueError("claimToken invalide")
     return "referral_wallet" if raw.startswith(_REFERRAL_WALLET_PREFIX) else "vehicle"
+
+
+def _project_wallet_status(status: object) -> dict | None:
+    """Project only the public wallet read model at the mobile trust boundary."""
+    if not isinstance(status, dict) or status.get("ok") is not True:
+        return None
+    if status.get("ownershipProvenance") != "authenticated_mobile_wallet_claim":
+        return None
+    for flag in (
+        "shareCodeIsOwnershipProof",
+        "accountIdentifiersExposed",
+        "thirdPartyAppointmentIdentifiersExposed",
+        "ledgerReferencesExposed",
+    ):
+        if status.get(flag) is not False:
+            return None
+    raw_wallets = status.get("wallets")
+    if not isinstance(raw_wallets, list):
+        return None
+    wallets = []
+    for row in raw_wallets:
+        if not isinstance(row, dict):
+            return None
+        wallets.append({field: row.get(field) for field in _WALLET_FIELDS})
+    return {
+        "ok": True,
+        "walletCount": len(wallets),
+        "wallets": wallets,
+        "ownershipProvenance": "authenticated_mobile_wallet_claim",
+        "shareCodeIsOwnershipProof": False,
+        "accountIdentifiersExposed": False,
+        "thirdPartyAppointmentIdentifiersExposed": False,
+        "ledgerReferencesExposed": False,
+    }
 
 
 def _wallet_status_after_claim(payload: dict) -> dict | None:
@@ -37,7 +83,7 @@ def _wallet_status_after_claim(payload: dict) -> dict | None:
         )
     except Exception:
         return None
-    return status if isinstance(status, dict) and status.get("ok") is True else None
+    return _project_wallet_status(status)
 
 
 def consume(payload: dict) -> dict:
