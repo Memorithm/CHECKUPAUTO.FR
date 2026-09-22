@@ -10,6 +10,7 @@ import marketing_campaigns
 import marketing_consent
 import processing_risk_review
 import retention_enforcement
+import rights_completion_admin
 import rights_readiness
 import withdrawal_service
 
@@ -103,6 +104,43 @@ def review_high_risk_processing(
     }
 
 
+def rights_completion_snapshot(
+    rights_requests: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Build bounded completion-plan state for all requests in admin snapshot.
+
+    The admin boundary caps each database batch. Snapshot composition therefore
+    chunks large request sets rather than silently dropping older requests.
+    """
+    rows = rights_requests if isinstance(rights_requests, list) else []
+    request_ids: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        request_id = str(row.get("id") or "").strip()
+        if not request_id or request_id in seen:
+            continue
+        seen.add(request_id)
+        request_ids.append(request_id)
+
+    plans: list[dict] = []
+    batch_size = rights_completion_admin.MAX_REQUESTS
+    for start in range(0, len(request_ids), batch_size):
+        plans.extend(
+            rights_completion_admin.statuses(
+                request_ids[start : start + batch_size],
+                db_path,
+            )
+        )
+    return {
+        "capability": rights_completion_admin.capability(),
+        "requestCount": len(request_ids),
+        "plans": plans,
+    }
+
+
 def snapshot(db_path: Path | str | None = None) -> dict:
     """Return the Compliance Center payload with operational-register evidence.
 
@@ -118,6 +156,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     register_attestation = compliance_register_attestation.status(db_path)
     processing_reviews = processing_risk_review.status(db_path)
     rights_execution = rights_readiness.capability(db_path)
+    rights_completion = rights_completion_snapshot(result.get("rightsRequests"), db_path)
     retention = retention_enforcement.status(db_path)
     marketing = marketing_consent.capability(db_path)
     campaigns = marketing_campaigns.capability(db_path)
@@ -194,6 +233,9 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     # executable coverage without pretending that every declared right and
     # every personal-data store is already bound.
     summary["dataSubjectExecutionBound"] = bool(rights_execution.get("bound"))
+    summary["rightsCompletionGlobalCoverage"] = bool(
+        rights_completion.get("capability", {}).get("globalCoverageComplete")
+    )
     summary["retentionEnforcementBound"] = bool(retention.get("bound"))
     summary["retentionBlockerCount"] = int(retention.get("blockerCount") or 0)
     summary["marketingConsentBound"] = bool(marketing.get("bound"))
@@ -224,6 +266,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["processingRiskReview"] = processing_reviews
     result["withdrawal"] = withdrawal
     result["dataSubjectExecution"] = rights_execution
+    result["rightsCompletion"] = rights_completion
     result["rightsExecutionAudit"] = data_subject_rights.audit_rows(db_path, 200)
     result["marketingConsent"] = {
         "capability": marketing,
