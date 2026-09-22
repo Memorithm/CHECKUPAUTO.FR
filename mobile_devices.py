@@ -467,11 +467,18 @@ def registered_vehicle_bindings(installation_id: str | None = None) -> list[dict
 
 
 def bound_inventory(payload: dict) -> dict:
-    """Return only opaque binding IDs and authoritative dates to the authenticated app."""
+    """Return the authenticated mobile state without leaking provider identifiers.
+
+    Vehicle deadlines remain opaque Mercure bindings. Referral-wallet state is projected
+    through the independently authenticated wallet read model and therefore contains no
+    internal account IDs, appointment IDs, or ledger references. Keeping both views on
+    the existing authenticated inventory boundary avoids adding another public endpoint.
+    """
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
     installation_id = _install_id(payload.get("installationId"))
-    secret_hash = _hash(_secret(payload.get("registrationSecret")))
+    registration_secret = _secret(payload.get("registrationSecret"))
+    secret_hash = _hash(registration_secret)
     init_db()
     with connect() as db:
         _authenticated_installation(db, installation_id, secret_hash)
@@ -493,7 +500,23 @@ def bound_inventory(payload: dict) -> dict:
             }
             for row in rows
         ]
-    return {"ok": True, "vehicles": vehicles, "source": AUTHORITATIVE_DEADLINE_SOURCE}
+
+    # Runtime import avoids a module cycle: referral_wallet_mobile ->
+    # referral_wallet_claims -> mobile_devices. At request time this module is fully loaded.
+    import referral_wallet_mobile
+
+    wallet_status = referral_wallet_mobile.status(
+        {
+            "installationId": installation_id,
+            "registrationSecret": registration_secret,
+        }
+    )
+    return {
+        "ok": True,
+        "vehicles": vehicles,
+        "source": AUTHORITATIVE_DEADLINE_SOURCE,
+        "referralWalletStatus": wallet_status,
+    }
 
 
 def sync_deadlines(payload: dict) -> dict:
