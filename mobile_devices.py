@@ -17,6 +17,8 @@ DB = DATA_DIR / "mobile-devices.sqlite3"
 _TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32,400}$")
 _SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 _CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+_REFERRAL_WALLET_CLAIM_PREFIX = "rw_"
+_VEHICLE_CLAIM_PREFIX = "vc_"
 _PROVIDER_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 MAX_DEADLINES_PER_INSTALLATION = 24
 DEVICE_DEADLINE_SOURCE = "device"
@@ -101,7 +103,7 @@ def _client_kind(value: object) -> str:
 
 def _claim_token(value: object) -> str:
     raw = str(value or "").strip()
-    if not _CLAIM_RE.fullmatch(raw):
+    if not _CLAIM_RE.fullmatch(raw) or raw.startswith(_REFERRAL_WALLET_CLAIM_PREFIX):
         raise ValueError("claimToken invalide")
     return raw
 
@@ -335,7 +337,8 @@ def issue_vehicle_claim(
     """Create a high-entropy one-time vehicle claim.
 
     This function is intentionally internal-only. The raw token is returned exactly once
-    to the trusted caller and is never persisted.
+    to the trusted caller and is never persisted. New vehicle tokens use the reserved
+    ``vc_`` namespace so they can never collide with referral-wallet ``rw_`` claims.
     """
     vehicle = _provider_id(vehicle_id, "vehicleId")
     kind = _client_kind(client_kind)
@@ -348,7 +351,7 @@ def issue_vehicle_claim(
     ttl = int(ttl_seconds)
     if ttl < 60 or ttl > 86400:
         raise ValueError("ttlSeconds invalide")
-    token = secrets.token_urlsafe(32)
+    token = _VEHICLE_CLAIM_PREFIX + secrets.token_urlsafe(32)
     token_hash = _hash(token)
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     now = now_dt.isoformat(timespec="seconds")
