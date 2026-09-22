@@ -33,6 +33,41 @@ struct ContentView: View {
                     }
                 }
 
+                if !model.referralWallets.isEmpty {
+                    Section {
+                        ForEach(model.referralWallets) { wallet in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Label("Cagnotte vérifiée", systemImage: "eurosign.circle.fill")
+                                    Spacer()
+                                    Text(
+                                        (Double(wallet.balanceCents) / 100.0)
+                                            .formatted(.currency(code: wallet.currency))
+                                    )
+                                    .fontWeight(.semibold)
+                                }
+                                Text("Code de parrainage : \(wallet.referralCode)")
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                if wallet.pendingReferrals > 0 || wallet.pendingCents > 0 {
+                                    Text(
+                                        "En attente : \(wallet.pendingReferrals) parrainage(s) · " +
+                                        (Double(wallet.pendingCents) / 100.0)
+                                            .formatted(.currency(code: wallet.currency))
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    } header: {
+                        Text("Cagnotte")
+                    } footer: {
+                        Text("Solde vérifié par Checkup Auto lors du dernier rattachement de cagnotte.")
+                    }
+                }
+
                 if !model.authoritativeVehicles.isEmpty {
                     Section("Véhicules Checkup Auto") {
                         ForEach(model.authoritativeVehicles) { vehicle in

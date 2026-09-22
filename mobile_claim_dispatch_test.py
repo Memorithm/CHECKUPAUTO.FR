@@ -8,7 +8,7 @@ class MobileClaimDispatchTest(unittest.TestCase):
     def setUp(self):
         self.identity = {
             "installationId": "11111111-1111-4111-8111-111111111111",
-            "registrationSecret": "A" * 43,
+            "registrationSecret": "unit_test_registration_secret_placeholder_000000",
         }
 
     def test_vehicle_claim_stays_in_vehicle_trust_domain(self):
@@ -19,10 +19,12 @@ class MobileClaimDispatchTest(unittest.TestCase):
             "claimedAt": "2026-09-22T06:00:00+00:00",
         }
         with mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim", return_value=vehicle_result) as vehicle, \
-             mock.patch.object(dispatch.referral_wallet_claims, "consume") as wallet:
+             mock.patch.object(dispatch.referral_wallet_claims, "consume") as wallet, \
+             mock.patch.object(dispatch.referral_wallet_mobile, "status") as wallet_status:
             result = dispatch.consume(payload)
         vehicle.assert_called_once_with(payload)
         wallet.assert_not_called()
+        wallet_status.assert_not_called()
         self.assertEqual(result["claimType"], "vehicle")
         self.assertEqual(result["bindingId"], vehicle_result["bindingId"])
 
@@ -37,17 +39,59 @@ class MobileClaimDispatchTest(unittest.TestCase):
             "rawInstallationPersisted": False,
             "rawClaimTokenPersisted": False,
         }
+        status_result = {
+            "ok": True,
+            "walletCount": 1,
+            "wallets": [{
+                "referralCode": "OWNER-7K4P",
+                "active": True,
+                "currency": "EUR",
+                "rewardCents": 500,
+                "balanceCents": 500,
+                "pendingCents": 0,
+                "earnedReferrals": 1,
+                "pendingReferrals": 0,
+                "cancelledReferrals": 0,
+                "reversedReferrals": 0,
+            }],
+            "ownershipProvenance": "authenticated_mobile_wallet_claim",
+            "shareCodeIsOwnershipProof": False,
+            "accountIdentifiersExposed": False,
+            "thirdPartyAppointmentIdentifiersExposed": False,
+            "ledgerReferencesExposed": False,
+        }
         with mock.patch.object(dispatch.referral_wallet_claims, "consume", return_value=wallet_result) as wallet, \
-             mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim") as vehicle:
+             mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim") as vehicle, \
+             mock.patch.object(dispatch.referral_wallet_mobile, "status", return_value=status_result) as wallet_status:
             result = dispatch.consume(payload)
         wallet.assert_called_once_with(payload)
         vehicle.assert_not_called()
+        wallet_status.assert_called_once_with(self.identity)
         self.assertEqual(result["claimType"], "referral_wallet")
         self.assertEqual(result["provenance"], "authenticated_mobile_wallet_claim")
+        self.assertEqual(result["walletStatus"], status_result)
         self.assertNotIn("accountId", result)
         self.assertNotIn("installationId", result)
         self.assertNotIn("registrationSecret", result)
         self.assertNotIn("claimToken", result)
+        self.assertNotIn(payload["claimToken"], repr(wallet_status.call_args))
+
+    def test_wallet_status_failure_does_not_turn_consumed_claim_into_failure(self):
+        payload = {**self.identity, "claimToken": "rw_" + "C" * 43}
+        wallet_result = {
+            "ok": True,
+            "accountId": "33333333-3333-4333-8333-333333333333",
+            "claimedAt": "2026-09-22T06:00:00+00:00",
+            "provenance": "authenticated_mobile_wallet_claim",
+        }
+        with mock.patch.object(dispatch.referral_wallet_claims, "consume", return_value=wallet_result) as wallet, \
+             mock.patch.object(dispatch.referral_wallet_mobile, "status", side_effect=RuntimeError("read model unavailable")) as status:
+            result = dispatch.consume(payload)
+        wallet.assert_called_once_with(payload)
+        status.assert_called_once_with(self.identity)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["claimType"], "referral_wallet")
+        self.assertNotIn("walletStatus", result)
 
     def test_malformed_or_ambiguous_payload_never_reaches_a_claim_store(self):
         bad_payloads = [
@@ -56,13 +100,15 @@ class MobileClaimDispatchTest(unittest.TestCase):
             "not-a-dict",
         ]
         with mock.patch.object(dispatch.referral_wallet_claims, "consume") as wallet, \
-             mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim") as vehicle:
+             mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim") as vehicle, \
+             mock.patch.object(dispatch.referral_wallet_mobile, "status") as wallet_status:
             for payload in bad_payloads:
                 with self.subTest(payload=payload):
                     with self.assertRaises(ValueError):
                         dispatch.consume(payload)
         wallet.assert_not_called()
         vehicle.assert_not_called()
+        wallet_status.assert_not_called()
 
     def test_vehicle_claim_refreshes_authoritative_inventory_after_consumption(self):
         payload = {**self.identity, "claimToken": "vc_" + "D" * 40}
@@ -87,9 +133,11 @@ class MobileClaimDispatchTest(unittest.TestCase):
             "provenance": "authenticated_mobile_wallet_claim",
         }
         with mock.patch.object(dispatch.referral_wallet_claims, "consume", return_value=wallet_result) as wallet, \
+             mock.patch.object(dispatch.referral_wallet_mobile, "status", return_value={"ok": True, "wallets": [], "walletCount": 0}) as status, \
              mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation") as sync:
             result = dispatch.consume_with_authoritative_refresh(payload)
         wallet.assert_called_once_with(payload)
+        status.assert_called_once_with(self.identity)
         sync.assert_not_called()
         self.assertEqual(result["claimType"], "referral_wallet")
 
@@ -119,6 +167,7 @@ class MobileClaimDispatchTest(unittest.TestCase):
         self.assertTrue(capability["bound"])
         self.assertEqual(capability["claimTypes"], ["vehicle", "referral_wallet"])
         self.assertTrue(capability["vehicleAuthoritativeRefreshBound"])
+        self.assertEqual(capability["walletStatusAfterClaim"], "best_effort_verified_read_model")
         self.assertTrue(capability["sharedEndpointReady"])
         self.assertFalse(capability["rawClaimTokenPersisted"])
 

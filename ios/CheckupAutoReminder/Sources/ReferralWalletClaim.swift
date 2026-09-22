@@ -28,11 +28,69 @@ struct ReferralWalletClaimRequest: Codable, Equatable, Sendable {
     }
 }
 
+struct ReferralWalletProductStatus: Codable, Equatable, Sendable, Identifiable {
+    let referralCode: String
+    let active: Bool
+    let currency: String
+    let rewardCents: Int
+    let balanceCents: Int
+    let pendingCents: Int
+    let earnedReferrals: Int
+    let pendingReferrals: Int
+    let cancelledReferrals: Int
+    let reversedReferrals: Int
+
+    var id: String { referralCode }
+
+    func validated() throws -> ReferralWalletProductStatus {
+        guard !referralCode.isEmpty,
+              currency.count == 3,
+              rewardCents >= 0,
+              pendingCents >= 0,
+              earnedReferrals >= 0,
+              pendingReferrals >= 0,
+              cancelledReferrals >= 0,
+              reversedReferrals >= 0 else {
+            throw ReferralWalletClaimError.invalidResponse
+        }
+        return self
+    }
+}
+
+struct ReferralWalletStatusResponse: Codable, Equatable, Sendable {
+    let ok: Bool
+    let walletCount: Int
+    let wallets: [ReferralWalletProductStatus]
+    let ownershipProvenance: String
+    let shareCodeIsOwnershipProof: Bool
+    let accountIdentifiersExposed: Bool
+    let thirdPartyAppointmentIdentifiersExposed: Bool
+    let ledgerReferencesExposed: Bool
+
+    func validated() throws -> ReferralWalletStatusResponse {
+        guard ok,
+              walletCount >= 0,
+              walletCount == wallets.count,
+              ownershipProvenance == "authenticated_mobile_wallet_claim",
+              !shareCodeIsOwnershipProof,
+              !accountIdentifiersExposed,
+              !thirdPartyAppointmentIdentifiersExposed,
+              !ledgerReferencesExposed else {
+            throw ReferralWalletClaimError.invalidResponse
+        }
+        for wallet in wallets {
+            _ = try wallet.validated()
+        }
+        return self
+    }
+}
+
 struct ReferralWalletClaimResponse: Codable, Equatable, Sendable {
     let ok: Bool
     let claimType: String
     let claimedAt: String
     let provenance: String
+    let walletStatus: ReferralWalletStatusResponse?
 
     func validated() throws -> ReferralWalletClaimResponse {
         guard ok,
@@ -40,6 +98,9 @@ struct ReferralWalletClaimResponse: Codable, Equatable, Sendable {
               !claimedAt.isEmpty,
               provenance == "authenticated_mobile_wallet_claim" else {
             throw ReferralWalletClaimError.invalidResponse
+        }
+        if let walletStatus {
+            _ = try walletStatus.validated()
         }
         return self
     }
