@@ -9,6 +9,7 @@ import UIKit
 final class AppModel: ObservableObject {
     @Published private(set) var vehicles: [VehicleDeadline] = []
     @Published private(set) var authoritativeVehicles: [AuthoritativeVehicleDeadline] = []
+    @Published private(set) var referralWallets: [ReferralWalletProductStatus] = []
     @Published var notificationAuthorized = false
     @Published var errorMessage: String?
     @Published private(set) var claimNotice: String?
@@ -116,9 +117,12 @@ final class AppModel: ObservableObject {
                     await rescheduleAll()
                     claimNotice = "Véhicule rattaché à cet iPhone."
                 case .referralWallet:
-                    _ = try await ReferralWalletClaimClient.consume(token: claim.token)
+                    let response = try await ReferralWalletClaimClient.consume(token: claim.token)
                     installationRegistrationSuppressed =
                         InstallationLifecycleState.isAutoRegistrationSuppressed()
+                    if let status = response.walletStatus {
+                        referralWallets = status.wallets
+                    }
                     if notificationAuthorized {
                         registerForRemoteNotifications()
                     }
@@ -156,6 +160,7 @@ final class AppModel: ObservableObject {
                 AuthoritativeInventoryStore.clear()
                 vehicles = []
                 authoritativeVehicles = []
+                referralWallets = []
                 remotePushRegistered = false
                 claimNotice = nil
                 installationRegistrationSuppressed =
