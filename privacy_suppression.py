@@ -10,6 +10,7 @@ import secrets
 from pathlib import Path
 
 import compliance_store
+import notification_privacy
 
 
 SUBJECT_KINDS = {
@@ -265,6 +266,150 @@ def _marketing_store_receipts(
     return receipts
 
 
+def _notification_channels(subject_kind: str, purposes: tuple[str, ...]) -> tuple[str, ...]:
+    channels: list[str] = []
+    if "all_processing" in purposes:
+        if subject_kind == "email":
+            channels.append("email")
+        elif subject_kind == "installation":
+            channels.append("push")
+    for purpose in purposes:
+        channel = _MARKETING_CHANNEL_FOR_PURPOSE.get(purpose, "")
+        if channel in {"email", "push"} and _MARKETING_SUBJECT_KIND_FOR_CHANNEL[channel] == subject_kind:
+            channels.append(channel)
+    return tuple(dict.fromkeys(channels))
+
+
+def _notification_fallback_recipient(
+    subject_kind: str,
+    normalized: str,
+    channel: str,
+) -> str:
+    if channel == "email" and subject_kind == "email":
+        return normalized
+    if channel != "push" or subject_kind != "installation":
+        return ""
+
+    # Lazy import avoids the module cycle: mobile_devices imports this privacy
+    # gate in order to reject processing for suppressed installations.
+    import mobile_devices
+
+    mobile_devices.init_db()
+    with mobile_devices.connect() as db:
+        row = db.execute(
+            """SELECT device_token,environment FROM mobile_device
+               WHERE installation_id=? LIMIT 1""",
+            (normalized,),
+        ).fetchone()
+    if not row:
+        return ""
+    token = str(row["device_token"] or "").strip().lower()
+    environment = str(row["environment"] or "").strip().lower()
+    if not token or environment not in {"sandbox", "production"}:
+        return ""
+    return f"{environment}:{token}"
+
+
+def _notification_store_receipts(
+    db,
+    *,
+    request_id: str,
+    subject_kind: str,
+    normalized: str,
+    subject_hash: str,
+    purposes: tuple[str, ...],
+    stamp: str,
+) -> list[dict]:
+    """Terminalize retryable marketing broker rows and persist minimized proof.
+
+    NotificationBroker is a separate SQLite store, so this operation is
+    intentionally privacy-conservative rather than pretending cross-database
+    atomicity: broker retry state is terminalized first, then the compliance
+    receipt is committed. If the compliance transaction later fails, replay is
+    idempotent and can safely recover the already-applied broker mutation.
+    """
+    channels = _notification_channels(subject_kind, purposes)
+    if not channels:
+        return []
+
+    request_type = _rights_request_type(db, request_id)
+    receipts: list[dict] = []
+    for channel in channels:
+        fallback = _notification_fallback_recipient(subject_kind, normalized, channel)
+        mutation = notification_privacy.suppress_retryable_marketing(
+            subject_hash,
+            channel,
+            fallback_recipient_key=fallback,
+        )
+        if int(mutation.get("remainingActiveRows") or 0):
+            raise RuntimeError("suppression NotificationBroker incomplète")
+        # A zero-row/no-binding result means this identity has no provable broker
+        # footprint. Avoid inventing a store receipt for data we did not observe.
+        if int(mutation.get("matchedRows") or 0) == 0 and int(mutation.get("bindingCount") or 0) == 0:
+            continue
+        if not request_type:
+            continue
+
+        affected = int(mutation.get("affectedRows") or 0)
+        remaining = int(mutation.get("remainingActiveRows") or 0)
+        evidence = {
+            "requestId": request_id,
+            "store": "notification_broker",
+            "subjectKind": subject_kind,
+            "subjectHash": subject_hash,
+            "scope": channel,
+            "operation": "suppress_retryable_marketing",
+            "affectedRows": affected,
+            "remainingActiveRows": remaining,
+            "inFlightRows": int(mutation.get("inFlightRows") or 0),
+            "retainedSentRows": int(mutation.get("retainedSentRows") or 0),
+        }
+        canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        db.execute(
+            """INSERT INTO privacy_store_receipt(
+                 request_id,store_name,subject_kind,subject_hash,scope,operation,
+                 affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(request_id,store_name,subject_kind,subject_hash,scope) DO UPDATE SET
+                 remaining_active_rows=excluded.remaining_active_rows,
+                 verified_at=excluded.verified_at""",
+            (
+                request_id,
+                "notification_broker",
+                subject_kind,
+                subject_hash,
+                channel,
+                "suppress_retryable_marketing",
+                affected,
+                remaining,
+                evidence_hash,
+                stamp,
+                stamp,
+            ),
+        )
+        stored = db.execute(
+            """SELECT affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+               FROM privacy_store_receipt
+               WHERE request_id=? AND store_name='notification_broker'
+                 AND subject_kind=? AND subject_hash=? AND scope=?""",
+            (request_id, subject_kind, subject_hash, channel),
+        ).fetchone()
+        receipts.append(
+            {
+                "store": "notification_broker",
+                "scope": channel,
+                "operation": "suppress_retryable_marketing",
+                "affectedRows": int(stored["affected_rows"]),
+                "remainingActiveRows": int(stored["remaining_active_rows"]),
+                "evidenceHash": str(stored["evidence_hash"]),
+                "createdAt": str(stored["created_at"]),
+                "verifiedAt": str(stored["verified_at"]),
+            }
+        )
+    return receipts
+
+
 def suppress(
     kind: object,
     value: object,
@@ -295,13 +440,26 @@ def suppress(
                      updated_at=excluded.updated_at,active=1""",
                 (subject_kind, digest, purpose, rid, stamp, stamp),
             )
-        receipts = _marketing_store_receipts(
-            db,
-            request_id=rid,
-            subject_kind=subject_kind,
-            subject_hash=digest,
-            purposes=clean,
-            stamp=stamp,
+        receipts.extend(
+            _marketing_store_receipts(
+                db,
+                request_id=rid,
+                subject_kind=subject_kind,
+                subject_hash=digest,
+                purposes=clean,
+                stamp=stamp,
+            )
+        )
+        receipts.extend(
+            _notification_store_receipts(
+                db,
+                request_id=rid,
+                subject_kind=subject_kind,
+                normalized=normalized,
+                subject_hash=digest,
+                purposes=clean,
+                stamp=stamp,
+            )
         )
     return {
         "ok": True,
@@ -430,5 +588,5 @@ def summary(db_path: Path | str | None = None) -> dict:
         "identityProtection": "HMAC-SHA256",
         "privateKeyFile": _KEY_FILE,
         "storeReceiptCount": receipt_total,
-        "storeEvidenceStores": ["marketing_consent"],
+        "storeEvidenceStores": ["marketing_consent", "notification_broker"],
     }

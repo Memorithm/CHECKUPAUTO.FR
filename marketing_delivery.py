@@ -6,6 +6,8 @@ from pathlib import Path
 import marketing_consent
 import mobile_devices
 import notification_broker
+import notification_privacy
+import privacy_suppression
 
 
 EMAIL_CATEGORY = "marketing_email"
@@ -59,6 +61,12 @@ def send_email(
     ref = _reference(reference)
     authorization = marketing_consent.require_authorized(
         "email", recipient, db_path=consent_db_path
+    )
+    normalized_recipient = str(recipient or "").strip().lower()
+    notification_privacy.bind_marketing_recipient(
+        privacy_suppression.identity_hash("email", normalized_recipient),
+        "email",
+        normalized_recipient,
     )
     delivery = notification_broker.send_email(
         recipient,
@@ -114,6 +122,11 @@ def send_push(
         "push", install, db_path=consent_db_path
     )
     token, environment = _active_push_target(install)
+    notification_privacy.bind_marketing_recipient(
+        privacy_suppression.identity_hash("installation", install),
+        "push",
+        f"{environment}:{token}",
+    )
     delivery = notification_broker.send_push(
         token,
         title,
