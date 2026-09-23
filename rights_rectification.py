@@ -83,6 +83,41 @@ def _receipt_hash(
     )
 
 
+def _assert_recovery_state(
+    db,
+    installation_id: str,
+    deadline_id: str,
+    due_date: str,
+    executed_at: str,
+) -> None:
+    """Require the receipt to still describe the current mobile state.
+
+    A receipt proves that the correction transaction committed, but a later device sync
+    may legitimately replace or delete that local deadline before the compliance audit
+    is retried. The retry therefore accepts the receipt only while the exact device
+    deadline generation written by the correction still exists. The correction writes
+    a microsecond-precision ``updated_at`` marker, whereas ordinary mobile syncs use the
+    public store clock, so even a same-value later sync invalidates the stale receipt.
+    """
+    device = db.execute(
+        "SELECT installation_id FROM mobile_device WHERE installation_id=?",
+        (installation_id,),
+    ).fetchone()
+    deadline = db.execute(
+        """SELECT due_date,source,updated_at FROM mobile_deadline
+           WHERE installation_id=? AND deadline_id=?""",
+        (installation_id, deadline_id),
+    ).fetchone()
+    if (
+        not device
+        or not deadline
+        or str(deadline["source"]) != mobile_devices.DEVICE_DEADLINE_SOURCE
+        or str(deadline["due_date"]) != due_date
+        or str(deadline["updated_at"]) != executed_at
+    ):
+        raise RuntimeError("preuve de rectification obsolète")
+
+
 def _apply_with_receipt(
     request_id: str,
     installation_id: str,
@@ -92,9 +127,10 @@ def _apply_with_receipt(
     """Apply a device-owned correction and persist its recovery receipt atomically.
 
     The mobile store keeps only SHA-256 links to the compliance request/subject and to
-    the requested correction.  If the separate compliance audit write fails after this
+    the requested correction. If the separate compliance audit write fails after this
     transaction commits, an exact retry can recover from the receipt without mutating
-    the deadline again. A retry carrying a different correction fails closed.
+    the deadline again. A retry carrying a different correction, or a receipt whose
+    corrected deadline has since changed, fails closed.
     """
     request_hash = _sha256(request_id)
     subject_ref_hash = _sha256(installation_id)
@@ -122,6 +158,13 @@ def _apply_with_receipt(
             if not hmac.compare_digest(str(existing["correction_hash"]), correction_hash):
                 raise RuntimeError("preuve de rectification contradictoire")
             executed_at = str(existing["executed_at"])
+            _assert_recovery_state(
+                db,
+                installation_id,
+                deadline_id,
+                due_date,
+                executed_at,
+            )
             return {
                 "correctionHash": correction_hash,
                 "receiptHash": _receipt_hash(
@@ -150,7 +193,7 @@ def _apply_with_receipt(
         if str(deadline["source"]) != mobile_devices.DEVICE_DEADLINE_SOURCE:
             raise PermissionError("échéance autoritaire non rectifiable")
 
-        executed_at = rights._now_iso()
+        executed_at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds")
         db.execute(
             """UPDATE mobile_deadline SET due_date=?,updated_at=?
                WHERE installation_id=? AND deadline_id=? AND source=?""",
@@ -196,7 +239,8 @@ def execute(
 
     Mobile mutation and its minimized recovery receipt are committed atomically.
     The compliance audit lives in a separate store; if that write fails, an exact
-    retry resumes from the receipt rather than applying the correction twice.
+    retry resumes from the receipt only while the corrected mobile state is still
+    current rather than applying or auditing a stale correction.
     """
     rid = rights._request_id(request_id)
     row = rights._request(rid, db_path)
@@ -251,5 +295,6 @@ def capability() -> dict:
         "rawSubjectReferencePersisted": False,
         "auditStoresEvidenceHashOnly": True,
         "crashRecoverable": True,
+        "recoveryRequiresCurrentState": True,
         "receiptStoresRawSubject": False,
     }
