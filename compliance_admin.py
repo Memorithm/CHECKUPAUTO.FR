@@ -257,9 +257,26 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         mercure_provider.get("boundary", {}).get("state") or ""
     )
 
+    phase2_blockers = []
+    if not summary["rightsCompletionGlobalCoverage"]:
+        phase2_blockers.append("rights_completion_global_coverage_incomplete")
+    if not summary["mercureProviderCoverageAttested"]:
+        phase2_blockers.append("mercure_provider_coverage_unattested")
+    if not summary["marketingConsentBound"]:
+        phase2_blockers.append("marketing_consent_unbound")
+    if not summary["marketingCampaignsBound"]:
+        phase2_blockers.append("marketing_campaign_execution_unbound")
+    summary["phase2Blockers"] = phase2_blockers
+    summary["phase2BlockerCount"] = len(phase2_blockers)
+    summary["phase2CoverageReady"] = not phase2_blockers
+
     # Recompute the public-contracting gate from explicit controls. The base
     # compliance store deliberately stayed closed until the executable
     # withdrawal function existed; this composed snapshot is now authoritative.
+    # Phase-2 evidence is part of the same fail-closed activation gate: a
+    # locally executable adapter must never be mistaken for complete cross-store
+    # coverage, and a bounded Mercure scan is not proof of provider exhaustion
+    # until its external boundary is attested.
     legal_ready = bool(
         summary.get("identityComplete")
         and int(summary.get("publishedDocuments") or 0) == int(summary.get("requiredDocuments") or 0)
@@ -267,6 +284,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         and bool(summary.get("withdrawalFunctionBound"))
         and bool(summary.get("dataSubjectExecutionBound"))
         and bool(summary.get("retentionEnforcementBound"))
+        and bool(summary.get("phase2CoverageReady"))
         and int(summary.get("overdueRightsRequests") or 0) == 0
         and int(summary.get("overdueIncidentNotifications") or 0) == 0
     )
