@@ -35,6 +35,8 @@ class RightsCompletionPlanTest(unittest.TestCase):
         request_type: str = "access",
         *,
         action: str = "test",
+        created_at: str | None = None,
+        execution_id: str | None = None,
     ) -> None:
         data_subject_rights._init_audit(self.db_path)
         with compliance_store.connect(self.db_path) as db:
@@ -43,13 +45,13 @@ class RightsCompletionPlanTest(unittest.TestCase):
                      execution_id,request_id,request_type,adapter,action,evidence_hash,created_at
                    ) VALUES(?,?,?,?,?,?,?)""",
                 (
-                    uuid.uuid4().hex,
+                    execution_id or uuid.uuid4().hex,
                     request_id,
                     request_type,
                     adapter,
                     action,
                     "a" * 64,
-                    data_subject_rights._now_iso(),
+                    created_at or data_subject_rights._now_iso(),
                 ),
             )
 
@@ -211,6 +213,39 @@ class RightsCompletionPlanTest(unittest.TestCase):
         self.assertFalse(state["closureReady"])
         with self.assertRaisesRegex(RuntimeError, "couverture globale"):
             rights_completion_plan.close(request["id"], self.db_path)
+
+    def test_complete_mercure_action_wins_without_timestamp_or_uuid_ordering(self):
+        request = self._request()
+        rights_completion_plan.configure(
+            request["id"],
+            self._mercure_required_access_plan(),
+            self.db_path,
+        )
+        same_second = "2026-09-23T05:30:00+00:00"
+        # Deliberately sort the completion UUID before the partial UUID. A
+        # last-row-wins implementation would incorrectly end in partial state.
+        self._record_execution(
+            request["id"],
+            "mercure_customer_contact",
+            action="export_complete",
+            created_at=same_second,
+            execution_id="0" * 32,
+        )
+        self._record_execution(
+            request["id"],
+            "mercure_customer_contact",
+            action="export",
+            created_at=same_second,
+            execution_id="f" * 32,
+        )
+
+        state = rights_completion_plan.status(request["id"], self.db_path)
+        mercure = next(item for item in state["items"] if item["adapter"] == "mercure_customer_contact")
+        self.assertTrue(mercure["executionComplete"])
+        self.assertTrue(mercure["satisfied"])
+        self.assertEqual(mercure["executionLimitation"], "")
+        self.assertTrue(state["knownScopeComplete"])
+        self.assertFalse(state["closureReady"])
 
     def test_partial_rectification_execution_is_not_completion_proof(self):
         request = self._request("rectification")
