@@ -28,8 +28,10 @@ def boundary(today: datetime.date | None = None) -> dict:
 
     CheckupAuto must not infer Mercure's historical or future data boundary from
     an empty query result. Completeness may only be considered after an operator
-    configures a provider/contract-backed boundary and the SHA-256 of the
-    external evidence supporting it. The evidence itself remains outside Git.
+    configures a provider/contract-backed boundary and the SHA-256 of external
+    evidence establishing both that temporal boundary and which provider sources
+    are authoritative for appointment/billing records. The evidence body remains
+    outside Git and runtime responses.
     """
     current = today or datetime.date.today()
     history_raw = os.environ.get(HISTORY_START_ENV, "").strip()
@@ -77,6 +79,7 @@ def boundary(today: datetime.date | None = None) -> dict:
 def capability() -> dict:
     return {
         "requiresExplicitProviderBoundary": True,
+        "requiresAuthoritativeSourceEvidence": True,
         "requiresExternalEvidenceSha256": True,
         "rawEvidenceStoredInRepository": False,
         "emptyResultProvesHistoricalExhaustion": False,
