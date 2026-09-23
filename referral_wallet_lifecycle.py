@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
 import uuid
@@ -158,7 +159,7 @@ def _erase_authenticated_mobile(payload: dict) -> dict:
         ).fetchone()
         if not row:
             return {"ok": True, "removed": False}
-        if not hashlib.compare_digest(str(row["secret_hash"]), secret_hash):
+        if not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
             raise PermissionError("identité mobile refusée")
 
         device_count = int(
@@ -248,7 +249,7 @@ def delete_installation(payload: dict) -> dict:
                 "removed": False,
                 "referralWalletOwnershipReleased": 0,
             }
-        if not hashlib.compare_digest(str(row["secret_hash"]), secret_hash):
+        if not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
             raise PermissionError("identité mobile refusée")
 
     release = _release_installation_ownership(installation_id)
