@@ -8,6 +8,7 @@ import compliance_store
 import data_subject_rights
 import marketing_campaigns
 import marketing_consent
+import mercure_provider_coverage
 import processing_risk_review
 import retention_enforcement
 import rights_completion_admin
@@ -161,6 +162,10 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     marketing = marketing_consent.capability(db_path)
     campaigns = marketing_campaigns.capability(db_path)
     campaign_runs = marketing_campaigns.recent_runs(db_path, 100)
+    mercure_provider = {
+        "boundary": mercure_provider_coverage.boundary(),
+        "capability": mercure_provider_coverage.capability(),
+    }
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
 
@@ -245,6 +250,12 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["operationalBlockers"] = blockers
     summary["operationalRegisterAttestationCurrent"] = bool(register_attestation.get("current"))
     summary["processingRiskReviewsReady"] = bool(processing_reviews.get("ready"))
+    summary["mercureProviderCoverageAttested"] = bool(
+        mercure_provider.get("boundary", {}).get("attested")
+    )
+    summary["mercureProviderCoverageState"] = str(
+        mercure_provider.get("boundary", {}).get("state") or ""
+    )
 
     # Recompute the public-contracting gate from explicit controls. The base
     # compliance store deliberately stayed closed until the executable
@@ -276,5 +287,6 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         "capability": campaigns,
         "recent": campaign_runs,
     }
+    result["mercureProviderCoverage"] = mercure_provider
     result["retention"] = retention
     return result
