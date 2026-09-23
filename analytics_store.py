@@ -1,6 +1,6 @@
 from pathlib import Path
 from urllib.parse import unquote, urlparse
-import datetime, hashlib, re, sqlite3, os
+import datetime, re, sqlite3, os
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
