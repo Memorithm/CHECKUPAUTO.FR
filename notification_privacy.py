@@ -71,7 +71,7 @@ def bind_marketing_recipient(
     """Bind one privacy identity to a broker recipient without raw identifiers.
 
     ``recipient_key`` is used only transiently to derive the same SHA-256 key as
-    NotificationBroker.  Neither an e-mail address, an installation id nor an
+    NotificationBroker. Neither an e-mail address, an installation id nor an
     APNs token is persisted by this bridge.
     """
     subject = _subject_hash(subject_hash)
@@ -129,6 +129,7 @@ def suppress_retryable_marketing(
                 (subject, clean_channel),
             ).fetchall()
         }
+        persisted_binding_count = len(bound)
         if fallback:
             bound.add(_recipient_hash(fallback))
 
@@ -215,5 +216,5 @@ def suppress_retryable_marketing(
         "remainingActiveRows": remaining_retryable,
         "inFlightRows": in_flight,
         "retainedSentRows": retained_sent,
-        "bindingCount": len(bound),
+        "bindingCount": persisted_binding_count,
     }
