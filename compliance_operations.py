@@ -296,7 +296,10 @@ def upsert_processor(payload: dict, db_path: Path | str | None = None) -> dict:
     if dpa_status not in DPA_STATUSES:
         raise ValueError("statut DPA invalide")
     hosting_location = _text(payload.get("hostingLocation"), "hostingLocation", 180, required=status == "active")
-    transfer_required = bool(payload.get("transferRequired"))
+    raw_transfer_required = payload.get("transferRequired", False)
+    if not isinstance(raw_transfer_required, bool):
+        raise ValueError("transferRequired doit être booléen")
+    transfer_required = raw_transfer_required
     transfer_mechanism = _text(payload.get("transferMechanism"), "transferMechanism", 300)
     if transfer_required and not transfer_mechanism:
         raise ValueError("mécanisme de transfert requis")

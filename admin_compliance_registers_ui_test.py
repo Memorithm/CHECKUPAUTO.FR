@@ -40,6 +40,21 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
         self.assertNotIn("insertAdjacentHTML", self.js)
         self.assertNotIn("document.write", self.js)
 
+    def test_view_exposes_bounded_write_forms_and_endpoints(self):
+        for element_id in (
+            "activityForm", "activityId", "activityName", "activityPurposes",
+            "activityLegalBases", "activitySystems", "activitySave", "activityReset",
+            "processorForm", "processorId", "processorName", "processorDpa",
+            "processorTransferRequired", "processorSave", "processorReset",
+        ):
+            self.assertIn(f'id="{element_id}"', self.html)
+        self.assertIn("/api/admin/compliance/processing-activity", self.js)
+        self.assertIn("/api/admin/compliance/processor", self.js)
+        self.assertIn("method:'POST'", self.js)
+        self.assertIn("'Content-Type':'application/json'", self.js)
+        self.assertIn("JSON.stringify(payload)", self.js)
+        self.assertIn("actionCell('Modifier'", self.js)
+
     def test_page_does_not_embed_secrets_or_inline_script(self):
         self.assertIn('<script src="/admin/compliance-registers.js" defer></script>', self.html)
         self.assertNotIn("<script>", self.html)

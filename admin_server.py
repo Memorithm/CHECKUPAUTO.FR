@@ -38,6 +38,7 @@ import site_config_store as site_config_store
 import compliance_store as compliance
 import compliance_admin as compliance_admin
 import compliance_admin_http as compliance_admin_http
+import compliance_operations as compliance_operations
 import payment_contract_http
 import data_subject_rights as data_subject_rights
 import rights_execution_dispatch as rights_execution_dispatch
@@ -745,6 +746,24 @@ class Handler(SimpleHTTPRequestHandler):
    except PermissionError: return self.send_json({'ok':False,'error':'compliance_register_attestation_confirmation_required'},403)
    except RuntimeError: return self.send_json({'ok':False,'error':'compliance_register_attestation_conflict'},409)
    except Exception: return self.send_json({'ok':False,'error':'compliance_register_attestation_invalid'},400)
+  if path=='/api/admin/compliance/processing-activity':
+   try:
+    payload=self._read_json()
+    if not isinstance(payload,dict): raise ValueError('activité de traitement invalide')
+    created=not bool(str(payload.get('id') or '').strip())
+    result=compliance_operations.upsert_processing_activity(payload)
+    return self.send_json({'ok':True,'activity':result},201 if created else 200)
+   except ValueError: return self.send_json({'ok':False,'error':'compliance_processing_activity_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_processing_activity_unavailable'},500)
+  if path=='/api/admin/compliance/processor':
+   try:
+    payload=self._read_json()
+    if not isinstance(payload,dict): raise ValueError('sous-traitant invalide')
+    created=not bool(str(payload.get('id') or '').strip())
+    result=compliance_operations.upsert_processor(payload)
+    return self.send_json({'ok':True,'processor':result},201 if created else 200)
+   except ValueError: return self.send_json({'ok':False,'error':'compliance_processor_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'compliance_processor_unavailable'},500)
   if path=='/api/admin/compliance/processing-review':
    try: payload=self._read_json()
    except Exception: return self.send_json({'ok':False,'error':'compliance_processing_review_invalid'},400)

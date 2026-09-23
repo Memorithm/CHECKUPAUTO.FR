@@ -97,6 +97,10 @@ class ComplianceOperationsTest(unittest.TestCase):
         self.assertFalse(state["operationalRegistersReady"])
         self.assertIn("processor_dpa_pending", {item["type"] for item in state["blockers"]})
 
+    def test_transfer_required_rejects_non_boolean_json_values(self):
+        with self.assertRaisesRegex(ValueError, "transferRequired doit être booléen"):
+            ops.upsert_processor(self.processor_payload(transferRequired="false"), self.db)
+
     def test_transfer_marked_required_requires_documented_mechanism(self):
         with self.assertRaisesRegex(ValueError, "mécanisme de transfert requis"):
             ops.upsert_processor(
