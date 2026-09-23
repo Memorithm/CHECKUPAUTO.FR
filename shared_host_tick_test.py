@@ -41,7 +41,6 @@ class SharedHostTickTest(unittest.TestCase):
             )
             functions = [
                 (module.booking_test, "purge_expired"),
-                (module.booking_bridge, "retire_expired_browser_tokens"),
                 (module.reminder_dispatch, "process_once"),
                 (module.mobile_authoritative_sync, "sync_once"),
                 (module.mobile_reminder_dispatch, "process_once"),
@@ -60,9 +59,10 @@ class SharedHostTickTest(unittest.TestCase):
                 result = module.tick()
 
             self.assertTrue(result["ok"])
-            self.assertEqual(len(result["tasks"]), 10)
-            self.assertEqual(result["tasks"][1]["name"], "booking_token_retirement")
-            self.assertEqual(result["tasks"][8]["name"], "referral_wallet_final_purge")
+            self.assertEqual(len(result["tasks"]), 9)
+            self.assertEqual(result["tasks"][1]["name"], "reminder_dispatch")
+            self.assertEqual(result["tasks"][6]["name"], "retention_enforcement")
+            self.assertEqual(result["tasks"][7]["name"], "referral_wallet_final_purge")
             module.admin_server.initialize_runtime.assert_called_once_with(background=False)
             for owner, name in functions:
                 getattr(owner, name).assert_called_once_with()
@@ -76,7 +76,6 @@ class SharedHostTickTest(unittest.TestCase):
                     module.booking_test, "purge_expired",
                     side_effect=RuntimeError("secret-token-should-not-leak"),
                 ),
-                mock.patch.object(module.booking_bridge, "retire_expired_browser_tokens", return_value=0),
                 mock.patch.object(module.reminder_dispatch, "process_once", return_value={"ok": True}),
                 mock.patch.object(module.mobile_authoritative_sync, "sync_once", return_value={"ok": True}),
                 mock.patch.object(module.mobile_reminder_dispatch, "process_once", return_value={"ok": True}),
