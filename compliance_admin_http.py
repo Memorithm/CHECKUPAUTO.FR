@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import compliance_admin
+import compliance_operations
 
 
 def review_high_risk_processing(payload: object) -> tuple[int, dict]:
@@ -21,3 +22,36 @@ def review_high_risk_processing(payload: object) -> tuple[int, dict]:
     except Exception:
         return 500, {"ok": False, "error": "compliance_processing_review_failed"}
     return 201, {"ok": True, "review": review}
+
+
+def upsert_processing_activity(payload: object) -> tuple[int, dict]:
+    """Persist one operator-supplied Article 30 activity through core validation.
+
+    This boundary deliberately performs no inference about legal bases, risk,
+    retention, systems, DPIA state or review dates. Those facts must be supplied
+    by the authenticated operator and are validated/audited by
+    ``compliance_operations``.
+    """
+    try:
+        activity = compliance_operations.upsert_processing_activity(payload)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "compliance_processing_activity_invalid"}
+    except Exception:
+        return 500, {"ok": False, "error": "compliance_processing_activity_failed"}
+    return 201, {"ok": True, "activity": activity}
+
+
+def upsert_processor(payload: object) -> tuple[int, dict]:
+    """Persist one operator-supplied processor record through core validation.
+
+    Provider identity, DPA state, hosting location, transfers and subprocessors
+    remain explicit operator facts. The HTTP adapter only sanitizes failures and
+    delegates validation plus audit evidence to the core register.
+    """
+    try:
+        processor = compliance_operations.upsert_processor(payload)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "compliance_processor_invalid"}
+    except Exception:
+        return 500, {"ok": False, "error": "compliance_processor_failed"}
+    return 201, {"ok": True, "processor": processor}
