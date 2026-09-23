@@ -52,6 +52,43 @@ function updateRightsExecutor(){
  if(rectification)rectification.hidden=adapter!=='mobile_deadline_rectification';
  if(hint)hint.textContent=(adapter==='referral_wallet'||adapter==='mobile_deadline_rectification')?'UUID de l’installation mobile ayant créé la demande.':'Référence du sujet correspondant à la demande.';
 }
+function rightsPlanFor(requestId){
+ return (snapshot?.rightsCompletion?.plans||[]).find(plan=>plan.requestId===requestId)||null
+}
+function rightsPlanItemText(item){
+ const disposition=item.disposition==='not_applicable'?'non applicable':(item.disposition==='required'?'requis':'non planifié');
+ const execution=!item.executed?'non exécuté':(item.executionComplete?'exécution complète':('exécution partielle'+(item.executionLimitation?' · '+item.executionLimitation:'')));
+ const proof=item.disposition==='not_applicable'&&item.justificationHash?' · preuve '+item.justificationHash.slice(0,12):'';
+ return esc(item.adapter)+' · '+esc(disposition)+' · '+esc(execution)+' · '+(item.satisfied?'satisfait':'à traiter')+esc(proof)
+}
+async function editRightsPlan(requestId){
+ const plan=rightsPlanFor(requestId);
+ if(!plan||(plan.items||[]).length===0){setMessage('Aucun adaptateur planifiable pour cette demande.',true);return}
+ const entries=[];
+ for(const item of plan.items){
+  if(item.executed){
+   entries.push({adapter:item.adapter,disposition:'required'});
+   continue;
+  }
+  const current=item.disposition==='not_applicable'?'not_applicable':'required';
+  const answer=window.prompt('Adaptateur '+item.adapter+'\nDisposition: required ou not_applicable',current);
+  if(answer===null)return;
+  const disposition=answer.trim();
+  if(!['required','not_applicable'].includes(disposition)){setMessage('Disposition invalide: utilisez required ou not_applicable.',true);return}
+  if(disposition==='not_applicable'){
+   const justification=window.prompt('Justification obligatoire pour '+item.adapter+'. Elle sera hachée côté serveur et ne sera pas conservée en clair.','');
+   if(justification===null)return;
+   if(!justification.trim()){setMessage('Une justification est obligatoire pour un adaptateur non applicable.',true);return}
+   entries.push({adapter:item.adapter,disposition:disposition,justification:justification.trim()});
+  }else{
+   entries.push({adapter:item.adapter,disposition:'required'});
+  }
+ }
+ try{
+  await api('/api/admin/compliance/request-plan',{id:requestId,entries:entries});
+  await load();setMessage('Plan RGPD enregistré. La couverture globale reste bloquée tant que tous les stores ne sont pas couverts.');
+ }catch(e){setMessage(e.message,true)}
+}
 function render(){
  if(!snapshot)return;
  const s=snapshot.summary||{}, settings=snapshot.settings||{};
@@ -81,10 +118,15 @@ function render(){
  $('#complianceRightsRows').innerHTML=rights.length?rights.map(row=>{
   const executed=audit.filter(item=>item.requestId===row.id);
   const execText=executed.length?executed.map(item=>esc(item.adapter)+' / '+esc(item.action)).join('<br>'):'Aucun adaptateur exécuté';
+  const plan=rightsPlanFor(row.id),planItems=plan?.items||[];
+  const planState=!plan?'Plan indisponible':(plan.knownScopeComplete?'Périmètre connu complet':(plan.planComplete?'Planifié · exécution incomplète':'À planifier'));
+  const planText=planItems.length?planItems.map(rightsPlanItemText).join('<br>'):'Aucun adaptateur connu';
+  const globalState=plan?.globalCoverageComplete?'Couverture globale complète':'Couverture globale incomplète';
   const actions=(row.status==='closed'||row.status==='rejected')?'—':
    '<button type="button" class="compact-action compliance-execute-right" data-id="'+esc(row.id)+'">Exécuter</button> '+
-   '<button type="button" class="compact-action compliance-bind-right" data-id="'+esc(row.id)+'">Lier Mercure</button>';
-  return '<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'<br><small>'+execText+'</small></td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+actions+'</td></tr>';
+   '<button type="button" class="compact-action compliance-bind-right" data-id="'+esc(row.id)+'">Lier Mercure</button> '+
+   '<button type="button" class="compact-action compliance-plan-right" data-id="'+esc(row.id)+'">Planifier</button>';
+  return '<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'<br><small>'+execText+'</small><br><strong>'+esc(planState)+'</strong><br><small>'+planText+'<br>'+esc(globalState)+'</small></td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+actions+'</td></tr>';
  }).join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
  const incidents=snapshot.incidents||[];
  $('#complianceIncidentRows').innerHTML=incidents.length?incidents.map(row=>'<tr><td>'+esc(row.riskLevel)+'</td><td>'+esc(row.status)+(row.notificationOverdue?' · DÉLAI DÉPASSÉ':'')+'</td><td>'+esc(row.summary)+'</td><td>'+new Date(row.detectedAt).toLocaleString('fr-FR')+'</td><td>'+(row.cnilDueAt?new Date(row.cnilDueAt).toLocaleString('fr-FR'):'—')+'</td><td>'+(row.status==='closed'?'—':'<button type="button" class="compact-action compliance-close-incident" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucun incident enregistré.</td></tr>';
@@ -160,6 +202,7 @@ function render(){
    await load();setMessage('Liaison mobile → Mercure prouvée et enregistrée sans référence brute.');
   }catch(e){setMessage(e.message,true)}
  });
+ document.querySelectorAll('.compliance-plan-right').forEach(b=>b.onclick=()=>editRightsPlan(b.dataset.id));
  document.querySelectorAll('.compliance-close-incident').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/compliance/incident-status',{id:b.dataset.id,status:'closed'});await load()}catch(e){setMessage(e.message,true)}});
 }
 async function load(){setMessage('Chargement de la conformité…');snapshot=await api('/api/admin/compliance');render();setMessage('Registre de conformité chargé.')}
