@@ -98,11 +98,14 @@ class MercureRightsCompletionAuditTest(unittest.TestCase):
             )
         self.assertEqual(snapshot.call_count, 2)
 
-    def test_capability_declares_only_mercure_partial_retryable(self):
+    def test_capability_declares_retryable_partial_adapters(self):
         capability = data_subject_rights.capability(self.db_path)
         self.assertEqual(
             capability["retryablePartialAdapters"],
-            {"mercure_customer_contact": "export_complete"},
+            {
+                "mercure_customer_contact": "export_complete",
+                "privacy_suppression": "suppress_complete",
+            },
         )
 
 

@@ -23,11 +23,12 @@ SUPPORTED_ADAPTERS = {
     "compliance_contracts": ("access", "portability"),
     "privacy_suppression": ("restriction", "objection", "consent_withdrawal", "erasure"),
 }
-# A bounded Mercure export is useful evidence but may legitimately need to be
-# repeated after a provider outage or after stronger provider coverage evidence
-# is configured. Retries stop permanently once the completion action exists.
+# Bounded or dependency-limited work remains useful evidence, but may need to be
+# repeated after a provider/local dependency outage. Retries stop permanently
+# once the adapter-specific completion action exists.
 RETRYABLE_PARTIAL_ADAPTERS = {
     "mercure_customer_contact": "export_complete",
+    "privacy_suppression": "suppress_complete",
 }
 
 
@@ -302,13 +303,27 @@ def _suppression_purposes(request_type: str, purpose: str) -> tuple[str, ...]:
     raise ValueError("finalité de suppression invalide")
 
 
-def _linked_suppression_identities(subject_kind: str, subject_value: str) -> tuple[list[tuple[str, str]], bool]:
+def _linked_suppression_identities(
+    subject_kind: str,
+    subject_value: str,
+) -> tuple[list[tuple[str, str]], dict]:
+    """Resolve identities linked to one suppression subject without hiding gaps.
+
+    A provider or local binding failure must not undo suppression already applied
+    to identities we can prove. It does, however, make this resolution attempt
+    partial so the same rights adapter remains retryable until every required
+    linkage source was successfully inspected.
+    """
     identities: set[tuple[str, str]] = {(subject_kind, subject_value)}
-    provider_contact_resolved = False
     mercure_refs: list[str] = []
-    if subject_kind == "installation":
+    mobile_bindings_required = subject_kind == "installation"
+    mobile_bindings_resolved = not mobile_bindings_required
+
+    if mobile_bindings_required:
         try:
-            for row in mobile_devices.registered_vehicle_bindings(subject_value):
+            bindings = mobile_devices.registered_vehicle_bindings(subject_value)
+            mobile_bindings_resolved = True
+            for row in bindings:
                 client_kind = str(row.get("client_kind") or "")
                 client_id = str(row.get("client_id") or "")
                 vehicle_id = str(row.get("vehicle_id") or "")
@@ -318,12 +333,14 @@ def _linked_suppression_identities(subject_kind: str, subject_value: str) -> tup
                 if vehicle_id:
                     identities.add(("vehicle", vehicle_id))
         except Exception:
-            pass
+            mobile_bindings_resolved = False
     elif subject_kind in {"mercure_account", "mercure_free"}:
         kind = "account" if subject_kind == "mercure_account" else "free"
         mercure_refs.append(f"{kind}:{subject_value}")
 
-    for mercure_ref in dict.fromkeys(mercure_refs):
+    unique_mercure_refs = list(dict.fromkeys(mercure_refs))
+    provider_resolved_count = 0
+    for mercure_ref in unique_mercure_refs:
         try:
             snapshot = mercure_rights.contact_snapshot(mercure_ref)
             contact = snapshot.get("contact") or {}
@@ -333,10 +350,23 @@ def _linked_suppression_identities(subject_kind: str, subject_value: str) -> tup
                 identities.add(("email", email.lower()))
             if phone:
                 identities.add(("phone", phone))
-            provider_contact_resolved = True
+            provider_resolved_count += 1
         except Exception:
             continue
-    return sorted(identities), provider_contact_resolved
+
+    provider_contact_required = bool(unique_mercure_refs)
+    provider_contact_resolved = provider_resolved_count == len(unique_mercure_refs)
+    resolution_complete = mobile_bindings_resolved and provider_contact_resolved
+    resolution = {
+        "mobileBindingsRequired": mobile_bindings_required,
+        "mobileBindingsResolved": mobile_bindings_resolved,
+        "providerContactRequired": provider_contact_required,
+        "providerContactResolved": provider_contact_resolved,
+        "providerContactCount": len(unique_mercure_refs),
+        "providerContactResolvedCount": provider_resolved_count,
+        "resolutionComplete": resolution_complete,
+    }
+    return sorted(identities), resolution
 
 
 def _execute_privacy_suppression(
@@ -348,7 +378,7 @@ def _execute_privacy_suppression(
     request_type = str(row["request_type"])
     subject_kind, subject_value = _suppression_subject(subject_ref)
     purposes = _suppression_purposes(request_type, purpose)
-    identities, provider_contact_resolved = _linked_suppression_identities(subject_kind, subject_value)
+    identities, resolution = _linked_suppression_identities(subject_kind, subject_value)
     for kind, value in identities:
         privacy_suppression.suppress(
             kind,
@@ -364,7 +394,11 @@ def _execute_privacy_suppression(
         "adapter": "privacy_suppression",
         "purposes": list(purposes),
         "suppressedIdentityCount": len(identities),
-        "providerContactResolved": provider_contact_resolved,
+        "identityResolutionComplete": bool(resolution["resolutionComplete"]),
+        "mobileBindingsRequired": bool(resolution["mobileBindingsRequired"]),
+        "mobileBindingsResolved": bool(resolution["mobileBindingsResolved"]),
+        "providerContactRequired": bool(resolution["providerContactRequired"]),
+        "providerContactResolved": bool(resolution["providerContactResolved"]),
     }
     evidence = {
         "requestId": str(row["request_id"]),
@@ -373,7 +407,13 @@ def _execute_privacy_suppression(
         "purposes": list(purposes),
         "identityKinds": sorted({kind for kind, _ in identities}),
         "suppressedIdentityCount": len(identities),
-        "providerContactResolved": provider_contact_resolved,
+        "identityResolutionComplete": bool(resolution["resolutionComplete"]),
+        "mobileBindingsRequired": bool(resolution["mobileBindingsRequired"]),
+        "mobileBindingsResolved": bool(resolution["mobileBindingsResolved"]),
+        "providerContactRequired": bool(resolution["providerContactRequired"]),
+        "providerContactResolved": bool(resolution["providerContactResolved"]),
+        "providerContactCount": int(resolution["providerContactCount"]),
+        "providerContactResolvedCount": int(resolution["providerContactResolvedCount"]),
     }
     return result, evidence
 
@@ -497,7 +537,11 @@ def execute(
         }
     elif adapter == "privacy_suppression":
         result, evidence = _execute_privacy_suppression(row, ref, purpose, db_path)
-        action = "suppress"
+        action = (
+            "suppress_complete"
+            if result["identityResolutionComplete"]
+            else "suppress_partial"
+        )
     else:  # pragma: no cover - guarded by SUPPORTED_ADAPTERS
         raise ValueError("adaptateur de droit non pris en charge")
 
