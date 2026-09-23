@@ -24,6 +24,12 @@ SUPPORTED_ADAPTERS = {
     "compliance_contracts": ("access", "portability"),
     "privacy_suppression": ("restriction", "objection", "consent_withdrawal", "erasure"),
 }
+# A bounded Mercure export is useful evidence but may legitimately need to be
+# repeated after a provider outage or after stronger provider coverage evidence
+# is configured. Retries stop permanently once the completion action exists.
+RETRYABLE_PARTIAL_ADAPTERS = {
+    "mercure_customer_contact": "export_complete",
+}
 
 
 def _now_iso() -> str:
@@ -111,14 +117,35 @@ def _verify_subject(
     raise PermissionError("référence du demandeur refusée")
 
 
-def _adapter_executed(request_id: str, adapter: str, db_path: Path | str | None = None) -> bool:
+def _adapter_actions(
+    request_id: str,
+    adapter: str,
+    db_path: Path | str | None = None,
+) -> list[str]:
     _init_audit(db_path)
     with compliance_store.connect(db_path) as db:
-        row = db.execute(
-            "SELECT 1 FROM rights_execution_audit WHERE request_id=? AND adapter=? LIMIT 1",
+        rows = db.execute(
+            """SELECT action FROM rights_execution_audit
+               WHERE request_id=? AND adapter=? ORDER BY created_at,execution_id""",
             (request_id, adapter),
-        ).fetchone()
-    return row is not None
+        ).fetchall()
+    return [str(row["action"]) for row in rows]
+
+
+def _adapter_executed(request_id: str, adapter: str, db_path: Path | str | None = None) -> bool:
+    return bool(_adapter_actions(request_id, adapter, db_path))
+
+
+def _adapter_can_retry_partial(
+    request_id: str,
+    adapter: str,
+    db_path: Path | str | None = None,
+) -> bool:
+    actions = _adapter_actions(request_id, adapter, db_path)
+    if not actions:
+        return True
+    completion_action = RETRYABLE_PARTIAL_ADAPTERS.get(adapter, "")
+    return bool(completion_action and completion_action not in actions)
 
 
 def _mobile_snapshot(installation_id: str) -> dict:
@@ -232,8 +259,9 @@ def _audit_execution(
 
     A rights request spans every applicable personal-data store. Until the engine
     can prove complete cross-store coverage, a successful adapter execution only
-    moves the request to ``in_progress``. Closing it here would incorrectly claim
-    completion while other stores remain untouched.
+    moves the request to ``in_progress``. A retryable adapter may append partial
+    evidence until its completion action is reached; completed and non-retryable
+    adapters remain single-execution and fail closed under races.
     """
     _init_audit(db_path)
     canonical = json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -248,12 +276,16 @@ def _audit_execution(
         ).fetchone()
         if not current or str(current["status"]) not in {"open", "in_progress"}:
             raise RuntimeError("demande non exécutable")
-        duplicate = db.execute(
-            "SELECT 1 FROM rights_execution_audit WHERE request_id=? AND adapter=? LIMIT 1",
+        previous = db.execute(
+            """SELECT action FROM rights_execution_audit
+               WHERE request_id=? AND adapter=?""",
             (row["request_id"], adapter),
-        ).fetchone()
-        if duplicate:
-            raise RuntimeError("adaptateur déjà exécuté pour cette demande")
+        ).fetchall()
+        if previous:
+            completion_action = RETRYABLE_PARTIAL_ADAPTERS.get(adapter, "")
+            previous_actions = {str(item["action"]) for item in previous}
+            if not completion_action or completion_action in previous_actions:
+                raise RuntimeError("adaptateur déjà exécuté pour cette demande")
         db.execute(
             """INSERT INTO rights_execution_audit(
                  execution_id,request_id,request_type,adapter,action,evidence_hash,created_at
@@ -421,7 +453,7 @@ def execute(
     request_type = str(row["request_type"])
     if request_type not in SUPPORTED_ADAPTERS[adapter]:
         raise NotImplementedError("type de droit non pris en charge par cet adaptateur")
-    if _adapter_executed(rid, adapter, db_path):
+    if not _adapter_can_retry_partial(rid, adapter, db_path):
         raise RuntimeError("adaptateur déjà exécuté pour cette demande")
 
     if adapter == "mobile_installation":
@@ -563,6 +595,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         "subjectBindingProvenance": ["mobile_vehicle_binding"],
         "partialExecutionClosesRequest": False,
         "auditStoresEvidenceHashOnly": True,
+        "retryablePartialAdapters": dict(sorted(RETRYABLE_PARTIAL_ADAPTERS.items())),
         "executionCount": execution_count,
         "remainingRightTypes": [
             "rectification",
