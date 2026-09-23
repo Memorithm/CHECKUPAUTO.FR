@@ -11,6 +11,12 @@ async function api(path,body){
  return data
 }
 function retentionPolicyFor(id){return (snapshot?.retention?.policies||[]).find(row=>row.id===id)||null}
+function retentionDurationLabel(row){
+ if(row.activeHours!==undefined&&row.activeHours!==null)return String(row.activeHours)+' h';
+ if(row.activeDays!==undefined&&row.activeDays!==null)return String(row.activeDays)+' j';
+ if(row.mode==='event')return 'Événement';
+ return '—'
+}
 function fillRetentionPolicy(){
  const id=$('#complianceRetentionRule')?.value,row=retentionPolicyFor(id);if(!row)return;
  $('#complianceRetentionDays').value=row.activeDays??'';
@@ -106,11 +112,11 @@ function renderMercureProviderCoverage(){
  const evidence=/^[0-9a-f]{64}$/.test(String(boundary.evidenceSha256||''))?String(boundary.evidenceSha256):'—';
  const reason=String(boundary.reason||'');
  const vehicleState=String(vehicle.state||'unconfigured');
- const vehicleAttested=vehicleState==='attested'&&vehicle.attested===true;
+ const vehicleAttested=vehicleState==='attested'&&boundary.attested===true;
  const vehicleEvidence=/^[0-9a-f]{64}$/.test(String(vehicle.evidenceSha256||''))?String(vehicle.evidenceSha256):'—';
  const vehicleReason=String(vehicle.reason||'');
- box.innerHTML='<div class="panel-head compact"><div><h3>Frontière DSAR Mercure</h3><p class="hint">Périmètre temporel attesté par une preuve fournisseur ou contractuelle externe. Seule son empreinte SHA-256 est affichée ; aucune preuve brute n’est conservée dans Git ni renvoyée par cette vue.</p></div><span class="gsc-status '+(attested?'online':'warning')+'">'+esc(mercureCoverageStateLabel(state))+'</span></div>'+
-  '<div class="mercure-live-grid"><article><small>DÉBUT HISTORIQUE</small><strong>'+esc(historyStart)+'</strong></article><article><small>HORIZON FUTUR</small><strong>'+esc(futureDays)+'</strong></article><article><small>PREUVE TEMPORELLE SHA-256</small><strong><code>'+esc(evidence)+'</code></strong></article><article><small>INVENTAIRE VÉHICULES</small><strong>'+esc(mercureCoverageStateLabel(vehicleState))+'</strong><span>Preuve indépendante de la relation sujet→tous véhicules</span></article><article><small>PREUVE VÉHICULE SHA-256</small><strong><code>'+esc(vehicleEvidence)+'</code></strong></article></div>'+
+ box.innerHTML='<div class="panel-head compact"><div><h3>Frontière DSAR Mercure</h3><p class="hint">Périmètre temporel attesté par une preuve fournisseur ou contractuelle externe. Seule son empreinte SHA-256 est affichée ; aucune preuve brute n’est conservée dans Git ni renvoyée par cette vue.</p></div><span class="gsc-status '+(attested?'online':'warning')+'">'+esc(mercureCoverageStateLabel(state))+'</span></div>'+ 
+  '<div class="mercure-live-grid"><article><small>DÉBUT HISTORIQUE</small><strong>'+esc(historyStart)+'</strong></article><article><small>HORIZON FUTUR</small><strong>'+esc(futureDays)+'</strong></article><article><small>PREUVE TEMPORELLE SHA-256</small><strong><code>'+esc(evidence)+'</code></strong></article><article><small>INVENTAIRE VÉHICULES</small><strong>'+esc(mercureCoverageStateLabel(vehicleState))+'</strong><span>Preuve indépendante de la relation sujet→tous véhicules</span></article><article><small>PREUVE VÉHICULE SHA-256</small><strong><code>'+esc(vehicleEvidence)+'</code></strong></article></div>'+ 
   (reason?'<p class="warning-text">Diagnostic temporel : '+esc(reason)+'</p>':'')+
   (vehicleReason?'<p class="warning-text">Diagnostic véhicules : '+esc(vehicleReason)+'</p>':'')+
   '<p class="hint">Une attestation véhicule '+(vehicleAttested?'est présente':'reste requise')+'. Elle ne suffit pas, à elle seule, à déclarer une exécution complète : la frontière temporelle doit être appliquée, les lectures véhicule réussir et l’inventaire ne doit pas être tronqué.</p>';
@@ -163,9 +169,9 @@ function render(){
  const configurable=retentionPolicies.filter(row=>row.mode===undefined);
  $('#complianceRetentionRule').innerHTML=configurable.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.label)+'</option>').join('');
  $('#complianceRetentionRows').innerHTML=retentionPolicies.length?retentionPolicies.map(row=>{
-  const days=row.activeDays===undefined||row.activeDays===null?'—':String(row.activeDays)+' j';
+  const duration=retentionDurationLabel(row);
   const state=row.ready?'PRÊT':('BLOQUÉ · '+esc(row.blocker||'configuration requise'));
-  return '<tr><td>'+esc(row.label||row.id)+'</td><td>'+esc(row.store||'—')+'</td><td>'+days+'</td><td>'+esc(row.trigger||'—')+'</td><td>'+state+'</td><td>'+esc(row.justification||row.source||'—')+'</td></tr>';
+  return '<tr><td>'+esc(row.label||row.id)+'</td><td>'+esc(row.store||'—')+'</td><td>'+esc(duration)+'</td><td>'+esc(row.trigger||'—')+'</td><td>'+state+'</td><td>'+esc(row.justification||row.source||'—')+'</td></tr>';
  }).join(''):'<tr><td colspan="6">Aucune politique disponible.</td></tr>';
  const retentionAudit=retention.audit||[];
  $('#complianceRetentionAuditRows').innerHTML=retentionAudit.length?retentionAudit.map(row=>'<tr><td>'+new Date(row.createdAt).toLocaleString('fr-FR')+'</td><td>'+esc(row.ruleId)+'</td><td>'+esc(row.mode)+'</td><td>'+esc(row.removedCount)+'</td><td>'+esc(row.cutoffAt||'—')+'</td><td>'+esc((row.evidenceHash||'').slice(0,16))+'</td></tr>').join(''):'<tr><td colspan="6">Aucune exécution.</td></tr>';
