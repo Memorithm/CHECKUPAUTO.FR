@@ -13,7 +13,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import admin_server
-import booking_bridge
 import booking_test
 import mobile_authoritative_sync
 import mobile_reminder_dispatch
@@ -48,7 +47,6 @@ def tick() -> dict:
     admin_server.initialize_runtime(background=False)
     tasks = [
         ("booking_test_cleanup", booking_test.purge_expired),
-        ("booking_token_retirement", booking_bridge.retire_expired_browser_tokens),
         ("reminder_dispatch", reminder_dispatch.process_once),
         ("mobile_authoritative_sync", mobile_authoritative_sync.sync_once),
         ("mobile_reminder_dispatch", mobile_reminder_dispatch.process_once),
