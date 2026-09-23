@@ -4,6 +4,7 @@ import re
 
 import mobile_authoritative_sync
 import mobile_devices
+import privacy_suppression as privacy
 import referral_wallet_claims
 import referral_wallet_mobile
 
@@ -30,6 +31,19 @@ def claim_kind(token: object) -> str:
     if not _TOKEN_RE.fullmatch(raw):
         raise ValueError("claimToken invalide")
     return "referral_wallet" if raw.startswith(_REFERRAL_WALLET_PREFIX) else "vehicle"
+
+
+def _assert_installation_processing_allowed(value: object) -> str:
+    """Reject new ownership mutations after installation-wide suppression.
+
+    The shared claim endpoint is the public trust boundary for both vehicle and
+    referral-wallet ownership. An ``all_processing`` restriction/erasure must
+    therefore be checked before either claim domain can mutate its own store.
+    """
+    installation = mobile_devices._install_id(value)
+    if privacy.is_suppressed("installation", installation, "all_processing"):
+        raise PermissionError("traitement mobile refusé")
+    return installation
 
 
 def _project_wallet_status(status: object) -> dict | None:
@@ -100,6 +114,7 @@ def consume(payload: dict) -> dict:
     if set(payload) != {"installationId", "registrationSecret", "claimToken"}:
         raise ValueError("payload invalide")
 
+    _assert_installation_processing_allowed(payload.get("installationId"))
     kind = claim_kind(payload.get("claimToken"))
     if kind == "referral_wallet":
         result = referral_wallet_claims.consume(payload)
@@ -151,6 +166,7 @@ def capability() -> dict:
         "walletTokenPrefix": _REFERRAL_WALLET_PREFIX,
         "legacyVehicleTokensAccepted": True,
         "vehicleAuthoritativeRefreshBound": True,
+        "installationAllProcessingGuard": True,
         "walletStatusAfterClaim": "best_effort_verified_read_model",
         "sharedEndpointReady": True,
         "rawClaimTokenPersisted": False,
