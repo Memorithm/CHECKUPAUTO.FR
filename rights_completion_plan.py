@@ -74,23 +74,36 @@ def _executed_adapters(request_id: str, db_path: Path | str | None = None) -> se
     return {str(row["adapter"]) for row in rows}
 
 
-def _execution_actions(request_id: str, db_path: Path | str | None = None) -> dict[str, str]:
+def _execution_actions(request_id: str, db_path: Path | str | None = None) -> dict[str, set[str]]:
+    """Return every audited action per adapter without relying on row ordering.
+
+    Retryable adapters can emit a partial action and a completion action within
+    the same timestamp second. Completion therefore has to be derived by set
+    membership rather than by whichever UUID happens to sort last.
+    """
     data_subject_rights._init_audit(db_path)
     with compliance_store.connect(db_path) as db:
         rows = db.execute(
-            """SELECT adapter,action FROM rights_execution_audit
-               WHERE request_id=? ORDER BY created_at,execution_id""",
+            "SELECT adapter,action FROM rights_execution_audit WHERE request_id=?",
             (request_id,),
         ).fetchall()
-    return {str(row["adapter"]): str(row["action"]) for row in rows}
+    actions: dict[str, set[str]] = {}
+    for row in rows:
+        actions.setdefault(str(row["adapter"]), set()).add(str(row["action"]))
+    return actions
 
 
-def _execution_state(adapter: str, executed: bool, action: str = "") -> tuple[bool, str]:
+def _execution_state(
+    adapter: str,
+    executed: bool,
+    actions: set[str] | None = None,
+) -> tuple[bool, str]:
     if not executed:
         return False, ""
+    audited_actions = actions or set()
     complete_action = CONDITIONAL_COMPLETE_ACTIONS.get(adapter, "")
     if complete_action:
-        if action == complete_action:
+        if complete_action in audited_actions:
             return True, ""
         return False, PARTIAL_EXECUTION_ADAPTERS[adapter]
     limitation = PARTIAL_EXECUTION_ADAPTERS.get(adapter, "")
@@ -197,7 +210,7 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
         execution_complete, execution_limitation = _execution_state(
             adapter,
             was_executed,
-            execution_actions.get(adapter, ""),
+            execution_actions.get(adapter, set()),
         )
         satisfied = (
             disposition == "required" and execution_complete
