@@ -14,7 +14,7 @@
         <div>
           <p class="eyebrow">CONFORMITÉ OPÉRATIONNELLE</p>
           <h1>Registres RGPD &amp; sous-traitants</h1>
-          <p class="hint">Vue en lecture seule des activités de traitement, du registre des sous-traitants et des blocages calculés par le backend. Les données affichées proviennent du même snapshot que le Compliance Center.</p>
+          <p class="hint">Vue administrable des activités de traitement et des sous-traitants. Les lectures et écritures utilisent les mêmes registres opérationnels que le Compliance Center ; aucune donnée fournisseur n’est créée automatiquement.</p>
         </div>
         <div class="button-row">
           <span id="operationsState" class="gsc-status warning">Diagnostic…</span>
@@ -31,20 +31,62 @@
       </div>
 
       <p id="operationsMessage" class="hint">Chargement des registres…</p>
+      <p class="hint">Toute modification sémantique change l’empreinte des registres et rend l’attestation précédente obsolète jusqu’à une nouvelle revue explicite.</p>
 
       <div class="integration-box">
         <div class="panel-head compact"><div><h2>Blocages opérationnels</h2><p class="hint">Un registre vide, une revue dépassée, un DPA en attente, un transfert non documenté ou une revue de risque incomplète maintient la garde de mise en production fermée.</p></div></div>
         <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Type</th><th>Objet</th><th>Identifiant</th></tr></thead><tbody id="operationsBlockerRows"><tr><td colspan="3">Chargement…</td></tr></tbody></table></div>
       </div>
 
+      <form id="activityForm" class="integration-box" autocomplete="off">
+        <div class="panel-head compact"><div><h2>Ajouter / modifier une activité de traitement</h2><p class="hint">Les listes acceptent une valeur par ligne. Les champs obligatoires sont validés par le registre backend.</p></div><div class="button-row"><button type="button" id="activityReset" class="secondary">Nouveau</button><button type="submit" id="activitySave">Enregistrer</button></div></div>
+        <input type="hidden" id="activityId">
+        <div class="settings-grid">
+          <label>Nom<input id="activityName" maxlength="180" required></label>
+          <label>Rôle<select id="activityRole"><option value="controller">Responsable</option><option value="processor">Sous-traitant</option><option value="joint_controller">Responsables conjoints</option></select></label>
+          <label>Statut<select id="activityStatus"><option value="active">Actif</option><option value="inactive">Inactif</option></select></label>
+          <label>Responsable interne<input id="activityOwner" maxlength="180"></label>
+          <label>Niveau de risque<select id="activityRisk"><option value="standard">Standard</option><option value="high">Élevé</option></select></label>
+          <label>Statut AIPD<select id="activityDpia"><option value="not_screened">Non évaluée</option><option value="not_required">Non requise</option><option value="required_pending">Requise · en attente</option><option value="in_progress">En cours</option><option value="approved">Approuvée</option></select></label>
+          <label>Revue due le<input id="activityReviewDue" type="date"></label>
+          <label>Conservation<input id="activityRetention" maxlength="600"></label>
+        </div>
+        <div class="settings-grid">
+          <label>Finalités<textarea id="activityPurposes" rows="4"></textarea></label>
+          <label>Catégories de données<textarea id="activityDataCategories" rows="4"></textarea></label>
+          <label>Personnes concernées<textarea id="activityDataSubjects" rows="4"></textarea></label>
+          <label>Bases légales<textarea id="activityLegalBases" rows="4"></textarea></label>
+          <label>Destinataires<textarea id="activityRecipients" rows="4"></textarea></label>
+          <label>Transferts<textarea id="activityTransfers" rows="4"></textarea></label>
+          <label>Mesures de sécurité<textarea id="activitySecurityControls" rows="4"></textarea></label>
+          <label>Systèmes<textarea id="activitySystems" rows="4"></textarea></label>
+        </div>
+      </form>
+
       <div class="integration-box">
         <div class="panel-head compact"><div><h2>Registre des activités de traitement</h2><p class="hint">Finalités, bases légales, systèmes, responsable, risque/AIPD et échéance de revue issus du registre Article 30 opérationnel.</p></div></div>
-        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Activité</th><th>Rôle</th><th>Finalités</th><th>Bases légales</th><th>Systèmes</th><th>Responsable</th><th>Risque / AIPD</th><th>Revue</th></tr></thead><tbody id="operationsActivityRows"><tr><td colspan="8">Chargement…</td></tr></tbody></table></div>
+        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Activité</th><th>Rôle</th><th>Finalités</th><th>Bases légales</th><th>Systèmes</th><th>Responsable</th><th>Risque / AIPD</th><th>Revue</th><th>Action</th></tr></thead><tbody id="operationsActivityRows"><tr><td colspan="9">Chargement…</td></tr></tbody></table></div>
       </div>
+
+      <form id="processorForm" class="integration-box" autocomplete="off">
+        <div class="panel-head compact"><div><h2>Ajouter / modifier un sous-traitant</h2><p class="hint">Renseigner uniquement les faits contractuels vérifiés : DPA, hébergement, transferts et sous-traitants ultérieurs.</p></div><div class="button-row"><button type="button" id="processorReset" class="secondary">Nouveau</button><button type="submit" id="processorSave">Enregistrer</button></div></div>
+        <input type="hidden" id="processorId">
+        <div class="settings-grid">
+          <label>Prestataire<input id="processorName" maxlength="180" required></label>
+          <label>Service<input id="processorService" maxlength="300" required></label>
+          <label>Statut<select id="processorStatus"><option value="active">Actif</option><option value="inactive">Inactif</option></select></label>
+          <label>DPA<select id="processorDpa"><option value="pending">En attente</option><option value="signed">Signé</option><option value="not_required">Non requis</option></select></label>
+          <label>Hébergement<input id="processorHosting" maxlength="180"></label>
+          <label>Revue due le<input id="processorReviewDue" type="date"></label>
+          <label><input id="processorTransferRequired" type="checkbox"> Transfert hors cadre local/EEE à documenter</label>
+          <label>Mécanisme de transfert<input id="processorTransferMechanism" maxlength="300"></label>
+          <label>Sous-traitants ultérieurs<textarea id="processorSubprocessors" rows="4"></textarea></label>
+        </div>
+      </form>
 
       <div class="integration-box">
         <div class="panel-head compact"><div><h2>Sous-traitants &amp; sous-sous-traitants</h2><p class="hint">État DPA, localisation d’hébergement, transferts, sous-traitants ultérieurs et échéances de revue. Cette vue n’invente aucune donnée fournisseur : elle affiche uniquement les faits enregistrés dans le registre.</p></div></div>
-        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Prestataire</th><th>Service</th><th>DPA</th><th>Hébergement</th><th>Transfert</th><th>Sous-traitants ultérieurs</th><th>Revue</th></tr></thead><tbody id="operationsProcessorRows"><tr><td colspan="7">Chargement…</td></tr></tbody></table></div>
+        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Prestataire</th><th>Service</th><th>DPA</th><th>Hébergement</th><th>Transfert</th><th>Sous-traitants ultérieurs</th><th>Revue</th><th>Action</th></tr></thead><tbody id="operationsProcessorRows"><tr><td colspan="8">Chargement…</td></tr></tbody></table></div>
       </div>
     </section>
   </main>
