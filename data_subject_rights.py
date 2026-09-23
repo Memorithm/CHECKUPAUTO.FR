@@ -14,7 +14,6 @@ import compliance_store
 import mercure_rights
 import mobile_devices
 import privacy_suppression
-import referral_wallet_lifecycle
 import rights_subject_bindings
 
 
@@ -206,45 +205,6 @@ def _mobile_snapshot(installation_id: str) -> dict:
             }
             for row in bindings
         ],
-    }
-
-
-def _erase_mobile(installation_id: str) -> dict:
-    # execute() has already re-verified the rights-request subject. Release only
-    # its ownership evidence before mobile deletion; failure must abort erasure.
-    release = referral_wallet_lifecycle._release_installation_ownership(installation_id)
-    mobile_devices.init_db()
-    with mobile_devices.connect() as db:
-        db.execute("BEGIN IMMEDIATE")
-        device_count = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM mobile_device WHERE installation_id=?",
-                (installation_id,),
-            ).fetchone()["n"]
-        )
-        deadline_count = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM mobile_deadline WHERE installation_id=?",
-                (installation_id,),
-            ).fetchone()["n"]
-        )
-        binding_count = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM mobile_vehicle_binding WHERE installation_id=?",
-                (installation_id,),
-            ).fetchone()["n"]
-        )
-        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
-        db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (installation_id,))
-        db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
-    return {
-        "installationId": installation_id,
-        "referralWalletOwnershipReleased": int(release["released"]),
-        "removed": {
-            "deviceRecords": device_count,
-            "deadlineRecords": deadline_count,
-            "vehicleBindingRecords": binding_count,
-        },
     }
 
 
@@ -481,23 +441,14 @@ def execute(
                 ).hexdigest(),
             }
         else:
-            data = _erase_mobile(installation_id)
-            action = "erase"
-            result = {
-                "ok": True,
-                "requestId": rid,
-                "requestType": request_type,
-                "adapter": adapter,
-                "removed": data["removed"],
-                "referralWalletOwnershipReleased": data["referralWalletOwnershipReleased"],
-            }
-            evidence = {
-                "requestId": rid,
-                "requestType": request_type,
-                "adapter": adapter,
-                "removed": data["removed"],
-                "referralWalletOwnershipReleased": data["referralWalletOwnershipReleased"],
-            }
+            # Keep one erasure implementation. The dedicated boundary persists the
+            # receipt atomically with mobile deletion, then records the compliance
+            # audit separately so an interrupted audit can be recovered safely.
+            # Lazy import avoids the module cycle: mobile_dsar_erasure intentionally
+            # reuses the validation and audit primitives defined in this module.
+            import mobile_dsar_erasure
+
+            return mobile_dsar_erasure.execute(rid, installation_id, db_path)
     elif adapter == "mercure_customer_contact":
         data = mercure_rights.contact_snapshot(ref)
         export_complete = not bool(data.get("partial", True))
