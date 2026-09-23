@@ -16,6 +16,7 @@ import notification_broker
 import privacy_suppression
 import referral_engine
 import referral_wallet_claims
+import referral_wallet_lifecycle
 import reminder_dispatch
 import review_followup
 import site_config_store
@@ -526,16 +527,18 @@ def _purge_inactive_mobile(days: int, *, dry_run: bool) -> int:
                 (cutoff,),
             )
         ]
-        if dry_run:
-            return len(rows)
-        removed = 0
-        for installation in rows:
-            db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation,))
-            db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (installation,))
-            removed += int(db.execute(
-                "DELETE FROM mobile_device WHERE installation_id=?",
-                (installation,),
-            ).rowcount or 0)
+    if dry_run:
+        return len(rows)
+
+    removed = 0
+    for installation in rows:
+        result = referral_wallet_lifecycle.purge_inactive_installation(
+            installation,
+            cutoff,
+        )
+        if not bool(result.get("ok")):
+            raise RuntimeError("purge mobile non confirmée")
+        removed += int((result.get("removedCounts") or {}).get("deviceRecords") or 0)
     return removed
 
 
