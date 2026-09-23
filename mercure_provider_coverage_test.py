@@ -15,6 +15,8 @@ class MercureProviderCoverageTest(unittest.TestCase):
             coverage.HISTORY_START_ENV: "",
             coverage.FUTURE_DAYS_ENV: "",
             coverage.EVIDENCE_SHA256_ENV: "",
+            coverage.VEHICLE_SOURCE_ENV: "",
+            coverage.VEHICLE_EVIDENCE_SHA256_ENV: "",
         }
         base.update(values)
         return patch.dict(os.environ, base, clear=False)
@@ -25,6 +27,8 @@ class MercureProviderCoverageTest(unittest.TestCase):
         self.assertEqual(result["state"], "unconfigured")
         self.assertFalse(result["attested"])
         self.assertEqual(result["reason"], "provider_boundary_not_attested")
+        self.assertEqual(result["vehicleInventory"]["state"], "unconfigured")
+        self.assertFalse(result["vehicleInventory"]["attested"])
 
     def test_complete_evidence_backed_boundary_is_attested(self):
         digest = "a" * 64
@@ -41,7 +45,60 @@ class MercureProviderCoverageTest(unittest.TestCase):
             "futureDays": 180,
             "evidenceSha256": digest,
             "reason": "",
+            "vehicleInventory": {
+                "state": "unconfigured",
+                "attested": False,
+                "source": "",
+                "evidenceSha256": "",
+                "reason": "provider_vehicle_inventory_not_attested",
+            },
         })
+
+    def test_vehicle_inventory_requires_separate_authoritative_evidence(self):
+        digest = "b" * 64
+        with self._env(**{
+            coverage.VEHICLE_SOURCE_ENV: coverage.AUTHORITATIVE_APPOINTMENT_SOURCE,
+            coverage.VEHICLE_EVIDENCE_SHA256_ENV: digest,
+        }):
+            result = coverage.vehicle_inventory_attestation()
+        self.assertEqual(result, {
+            "state": "attested",
+            "attested": True,
+            "source": coverage.AUTHORITATIVE_APPOINTMENT_SOURCE,
+            "evidenceSha256": digest,
+            "reason": "",
+        })
+
+    def test_vehicle_inventory_partial_or_unsupported_configuration_fails_closed(self):
+        cases = [
+            (
+                {coverage.VEHICLE_SOURCE_ENV: coverage.AUTHORITATIVE_APPOINTMENT_SOURCE},
+                "provider_vehicle_inventory_configuration_incomplete",
+            ),
+            (
+                {
+                    coverage.VEHICLE_SOURCE_ENV: "invented-provider-endpoint",
+                    coverage.VEHICLE_EVIDENCE_SHA256_ENV: "c" * 64,
+                },
+                "provider_vehicle_inventory_source_unsupported",
+            ),
+            (
+                {
+                    coverage.VEHICLE_SOURCE_ENV: coverage.AUTHORITATIVE_APPOINTMENT_SOURCE,
+                    coverage.VEHICLE_EVIDENCE_SHA256_ENV: "raw-provider-secret",
+                },
+                "provider_vehicle_inventory_evidence_hash_invalid",
+            ),
+        ]
+        for values, reason in cases:
+            with self.subTest(reason=reason), self._env(**values):
+                result = coverage.vehicle_inventory_attestation()
+                self.assertEqual(result["state"], "invalid")
+                self.assertFalse(result["attested"])
+                self.assertEqual(result["reason"], reason)
+                self.assertEqual(result["source"], "")
+                self.assertEqual(result["evidenceSha256"], "")
+                self.assertNotIn("raw-provider-secret", repr(result))
 
     def test_partial_configuration_fails_closed_without_reflecting_values(self):
         with self._env(**{coverage.HISTORY_START_ENV: "2018-04-12"}):
@@ -71,12 +128,14 @@ class MercureProviderCoverageTest(unittest.TestCase):
                 self.assertEqual(result["reason"], reason)
                 self.assertNotIn("secret-not-a-digest", repr(result))
 
-    def test_capability_refuses_empty_result_as_exhaustion_proof(self):
+    def test_capability_refuses_empty_or_appointment_observation_as_exhaustion_proof(self):
         result = coverage.capability()
         self.assertTrue(result["requiresExplicitProviderBoundary"])
         self.assertTrue(result["requiresExternalEvidenceSha256"])
+        self.assertTrue(result["requiresIndependentVehicleInventoryEvidence"])
         self.assertFalse(result["rawEvidenceStoredInRepository"])
         self.assertFalse(result["emptyResultProvesHistoricalExhaustion"])
+        self.assertFalse(result["appointmentVehicleObservationProvesVehicleExhaustion"])
 
 
 if __name__ == "__main__":
