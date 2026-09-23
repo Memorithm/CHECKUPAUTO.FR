@@ -58,6 +58,7 @@ class ReferralWalletClaimRetentionTest(unittest.TestCase):
         with (
             mock.patch.object(retention.site_config_store, "load", return_value={"analytics": {"retentionDays": 30}}),
             mock.patch.object(retention, "_purge_analytics", return_value=0),
+            mock.patch.object(retention, "_retire_booking_browser_tokens", return_value=0),
             mock.patch.object(retention, "_purge_booking_intents", return_value=0),
             mock.patch.object(retention, "_purge_mobile_claims", return_value=0),
             mock.patch.object(retention, "_purge_inactive_suppressions", return_value=0),
