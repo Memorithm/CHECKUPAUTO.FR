@@ -46,18 +46,37 @@ def _init_mobile_erasure_receipts() -> None:
         )
 
 
+def _mobile_subject_repopulated(db, subject_hash: str) -> bool:
+    """Return whether the exact erased mobile subject currently exists again.
+
+    The mobile store intentionally does not persist a duplicate subject hash beside
+    the raw installation identifier. To keep historical erasure receipts immutable
+    while still rejecting stale proof after a re-registration, this check hashes
+    installation identifiers transiently in memory and never persists or returns
+    the raw identifier. Disabled installations also count as repopulated because
+    personal data still exists in the mobile store.
+    """
+    for row in db.execute("SELECT installation_id FROM mobile_device"):
+        if hmac.compare_digest(_installation_hash(str(row["installation_id"])), subject_hash):
+            return True
+    return False
+
+
 def mobile_erasure_receipt_by_subject_hash(subject_hash: object) -> dict | None:
-    """Return the latest non-identifying erasure proof for an exact mobile subject.
+    """Return the latest current erasure proof for an exact mobile subject.
 
     The caller supplies the SHA-256 subject hash already used by the compliance
     request registry. This deliberately avoids accepting or returning a raw mobile
-    installation identifier.
+    installation identifier. A historical receipt is not current evidence when the
+    same installation has subsequently been registered again.
     """
     digest = str(subject_hash or "").strip().lower()
     if not _SHA256_RE.fullmatch(digest):
         raise ValueError("subject hash invalide")
     _init_mobile_erasure_receipts()
     with mobile_devices.connect() as db:
+        if _mobile_subject_repopulated(db, digest):
+            return None
         row = db.execute(
             """SELECT receipt_id,evidence_hash,device_records,deadline_records,
                       vehicle_binding_records,erased_at
