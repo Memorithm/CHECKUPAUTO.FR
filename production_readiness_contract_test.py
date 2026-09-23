@@ -41,7 +41,9 @@ class ProductionReadinessContractTest(unittest.TestCase):
 
     def test_ci_checks_readiness_javascript(self):
         workflow = (ROOT / ".github" / "workflows" / "security-ci.yml").read_text()
-        self.assertIn("node --check admin/readiness.js", workflow)
+        self.assertIn("git ls-files '*.js'", workflow)
+        self.assertIn('node --check "$file"', workflow)
+        self.assertTrue(Path("admin/readiness.js").is_file())
 
 
 if __name__ == "__main__":

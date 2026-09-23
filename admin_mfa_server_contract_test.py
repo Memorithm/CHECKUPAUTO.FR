@@ -85,7 +85,9 @@ class AdminMFAServerContractTest(unittest.TestCase):
         workflow = (
             ROOT / ".github" / "workflows" / "security-ci.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("node --check admin/mfa.js", workflow)
+        self.assertIn("git ls-files '*.js'", workflow)
+        self.assertIn('node --check "$file"', workflow)
+        self.assertTrue(Path("admin/mfa.js").is_file())
 
 
 if __name__ == "__main__":
