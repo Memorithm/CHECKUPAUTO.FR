@@ -38,7 +38,7 @@ def main(
     args = list(sys.argv[1:] if argv is None else argv)
     input_stream = sys.stdin if stdin is None else stdin
     output_stream = sys.stdout if stdout is None else stdout
-    if len(args) != 1 or args[0] not in {"execute", "status"}:
+    if len(args) != 1 or args[0] not in {"execute", "continue", "status"}:
         _write(output_stream, {"ok": False, "error": "usage_error"})
         return 2
     try:
@@ -46,14 +46,30 @@ def main(
             _write(output_stream, {"ok": True, "capability": rights.capability(db_path)})
             return 0
         payload = _read(input_stream)
-        if set(payload) != {"requestId", "installationId", "accountId"}:
-            raise ValueError("invalid_payload")
-        result = rights.execute(
-            payload.get("requestId"),
-            payload.get("installationId"),
-            payload.get("accountId"),
-            db_path,
-        )
+        if args[0] == "execute":
+            if set(payload) != {"requestId", "installationId", "accountId"}:
+                raise ValueError("invalid_payload")
+            result = rights.execute(
+                payload.get("requestId"),
+                payload.get("installationId"),
+                payload.get("accountId"),
+                db_path,
+            )
+        else:
+            if set(payload) != {
+                "requestId",
+                "installationId",
+                "accountId",
+                "sessionId",
+            }:
+                raise ValueError("invalid_payload")
+            result = rights.continue_export(
+                payload.get("requestId"),
+                payload.get("installationId"),
+                payload.get("accountId"),
+                payload.get("sessionId"),
+                db_path,
+            )
         _write(output_stream, result)
         return 0
     except (ValueError, LookupError, PermissionError, NotImplementedError, RuntimeError):
