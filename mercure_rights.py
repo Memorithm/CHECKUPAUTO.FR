@@ -353,8 +353,9 @@ def contact_snapshot(subject_ref: object) -> dict:
     disclosed ±365-day inventory. When an attested boundary is configured, the
     exact interval is scanned in bounded provider windows. Appointment/billing
     completeness is only asserted when that scan succeeds without truncation or
-    missing identifiers. Vehicles remain partial because no authoritative
-    subject-to-all-vehicles source has yet been verified.
+    missing identifiers. Vehicle completeness additionally requires independent
+    provider/contract evidence that the subject-bound appointment calendar is
+    the authoritative subject-to-vehicle inventory.
     """
     client_kind, client_id = parse_subject_ref(subject_ref)
     session = mercure._session()
@@ -363,6 +364,7 @@ def contact_snapshot(subject_ref: object) -> dict:
     telephone = str(contact.get("telephone") or "").strip()[:40]
     today = mercure.business_today()
     provider_boundary = mercure_provider_coverage.boundary(today)
+    vehicle_boundary = provider_boundary.get("vehicleInventory") or {}
     boundary_applied = False
     try:
         if provider_boundary.get("attested"):
@@ -388,6 +390,14 @@ def contact_snapshot(subject_ref: object) -> dict:
         and not inventory.get("billingTruncated")
         and inventory.get("billingMatchesAppointments")
     )
+    vehicles_complete = bool(
+        provider_boundary.get("attested")
+        and boundary_applied
+        and vehicle_boundary.get("attested")
+        and inventory.get("state") == "available"
+        and inventory.get("vehicleState") == "available"
+        and not inventory.get("vehiclesTruncated")
+    )
     return {
         "provider": "mercure",
         "subject": {
@@ -402,7 +412,7 @@ def contact_snapshot(subject_ref: object) -> dict:
         "providerBoundary": provider_boundary,
         "coverage": {
             "contact": True,
-            "vehicles": False,
+            "vehicles": vehicles_complete,
             "appointments": appointments_complete,
             "billing": billing_complete,
             "boundedOperationalInventory": inventory.get("state") == "available",
@@ -410,6 +420,7 @@ def contact_snapshot(subject_ref: object) -> dict:
             "boundedBillingInventory": inventory.get("billingState") == "available",
             "providerBoundaryAttested": bool(provider_boundary.get("attested")),
             "providerBoundaryAppliedToInventory": boundary_applied,
+            "providerVehicleInventoryAttested": bool(vehicle_boundary.get("attested")),
         },
         "partial": True,
     }
