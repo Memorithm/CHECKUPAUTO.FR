@@ -14,6 +14,23 @@ class ComplianceContractSubjectCoverageTest(unittest.TestCase):
             contracts.SUBJECT_INVENTORY_EVIDENCE_SHA256_ENV: evidence,
         }
 
+    @staticmethod
+    def _complete_provider_snapshot() -> dict:
+        return {
+            "contact": {"email": "must-not-leak@example.test"},
+            "coverage": {"appointments": True},
+            "operationalInventory": {
+                "state": "available",
+                "appointments": [
+                    {"appointmentId": "contract-1"},
+                    {"appointmentId": "contract-2"},
+                ],
+                "appointmentCountInWindow": 2,
+                "appointmentIdsMissing": 0,
+                "appointmentsTruncated": False,
+            },
+        }
+
     def test_unconfigured_attestation_fails_closed(self):
         with patch.dict(os.environ, self._env(), clear=False):
             state = contracts.subject_inventory_attestation()
@@ -72,10 +89,64 @@ class ComplianceContractSubjectCoverageTest(unittest.TestCase):
         self.assertNotIn(raw_marker, repr(state))
         self.assertTrue(capability["partial"])
         self.assertFalse(capability["crossIdentityBinding"])
+        self.assertTrue(capability["subjectWideExportPrimitiveReady"])
         self.assertTrue(capability["requiresSubjectInventoryAttestation"])
         self.assertEqual(capability["subjectInventoryAttestation"], state)
         self.assertFalse(capability["rawEvidenceStoredInRepository"])
         self.assertFalse(capability["singleContractExportProvesSubjectExhaustion"])
+
+    def test_subject_snapshot_becomes_complete_only_with_both_proofs(self):
+        provider = self._complete_provider_snapshot()
+        digest = "c" * 64
+        with patch.dict(
+            os.environ,
+            self._env(contracts.AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE, digest),
+            clear=False,
+        ), patch.object(
+            contracts,
+            "snapshot",
+            side_effect=lambda ref, db_path=None: {"contractRef": ref, "partial": True},
+        ) as local_snapshot:
+            result = contracts.subject_snapshot(provider)
+
+        self.assertTrue(result["coverageComplete"])
+        self.assertFalse(result["partial"])
+        self.assertTrue(result["providerAppointmentsComplete"])
+        self.assertEqual(result["contractCount"], 2)
+        self.assertEqual(
+            [row["contractRef"] for row in result["contracts"]],
+            ["contract-1", "contract-2"],
+        )
+        self.assertEqual(local_snapshot.call_count, 2)
+        self.assertEqual(result["subjectInventory"]["evidenceSha256"], digest)
+        self.assertNotIn("must-not-leak@example.test", repr(result))
+
+    def test_subject_snapshot_stays_partial_without_attestation_or_exact_inventory(self):
+        provider = self._complete_provider_snapshot()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            contracts,
+            "snapshot",
+            side_effect=lambda ref, db_path=None: {"contractRef": ref, "partial": True},
+        ):
+            unattested = contracts.subject_snapshot(provider)
+        self.assertFalse(unattested["coverageComplete"])
+        self.assertTrue(unattested["partial"])
+        self.assertTrue(unattested["providerAppointmentsComplete"])
+
+        provider["operationalInventory"]["appointmentCountInWindow"] = 3
+        with patch.dict(
+            os.environ,
+            self._env(contracts.AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE, "d" * 64),
+            clear=False,
+        ), patch.object(
+            contracts,
+            "snapshot",
+            side_effect=lambda ref, db_path=None: {"contractRef": ref, "partial": True},
+        ):
+            mismatched = contracts.subject_snapshot(provider)
+        self.assertFalse(mismatched["providerAppointmentsComplete"])
+        self.assertFalse(mismatched["coverageComplete"])
+        self.assertTrue(mismatched["partial"])
 
 
 if __name__ == "__main__":
