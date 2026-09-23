@@ -468,7 +468,8 @@ def execute(
             }
     elif adapter == "mercure_customer_contact":
         data = mercure_rights.contact_snapshot(ref)
-        action = "export"
+        export_complete = not bool(data.get("partial", True))
+        action = "export_complete" if export_complete else "export"
         result = {
             "ok": True,
             "requestId": rid,
@@ -481,7 +482,8 @@ def execute(
             "requestId": rid,
             "requestType": request_type,
             "adapter": adapter,
-            "partial": True,
+            "partial": not export_complete,
+            "coverageComplete": export_complete,
             "emailPresent": bool(data["contact"]["email"]),
             "telephonePresent": bool(data["contact"]["telephone"]),
             "exportHash": hashlib.sha256(
