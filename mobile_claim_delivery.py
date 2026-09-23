@@ -9,6 +9,7 @@ import re
 from urllib.parse import urlparse
 
 import mobile_devices
+import privacy_suppression as privacy
 import reminder_dispatch
 
 BUNDLE_ID = "fr.checkupauto.reminder"
@@ -142,17 +143,45 @@ def _qr_data_url(url: str) -> str:
     return "data:image/svg+xml;base64," + encoded
 
 
+def _target_processing_suppressed(target: dict) -> bool:
+    """Re-check all-processing suppression before exposing a cached claim target."""
+    vehicle_id = str(target.get("vehicle_id") or "").strip()
+    client_kind = str(target.get("client_kind") or "").strip()
+    client_id = str(target.get("client_id") or "").strip()
+    candidates: list[tuple[str, object]] = [("vehicle", vehicle_id)]
+    if client_kind in {"account", "free"} and client_id:
+        candidates.append(("mercure_" + client_kind, client_id))
+    return privacy.any_suppressed(candidates, "all_processing")
+
+
 def candidates(limit: int = 30) -> list[dict]:
-    rows = reminder_dispatch.mobile_claim_candidates(limit)
-    return [
-        {
-            "vehicleId": row["vehicle_id"],
-            "dueDate": row["due_date"],
-            "appointmentId": row["appointment_id"] or None,
-            "lastSeenAt": row["last_seen_at"],
-        }
-        for row in rows
-    ]
+    """Return claim candidates only while their current subject may be processed.
+
+    Reminder inventory is a cache and can outlive a later restriction or erasure.
+    Resolve the cached provider identity again and apply the current suppression state
+    before the vehicle, appointment or deadline metadata crosses this admin boundary.
+    """
+    clean_limit = max(1, min(int(limit), 100))
+    rows = reminder_dispatch.mobile_claim_candidates(100)
+    visible = []
+    for row in rows:
+        try:
+            target = reminder_dispatch.mobile_claim_target(row["vehicle_id"])
+        except LookupError:
+            continue
+        if _target_processing_suppressed(target):
+            continue
+        visible.append(
+            {
+                "vehicleId": row["vehicle_id"],
+                "dueDate": row["due_date"],
+                "appointmentId": row["appointment_id"] or None,
+                "lastSeenAt": row["last_seen_at"],
+            }
+        )
+        if len(visible) >= clean_limit:
+            break
+    return visible
 
 
 def issue_for_vehicle(config: dict, vehicle_id: object, ttl_seconds: object = None) -> dict:
@@ -160,6 +189,9 @@ def issue_for_vehicle(config: dict, vehicle_id: object, ttl_seconds: object = No
     if not state["ready"]:
         raise RuntimeError("association iOS non configurée")
     target = reminder_dispatch.mobile_claim_target(vehicle_id)
+    if _target_processing_suppressed(target):
+        # Do not disclose whether a provider identity exists but is currently restricted.
+        raise LookupError("véhicule absent de l inventaire Mercure")
     claim = mobile_devices.issue_vehicle_claim(
         target["vehicle_id"],
         target["client_kind"],
