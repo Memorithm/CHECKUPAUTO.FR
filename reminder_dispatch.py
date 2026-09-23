@@ -241,7 +241,8 @@ def mobile_claim_target(vehicle_id: object) -> dict:
     """Return the authoritative reminder tuple used to issue a mobile claim.
 
     Client identifiers never come from the admin request; they are resolved from the
-    already-synchronized Mercure reminder inventory.
+    already-synchronized Mercure reminder inventory. Current all-processing suppression
+    is enforced here so direct callers cannot bypass higher-level mobile gates.
     """
     clean = _vehicle_id(vehicle_id)
     init_db()
@@ -253,7 +254,10 @@ def mobile_claim_target(vehicle_id: object) -> dict:
         ).fetchone()
     if not row:
         raise LookupError("véhicule absent de l inventaire Mercure")
-    return dict(row)
+    target = dict(row)
+    if _all_processing_suppressed(target):
+        raise LookupError("véhicule absent de l inventaire Mercure")
+    return target
 
 
 def mobile_claim_candidates(limit: int = 30) -> list[dict]:
@@ -262,12 +266,25 @@ def mobile_claim_candidates(limit: int = 30) -> list[dict]:
     init_db()
     with connect() as db:
         rows = db.execute(
-            """SELECT vehicle_id,due_date,appointment_id,last_seen_at
+            """SELECT vehicle_id,client_kind,client_id,due_date,appointment_id,last_seen_at
                FROM reminder_target WHERE due_date>=? AND quarantined=0
                ORDER BY last_seen_at DESC, due_date ASC, vehicle_id ASC LIMIT ?""",
             (today, limit),
         ).fetchall()
-    return [dict(row) for row in rows]
+    visible = []
+    for row in rows:
+        target = dict(row)
+        if _all_processing_suppressed(target):
+            continue
+        visible.append(
+            {
+                "vehicle_id": target["vehicle_id"],
+                "due_date": target["due_date"],
+                "appointment_id": target["appointment_id"],
+                "last_seen_at": target["last_seen_at"],
+            }
+        )
+    return visible
 
 
 def deadlines_for_vehicle_ids(vehicle_ids: list[str]) -> list[dict]:
@@ -288,11 +305,17 @@ def deadlines_for_vehicle_ids(vehicle_ids: list[str]) -> list[dict]:
     placeholders = ",".join("?" for _ in cleaned)
     with connect() as db:
         rows = db.execute(
-            f"""SELECT vehicle_id,due_date FROM reminder_target
+            f"""SELECT vehicle_id,client_kind,client_id,due_date FROM reminder_target
                 WHERE vehicle_id IN ({placeholders}) AND quarantined=0""",
             tuple(cleaned),
-        )
-        return [dict(row) for row in rows]
+        ).fetchall()
+    visible = []
+    for row in rows:
+        target = dict(row)
+        if _all_processing_suppressed(target):
+            continue
+        visible.append({"vehicle_id": target["vehicle_id"], "due_date": target["due_date"]})
+    return visible
 
 
 def sync_once(today: datetime.date | None = None) -> dict:
