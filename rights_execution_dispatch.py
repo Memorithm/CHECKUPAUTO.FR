@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import contract_subject_rights
 import data_subject_rights
 import referral_wallet_rights
 import rights_completion_plan
@@ -27,13 +28,23 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
 
     This boundary intentionally accepts an exact payload per adapter. It keeps
     the existing admin request shape (``id``, ``subjectRef``, ``adapter``) while
-    making the newer bounded rectification and referral-wallet executors
-    reachable through the same operator surface. Each delegated adapter remains
-    responsible for subject proof, request-type validation, duplicate execution
-    prevention and evidence hashing.
+    making the newer bounded rectification, subject-wide contract and
+    referral-wallet executors reachable through the same operator surface. Each
+    delegated adapter remains responsible for subject proof, request-type
+    validation, duplicate execution prevention and evidence hashing.
     """
     body = _payload(payload)
     adapter = str(body.get("adapter") or "").strip()
+
+    # Route the contract adapter through the subject-wide executor first. It
+    # preserves the legacy exact-contract fallback for non-Mercure subject refs.
+    if adapter == contract_subject_rights.ADAPTER:
+        _exact_fields(body, _BASE_FIELDS)
+        return contract_subject_rights.execute(
+            body.get("id"),
+            body.get("subjectRef"),
+            db_path,
+        )
 
     if adapter in data_subject_rights.SUPPORTED_ADAPTERS:
         allowed = set(_BASE_FIELDS)
@@ -76,6 +87,7 @@ def capability(db_path: Path | str | None = None) -> dict:
     }
     rectification = rights_rectification.capability()
     wallet = referral_wallet_rights.capability(db_path)
+    contracts = contract_subject_rights.capability()
     adapters = dict(central)
     adapters[rights_rectification.ADAPTER] = [rectification["requestType"]]
     adapters[referral_wallet_rights.ADAPTER] = list(wallet.get("supportedRights") or [])
@@ -83,6 +95,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         "dispatchReady": True,
         "globalCoverageComplete": False,
         "supportedAdapters": adapters,
+        "contractSubject": contracts,
         "rectification": rectification,
         "referralWallet": wallet,
         "completionPlan": rights_completion_plan.capability(),
