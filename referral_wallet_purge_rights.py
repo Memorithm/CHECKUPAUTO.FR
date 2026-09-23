@@ -28,16 +28,19 @@ def _digest(value: object, name: str) -> str:
 
 
 def _ensure_schema(db: sqlite3.Connection) -> None:
-    db.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS referral_wallet_erasure_completion_link(
-          request_id TEXT PRIMARY KEY,
-          account_hash TEXT NOT NULL UNIQUE,
-          created_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_referral_erasure_completion_account
-          ON referral_wallet_erasure_completion_link(account_hash);
-        """
+    # Use individual execute() calls rather than executescript(): sqlite3 may
+    # implicitly commit a pending transaction before executescript(), which would
+    # split final-purge audit state from the DSAR completion proof.
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS referral_wallet_erasure_completion_link(
+             request_id TEXT PRIMARY KEY,
+             account_hash TEXT NOT NULL UNIQUE,
+             created_at TEXT NOT NULL
+           )"""
+    )
+    db.execute(
+        """CREATE INDEX IF NOT EXISTS idx_referral_erasure_completion_account
+           ON referral_wallet_erasure_completion_link(account_hash)"""
     )
 
 
