@@ -218,6 +218,25 @@ def _vehicle_id(value: object) -> str:
     return raw
 
 
+def _processing_candidates(row: dict) -> list[tuple[str, object]]:
+    candidates: list[tuple[str, object]] = [("vehicle", row.get("vehicle_id"))]
+    client_kind = str(row.get("client_kind") or "").strip()
+    client_id = str(row.get("client_id") or "").strip()
+    if client_kind in {"account", "free"} and client_id:
+        candidates.append(("mercure_" + client_kind, client_id))
+    return candidates
+
+
+def _all_processing_suppressed(row: dict) -> bool:
+    """Re-check current DSAR restriction/erasure state for cached Mercure rows.
+
+    ``reminder_target`` is a cache. A subject can become restricted after a row was
+    cached, so import-time checks alone are insufficient. This gate is deliberately
+    evaluated before any later provider lookup that could itself constitute processing.
+    """
+    return privacy.any_suppressed(_processing_candidates(row), "all_processing")
+
+
 def mobile_claim_target(vehicle_id: object) -> dict:
     """Return the authoritative reminder tuple used to issue a mobile claim.
 
@@ -340,6 +359,8 @@ def _eligible(now: datetime.datetime | None = None) -> list[dict]:
         )]
     out = []
     for row in rows:
+        if _all_processing_suppressed(row):
+            continue
         try:
             due = datetime.date.fromisoformat(row["due_date"])
         except ValueError:
@@ -392,6 +413,8 @@ def _target_for_reference(reference: object) -> dict | None:
                FROM reminder_target WHERE quarantined=0"""
         )]
     for row in rows:
+        if _all_processing_suppressed(row):
+            continue
         for days_before in reminders.DEFAULT_LEAD_DAYS:
             candidate = {**row, "days_before": int(days_before)}
             if _reference(candidate) == ref:
