@@ -12,6 +12,7 @@ SECRET_FILE = PRIVATE_DIR / 'mercure-webhook-secret'
 PROVIDER = 'mercure-rdv'
 CONFIRMED = ('confirmed','completed')
 ALLOWED_STATUS = ('confirmed','completed','cancelled','no_show')
+BOOKING_BROWSER_TOKEN_TTL_HOURS = 48
 _BOOKING_ATTRIBUTION_STORAGE_KEY = 'booking_conversion_attribution_storage'
 _BOOKING_ATTRIBUTION_STORAGE_VERSION = 'sha256-v1'
 _BOOKING_ATTRIBUTION_KEY_RE = re.compile(r'^sha256-v1:[0-9a-f]{64}$')
@@ -40,15 +41,24 @@ def _migrate_attribution_keys_locked(db):
     if marker and str(marker['value']) != _BOOKING_ATTRIBUTION_STORAGE_VERSION:
         raise RuntimeError('Version de stockage attribution réservation inconnue')
 
-    # booking_intents retains its random browser token only for the short-lived
-    # checkout/contract flow. Keep a derived join key beside it so durable
-    # conversion rows never need the raw browser token.
+    # Raw browser tokens are kept only during the short checkout lifetime. Once
+    # retired, token itself is replaced by the already-derived attribution key.
+    # Never hash that derived key a second time during subsequent migrations.
     for row in db.execute('SELECT token,attribution_key FROM booking_intents').fetchall():
-        expected=_attribution_key(row['token'])
-        if str(row['attribution_key'] or '') != expected:
+        stored_token=str(row['token'] or '')
+        stored_key=str(row['attribution_key'] or '')
+        if _BOOKING_ATTRIBUTION_KEY_RE.fullmatch(stored_token):
+            if stored_key != stored_token:
+                db.execute(
+                    'UPDATE booking_intents SET attribution_key=? WHERE token=?',
+                    (stored_token,stored_token),
+                )
+            continue
+        expected=_attribution_key(stored_token)
+        if stored_key != expected:
             db.execute(
                 'UPDATE booking_intents SET attribution_key=? WHERE token=?',
-                (expected,row['token']),
+                (expected,stored_token),
             )
 
     # Repair historical raw conversion tokens, and raw rows produced by an older
@@ -129,6 +139,33 @@ def init_db():
     analytics.DB.chmod(0o600)
     referrals.init_db()
     ensure_secret()
+
+
+def retire_expired_browser_tokens(*, now=None, dry_run=False):
+    current=now or datetime.datetime.now(datetime.timezone.utc)
+    if current.tzinfo is None:
+        raise ValueError('now must be timezone-aware')
+    cutoff=(current-datetime.timedelta(hours=BOOKING_BROWSER_TOKEN_TTL_HOURS)).isoformat(timespec='seconds')
+    with analytics.connect() as db:
+        rows=db.execute('''SELECT token,attribution_key FROM booking_intents
+          WHERE created_at<? AND token<>attribution_key''',(cutoff,)).fetchall()
+        if dry_run:
+            return len(rows)
+        db.execute('BEGIN IMMEDIATE')
+        retired=0
+        for row in rows:
+            raw=str(row['token'] or '')
+            key=str(row['attribution_key'] or '') or _attribution_key(raw)
+            if not raw or not _BOOKING_ATTRIBUTION_KEY_RE.fullmatch(key):
+                raise RuntimeError('clé attribution réservation invalide')
+            updated=db.execute(
+                'UPDATE booking_intents SET token=?,attribution_key=? WHERE token=? AND created_at<?',
+                (key,key,raw,cutoff),
+            ).rowcount
+            retired+=int(updated or 0)
+    return retired
+
+
 def ensure_secret():
     SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not SECRET_FILE.exists():
@@ -176,18 +213,20 @@ def _device(v):
     return v if v in ('mobile','tablet','desktop','unknown') else 'unknown'
 
 
-
 MERCURE_PRESTATIONS = {
     'controle technique': 'TOUT VEHICULE HORS CAMPING CAR|1763|80|40|1',
     'vehicule amenage': 'VISITE TECHNIQUE VASP (CAMPING CAR,SANITAIRE,FOOD TRUCK,...)|1771|90|40|1',
 }
 
+
 def _fold(v):
     v=unicodedata.normalize('NFKD',str(v or '')).encode('ascii','ignore').decode().lower().strip()
     return ' '.join(v.split())
 
+
 def mercure_prestation(service):
     return MERCURE_PRESTATIONS.get(_fold(service))
+
 
 def _checkout_requirements(token):
     with analytics.connect() as db:
@@ -271,6 +310,8 @@ def create_intent(params, booking_url):
     query=dict(parse_qsl(parts.query,keep_blank_values=True)); query['ccid']=token; query['cct']=browser_token(token)
     target=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),parts.fragment))
     return {'token':token,'target':target,'source':source,'campaign':campaign,'referralCode':referral_code or None}
+
+
 def record_terms_acceptance(payload):
     if not isinstance(payload,dict): raise ValueError('invalid payload')
     ccid=analytics.clean(payload.get('ccid'),120)
@@ -280,7 +321,7 @@ def record_terms_acceptance(payload):
         intent=db.execute('SELECT * FROM booking_intents WHERE token=?',(ccid,)).fetchone()
     if not intent: raise ValueError('unknown attribution token')
     created=datetime.datetime.fromisoformat(intent['created_at'].replace('Z','+00:00'))
-    if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=48):
+    if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=BOOKING_BROWSER_TOKEN_TTL_HOURS):
         raise ValueError('attribution token expired')
     requirements=_checkout_requirements(ccid)
     immediate=payload.get('immediatePerformance') is True
@@ -343,7 +384,10 @@ def apply_conversion(payload):
     source='Non attribué'; campaign=''; device='unknown'; referral_code=''
     with analytics.connect() as db:
         if token:
-            intent=db.execute('SELECT * FROM booking_intents WHERE token=?',(token,)).fetchone()
+            intent=db.execute(
+                'SELECT * FROM booking_intents WHERE token=? OR attribution_key=? LIMIT 1',
+                (token,token_key),
+            ).fetchone()
             if intent:
                 source=intent['source']; campaign=intent['campaign']; device=intent['device']
                 referral_code=referrals.valid_code_or_empty(intent['referral_code'] if 'referral_code' in intent.keys() else '')
@@ -374,6 +418,8 @@ def apply_conversion(payload):
             'contractAcceptanceBound':bool(acceptance),
             'referralCode':referral_code or (reward.get('referral_code') if reward else None),
             'referralStatus':reward.get('status') if reward else None}
+
+
 def browser_confirmation(payload):
     if not isinstance(payload,dict): raise ValueError('invalid payload')
     ccid=analytics.clean(payload.get('ccid'),120)
@@ -384,7 +430,7 @@ def browser_confirmation(payload):
         intent=db.execute('SELECT * FROM booking_intents WHERE token=?',(ccid,)).fetchone()
     if not intent: raise ValueError('unknown attribution token')
     created=datetime.datetime.fromisoformat(intent['created_at'].replace('Z','+00:00'))
-    if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=48):
+    if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=BOOKING_BROWSER_TOKEN_TTL_HOURS):
         raise ValueError('attribution token expired')
     # The provider callback only fires after a successful appointment creation.
     # Use a deterministic id so retries/beacons remain idempotent.
