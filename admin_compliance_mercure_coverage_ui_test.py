@@ -17,15 +17,21 @@ class ComplianceMercureCoverageUiTest(unittest.TestCase):
         self.assertIn("NON CONFIGURÉ", SCRIPT)
 
     def test_only_hashed_provider_evidence_is_rendered(self):
-        self.assertIn("PREUVE SHA-256", SCRIPT)
+        self.assertIn("PREUVE TEMPORELLE SHA-256", SCRIPT)
         self.assertIn("esc(evidence)", SCRIPT)
         self.assertNotIn("CYBERCHECK_MERCURE_DSAR_COVERAGE_EVIDENCE", SCRIPT)
         self.assertIn("aucune preuve brute", SCRIPT)
 
-    def test_vehicle_coverage_stays_fail_closed(self):
-        self.assertIn("Inventaire exhaustif non prouvé", SCRIPT)
-        self.assertIn("source autoritaire client→tous véhicules", SCRIPT)
-        self.assertIn("PARTIEL", SCRIPT)
+    def test_vehicle_attestation_is_rendered_independently_and_fail_closed(self):
+        self.assertIn("boundary.vehicleInventory", SCRIPT)
+        self.assertIn("vehicle.evidenceSha256", SCRIPT)
+        self.assertIn("INVENTAIRE VÉHICULES", SCRIPT)
+        self.assertIn("PREUVE VÉHICULE SHA-256", SCRIPT)
+        self.assertIn("relation sujet→tous véhicules", SCRIPT)
+        self.assertIn("reste requise", SCRIPT)
+        self.assertIn("frontière temporelle doit être appliquée", SCRIPT)
+        self.assertIn("l’inventaire ne doit pas être tronqué", SCRIPT)
+        self.assertNotIn("CYBERCHECK_MERCURE_DSAR_VEHICLE_INVENTORY_EVIDENCE", SCRIPT)
 
     def test_widget_is_inserted_once_next_to_compliance_status(self):
         self.assertIn("#complianceMercureProviderCoverage", SCRIPT)
