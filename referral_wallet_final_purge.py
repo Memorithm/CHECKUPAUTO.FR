@@ -10,6 +10,7 @@ import analytics_store as analytics
 import compliance_store
 import referral_engine
 import referral_wallet_claims
+import referral_wallet_purge_rights
 
 
 RULE_ID = "referral_ledger"
@@ -76,7 +77,8 @@ def _recover_planned(db_path: Path | str | None = None) -> int:
     A planned operation is written before the analytics transaction. If the process
     dies after that transaction committed but before the audit finalization, the
     irreversible absence of the account is recorded as ``recovered_absent`` rather
-    than being falsely described as a normally acknowledged completion.
+    than being falsely described as a normally acknowledged completion. Any staged
+    DSAR erasure link is completed in the same compliance transaction.
     """
     _init_audit(db_path)
     existing = _account_hashes()
@@ -106,6 +108,12 @@ def _recover_planned(db_path: Path | str | None = None) -> int:
                    SET state='recovered_absent',purged_rows=?,evidence_hash=?,completed_at=?
                    WHERE operation_id=? AND state='planned'""",
                 (purged_rows, evidence, stamp, str(row["operation_id"])),
+            )
+            referral_wallet_purge_rights.complete_in_transaction(
+                db,
+                account_hash,
+                evidence,
+                stamp=stamp,
             )
             recovered += 1
     return recovered
@@ -213,8 +221,6 @@ def _snapshot_locked(db, account_id: str, cutoff_at: str) -> dict:
         blockers.append("non_terminal_reward")
     if owner_count or claim_count:
         blockers.append("ownership_or_claim_present")
-    # Final deletion only operates after the normal ledger compactor has removed
-    # all live entries. This avoids bypassing its integrity/canonicalization checks.
     if ledger_count:
         blockers.append("live_ledger_not_compacted")
     if recent_rewards:
@@ -306,7 +312,7 @@ def _complete(operation_id: str, purged_rows: int, db_path: Path | str | None) -
     stamp = _now_iso()
     with compliance_store.connect(db_path) as db:
         row = db.execute(
-            """SELECT evidence_hash FROM referral_wallet_final_purge_audit
+            """SELECT account_hash,evidence_hash FROM referral_wallet_final_purge_audit
                WHERE operation_id=? AND state='planned'""",
             (operation_id,),
         ).fetchone()
@@ -320,6 +326,12 @@ def _complete(operation_id: str, purged_rows: int, db_path: Path | str | None) -
                SET state='completed',purged_rows=?,evidence_hash=?,completed_at=?
                WHERE operation_id=? AND state='planned'""",
             (int(purged_rows), evidence, stamp, operation_id),
+        )
+        referral_wallet_purge_rights.complete_in_transaction(
+            db,
+            str(row["account_hash"]),
+            evidence,
+            stamp=stamp,
         )
 
 
@@ -406,7 +418,6 @@ def run_policy(
     now: datetime.datetime | None = None,
 ) -> dict:
     """Execute only from the configured, legally reviewed referral retention rule."""
-    # Lazy import prevents a cycle when retention_enforcement later delegates here.
     import retention_enforcement
 
     state = retention_enforcement.policy(RULE_ID, db_path)

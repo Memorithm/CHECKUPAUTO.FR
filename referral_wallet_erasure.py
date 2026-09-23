@@ -247,6 +247,12 @@ def execute(
         raise RuntimeError("politique de conservation du ledger non prête")
 
     checkpoint = _ensure_checkpoint(request_id, account_id, installation_id, db_path)
+    # Stage only a request id plus SHA-256 account linkage before the irreversible
+    # analytics mutation. The final retention-expiry purge can later append a
+    # completion proof without preserving the raw wallet identifier in compliance.
+    import referral_wallet_purge_rights
+
+    referral_wallet_purge_rights.stage(request_id, account_id, db_path)
     result = _retire_account(account_id, installation_id, checkpoint)
     return {**result, "retention": retention}
 
@@ -270,4 +276,6 @@ def capability(db_path: Path | str | None = None) -> dict:
         "financialHistoryRetainedUntilPolicyProcessing": True,
         "rawIdentifiersPersistedByErasureCheckpoint": False,
         "finalPhysicalPurgeComplete": False,
+        "finalPurgeCanAppendDsarCompletionEvidence": True,
+        "rawAccountIdentifierPersistedForDeferredCompletion": False,
     }
