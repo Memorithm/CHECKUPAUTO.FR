@@ -5,6 +5,7 @@ from pathlib import Path
 
 import compliance_store
 import data_subject_rights
+import referral_wallet_lifecycle
 import referral_wallet_rights
 import rights_rectification
 
@@ -101,6 +102,28 @@ def _execution_actions(request_id: str, db_path: Path | str | None = None) -> di
     return actions
 
 
+def _mobile_erasure_receipt_for_request(request) -> dict | None:
+    """Resolve a self-service mobile erasure proof only for the exact DSAR subject.
+
+    The compliance registry and receipt store use the same SHA-256 subject key, so
+    this lookup never requires the raw installation identifier. A receipt predating
+    the rights request is intentionally ignored: it cannot prove that the mobile
+    store was erased after this request began and might describe an older lifecycle.
+    """
+    if str(request["request_type"]) != "erasure":
+        return None
+    receipt = referral_wallet_lifecycle.mobile_erasure_receipt_by_subject_hash(
+        str(request["subject_ref_hash"])
+    )
+    if not receipt:
+        return None
+    erased_at = str(receipt.get("erasedAt") or "")
+    received_at = str(request["received_at"] or "")
+    if not erased_at or not received_at or erased_at < received_at:
+        return None
+    return receipt
+
+
 def _execution_state(
     adapter: str,
     request_type: str,
@@ -154,6 +177,8 @@ def configure(
     request_type = str(request["request_type"])
     expected = _known_adapters(request_type)
     executed = _executed_adapters(rid, db_path)
+    if _mobile_erasure_receipt_for_request(request):
+        executed.add("mobile_installation")
     normalized: list[tuple[str, str, str]] = []
     seen: set[str] = set()
 
@@ -206,6 +231,7 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
     expected = _known_adapters(request_type)
     execution_actions = _execution_actions(rid, db_path)
     executed = set(execution_actions)
+    mobile_receipt = _mobile_erasure_receipt_for_request(request)
     _init(db_path)
     with compliance_store.connect(db_path) as db:
         rows = db.execute(
@@ -218,7 +244,14 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
     for adapter in expected:
         row = planned.get(adapter)
         disposition = str(row["disposition"]) if row else "unplanned"
-        was_executed = adapter in executed
+        audited = adapter in executed
+        receipt_backed = bool(
+            adapter == "mobile_installation"
+            and request_type == "erasure"
+            and mobile_receipt
+            and not audited
+        )
+        was_executed = audited or receipt_backed
         execution_complete, execution_limitation = _execution_state(
             adapter,
             request_type,
@@ -231,6 +264,9 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
             disposition == "not_applicable"
             and bool(row and str(row["justification_hash"]))
         )
+        evidence_source = "rights_execution_audit" if audited else (
+            "mobile_erasure_receipt" if receipt_backed else ""
+        )
         items.append(
             {
                 "adapter": adapter,
@@ -238,6 +274,12 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
                 "executed": was_executed,
                 "executionComplete": execution_complete,
                 "executionLimitation": execution_limitation,
+                "executionEvidenceSource": evidence_source,
+                "executionEvidenceHash": (
+                    str(mobile_receipt.get("evidenceHash") or "")
+                    if receipt_backed and mobile_receipt
+                    else ""
+                ),
                 "satisfied": satisfied,
                 "justificationHash": (
                     str(row["justification_hash"]) if row else ""
@@ -290,6 +332,8 @@ def capability() -> dict:
             f"{adapter}:{request_type}": action
             for (adapter, request_type), action in sorted(REQUEST_COMPLETE_ACTIONS.items())
         },
+        "mobileErasureReceiptCanSatisfyExactSubject": True,
+        "mobileErasureReceiptMustPostdateRequest": True,
         "notApplicableRequiresHashedJustification": True,
         "rawJustificationPersisted": False,
     }
