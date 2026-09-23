@@ -87,32 +87,36 @@ class ReferralWalletExportCompletionTest(unittest.TestCase):
         self.assertFalse(state["globalCoverageComplete"])
         self.assertFalse(state["closureReady"])
 
-    def test_truncated_portability_export_stays_partial(self):
+    def test_real_truncated_portability_export_stays_partial(self):
         request = self._request("portability")
-        bounded = {
-            "account": {
-                "accountId": self.account["id"],
-                "referralCode": self.account["code"],
-                "active": True,
-                "currency": "EUR",
-                "rewardCents": 500,
-                "createdAt": "2026-09-23T00:00:00+00:00",
-            },
-            "wallet": {"balanceCents": 0, "pendingCents": 0},
-            "rewards": [],
-            "ledger": [],
-            "ledgerCount": rights.MAX_LEDGER_ENTRIES + 1,
-            "ledgerTruncated": True,
-            "thirdPartyAppointmentIdentifiersExposed": False,
-        }
-        with mock.patch.object(claims, "ownership_matches", return_value=True), mock.patch.object(
-            rights, "snapshot", return_value=bounded
-        ):
+        stamp = "2026-09-23T00:00:00+00:00"
+        with analytics.connect() as db:
+            db.executemany(
+                """INSERT INTO referral_ledger(
+                     account_id,kind,amount_cents,reference,created_at,note
+                   ) VALUES(?,?,?,?,?,?)""",
+                [
+                    (
+                        self.account["id"],
+                        "earn",
+                        1,
+                        f"export-test-{index:03d}",
+                        stamp,
+                        "test",
+                    )
+                    for index in range(rights.MAX_LEDGER_ENTRIES + 1)
+                ],
+            )
+
+        with mock.patch.object(claims, "ownership_matches", return_value=True):
             result = rights.execute(
                 request["id"], self.installation, self.account["id"], self.compliance_db
             )
 
         self.assertFalse(result["exportComplete"])
+        self.assertTrue(result["data"]["ledgerTruncated"])
+        self.assertEqual(result["data"]["ledgerCount"], rights.MAX_LEDGER_ENTRIES + 1)
+        self.assertEqual(len(result["data"]["ledger"]), rights.MAX_LEDGER_ENTRIES)
         audit = next(
             row
             for row in data_subject_rights.audit_rows(self.compliance_db)
