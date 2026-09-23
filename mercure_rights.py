@@ -4,6 +4,7 @@ import datetime
 import re
 
 import mercure_admin_client as mercure
+import mercure_provider_coverage
 
 
 CLIENT_KINDS = {"account", "free"}
@@ -196,7 +197,9 @@ def contact_snapshot(subject_ref: object) -> dict:
 
     Contact data is covered directly. The operational inventory is intentionally
     limited to a disclosed two-year window and therefore does not claim complete
-    historical vehicle, appointment or billing coverage.
+    historical vehicle, appointment or billing coverage. A separate provider
+    boundary attestation records whether the external historical/future boundary
+    is evidenced; it is not yet used to widen this bounded inventory.
     """
     client_kind, client_id = parse_subject_ref(subject_ref)
     session = mercure._session()
@@ -218,6 +221,7 @@ def contact_snapshot(subject_ref: object) -> dict:
             "vehiclesTruncated": False,
             "billingTruncated": False,
         }
+    provider_boundary = mercure_provider_coverage.boundary(mercure.business_today())
     return {
         "provider": "mercure",
         "subject": {
@@ -229,6 +233,7 @@ def contact_snapshot(subject_ref: object) -> dict:
             "telephone": telephone,
         },
         "operationalInventory": inventory,
+        "providerBoundary": provider_boundary,
         "coverage": {
             "contact": True,
             "vehicles": False,
@@ -236,6 +241,8 @@ def contact_snapshot(subject_ref: object) -> dict:
             "billing": False,
             "boundedOperationalInventory": inventory.get("state") == "available",
             "boundedBillingInventory": inventory.get("billingState") == "available",
+            "providerBoundaryAttested": bool(provider_boundary.get("attested")),
+            "providerBoundaryAppliedToInventory": False,
         },
         "partial": True,
     }
