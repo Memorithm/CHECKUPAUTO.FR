@@ -60,12 +60,13 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
         self.assertEqual(coverage["boundary"]["futureDays"], 730)
         self.assertEqual(coverage["boundary"]["evidenceSha256"], evidence_hash)
         self.assertEqual(coverage["boundary"]["reason"], "")
+        self.assertEqual(
+            set(coverage["boundary"]),
+            {"state", "attested", "historyStart", "futureDays", "evidenceSha256", "reason"},
+        )
         self.assertTrue(state["summary"]["mercureProviderCoverageAttested"])
         self.assertEqual(state["summary"]["mercureProviderCoverageState"], "attested")
-
-        serialized = repr(coverage)
-        self.assertNotIn("rawEvidence", serialized)
-        self.assertNotIn("provider contract body", serialized)
+        self.assertNotIn("provider contract body", repr(coverage))
 
     def test_invalid_partial_boundary_is_reported_without_becoming_attested(self):
         with mock.patch.dict(
