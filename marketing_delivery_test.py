@@ -12,7 +12,9 @@ class MarketingDeliveryTest(unittest.TestCase):
             side_effect=PermissionError("explicit_consent_missing"),
         ) as authorize, mock.patch.object(
             marketing_delivery.notification_broker, "send_email"
-        ) as send:
+        ) as send, mock.patch.object(
+            marketing_delivery.notification_privacy, "bind_marketing_recipient"
+        ) as bind:
             with self.assertRaises(PermissionError):
                 marketing_delivery.send_email(
                     "client@example.test",
@@ -22,6 +24,7 @@ class MarketingDeliveryTest(unittest.TestCase):
                 )
 
         authorize.assert_called_once_with("email", "client@example.test", db_path=None)
+        bind.assert_not_called()
         send.assert_not_called()
 
     def test_authorized_email_uses_dedicated_marketing_category(self):
@@ -40,11 +43,19 @@ class MarketingDeliveryTest(unittest.TestCase):
             "reference": "campaign-1",
             "status": "sent",
         }
+        subject_hash = "c" * 64
         with mock.patch.object(
             marketing_delivery.marketing_consent,
             "require_authorized",
             return_value=authorization,
         ), mock.patch.object(
+            marketing_delivery.privacy_suppression,
+            "identity_hash",
+            return_value=subject_hash,
+        ) as identity_hash, mock.patch.object(
+            marketing_delivery.notification_privacy,
+            "bind_marketing_recipient",
+        ) as bind, mock.patch.object(
             marketing_delivery.notification_broker,
             "send_email",
             return_value=delivery,
@@ -57,6 +68,8 @@ class MarketingDeliveryTest(unittest.TestCase):
                 reference="campaign-1",
             )
 
+        identity_hash.assert_called_once_with("email", "client@example.test")
+        bind.assert_called_once_with(subject_hash, "email", "client@example.test")
         send.assert_called_once_with(
             "client@example.test",
             "Offre Checkup Auto",
@@ -77,7 +90,9 @@ class MarketingDeliveryTest(unittest.TestCase):
             side_effect=PermissionError("explicit_consent_missing"),
         ), mock.patch.object(marketing_delivery, "_active_push_target") as target, mock.patch.object(
             marketing_delivery.notification_broker, "send_push"
-        ) as send:
+        ) as send, mock.patch.object(
+            marketing_delivery.notification_privacy, "bind_marketing_recipient"
+        ) as bind:
             with self.assertRaises(PermissionError):
                 marketing_delivery.send_push(
                     installation,
@@ -87,6 +102,7 @@ class MarketingDeliveryTest(unittest.TestCase):
                 )
 
         target.assert_not_called()
+        bind.assert_not_called()
         send.assert_not_called()
 
     def test_authorized_push_resolves_token_from_mobile_registry(self):
@@ -107,6 +123,7 @@ class MarketingDeliveryTest(unittest.TestCase):
             "reference": "push-campaign-1",
             "status": "sent",
         }
+        subject_hash = "d" * 64
         with mock.patch.object(
             marketing_delivery.marketing_consent,
             "require_authorized",
@@ -116,6 +133,13 @@ class MarketingDeliveryTest(unittest.TestCase):
             "_active_push_target",
             return_value=(token, "production"),
         ) as target, mock.patch.object(
+            marketing_delivery.privacy_suppression,
+            "identity_hash",
+            return_value=subject_hash,
+        ) as identity_hash, mock.patch.object(
+            marketing_delivery.notification_privacy,
+            "bind_marketing_recipient",
+        ) as bind, mock.patch.object(
             marketing_delivery.notification_broker,
             "send_push",
             return_value=delivery,
@@ -130,6 +154,8 @@ class MarketingDeliveryTest(unittest.TestCase):
 
         authorize.assert_called_once_with("push", installation, db_path=None)
         target.assert_called_once_with(installation)
+        identity_hash.assert_called_once_with("installation", installation)
+        bind.assert_called_once_with(subject_hash, "push", f"production:{token}")
         send.assert_called_once_with(
             token,
             "Rappel offre",
