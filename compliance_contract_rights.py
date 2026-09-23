@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 
 import analytics_store
@@ -7,6 +9,12 @@ import compliance_store
 
 
 CONTRACT_PROVIDER = "mercure-rdv"
+SUBJECT_INVENTORY_SOURCE_ENV = "CYBERCHECK_CONTRACT_DSAR_SUBJECT_INVENTORY_SOURCE"
+SUBJECT_INVENTORY_EVIDENCE_SHA256_ENV = (
+    "CYBERCHECK_CONTRACT_DSAR_SUBJECT_INVENTORY_EVIDENCE_SHA256"
+)
+AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE = "mercure_complete_appointment_contract_index"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _contract_ref(value: object) -> str:
@@ -14,6 +22,62 @@ def _contract_ref(value: object) -> str:
     if not raw or len(raw) > 200 or any(ord(c) < 32 or ord(c) == 127 for c in raw):
         raise ValueError("contractRef invalide")
     return raw
+
+
+def subject_inventory_attestation() -> dict:
+    """Return external evidence for the subject-to-all-contracts boundary.
+
+    A single contract reference can be safely exported, but it does not prove
+    that every contract belonging to the data subject has been discovered. A
+    subject-wide DSAR may only promote this adapter to complete after external
+    provider/contract evidence attests that the complete Mercure appointment
+    inventory is also the authoritative index of CheckupAuto contract refs.
+    Only the evidence SHA-256 is exposed; the evidence body stays outside Git.
+    """
+    source_raw = os.environ.get(SUBJECT_INVENTORY_SOURCE_ENV, "").strip().lower()
+    evidence_raw = os.environ.get(
+        SUBJECT_INVENTORY_EVIDENCE_SHA256_ENV, ""
+    ).strip().lower()
+
+    if not source_raw and not evidence_raw:
+        return {
+            "state": "unconfigured",
+            "attested": False,
+            "source": "",
+            "evidenceSha256": "",
+            "reason": "contract_subject_inventory_not_attested",
+        }
+    if not source_raw or not evidence_raw:
+        return {
+            "state": "invalid",
+            "attested": False,
+            "source": "",
+            "evidenceSha256": "",
+            "reason": "contract_subject_inventory_configuration_incomplete",
+        }
+    if source_raw != AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE:
+        return {
+            "state": "invalid",
+            "attested": False,
+            "source": "",
+            "evidenceSha256": "",
+            "reason": "contract_subject_inventory_source_unsupported",
+        }
+    if not _SHA256_RE.fullmatch(evidence_raw):
+        return {
+            "state": "invalid",
+            "attested": False,
+            "source": "",
+            "evidenceSha256": "",
+            "reason": "contract_subject_inventory_evidence_hash_invalid",
+        }
+    return {
+        "state": "attested",
+        "attested": True,
+        "source": AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE,
+        "evidenceSha256": evidence_raw,
+        "reason": "",
+    }
 
 
 def _booking_conversions(contract_ref: str) -> list[dict]:
@@ -89,7 +153,73 @@ def snapshot(contract_ref: object, db_path: Path | str | None = None) -> dict:
     }
 
 
+def subject_snapshot(provider_snapshot: object, db_path: Path | str | None = None) -> dict:
+    """Export every known contract behind a proven Mercure appointment inventory.
+
+    This primitive deliberately accepts the already privacy-bounded Mercure
+    snapshot rather than talking to the provider itself. Completeness is asserted
+    only when Mercure proved the appointment inventory exhaustive *and* separate
+    external evidence attests that this complete appointment set is the
+    authoritative subject-to-contract index. Any mismatch stays partial.
+    """
+    if not isinstance(provider_snapshot, dict):
+        raise ValueError("snapshot Mercure invalide")
+    coverage = provider_snapshot.get("coverage") or {}
+    inventory = provider_snapshot.get("operationalInventory") or {}
+    if not isinstance(coverage, dict) or not isinstance(inventory, dict):
+        raise ValueError("snapshot Mercure invalide")
+
+    rows = inventory.get("appointments") or []
+    if not isinstance(rows, list):
+        raise ValueError("inventaire de contrats invalide")
+    refs: list[str] = []
+    invalid_ref = False
+    for item in rows:
+        if not isinstance(item, dict):
+            invalid_ref = True
+            continue
+        try:
+            ref = _contract_ref(item.get("appointmentId"))
+        except ValueError:
+            invalid_ref = True
+            continue
+        if ref not in refs:
+            refs.append(ref)
+
+    try:
+        expected_count = int(inventory.get("appointmentCountInWindow") or 0)
+    except (TypeError, ValueError):
+        expected_count = -1
+    appointments_complete = bool(
+        coverage.get("appointments") is True
+        and inventory.get("state") == "available"
+        and not inventory.get("appointmentsTruncated")
+        and int(inventory.get("appointmentIdsMissing") or 0) == 0
+        and expected_count == len(refs)
+        and not invalid_ref
+    )
+    attestation = subject_inventory_attestation()
+    coverage_complete = bool(appointments_complete and attestation.get("attested"))
+    contracts = [snapshot(ref, db_path) for ref in refs]
+    return {
+        "provider": CONTRACT_PROVIDER,
+        "contracts": contracts,
+        "contractCount": len(contracts),
+        "providerAppointmentsComplete": appointments_complete,
+        "subjectInventory": {
+            "state": str(attestation.get("state") or "invalid"),
+            "attested": bool(attestation.get("attested")),
+            "source": str(attestation.get("source") or ""),
+            "evidenceSha256": str(attestation.get("evidenceSha256") or ""),
+            "reason": str(attestation.get("reason") or ""),
+        },
+        "coverageComplete": coverage_complete,
+        "partial": not coverage_complete,
+    }
+
+
 def capability() -> dict:
+    attestation = subject_inventory_attestation()
     return {
         "bound": True,
         "partial": True,
@@ -97,4 +227,10 @@ def capability() -> dict:
         "crossIdentityBinding": False,
         "coveredStores": ["consent_receipts", "checkout_acceptance_intents", "booking_conversions"],
         "remainingStores": [],
+        "subjectWideExportPrimitiveReady": True,
+        "requiresSubjectInventoryAttestation": True,
+        "authoritativeSubjectInventorySource": AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE,
+        "subjectInventoryAttestation": attestation,
+        "rawEvidenceStoredInRepository": False,
+        "singleContractExportProvesSubjectExhaustion": False,
     }
