@@ -15,10 +15,10 @@ DISPOSITIONS = {"required", "not_applicable"}
 # be mistaken for proof that every CheckupAuto/Mercure store is implemented.
 GLOBAL_COVERAGE_COMPLETE = False
 # These adapters can execute useful bounded work, but an ordinary execution is
-# not completion proof. Mercure and the subject-wide contract inventory may emit
-# ``export_complete`` only after their independent evidence gates pass. They can
-# then satisfy their required plan item, but still cannot close the global DSAR
-# while GLOBAL_COVERAGE_COMPLETE remains false.
+# not completion proof. Evidence-gated adapters emit their completion action only
+# after the independently checked condition has been met. They can then satisfy
+# their required plan item, but still cannot close the global DSAR while
+# GLOBAL_COVERAGE_COMPLETE remains false.
 PARTIAL_EXECUTION_ADAPTERS = {
     "mercure_customer_contact": "bounded_provider_export",
     "compliance_contracts": "partial_contract_store_export",
@@ -29,6 +29,10 @@ PARTIAL_EXECUTION_ADAPTERS = {
 CONDITIONAL_COMPLETE_ACTIONS = {
     "mercure_customer_contact": "export_complete",
     "compliance_contracts": "export_complete",
+    # Wallet erasure is complete only after the legally retained financial rows
+    # have themselves reached retention expiry and the physical purge audit has
+    # appended an erasure_complete proof. Access/portability remain bounded.
+    referral_wallet_rights.ADAPTER: "erasure_complete",
 }
 
 
