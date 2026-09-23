@@ -95,7 +95,7 @@ function mercureCoverageStateLabel(state){
  return 'NON CONFIGURÉ'
 }
 function renderMercureProviderCoverage(){
- const coverage=snapshot?.mercureProviderCoverage||{},boundary=coverage.boundary||{};
+ const coverage=snapshot?.mercureProviderCoverage||{},boundary=coverage.boundary||{},vehicle=boundary.vehicleInventory||{};
  const anchor=$('#complianceMessage');if(!anchor)return;
  let box=$('#complianceMercureProviderCoverage');
  if(!box){box=document.createElement('div');box.id='complianceMercureProviderCoverage';box.className='integration-box';anchor.insertAdjacentElement('afterend',box)}
@@ -105,10 +105,15 @@ function renderMercureProviderCoverage(){
  const futureDays=Number.isInteger(boundary.futureDays)&&boundary.futureDays>=0?String(boundary.futureDays)+' j':'—';
  const evidence=/^[0-9a-f]{64}$/.test(String(boundary.evidenceSha256||''))?String(boundary.evidenceSha256):'—';
  const reason=String(boundary.reason||'');
+ const vehicleState=String(vehicle.state||'unconfigured');
+ const vehicleAttested=vehicleState==='attested'&&vehicle.attested===true;
+ const vehicleEvidence=/^[0-9a-f]{64}$/.test(String(vehicle.evidenceSha256||''))?String(vehicle.evidenceSha256):'—';
+ const vehicleReason=String(vehicle.reason||'');
  box.innerHTML='<div class="panel-head compact"><div><h3>Frontière DSAR Mercure</h3><p class="hint">Périmètre temporel attesté par une preuve fournisseur ou contractuelle externe. Seule son empreinte SHA-256 est affichée ; aucune preuve brute n’est conservée dans Git ni renvoyée par cette vue.</p></div><span class="gsc-status '+(attested?'online':'warning')+'">'+esc(mercureCoverageStateLabel(state))+'</span></div>'+
-  '<div class="mercure-live-grid"><article><small>DÉBUT HISTORIQUE</small><strong>'+esc(historyStart)+'</strong></article><article><small>HORIZON FUTUR</small><strong>'+esc(futureDays)+'</strong></article><article><small>PREUVE SHA-256</small><strong><code>'+esc(evidence)+'</code></strong></article><article><small>VÉHICULES</small><strong>PARTIEL</strong><span>Inventaire exhaustif non prouvé</span></article></div>'+
-  (reason?'<p class="warning-text">Diagnostic : '+esc(reason)+'</p>':'')+
-  '<p class="hint">L’attestation de frontière ne suffit pas à prouver l’exhaustivité des véhicules. La complétude Mercure reste bloquée tant qu’une source autoritaire client→tous véhicules n’est pas vérifiée.</p>';
+  '<div class="mercure-live-grid"><article><small>DÉBUT HISTORIQUE</small><strong>'+esc(historyStart)+'</strong></article><article><small>HORIZON FUTUR</small><strong>'+esc(futureDays)+'</strong></article><article><small>PREUVE TEMPORELLE SHA-256</small><strong><code>'+esc(evidence)+'</code></strong></article><article><small>INVENTAIRE VÉHICULES</small><strong>'+esc(mercureCoverageStateLabel(vehicleState))+'</strong><span>Preuve indépendante de la relation sujet→tous véhicules</span></article><article><small>PREUVE VÉHICULE SHA-256</small><strong><code>'+esc(vehicleEvidence)+'</code></strong></article></div>'+
+  (reason?'<p class="warning-text">Diagnostic temporel : '+esc(reason)+'</p>':'')+
+  (vehicleReason?'<p class="warning-text">Diagnostic véhicules : '+esc(vehicleReason)+'</p>':'')+
+  '<p class="hint">Une attestation véhicule '+(vehicleAttested?'est présente':'reste requise')+'. Elle ne suffit pas, à elle seule, à déclarer une exécution complète : la frontière temporelle doit être appliquée, les lectures véhicule réussir et l’inventaire ne doit pas être tronqué.</p>';
 }
 function render(){
  if(!snapshot)return;
