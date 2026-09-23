@@ -44,11 +44,16 @@ def snapshot(account_id: object) -> dict:
     Ledger references are represented by hashes only. Reward rows are aggregated by
     state because their provider/external IDs identify third-party appointments and
     must not be disclosed to the wallet owner as part of this adapter.
+
+    Every value is read inside one explicit SQLite read transaction. Therefore
+    ``ledgerTruncated`` is authoritative for that snapshot: when false, the returned
+    ledger contains every live ledger row visible in the same consistent snapshot.
     """
     account = _account_id(account_id)
     referral_engine.init_db()
     referral_wallet_claims.init_db()
     with analytics.connect() as db:
+        db.execute("BEGIN")
         row = db.execute(
             "SELECT id,code,active,reward_cents,currency,created_at FROM referral_accounts WHERE id=?",
             (account,),
@@ -60,6 +65,13 @@ def snapshot(account_id: object) -> dict:
                FROM referral_rewards WHERE account_id=? GROUP BY status ORDER BY status""",
             (account,),
         ).fetchall()
+        pending_cents = int(
+            db.execute(
+                """SELECT COALESCE(SUM(reward_cents),0) total
+                   FROM referral_rewards WHERE account_id=? AND status='pending'""",
+                (account,),
+            ).fetchone()["total"]
+        )
         ledger = db.execute(
             """SELECT kind,amount_cents,reference,created_at
                FROM referral_ledger WHERE account_id=?
@@ -72,7 +84,7 @@ def snapshot(account_id: object) -> dict:
                 (account,),
             ).fetchone()["n"]
         )
-    summary = referral_engine.account_summary(str(row["code"]))
+        balance_cents = referral_engine._wallet_balance_locked(db, account)
     return {
         "account": {
             "accountId": str(row["id"]),
@@ -83,8 +95,8 @@ def snapshot(account_id: object) -> dict:
             "createdAt": str(row["created_at"]),
         },
         "wallet": {
-            "balanceCents": int(summary["balanceCents"]),
-            "pendingCents": int(summary["pendingCents"]),
+            "balanceCents": balance_cents,
+            "pendingCents": pending_cents,
         },
         "rewards": [
             {
@@ -115,14 +127,12 @@ def execute(
     account_id: object,
     db_path: Path | str | None = None,
 ) -> dict:
-    """Execute a bounded referral-wallet right for its proven mobile owner.
+    """Execute a referral-wallet right for its proven mobile owner.
 
-    Access and portability export a privacy-bounded snapshot. Erasure is a
-    retention-aware two-stage operation: it is allowed only after an operator has
-    configured and legally reviewed the referral-ledger retention policy, and it
-    refuses to deactivate a wallet that still carries a balance or pending reward.
-    Financial history is retained for policy processing, so the global request is
-    deliberately kept in progress rather than falsely marked complete.
+    Access and portability produce a privacy-bounded snapshot. When the live
+    ledger fits entirely inside the bounded export, the audit action is
+    ``export_complete``; otherwise it is ``export_bounded`` and the completion
+    plan stays fail-closed. Erasure remains a retention-aware two-stage operation.
     """
     rid = data_subject_rights._request_id(request_id)
     installation = _installation_id(installation_id)
@@ -144,6 +154,7 @@ def execute(
         if not referral_wallet_claims.ownership_matches(account, installation):
             raise PermissionError("propriété de cagnotte non prouvée")
         data = snapshot(account)
+        export_complete = not bool(data["ledgerTruncated"])
         export_hash = _hash(
             json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         )
@@ -154,13 +165,14 @@ def execute(
             "ownershipProvenance": "authenticated_mobile_wallet_claim",
             "ledgerCount": int(data["ledgerCount"]),
             "ledgerTruncated": bool(data["ledgerTruncated"]),
+            "exportComplete": export_complete,
             "thirdPartyAppointmentIdentifiersExposed": False,
             "exportHash": export_hash,
         }
         execution_id = data_subject_rights._audit_execution(
             row,
             ADAPTER,
-            "export",
+            "export_complete" if export_complete else "export_bounded",
             evidence,
             db_path,
         )
@@ -171,6 +183,7 @@ def execute(
             "adapter": ADAPTER,
             "format": "application/json",
             "data": data,
+            "exportComplete": export_complete,
             "executionId": execution_id,
             "requestStatus": "in_progress",
             "requestComplete": False,
@@ -251,7 +264,12 @@ def capability(db_path: Path | str | None = None) -> dict:
         "rawInstallationPersisted": False,
         "thirdPartyAppointmentIdentifiersExposed": False,
         "ledgerLimit": MAX_LEDGER_ENTRIES,
+        "completeAccessOrPortabilityWhenLedgerNotTruncated": True,
         "executionCount": execution_count,
         "erasure": erasure,
-        "remainingOperations": ["rectification_policy", "final_retention_expiry_purge"],
+        "remainingOperations": [
+            "rectification_policy",
+            "large_ledger_paged_export",
+            "final_retention_expiry_purge",
+        ],
     }

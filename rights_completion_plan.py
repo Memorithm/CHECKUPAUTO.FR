@@ -29,10 +29,13 @@ PARTIAL_EXECUTION_ADAPTERS = {
 CONDITIONAL_COMPLETE_ACTIONS = {
     "mercure_customer_contact": "export_complete",
     "compliance_contracts": "export_complete",
-    # Wallet erasure is complete only after the legally retained financial rows
-    # have themselves reached retention expiry and the physical purge audit has
-    # appended an erasure_complete proof. Access/portability remain bounded.
-    referral_wallet_rights.ADAPTER: "erasure_complete",
+}
+REQUEST_COMPLETE_ACTIONS = {
+    (referral_wallet_rights.ADAPTER, "access"): "export_complete",
+    (referral_wallet_rights.ADAPTER, "portability"): "export_complete",
+    # Wallet erasure is complete only after legally retained financial rows reach
+    # retention expiry and the physical purge audit appends erasure_complete.
+    (referral_wallet_rights.ADAPTER, "erasure"): "erasure_complete",
 }
 
 
@@ -100,13 +103,17 @@ def _execution_actions(request_id: str, db_path: Path | str | None = None) -> di
 
 def _execution_state(
     adapter: str,
+    request_type: str,
     executed: bool,
     actions: set[str] | None = None,
 ) -> tuple[bool, str]:
     if not executed:
         return False, ""
     audited_actions = actions or set()
-    complete_action = CONDITIONAL_COMPLETE_ACTIONS.get(adapter, "")
+    complete_action = REQUEST_COMPLETE_ACTIONS.get(
+        (adapter, request_type),
+        CONDITIONAL_COMPLETE_ACTIONS.get(adapter, ""),
+    )
     if complete_action:
         if complete_action in audited_actions:
             return True, ""
@@ -214,6 +221,7 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
         was_executed = adapter in executed
         execution_complete, execution_limitation = _execution_state(
             adapter,
+            request_type,
             was_executed,
             execution_actions.get(adapter, set()),
         )
@@ -278,6 +286,10 @@ def capability() -> dict:
         "partialExecutionDoesNotSatisfyRequiredPlan": True,
         "partialExecutionAdapters": dict(sorted(PARTIAL_EXECUTION_ADAPTERS.items())),
         "conditionalCompleteActions": dict(sorted(CONDITIONAL_COMPLETE_ACTIONS.items())),
+        "requestConditionalCompleteActions": {
+            f"{adapter}:{request_type}": action
+            for (adapter, request_type), action in sorted(REQUEST_COMPLETE_ACTIONS.items())
+        },
         "notApplicableRequiresHashedJustification": True,
         "rawJustificationPersisted": False,
     }
