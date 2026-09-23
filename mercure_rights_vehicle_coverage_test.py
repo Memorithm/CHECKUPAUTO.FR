@@ -34,7 +34,7 @@ class MercureRightsVehicleCoverageTest(unittest.TestCase):
     @patch.object(mercure_rights.mercure, "business_today")
     @patch.object(mercure_rights.mercure, "_customer_contact")
     @patch.object(mercure_rights.mercure, "_session")
-    def test_independent_attestation_allows_vehicle_inventory_completeness(
+    def test_independent_attestation_allows_complete_mercure_export(
         self, session, contact, today, events, billing, vehicle_details, boundary
     ):
         provider_session = Mock()
@@ -58,7 +58,7 @@ class MercureRightsVehicleCoverageTest(unittest.TestCase):
         self.assertTrue(result["coverage"]["vehicles"])
         self.assertTrue(result["coverage"]["appointments"])
         self.assertTrue(result["coverage"]["billing"])
-        self.assertTrue(result["partial"])
+        self.assertFalse(result["partial"])
         vehicle_details.assert_called_once_with("veh-1", provider_session)
 
     @patch.object(mercure_rights.mercure_provider_coverage, "boundary")
@@ -82,6 +82,7 @@ class MercureRightsVehicleCoverageTest(unittest.TestCase):
         self.assertTrue(result["coverage"]["providerBoundaryAttested"])
         self.assertFalse(result["coverage"]["providerVehicleInventoryAttested"])
         self.assertFalse(result["coverage"]["vehicles"])
+        self.assertTrue(result["partial"])
         vehicle_details.assert_not_called()
 
     @patch.object(mercure_rights.mercure_provider_coverage, "boundary")
@@ -111,6 +112,7 @@ class MercureRightsVehicleCoverageTest(unittest.TestCase):
 
         self.assertTrue(result["coverage"]["providerVehicleInventoryAttested"])
         self.assertFalse(result["coverage"]["vehicles"])
+        self.assertTrue(result["partial"])
         self.assertEqual(result["operationalInventory"]["vehicleState"], "unavailable")
         self.assertNotIn("provider secret detail", repr(result))
 
