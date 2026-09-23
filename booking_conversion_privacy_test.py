@@ -98,6 +98,55 @@ class BookingConversionPrivacyTest(unittest.TestCase):
             "device": "desktop",
         })
 
+    def test_verified_mercure_appointment_formats_are_preserved(self):
+        fixtures = {
+            "mercure-appointment-iso": "2026-09-19T10:00",
+            "mercure-appointment-sql": "2026-09-19 10:00:00",
+        }
+        for external_id, appointment_at in fixtures.items():
+            booking.apply_conversion({
+                "externalId": external_id,
+                "status": "confirmed",
+                "appointmentDate": appointment_at,
+                "amount": 80,
+            })
+
+        with analytics.connect() as db:
+            rows = {
+                row["external_id"]: row["appointment_at"]
+                for row in db.execute(
+                    "SELECT external_id,appointment_at FROM booking_conversions WHERE external_id LIKE 'mercure-appointment-%'"
+                )
+            }
+
+        self.assertEqual(rows, fixtures)
+
+    def test_unstructured_appointment_date_is_rejected_without_persistence(self):
+        email = "client@example.com"
+        with self.assertRaisesRegex(ValueError, "appointmentDate invalid"):
+            booking.apply_conversion({
+                "externalId": "mercure-appointment-pii",
+                "status": "confirmed",
+                "appointmentDate": email,
+                "amount": 80,
+            })
+
+        with analytics.connect() as db:
+            count = db.execute(
+                "SELECT COUNT(*) FROM booking_conversions WHERE external_id=?",
+                ("mercure-appointment-pii",),
+            ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_invalid_calendar_appointment_date_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "appointmentDate invalid"):
+            booking.apply_conversion({
+                "externalId": "mercure-appointment-invalid-calendar",
+                "status": "confirmed",
+                "appointmentDate": "2026-02-31T10:00",
+                "amount": 80,
+            })
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -239,18 +239,37 @@ def _money_cents(value):
     return int(round(amount*100))
 
 
+_MERCURE_APPOINTMENT_FORMATS = (
+    (re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$'), '%Y-%m-%dT%H:%M'),
+    (re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'), '%Y-%m-%d %H:%M:%S'),
+)
+
+
+def _appointment_at(value):
+    raw=analytics.clean(value,80)
+    if not raw: return ''
+    for pattern,fmt in _MERCURE_APPOINTMENT_FORMATS:
+        if not pattern.fullmatch(raw): continue
+        try:
+            datetime.datetime.strptime(raw,fmt)
+        except ValueError as exc:
+            raise ValueError('appointmentDate invalid') from exc
+        return raw
+    raise ValueError('appointmentDate invalid')
+
+
 def apply_conversion(payload):
     if not isinstance(payload,dict): raise ValueError('invalid payload')
     external_id=analytics.clean(payload.get('externalId') or payload.get('id'),120)
     if not external_id: raise ValueError('externalId required')
     status=analytics.clean(payload.get('status') or 'confirmed',30).lower()
     if status not in ALLOWED_STATUS: raise ValueError('unsupported status')
+    appointment=_appointment_at(payload.get('appointmentDate'))
     token=analytics.clean(payload.get('attributionToken') or payload.get('ccid'),120)
     acceptance=None
     if token and status in CONFIRMED:
         try: acceptance=compliance.finalize_checkout_acceptance(token,external_id)
         except PermissionError: acceptance=None
-    appointment=analytics.clean(payload.get('appointmentDate'),80)
     service=analytics._safe_dimension(payload.get('service'),120)
     amount_cents=_money_cents(payload.get('amount'))
     source='Non attribué'; campaign=''; device='unknown'; referral_code=''
