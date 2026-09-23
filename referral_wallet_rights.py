@@ -6,17 +6,16 @@ import json
 import uuid
 from pathlib import Path
 
-import analytics_store as analytics
 import compliance_store
 import data_subject_rights
-import referral_engine
 import referral_wallet_claims
 import referral_wallet_erasure
+import referral_wallet_paged_export
 
 
 ADAPTER = "referral_wallet"
 SUPPORTED_RIGHTS = ("access", "portability", "erasure")
-MAX_LEDGER_ENTRIES = 200
+MAX_LEDGER_ENTRIES = referral_wallet_paged_export.PAGE_SIZE
 
 
 def _account_id(value: object) -> str:
@@ -39,86 +38,13 @@ def _hash(value: str) -> str:
 
 
 def snapshot(account_id: object) -> dict:
-    """Return a bounded wallet export without exposing referred-customer identifiers.
+    """Return the privacy-bounded first page of a wallet export.
 
-    Ledger references are represented by hashes only. Reward rows are aggregated by
-    state because their provider/external IDs identify third-party appointments and
-    must not be disclosed to the wallet owner as part of this adapter.
-
-    Every value is read inside one explicit SQLite read transaction. Therefore
-    ``ledgerTruncated`` is authoritative for that snapshot: when false, the returned
-    ledger contains every live ledger row visible in the same consistent snapshot.
+    Large ledgers are exposed through the stable paged-export session started by
+    ``execute``. The standalone snapshot remains bounded and never exposes raw
+    reward/provider appointment identifiers.
     """
-    account = _account_id(account_id)
-    referral_engine.init_db()
-    referral_wallet_claims.init_db()
-    with analytics.connect() as db:
-        db.execute("BEGIN")
-        row = db.execute(
-            "SELECT id,code,active,reward_cents,currency,created_at FROM referral_accounts WHERE id=?",
-            (account,),
-        ).fetchone()
-        if not row:
-            raise LookupError("cagnotte inconnue")
-        reward_rows = db.execute(
-            """SELECT status,COUNT(*) n,COALESCE(SUM(reward_cents),0) cents
-               FROM referral_rewards WHERE account_id=? GROUP BY status ORDER BY status""",
-            (account,),
-        ).fetchall()
-        pending_cents = int(
-            db.execute(
-                """SELECT COALESCE(SUM(reward_cents),0) total
-                   FROM referral_rewards WHERE account_id=? AND status='pending'""",
-                (account,),
-            ).fetchone()["total"]
-        )
-        ledger = db.execute(
-            """SELECT kind,amount_cents,reference,created_at
-               FROM referral_ledger WHERE account_id=?
-               ORDER BY created_at DESC,id DESC LIMIT ?""",
-            (account, MAX_LEDGER_ENTRIES),
-        ).fetchall()
-        total_ledger = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM referral_ledger WHERE account_id=?",
-                (account,),
-            ).fetchone()["n"]
-        )
-        balance_cents = referral_engine._wallet_balance_locked(db, account)
-    return {
-        "account": {
-            "accountId": str(row["id"]),
-            "referralCode": str(row["code"]),
-            "active": bool(row["active"]),
-            "currency": str(row["currency"]),
-            "rewardCents": int(row["reward_cents"]),
-            "createdAt": str(row["created_at"]),
-        },
-        "wallet": {
-            "balanceCents": balance_cents,
-            "pendingCents": pending_cents,
-        },
-        "rewards": [
-            {
-                "status": str(item["status"]),
-                "count": int(item["n"]),
-                "rewardCents": int(item["cents"]),
-            }
-            for item in reward_rows
-        ],
-        "ledger": [
-            {
-                "kind": str(item["kind"]),
-                "amountCents": int(item["amount_cents"]),
-                "referenceHash": _hash(str(item["reference"])),
-                "createdAt": str(item["created_at"]),
-            }
-            for item in ledger
-        ],
-        "ledgerCount": total_ledger,
-        "ledgerTruncated": total_ledger > len(ledger),
-        "thirdPartyAppointmentIdentifiersExposed": False,
-    }
+    return referral_wallet_paged_export.snapshot(account_id)
 
 
 def execute(
@@ -129,10 +55,11 @@ def execute(
 ) -> dict:
     """Execute a referral-wallet right for its proven mobile owner.
 
-    Access and portability produce a privacy-bounded snapshot. When the live
-    ledger fits entirely inside the bounded export, the audit action is
-    ``export_complete``; otherwise it is ``export_bounded`` and the completion
-    plan stays fail-closed. Erasure remains a retention-aware two-stage operation.
+    Access and portability return a complete bounded snapshot for small ledgers.
+    Oversized ledgers stage a stable paged session and record ``export_bounded``;
+    the later continuation appends ``export_complete`` only after every row in
+    the original boundary is delivered and the full rolling proof re-verifies.
+    Erasure remains a retention-aware two-stage operation.
     """
     rid = data_subject_rights._request_id(request_id)
     installation = _installation_id(installation_id)
@@ -153,8 +80,15 @@ def execute(
     if request_type in {"access", "portability"}:
         if not referral_wallet_claims.ownership_matches(account, installation):
             raise PermissionError("propriété de cagnotte non prouvée")
-        data = snapshot(account)
-        export_complete = not bool(data["ledgerTruncated"])
+        staged = referral_wallet_paged_export.begin(
+            rid,
+            installation,
+            account,
+            db_path,
+        )
+        data = staged["data"]
+        export_complete = bool(staged["exportComplete"])
+        paged_export = staged.get("pagedExport")
         export_hash = _hash(
             json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         )
@@ -169,6 +103,16 @@ def execute(
             "thirdPartyAppointmentIdentifiersExposed": False,
             "exportHash": export_hash,
         }
+        if paged_export:
+            evidence.update(
+                {
+                    "pagedExportStarted": True,
+                    "pagedExportSessionHash": _hash(str(paged_export["sessionId"])),
+                    "pageSize": int(paged_export["pageSize"]),
+                    "stableBoundary": bool(paged_export["stableBoundary"]),
+                    "snapshotChainHash": str(paged_export["snapshotChainHash"]),
+                }
+            )
         execution_id = data_subject_rights._audit_execution(
             row,
             ADAPTER,
@@ -184,6 +128,7 @@ def execute(
             "format": "application/json",
             "data": data,
             "exportComplete": export_complete,
+            "pagedExport": paged_export,
             "executionId": execution_id,
             "requestStatus": "in_progress",
             "requestComplete": False,
@@ -243,6 +188,23 @@ def execute(
     }
 
 
+def continue_export(
+    request_id: object,
+    installation_id: object,
+    account_id: object,
+    session_id: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Continue a previously staged large-ledger export session."""
+    return referral_wallet_paged_export.continue_export(
+        request_id,
+        installation_id,
+        account_id,
+        session_id,
+        db_path,
+    )
+
+
 def capability(db_path: Path | str | None = None) -> dict:
     data_subject_rights._init_audit(db_path)
     with compliance_store.connect(db_path) as db:
@@ -254,6 +216,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         )
     owner = referral_wallet_claims.capability()
     erasure = referral_wallet_erasure.capability(db_path)
+    paged = referral_wallet_paged_export.capability(db_path)
     return {
         "bound": True,
         "partial": True,
@@ -265,11 +228,11 @@ def capability(db_path: Path | str | None = None) -> dict:
         "thirdPartyAppointmentIdentifiersExposed": False,
         "ledgerLimit": MAX_LEDGER_ENTRIES,
         "completeAccessOrPortabilityWhenLedgerNotTruncated": True,
+        "largeLedgerPagedExport": paged,
         "executionCount": execution_count,
         "erasure": erasure,
         "remainingOperations": [
             "rectification_policy",
-            "large_ledger_paged_export",
             "final_retention_expiry_purge",
         ],
     }

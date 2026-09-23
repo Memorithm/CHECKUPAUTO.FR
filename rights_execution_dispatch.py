@@ -26,18 +26,13 @@ def _exact_fields(payload: dict, fields: set[str]) -> None:
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
     """Route one verified DSAR operation to its narrow store adapter.
 
-    This boundary intentionally accepts an exact payload per adapter. It keeps
-    the existing admin request shape (``id``, ``subjectRef``, ``adapter``) while
-    making the newer bounded rectification, subject-wide contract and
-    referral-wallet executors reachable through the same operator surface. Each
-    delegated adapter remains responsible for subject proof, request-type
-    validation, duplicate execution prevention and evidence hashing.
+    The wallet adapter supports a second exact shape for continuing a previously
+    staged large-ledger export. No cursor contents are accepted from the client:
+    the opaque session id resolves server-side bounded state only.
     """
     body = _payload(payload)
     adapter = str(body.get("adapter") or "").strip()
 
-    # Route the contract adapter through the subject-wide executor first. It
-    # preserves the legacy exact-contract fallback for non-Mercure subject refs.
     if adapter == contract_subject_rights.ADAPTER:
         _exact_fields(body, _BASE_FIELDS)
         return contract_subject_rights.execute(
@@ -69,6 +64,16 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
         )
 
     if adapter == referral_wallet_rights.ADAPTER:
+        continuation_fields = _BASE_FIELDS | {"accountId", "pagedExportSessionId"}
+        if "pagedExportSessionId" in body:
+            _exact_fields(body, continuation_fields)
+            return referral_wallet_rights.continue_export(
+                body.get("id"),
+                body.get("subjectRef"),
+                body.get("accountId"),
+                body.get("pagedExportSessionId"),
+                db_path,
+            )
         _exact_fields(body, _BASE_FIELDS | {"accountId"})
         return referral_wallet_rights.execute(
             body.get("id"),
