@@ -153,6 +153,71 @@ def snapshot(contract_ref: object, db_path: Path | str | None = None) -> dict:
     }
 
 
+def subject_snapshot(provider_snapshot: object, db_path: Path | str | None = None) -> dict:
+    """Export every known contract behind a proven Mercure appointment inventory.
+
+    This primitive deliberately accepts the already privacy-bounded Mercure
+    snapshot rather than talking to the provider itself. Completeness is asserted
+    only when Mercure proved the appointment inventory exhaustive *and* separate
+    external evidence attests that this complete appointment set is the
+    authoritative subject-to-contract index. Any mismatch stays partial.
+    """
+    if not isinstance(provider_snapshot, dict):
+        raise ValueError("snapshot Mercure invalide")
+    coverage = provider_snapshot.get("coverage") or {}
+    inventory = provider_snapshot.get("operationalInventory") or {}
+    if not isinstance(coverage, dict) or not isinstance(inventory, dict):
+        raise ValueError("snapshot Mercure invalide")
+
+    rows = inventory.get("appointments") or []
+    if not isinstance(rows, list):
+        raise ValueError("inventaire de contrats invalide")
+    refs: list[str] = []
+    invalid_ref = False
+    for item in rows:
+        if not isinstance(item, dict):
+            invalid_ref = True
+            continue
+        try:
+            ref = _contract_ref(item.get("appointmentId"))
+        except ValueError:
+            invalid_ref = True
+            continue
+        if ref not in refs:
+            refs.append(ref)
+
+    try:
+        expected_count = int(inventory.get("appointmentCountInWindow") or 0)
+    except (TypeError, ValueError):
+        expected_count = -1
+    appointments_complete = bool(
+        coverage.get("appointments") is True
+        and inventory.get("state") == "available"
+        and not inventory.get("appointmentsTruncated")
+        and int(inventory.get("appointmentIdsMissing") or 0) == 0
+        and expected_count == len(refs)
+        and not invalid_ref
+    )
+    attestation = subject_inventory_attestation()
+    coverage_complete = bool(appointments_complete and attestation.get("attested"))
+    contracts = [snapshot(ref, db_path) for ref in refs]
+    return {
+        "provider": CONTRACT_PROVIDER,
+        "contracts": contracts,
+        "contractCount": len(contracts),
+        "providerAppointmentsComplete": appointments_complete,
+        "subjectInventory": {
+            "state": str(attestation.get("state") or "invalid"),
+            "attested": bool(attestation.get("attested")),
+            "source": str(attestation.get("source") or ""),
+            "evidenceSha256": str(attestation.get("evidenceSha256") or ""),
+            "reason": str(attestation.get("reason") or ""),
+        },
+        "coverageComplete": coverage_complete,
+        "partial": not coverage_complete,
+    }
+
+
 def capability() -> dict:
     attestation = subject_inventory_attestation()
     return {
@@ -162,6 +227,7 @@ def capability() -> dict:
         "crossIdentityBinding": False,
         "coveredStores": ["consent_receipts", "checkout_acceptance_intents", "booking_conversions"],
         "remainingStores": [],
+        "subjectWideExportPrimitiveReady": True,
         "requiresSubjectInventoryAttestation": True,
         "authoritativeSubjectInventorySource": AUTHORITATIVE_SUBJECT_INVENTORY_SOURCE,
         "subjectInventoryAttestation": attestation,
