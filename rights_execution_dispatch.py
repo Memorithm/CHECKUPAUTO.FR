@@ -4,6 +4,7 @@ from pathlib import Path
 
 import contract_subject_rights
 import data_subject_rights
+import mobile_dsar_erasure
 import referral_wallet_rights
 import rights_completion_plan
 import rights_rectification
@@ -28,7 +29,9 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
 
     The wallet adapter supports a second exact shape for continuing a previously
     staged large-ledger export. No cursor contents are accepted from the client:
-    the opaque session id resolves server-side bounded state only.
+    the opaque session id resolves server-side bounded state only. Mobile erasure
+    uses a dedicated crash-recoverable boundary so the mobile receipt is durable
+    before the separate compliance audit write.
     """
     body = _payload(payload)
     adapter = str(body.get("adapter") or "").strip()
@@ -46,6 +49,15 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
         if adapter == "privacy_suppression":
             allowed.add("purpose")
         _exact_fields(body, allowed if "purpose" in body else _BASE_FIELDS)
+        if adapter == mobile_dsar_erasure.ADAPTER:
+            rid = data_subject_rights._request_id(body.get("id"))
+            request = data_subject_rights._request(rid, db_path)
+            if str(request["request_type"]) == mobile_dsar_erasure.RIGHT:
+                return mobile_dsar_erasure.execute(
+                    rid,
+                    body.get("subjectRef"),
+                    db_path,
+                )
         return data_subject_rights.execute(
             body.get("id"),
             body.get("subjectRef"),
