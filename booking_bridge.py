@@ -251,7 +251,7 @@ def apply_conversion(payload):
         try: acceptance=compliance.finalize_checkout_acceptance(token,external_id)
         except PermissionError: acceptance=None
     appointment=analytics.clean(payload.get('appointmentDate'),80)
-    service=analytics.clean(payload.get('service'),120)
+    service=analytics._safe_dimension(payload.get('service'),120)
     amount_cents=_money_cents(payload.get('amount'))
     source='Non attribué'; campaign=''; device='unknown'; referral_code=''
     with analytics.connect() as db:
@@ -264,7 +264,7 @@ def apply_conversion(payload):
         if not referral_code and payload.get('referralCode'):
             referral_code=referrals.valid_code_or_empty(payload.get('referralCode'))
         if source=='Non attribué' and payload.get('source'):
-            source=analytics.clean(payload.get('source'),100)
+            source=analytics._safe_dimension(payload.get('source'),100)
         now=now_iso(); confirmed=now if status in CONFIRMED else None
         db.execute('''INSERT INTO booking_conversions(
           provider,external_id,status,first_seen_at,updated_at,confirmed_at,appointment_at,
