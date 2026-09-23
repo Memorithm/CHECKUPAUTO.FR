@@ -49,35 +49,91 @@ def _verify_primary_subject(row, installation_id: str) -> None:
         raise PermissionError("référence du demandeur refusée")
 
 
-def execute(
-    request_id: object,
-    subject_ref: object,
-    correction: object,
-    db_path: Path | str | None = None,
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _correction_hash(deadline_id: str, due_date: str) -> str:
+    return _sha256(
+        json.dumps(
+            {"deadlineId": deadline_id, "dueDate": due_date},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+def _receipt_hash(
+    request_hash: str,
+    subject_ref_hash: str,
+    correction_hash: str,
+    executed_at: str,
+) -> str:
+    return _sha256(
+        json.dumps(
+            {
+                "requestHash": request_hash,
+                "subjectRefHash": subject_ref_hash,
+                "correctionHash": correction_hash,
+                "executedAt": executed_at,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+def _apply_with_receipt(
+    request_id: str,
+    installation_id: str,
+    deadline_id: str,
+    due_date: str,
 ) -> dict:
-    """Rectify one user-managed mobile deadline without touching Mercure truth.
+    """Apply a device-owned correction and persist its recovery receipt atomically.
 
-    The operation is deliberately narrow: only an existing ``source=device`` due
-    date can be changed. Authoritative Mercure deadlines, vehicle bindings and
-    device credentials are outside this executor and therefore fail closed.
+    The mobile store keeps only SHA-256 links to the compliance request/subject and to
+    the requested correction.  If the separate compliance audit write fails after this
+    transaction commits, an exact retry can recover from the receipt without mutating
+    the deadline again. A retry carrying a different correction fails closed.
     """
-    rid = rights._request_id(request_id)
-    row = rights._request(rid, db_path)
-    if str(row["status"]) not in {"open", "in_progress"}:
-        raise RuntimeError("demande non exécutable")
-    if str(row["request_type"]) != "rectification":
-        raise NotImplementedError("type de droit non pris en charge par cet adaptateur")
-
-    installation_id = rights._mobile_installation(subject_ref)
-    _verify_primary_subject(row, installation_id)
-    if rights._adapter_executed(rid, ADAPTER, db_path):
-        raise RuntimeError("adaptateur déjà exécuté pour cette demande")
-    deadline_id, due_date = _correction(correction)
-
+    request_hash = _sha256(request_id)
+    subject_ref_hash = _sha256(installation_id)
+    correction_hash = _correction_hash(deadline_id, due_date)
     mobile_devices.init_db()
-    now = rights._now_iso()
+
     with mobile_devices.connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS mobile_rectification_receipt(
+                 request_hash TEXT PRIMARY KEY,
+                 subject_ref_hash TEXT NOT NULL,
+                 correction_hash TEXT NOT NULL,
+                 executed_at TEXT NOT NULL
+               )"""
+        )
+        existing = db.execute(
+            """SELECT subject_ref_hash,correction_hash,executed_at
+               FROM mobile_rectification_receipt WHERE request_hash=?""",
+            (request_hash,),
+        ).fetchone()
+        if existing:
+            if not hmac.compare_digest(str(existing["subject_ref_hash"]), subject_ref_hash):
+                raise RuntimeError("preuve de rectification contradictoire")
+            if not hmac.compare_digest(str(existing["correction_hash"]), correction_hash):
+                raise RuntimeError("preuve de rectification contradictoire")
+            executed_at = str(existing["executed_at"])
+            return {
+                "correctionHash": correction_hash,
+                "receiptHash": _receipt_hash(
+                    request_hash,
+                    subject_ref_hash,
+                    correction_hash,
+                    executed_at,
+                ),
+                "executedAt": executed_at,
+                "recovered": True,
+            }
+
         device = db.execute(
             "SELECT installation_id FROM mobile_device WHERE installation_id=?",
             (installation_id,),
@@ -93,25 +149,69 @@ def execute(
             raise LookupError("échéance mobile introuvable")
         if str(deadline["source"]) != mobile_devices.DEVICE_DEADLINE_SOURCE:
             raise PermissionError("échéance autoritaire non rectifiable")
+
+        executed_at = rights._now_iso()
         db.execute(
             """UPDATE mobile_deadline SET due_date=?,updated_at=?
                WHERE installation_id=? AND deadline_id=? AND source=?""",
             (
                 due_date,
-                now,
+                executed_at,
                 installation_id,
                 deadline_id,
                 mobile_devices.DEVICE_DEADLINE_SOURCE,
             ),
         )
+        db.execute(
+            """INSERT INTO mobile_rectification_receipt(
+                 request_hash,subject_ref_hash,correction_hash,executed_at
+               ) VALUES(?,?,?,?)""",
+            (request_hash, subject_ref_hash, correction_hash, executed_at),
+        )
 
-    correction_hash = hashlib.sha256(
-        json.dumps(
-            {"deadlineId": deadline_id, "dueDate": due_date},
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
+    return {
+        "correctionHash": correction_hash,
+        "receiptHash": _receipt_hash(
+            request_hash,
+            subject_ref_hash,
+            correction_hash,
+            executed_at,
+        ),
+        "executedAt": executed_at,
+        "recovered": False,
+    }
+
+
+def execute(
+    request_id: object,
+    subject_ref: object,
+    correction: object,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Rectify one user-managed mobile deadline without touching Mercure truth.
+
+    The operation is deliberately narrow: only an existing ``source=device`` due
+    date can be changed. Authoritative Mercure deadlines, vehicle bindings and
+    device credentials are outside this executor and therefore fail closed.
+
+    Mobile mutation and its minimized recovery receipt are committed atomically.
+    The compliance audit lives in a separate store; if that write fails, an exact
+    retry resumes from the receipt rather than applying the correction twice.
+    """
+    rid = rights._request_id(request_id)
+    row = rights._request(rid, db_path)
+    if str(row["status"]) not in {"open", "in_progress"}:
+        raise RuntimeError("demande non exécutable")
+    if str(row["request_type"]) != "rectification":
+        raise NotImplementedError("type de droit non pris en charge par cet adaptateur")
+
+    installation_id = rights._mobile_installation(subject_ref)
+    _verify_primary_subject(row, installation_id)
+    if rights._adapter_executed(rid, ADAPTER, db_path):
+        raise RuntimeError("adaptateur déjà exécuté pour cette demande")
+    deadline_id, due_date = _correction(correction)
+
+    receipt = _apply_with_receipt(rid, installation_id, deadline_id, due_date)
     evidence = {
         "requestId": rid,
         "requestType": "rectification",
@@ -119,7 +219,8 @@ def execute(
         "field": FIELD,
         "source": mobile_devices.DEVICE_DEADLINE_SOURCE,
         "recordCount": 1,
-        "correctionHash": correction_hash,
+        "correctionHash": receipt["correctionHash"],
+        "receiptHash": receipt["receiptHash"],
     }
     execution_id = rights._audit_execution(row, ADAPTER, "rectify", evidence, db_path)
     return {
@@ -130,6 +231,7 @@ def execute(
         "field": FIELD,
         "source": mobile_devices.DEVICE_DEADLINE_SOURCE,
         "updated": True,
+        "recoveredFromReceipt": bool(receipt["recovered"]),
         "executionId": execution_id,
         "requestStatus": "in_progress",
         "requestComplete": False,
@@ -148,4 +250,6 @@ def capability() -> dict:
         "primarySubjectRequired": True,
         "rawSubjectReferencePersisted": False,
         "auditStoresEvidenceHashOnly": True,
+        "crashRecoverable": True,
+        "receiptStoresRawSubject": False,
     }

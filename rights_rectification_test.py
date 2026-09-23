@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import compliance_store
 import data_subject_rights
@@ -54,6 +55,18 @@ class RightsRectificationTest(unittest.TestCase):
             ).fetchone()
         return str(row["due_date"]), str(row["source"])
 
+    def rectification_receipts(self):
+        with mobile_devices.connect() as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mobile_rectification_receipt'"
+            ).fetchone()
+            if not exists:
+                return []
+            return [dict(row) for row in db.execute(
+                """SELECT request_hash,subject_ref_hash,correction_hash,executed_at
+                   FROM mobile_rectification_receipt ORDER BY executed_at"""
+            )]
+
     def test_rectifies_only_existing_device_deadline_and_audits_hash_only(self):
         request = self.request()
         result = rectification.execute(
@@ -66,6 +79,7 @@ class RightsRectificationTest(unittest.TestCase):
         self.assertEqual(result["adapter"], rectification.ADAPTER)
         self.assertEqual(result["field"], rectification.FIELD)
         self.assertEqual(result["source"], mobile_devices.DEVICE_DEADLINE_SOURCE)
+        self.assertFalse(result["recoveredFromReceipt"])
         self.assertFalse(result["requestComplete"])
         self.assertEqual(self.due_date(self.device_deadline), ("2027-02-20", "device"))
         self.assertEqual(self.due_date(self.authoritative_deadline), ("2027-06-15", "mercure"))
@@ -77,6 +91,13 @@ class RightsRectificationTest(unittest.TestCase):
         self.assertNotIn(self.installation_id, serialized)
         self.assertNotIn(self.device_deadline, serialized)
         self.assertNotIn("2027-02-20", serialized)
+        receipts = self.rectification_receipts()
+        self.assertEqual(len(receipts), 1)
+        serialized_receipts = repr(receipts)
+        self.assertNotIn(request["id"], serialized_receipts)
+        self.assertNotIn(self.installation_id, serialized_receipts)
+        self.assertNotIn(self.device_deadline, serialized_receipts)
+        self.assertNotIn("2027-02-20", serialized_receipts)
         stored = compliance_store.rights_requests(self.compliance_db)[0]
         self.assertEqual(stored["status"], "in_progress")
         self.assertEqual(stored["closedAt"], "")
@@ -92,6 +113,7 @@ class RightsRectificationTest(unittest.TestCase):
             )
         self.assertEqual(self.due_date(self.authoritative_deadline), ("2027-06-15", "mercure"))
         self.assertEqual(data_subject_rights.audit_rows(self.compliance_db), [])
+        self.assertEqual(self.rectification_receipts(), [])
         self.assertEqual(compliance_store.rights_requests(self.compliance_db)[0]["status"], "open")
 
     def test_wrong_primary_subject_is_rejected_before_mobile_mutation(self):
@@ -130,6 +152,72 @@ class RightsRectificationTest(unittest.TestCase):
             )
         self.assertEqual(self.due_date(self.device_deadline), ("2028-01-01", "device"))
         self.assertEqual(len(data_subject_rights.audit_rows(self.compliance_db)), 1)
+        self.assertEqual(len(self.rectification_receipts()), 1)
+
+    def test_audit_failure_after_mobile_commit_recovers_from_minimized_receipt(self):
+        request = self.request()
+        correction = {"deadlineId": self.device_deadline, "dueDate": "2027-03-20"}
+        with mock.patch.object(
+            rectification.rights,
+            "_audit_execution",
+            side_effect=RuntimeError("simulated compliance audit failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated compliance audit failure"):
+                rectification.execute(
+                    request["id"],
+                    self.installation_id,
+                    correction,
+                    self.compliance_db,
+                )
+
+        self.assertEqual(self.due_date(self.device_deadline), ("2027-03-20", "device"))
+        self.assertEqual(data_subject_rights.audit_rows(self.compliance_db), [])
+        receipts = self.rectification_receipts()
+        self.assertEqual(len(receipts), 1)
+        serialized = repr(receipts)
+        self.assertNotIn(request["id"], serialized)
+        self.assertNotIn(self.installation_id, serialized)
+        self.assertNotIn(self.device_deadline, serialized)
+        self.assertNotIn("2027-03-20", serialized)
+
+        recovered = rectification.execute(
+            request["id"],
+            self.installation_id,
+            correction,
+            self.compliance_db,
+        )
+        self.assertTrue(recovered["ok"])
+        self.assertTrue(recovered["recoveredFromReceipt"])
+        self.assertEqual(self.due_date(self.device_deadline), ("2027-03-20", "device"))
+        self.assertEqual(len(self.rectification_receipts()), 1)
+        self.assertEqual(len(data_subject_rights.audit_rows(self.compliance_db)), 1)
+
+    def test_recovery_refuses_different_correction_after_pre_audit_crash(self):
+        request = self.request()
+        first = {"deadlineId": self.device_deadline, "dueDate": "2027-04-20"}
+        with mock.patch.object(
+            rectification.rights,
+            "_audit_execution",
+            side_effect=RuntimeError("simulated compliance audit failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated compliance audit failure"):
+                rectification.execute(
+                    request["id"],
+                    self.installation_id,
+                    first,
+                    self.compliance_db,
+                )
+
+        with self.assertRaisesRegex(RuntimeError, "contradictoire"):
+            rectification.execute(
+                request["id"],
+                self.installation_id,
+                {"deadlineId": self.device_deadline, "dueDate": "2027-05-20"},
+                self.compliance_db,
+            )
+        self.assertEqual(self.due_date(self.device_deadline), ("2027-04-20", "device"))
+        self.assertEqual(len(self.rectification_receipts()), 1)
+        self.assertEqual(data_subject_rights.audit_rows(self.compliance_db), [])
 
     def test_capability_remains_partial_and_refuses_authoritative_sources(self):
         state = rectification.capability()
@@ -138,6 +226,8 @@ class RightsRectificationTest(unittest.TestCase):
         self.assertEqual(state["supportedFields"], ["device_deadline_due_date"])
         self.assertFalse(state["authoritativeSourcesMutable"])
         self.assertFalse(state["rawSubjectReferencePersisted"])
+        self.assertTrue(state["crashRecoverable"])
+        self.assertFalse(state["receiptStoresRawSubject"])
 
 
 if __name__ == "__main__":
