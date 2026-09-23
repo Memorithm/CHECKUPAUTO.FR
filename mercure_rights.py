@@ -355,7 +355,8 @@ def contact_snapshot(subject_ref: object) -> dict:
     completeness is only asserted when that scan succeeds without truncation or
     missing identifiers. Vehicle completeness additionally requires independent
     provider/contract evidence that the subject-bound appointment calendar is
-    the authoritative subject-to-vehicle inventory.
+    the authoritative subject-to-vehicle inventory. The snapshot is only marked
+    complete when all four disclosed Mercure data classes are proven complete.
     """
     client_kind, client_id = parse_subject_ref(subject_ref)
     session = mercure._session()
@@ -398,6 +399,7 @@ def contact_snapshot(subject_ref: object) -> dict:
         and inventory.get("vehicleState") == "available"
         and not inventory.get("vehiclesTruncated")
     )
+    export_complete = bool(vehicles_complete and appointments_complete and billing_complete)
     return {
         "provider": "mercure",
         "subject": {
@@ -422,5 +424,5 @@ def contact_snapshot(subject_ref: object) -> dict:
             "providerBoundaryAppliedToInventory": boundary_applied,
             "providerVehicleInventoryAttested": bool(vehicle_boundary.get("attested")),
         },
-        "partial": True,
+        "partial": not export_complete,
     }
