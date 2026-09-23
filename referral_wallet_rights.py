@@ -259,5 +259,9 @@ def capability(db_path: Path | str | None = None) -> dict:
         "completeAccessOrPortabilityWhenLedgerNotTruncated": True,
         "executionCount": execution_count,
         "erasure": erasure,
-        "remainingOperations": ["rectification_policy", "large_ledger_paged_export"],
+        "remainingOperations": [
+            "rectification_policy",
+            "large_ledger_paged_export",
+            "final_retention_expiry_purge",
+        ],
     }
