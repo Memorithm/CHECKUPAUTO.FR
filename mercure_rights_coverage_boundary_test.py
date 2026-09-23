@@ -12,7 +12,7 @@ class MercureRightsCoverageBoundaryTest(unittest.TestCase):
     @patch.object(mercure_rights.mercure, "business_today")
     @patch.object(mercure_rights.mercure, "_customer_contact")
     @patch.object(mercure_rights.mercure, "_session")
-    def test_attested_provider_boundary_does_not_claim_inventory_completeness(
+    def test_attested_provider_boundary_is_applied_without_claiming_vehicle_completeness(
         self, session, contact, today, events, appointments, boundary
     ):
         session.return_value = Mock()
@@ -21,8 +21,8 @@ class MercureRightsCoverageBoundaryTest(unittest.TestCase):
         boundary.return_value = {
             "state": "attested",
             "attested": True,
-            "historyStart": "2018-04-12",
-            "futureDays": 180,
+            "historyStart": "2026-01-01",
+            "futureDays": 0,
             "evidenceSha256": "a" * 64,
             "reason": "",
         }
@@ -30,11 +30,13 @@ class MercureRightsCoverageBoundaryTest(unittest.TestCase):
         result = mercure_rights.contact_snapshot("account:12")
 
         boundary.assert_called_once_with(datetime.date(2026, 9, 23))
+        events.assert_called_once_with(session.return_value, "2026-01-01", "2026-09-24")
+        appointments.assert_called_once_with(session.return_value, "2026-01-01", "2026-09-24")
         self.assertTrue(result["coverage"]["providerBoundaryAttested"])
-        self.assertFalse(result["coverage"]["providerBoundaryAppliedToInventory"])
-        self.assertFalse(result["coverage"]["appointments"])
+        self.assertTrue(result["coverage"]["providerBoundaryAppliedToInventory"])
+        self.assertTrue(result["coverage"]["appointments"])
+        self.assertTrue(result["coverage"]["billing"])
         self.assertFalse(result["coverage"]["vehicles"])
-        self.assertFalse(result["coverage"]["billing"])
         self.assertTrue(result["partial"])
 
     @patch.object(mercure_rights.mercure_provider_coverage, "boundary")
