@@ -14,7 +14,11 @@ class RightsExecutionDispatchTest(unittest.TestCase):
             rights_execution_dispatch.data_subject_rights,
             "execute",
             return_value=expected,
-        ) as execute:
+        ) as execute, mock.patch.object(
+            rights_execution_dispatch.data_subject_rights,
+            "_request",
+            return_value={"request_type": "access"},
+        ):
             result = rights_execution_dispatch.execute(
                 {
                     "id": "a" * 32,
@@ -31,6 +35,33 @@ class RightsExecutionDispatchTest(unittest.TestCase):
             adapter="mobile_installation",
             purpose="",
             db_path=Path("/tmp/compliance.sqlite3"),
+        )
+
+    def test_routes_mobile_erasure_through_crash_recoverable_boundary(self):
+        expected = {"ok": True, "adapter": "mobile_installation", "recoveredFromReceipt": False}
+        with mock.patch.object(
+            rights_execution_dispatch.data_subject_rights,
+            "_request",
+            return_value={"request_type": "erasure"},
+        ), mock.patch.object(
+            rights_execution_dispatch.mobile_dsar_erasure,
+            "execute",
+            return_value=expected,
+        ) as execute:
+            result = rights_execution_dispatch.execute(
+                {
+                    "id": "e" * 32,
+                    "subjectRef": "11111111-1111-1111-1111-111111111111",
+                    "adapter": "mobile_installation",
+                },
+                Path("/tmp/compliance.sqlite3"),
+            )
+
+        self.assertEqual(result, expected)
+        execute.assert_called_once_with(
+            "e" * 32,
+            "11111111-1111-1111-1111-111111111111",
+            Path("/tmp/compliance.sqlite3"),
         )
 
     def test_privacy_suppression_accepts_bounded_purpose(self):
