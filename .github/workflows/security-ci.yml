@@ -34,19 +34,9 @@ jobs:
         run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
       - name: Check JavaScript syntax
         run: |
-          node --check app.js
-          node --check admin/admin.js
-          node --check admin/mfa.js
-          node --check admin/control-center.js
-          node --check admin/gsc-admin.js
-          node --check admin/readiness.js
-          node --check admin/deployment.js
-          node --check admin/integrations.js
-          node --check admin/referrals.js
-          node --check admin/notifications.js
-          node --check admin/competitive.js
-          node --check admin/review-followup.js
-          node --check admin/compliance.js
+          while IFS= read -r file; do
+            node --check "$file"
+          done < <(git ls-files '*.js')
       - name: Verify no runtime-private paths are tracked
         run: |
           ! git ls-files | grep -E '(^|/)(private/|\.admin-password$|\.env($|\.)|.*\.(sqlite3?|db|log)$)'

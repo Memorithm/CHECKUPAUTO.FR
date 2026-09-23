@@ -101,7 +101,9 @@ class AdminDeploymentUITest(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "security-ci.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("node --check admin/deployment.js", workflow)
+        self.assertIn("git ls-files '*.js'", workflow)
+        self.assertIn('node --check "$file"', workflow)
+        self.assertTrue(Path("admin/deployment.js").is_file())
 
 
 if __name__ == "__main__":
