@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
 import json
@@ -131,6 +132,105 @@ def _release_installation_ownership(installation_id: str) -> dict:
     }
 
 
+def _empty_erasure_result() -> dict:
+    return {
+        "removed": False,
+        "removedCounts": {
+            "deviceRecords": 0,
+            "deadlineRecords": 0,
+            "vehicleBindingRecords": 0,
+        },
+        "evidenceHash": "",
+        "erasedAt": "",
+    }
+
+
+def _erase_mobile_rows_with_receipt_locked(
+    db,
+    installation_id: str,
+    installation_hash: str,
+    *,
+    expected_secret_hash: str | None = None,
+    receipt_if_absent: bool = False,
+) -> dict:
+    """Erase one mobile subject using an already-held mobile write transaction."""
+    device = db.execute(
+        "SELECT secret_hash FROM mobile_device WHERE installation_id=?",
+        (installation_id,),
+    ).fetchone()
+    if expected_secret_hash is not None:
+        if not device:
+            return _empty_erasure_result()
+        if not hmac.compare_digest(str(device["secret_hash"]), expected_secret_hash):
+            raise PermissionError("identité mobile refusée")
+    elif not device and not receipt_if_absent:
+        return _empty_erasure_result()
+
+    removed = {
+        "deviceRecords": int(
+            db.execute(
+                "SELECT COUNT(*) n FROM mobile_device WHERE installation_id=?",
+                (installation_id,),
+            ).fetchone()["n"]
+        ),
+        "deadlineRecords": int(
+            db.execute(
+                "SELECT COUNT(*) n FROM mobile_deadline WHERE installation_id=?",
+                (installation_id,),
+            ).fetchone()["n"]
+        ),
+        "vehicleBindingRecords": int(
+            db.execute(
+                "SELECT COUNT(*) n FROM mobile_vehicle_binding WHERE installation_id=?",
+                (installation_id,),
+            ).fetchone()["n"]
+        ),
+    }
+    stamp = mobile_devices._now_iso()
+    receipt_id = uuid.uuid4().hex
+    evidence = {
+        "receiptId": receipt_id,
+        "installationHash": installation_hash,
+        "removed": removed,
+        "erasedAt": stamp,
+    }
+    canonical = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
+    db.execute(
+        "DELETE FROM mobile_vehicle_binding WHERE installation_id=?",
+        (installation_id,),
+    )
+    db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
+    db.execute(
+        """INSERT INTO mobile_erasure_receipt(
+             receipt_id,installation_hash,evidence_hash,device_records,
+             deadline_records,vehicle_binding_records,erased_at
+           ) VALUES(?,?,?,?,?,?,?)""",
+        (
+            receipt_id,
+            installation_hash,
+            evidence_hash,
+            removed["deviceRecords"],
+            removed["deadlineRecords"],
+            removed["vehicleBindingRecords"],
+            stamp,
+        ),
+    )
+    return {
+        "removed": bool(sum(removed.values())),
+        "removedCounts": removed,
+        "evidenceHash": evidence_hash,
+        "erasedAt": stamp,
+    }
+
+
 def _erase_mobile_rows_with_receipt(
     installation_id: str,
     *,
@@ -149,98 +249,77 @@ def _erase_mobile_rows_with_receipt(
     _init_mobile_erasure_receipts()
     with mobile_devices.connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        device = db.execute(
-            "SELECT secret_hash FROM mobile_device WHERE installation_id=?",
+        return _erase_mobile_rows_with_receipt_locked(
+            db,
+            installation_id,
+            installation_hash,
+            expected_secret_hash=expected_secret_hash,
+            receipt_if_absent=receipt_if_absent,
+        )
+
+
+def purge_inactive_installation(installation_id: str, disabled_before: str) -> dict:
+    """Purge one retention-eligible inactive installation through the shared lifecycle.
+
+    The mobile write lock is held while eligibility is revalidated, wallet ownership
+    evidence is released and the mobile rows plus erasure receipt are committed. This
+    prevents a concurrent re-registration from turning an already-selected inactive
+    installation active between the retention query and its destructive step.
+
+    Wallet ownership lives in a separate SQLite database, so its release cannot share
+    the mobile transaction. It is deliberately executed first and failures propagate;
+    retention must never report a successful purge while ownership release failed.
+    """
+    installation_id = mobile_devices._install_id(installation_id)
+    cutoff_raw = str(disabled_before or "").strip()
+    try:
+        cutoff = datetime.datetime.fromisoformat(cutoff_raw)
+    except ValueError as exc:
+        raise ValueError("borne de rétention mobile invalide") from exc
+    if cutoff.tzinfo is None:
+        raise ValueError("borne de rétention mobile invalide")
+
+    installation_hash = _installation_hash(installation_id)
+    _init_mobile_erasure_receipts()
+    with mobile_devices.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT disabled_at FROM mobile_device WHERE installation_id=?",
             (installation_id,),
         ).fetchone()
-        if expected_secret_hash is not None:
-            if not device:
-                return {
-                    "removed": False,
-                    "removedCounts": {
-                        "deviceRecords": 0,
-                        "deadlineRecords": 0,
-                        "vehicleBindingRecords": 0,
-                    },
-                    "evidenceHash": "",
-                    "erasedAt": "",
-                }
-            if not hmac.compare_digest(str(device["secret_hash"]), expected_secret_hash):
-                raise PermissionError("identité mobile refusée")
-        elif not device and not receipt_if_absent:
+        if not row or not str(row["disabled_at"] or ""):
             return {
-                "removed": False,
-                "removedCounts": {
-                    "deviceRecords": 0,
-                    "deadlineRecords": 0,
-                    "vehicleBindingRecords": 0,
-                },
-                "evidenceHash": "",
-                "erasedAt": "",
+                "ok": True,
+                "eligible": False,
+                **_empty_erasure_result(),
+                "referralWalletOwnershipReleased": 0,
+            }
+        try:
+            disabled_at = datetime.datetime.fromisoformat(str(row["disabled_at"]))
+        except ValueError as exc:
+            raise RuntimeError("horodatage mobile désactivé invalide") from exc
+        if disabled_at.tzinfo is None or disabled_at >= cutoff:
+            return {
+                "ok": True,
+                "eligible": False,
+                **_empty_erasure_result(),
+                "referralWalletOwnershipReleased": 0,
             }
 
-        removed = {
-            "deviceRecords": int(
-                db.execute(
-                    "SELECT COUNT(*) n FROM mobile_device WHERE installation_id=?",
-                    (installation_id,),
-                ).fetchone()["n"]
-            ),
-            "deadlineRecords": int(
-                db.execute(
-                    "SELECT COUNT(*) n FROM mobile_deadline WHERE installation_id=?",
-                    (installation_id,),
-                ).fetchone()["n"]
-            ),
-            "vehicleBindingRecords": int(
-                db.execute(
-                    "SELECT COUNT(*) n FROM mobile_vehicle_binding WHERE installation_id=?",
-                    (installation_id,),
-                ).fetchone()["n"]
-            ),
-        }
-        stamp = mobile_devices._now_iso()
-        receipt_id = uuid.uuid4().hex
-        evidence = {
-            "receiptId": receipt_id,
-            "installationHash": installation_hash,
-            "removed": removed,
-            "erasedAt": stamp,
-        }
-        canonical = json.dumps(
-            evidence,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
+        release = _release_installation_ownership(installation_id)
+        erased = _erase_mobile_rows_with_receipt_locked(
+            db,
+            installation_id,
+            installation_hash,
         )
-        evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if int(erased["removedCounts"]["deviceRecords"]) != 1:
+            raise RuntimeError("purge mobile non confirmée")
 
-        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
-        db.execute(
-            "DELETE FROM mobile_vehicle_binding WHERE installation_id=?",
-            (installation_id,),
-        )
-        db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
-        db.execute(
-            """INSERT INTO mobile_erasure_receipt(
-                 receipt_id,installation_hash,evidence_hash,device_records,
-                 deadline_records,vehicle_binding_records,erased_at
-               ) VALUES(?,?,?,?,?,?,?)""",
-            (
-                receipt_id,
-                installation_hash,
-                evidence_hash,
-                removed["deviceRecords"],
-                removed["deadlineRecords"],
-                removed["vehicleBindingRecords"],
-                stamp,
-            ),
-        )
     return {
-        "removed": bool(sum(removed.values())),
-        "removedCounts": removed,
-        "evidenceHash": evidence_hash,
-        "erasedAt": stamp,
+        "ok": True,
+        "eligible": True,
+        **erased,
+        "referralWalletOwnershipReleased": int(release["released"]),
     }
 
 
