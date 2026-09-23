@@ -28,13 +28,14 @@ class MercureRightsTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 mercure_rights.parse_subject_ref(value)
 
+    @patch.object(mercure_rights.mercure, "_appointments")
     @patch.object(mercure_rights.mercure, "vehicle_details")
     @patch.object(mercure_rights.mercure, "_calendar_events")
     @patch.object(mercure_rights.mercure, "business_today")
     @patch.object(mercure_rights.mercure, "_customer_contact")
     @patch.object(mercure_rights.mercure, "_session")
     def test_contact_snapshot_includes_only_exact_subject_bounded_inventory(
-        self, session, contact, today, events, vehicle_details
+        self, session, contact, today, events, vehicle_details, appointments
     ):
         provider_session = Mock()
         session.return_value = provider_session
@@ -66,12 +67,28 @@ class MercureRightsTest(unittest.TestCase):
             "immatriculation": "AA-000-AA",
             "provider_secret": "vehicle-secret",
         }
+        appointments.return_value = [
+            {
+                "id": "rdv-1",
+                "etat_paiement": "payé",
+                "prix_tcc": "80,00 €",
+                "name": "MUST NOT LEAK",
+                "provider_secret": "billing-secret",
+            },
+            {
+                "id": "rdv-other",
+                "etat_paiement": "non payé",
+                "prix_tcc": "999,00 €",
+                "name": "OTHER CLIENT",
+            },
+        ]
 
         result = mercure_rights.contact_snapshot("account:12")
 
         session.assert_called_once_with()
         contact.assert_called_once_with(provider_session, "account", "12")
         events.assert_called_once_with(provider_session, "2025-09-22", "2027-09-23")
+        appointments.assert_called_once_with(provider_session, "2025-09-22", "2027-09-23")
         vehicle_details.assert_called_once_with("veh-1", provider_session)
         self.assertEqual(result["provider"], "mercure")
         self.assertEqual(result["subject"], {"clientKind": "account", "clientId": "12"})
@@ -80,7 +97,10 @@ class MercureRightsTest(unittest.TestCase):
         self.assertTrue(result["partial"])
         self.assertTrue(result["coverage"]["contact"])
         self.assertTrue(result["coverage"]["boundedOperationalInventory"])
+        self.assertTrue(result["coverage"]["boundedBillingInventory"])
         self.assertFalse(result["coverage"]["vehicles"])
+        self.assertFalse(result["coverage"]["appointments"])
+        self.assertFalse(result["coverage"]["billing"])
         inventory = result["operationalInventory"]
         self.assertEqual(inventory["appointmentCountInWindow"], 1)
         self.assertEqual(len(inventory["appointments"]), 1)
@@ -88,20 +108,29 @@ class MercureRightsTest(unittest.TestCase):
         self.assertEqual(inventory["vehicles"], [
             {"vehicleId": "veh-1", "technicalInspectionDueDate": "2027-05-12"}
         ])
+        self.assertEqual(inventory["billingState"], "available")
+        self.assertEqual(inventory["billingCountInWindow"], 1)
+        self.assertEqual(inventory["billing"], [{
+            "appointmentId": "rdv-1", "paymentState": "payé", "priceTtc": 80.0
+        }])
         rendered = repr(result)
-        self.assertNotIn("must-not-leak", rendered)
+        self.assertNotIn("must-not-leak", rendered.lower())
         self.assertNotIn("AA-000-AA", rendered)
         self.assertNotIn("vehicle-secret", rendered)
+        self.assertNotIn("billing-secret", rendered)
+        self.assertNotIn("OTHER CLIENT", rendered)
         self.assertNotIn("rdv-other", rendered)
         self.assertNotIn("veh-other", rendered)
+        self.assertNotIn("999", rendered)
 
+    @patch.object(mercure_rights.mercure, "_appointments", return_value=[])
     @patch.object(mercure_rights.mercure, "vehicle_details")
     @patch.object(mercure_rights.mercure, "_calendar_events")
     @patch.object(mercure_rights.mercure, "business_today")
     @patch.object(mercure_rights.mercure, "_customer_contact")
     @patch.object(mercure_rights.mercure, "_session")
     def test_unsafe_vehicle_identifier_is_never_used_as_provider_path(
-        self, session, contact, today, events, vehicle_details
+        self, session, contact, today, events, vehicle_details, appointments
     ):
         session.return_value = Mock()
         today.return_value = datetime.date(2026, 9, 22)
@@ -116,6 +145,34 @@ class MercureRightsTest(unittest.TestCase):
         vehicle_details.assert_not_called()
         self.assertEqual(result["operationalInventory"]["vehicles"], [])
         self.assertEqual(result["operationalInventory"]["appointments"][0]["vehicleIds"], [])
+        appointments.assert_called_once()
+
+    @patch.object(mercure_rights.mercure, "_appointments")
+    @patch.object(mercure_rights.mercure, "_calendar_events")
+    @patch.object(mercure_rights.mercure, "business_today")
+    @patch.object(mercure_rights.mercure, "_customer_contact")
+    @patch.object(mercure_rights.mercure, "_session")
+    def test_billing_failure_does_not_hide_verified_calendar_inventory(
+        self, session, contact, today, events, appointments
+    ):
+        session.return_value = Mock()
+        today.return_value = datetime.date(2026, 9, 22)
+        contact.return_value = {"email": "client@example.fr", "telephone": ""}
+        events.return_value = [{
+            "id": "rdv-1",
+            "start": "2026-09-23T10:00:00+02:00",
+            "extendedProps": {"clientCompteId": "12", "vehiculeId": []},
+        }]
+        appointments.side_effect = RuntimeError("provider billing secret detail")
+
+        result = mercure_rights.contact_snapshot("account:12")
+
+        self.assertEqual(result["operationalInventory"]["state"], "available")
+        self.assertEqual(result["operationalInventory"]["billingState"], "unavailable")
+        self.assertEqual(result["operationalInventory"]["appointments"][0]["appointmentId"], "rdv-1")
+        self.assertTrue(result["coverage"]["boundedOperationalInventory"])
+        self.assertFalse(result["coverage"]["boundedBillingInventory"])
+        self.assertNotIn("provider billing secret detail", repr(result))
 
     @patch.object(mercure_rights.mercure, "_calendar_events")
     @patch.object(mercure_rights.mercure, "_customer_contact")
@@ -131,7 +188,9 @@ class MercureRightsTest(unittest.TestCase):
 
         self.assertEqual(result["contact"]["email"], "client@example.fr")
         self.assertEqual(result["operationalInventory"]["state"], "unavailable")
+        self.assertEqual(result["operationalInventory"]["billingState"], "unavailable")
         self.assertFalse(result["coverage"]["boundedOperationalInventory"])
+        self.assertFalse(result["coverage"]["boundedBillingInventory"])
         self.assertTrue(result["partial"])
         self.assertNotIn("provider secret detail", repr(result))
 
