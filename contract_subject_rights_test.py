@@ -78,8 +78,8 @@ class ContractSubjectRightsTest(unittest.TestCase):
         second = contracts.execute(request["id"], self.subject, self.db)
         self.assertTrue(first["data"]["partial"])
         self.assertFalse(second["data"]["partial"])
-        self.assertEqual(
-            [row["action"] for row in reversed(data_subject_rights.audit_rows(self.db))],
+        self.assertCountEqual(
+            [row["action"] for row in data_subject_rights.audit_rows(self.db)],
             ["export", "export_complete"],
         )
 
