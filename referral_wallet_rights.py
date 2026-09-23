@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -16,6 +18,7 @@ import referral_wallet_paged_export
 ADAPTER = "referral_wallet"
 SUPPORTED_RIGHTS = ("access", "portability", "erasure")
 MAX_LEDGER_ENTRIES = referral_wallet_paged_export.PAGE_SIZE
+PAGED_EXPORT_ORPHAN_GRACE_SECONDS = 30
 
 
 def _account_id(value: object) -> str:
@@ -35,6 +38,66 @@ def _installation_id(value: object) -> str:
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _recover_stale_orphaned_paged_export(
+    request_id: str,
+    request_type: str,
+    account_id: str,
+    db_path: Path | str | None = None,
+) -> bool:
+    """Delete only a stale paged-export session that never acquired audit proof.
+
+    ``referral_wallet_paged_export.begin`` commits its opaque session before the
+    adapter writes the initial ``export_bounded`` audit row. A process crash in
+    that narrow gap used to make the request permanently non-retryable because a
+    later begin found the unique request session and stopped. Recovery is allowed
+    only when the session is still active, belongs to the same request type and
+    hashed wallet, has no rights-execution evidence, and is older than a short
+    grace period that protects a concurrent in-flight execution.
+    """
+    data_subject_rights._init_audit(db_path)
+    now = datetime.datetime.fromisoformat(data_subject_rights._now_iso())
+    with compliance_store.connect(db_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            session = db.execute(
+                """SELECT session_id,request_type,account_hash,created_at,
+                          completed_at,invalidated_at
+                   FROM referral_wallet_export_session WHERE request_id=?""",
+                (request_id,),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return False
+            raise
+        if not session:
+            return False
+
+        evidence = db.execute(
+            """SELECT 1 FROM rights_execution_audit
+               WHERE request_id=? AND adapter=? LIMIT 1""",
+            (request_id, ADAPTER),
+        ).fetchone()
+        if evidence:
+            raise RuntimeError("session d'export paginé déjà auditée")
+        if str(session["completed_at"]) or str(session["invalidated_at"]):
+            raise RuntimeError("session d'export paginé non récupérable")
+        if str(session["request_type"]) != request_type:
+            raise RuntimeError("type de demande de session incohérent")
+        if not hmac.compare_digest(str(session["account_hash"]), _hash(account_id)):
+            raise PermissionError("cagnotte de session refusée")
+
+        created_at = datetime.datetime.fromisoformat(str(session["created_at"]))
+        age_seconds = (now - created_at).total_seconds()
+        if age_seconds < PAGED_EXPORT_ORPHAN_GRACE_SECONDS:
+            raise RuntimeError("session d'export paginé encore active")
+
+        db.execute(
+            "DELETE FROM referral_wallet_export_session WHERE request_id=?",
+            (request_id,),
+        )
+        return True
 
 
 def snapshot(account_id: object) -> dict:
@@ -80,12 +143,30 @@ def execute(
     if request_type in {"access", "portability"}:
         if not referral_wallet_claims.ownership_matches(account, installation):
             raise PermissionError("propriété de cagnotte non prouvée")
-        staged = referral_wallet_paged_export.begin(
-            rid,
-            installation,
-            account,
-            db_path,
-        )
+        try:
+            staged = referral_wallet_paged_export.begin(
+                rid,
+                installation,
+                account,
+                db_path,
+            )
+        except RuntimeError as exc:
+            if str(exc) != "session d'export paginé déjà existante":
+                raise
+            recovered = _recover_stale_orphaned_paged_export(
+                rid,
+                request_type,
+                account,
+                db_path,
+            )
+            if not recovered:
+                raise
+            staged = referral_wallet_paged_export.begin(
+                rid,
+                installation,
+                account,
+                db_path,
+            )
         data = staged["data"]
         export_complete = bool(staged["exportComplete"])
         paged_export = staged.get("pagedExport")
