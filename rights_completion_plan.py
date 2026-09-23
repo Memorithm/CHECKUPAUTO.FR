@@ -14,16 +14,20 @@ DISPOSITIONS = {"required", "not_applicable"}
 # disabled until that gap is removed with evidence; a per-request plan must not
 # be mistaken for proof that every CheckupAuto/Mercure store is implemented.
 GLOBAL_COVERAGE_COMPLETE = False
-# These adapters can execute useful bounded work, but their own implementation
-# explicitly remains partial. Recording an execution must therefore not make a
-# required applicability-plan item "satisfied". The codes are intentionally
-# non-personal and surface the remaining boundary to the operator.
+# These adapters can execute useful bounded work, but an ordinary execution is
+# not completion proof. Mercure is exceptional: an execution recorded as
+# ``export_complete`` carries the non-personal result of the attested provider
+# scan and can satisfy its required plan item. It still cannot close the global
+# DSAR while GLOBAL_COVERAGE_COMPLETE remains false.
 PARTIAL_EXECUTION_ADAPTERS = {
     "mercure_customer_contact": "bounded_provider_export",
     "compliance_contracts": "partial_contract_store_export",
     "privacy_suppression": "suppression_without_all_store_mutation",
     rights_rectification.ADAPTER: "local_deadline_field_only",
     referral_wallet_rights.ADAPTER: "bounded_wallet_or_retained_erasure",
+}
+CONDITIONAL_COMPLETE_ACTIONS = {
+    "mercure_customer_contact": "export_complete",
 }
 
 
@@ -70,9 +74,25 @@ def _executed_adapters(request_id: str, db_path: Path | str | None = None) -> se
     return {str(row["adapter"]) for row in rows}
 
 
-def _execution_state(adapter: str, executed: bool) -> tuple[bool, str]:
+def _execution_actions(request_id: str, db_path: Path | str | None = None) -> dict[str, str]:
+    data_subject_rights._init_audit(db_path)
+    with compliance_store.connect(db_path) as db:
+        rows = db.execute(
+            """SELECT adapter,action FROM rights_execution_audit
+               WHERE request_id=? ORDER BY created_at,execution_id""",
+            (request_id,),
+        ).fetchall()
+    return {str(row["adapter"]): str(row["action"]) for row in rows}
+
+
+def _execution_state(adapter: str, executed: bool, action: str = "") -> tuple[bool, str]:
     if not executed:
         return False, ""
+    complete_action = CONDITIONAL_COMPLETE_ACTIONS.get(adapter, "")
+    if complete_action:
+        if action == complete_action:
+            return True, ""
+        return False, PARTIAL_EXECUTION_ADAPTERS[adapter]
     limitation = PARTIAL_EXECUTION_ADAPTERS.get(adapter, "")
     return not bool(limitation), limitation
 
@@ -159,7 +179,8 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
     request = data_subject_rights._request(rid, db_path)
     request_type = str(request["request_type"])
     expected = _known_adapters(request_type)
-    executed = _executed_adapters(rid, db_path)
+    execution_actions = _execution_actions(rid, db_path)
+    executed = set(execution_actions)
     _init(db_path)
     with compliance_store.connect(db_path) as db:
         rows = db.execute(
@@ -173,7 +194,11 @@ def status(request_id: object, db_path: Path | str | None = None) -> dict:
         row = planned.get(adapter)
         disposition = str(row["disposition"]) if row else "unplanned"
         was_executed = adapter in executed
-        execution_complete, execution_limitation = _execution_state(adapter, was_executed)
+        execution_complete, execution_limitation = _execution_state(
+            adapter,
+            was_executed,
+            execution_actions.get(adapter, ""),
+        )
         satisfied = (
             disposition == "required" and execution_complete
         ) or (
@@ -234,6 +259,7 @@ def capability() -> dict:
         "closureFailClosedOnGlobalCoverage": True,
         "partialExecutionDoesNotSatisfyRequiredPlan": True,
         "partialExecutionAdapters": dict(sorted(PARTIAL_EXECUTION_ADAPTERS.items())),
+        "conditionalCompleteActions": dict(sorted(CONDITIONAL_COMPLETE_ACTIONS.items())),
         "notApplicableRequiresHashedJustification": True,
         "rawJustificationPersisted": False,
     }
