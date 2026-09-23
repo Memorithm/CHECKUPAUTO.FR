@@ -66,6 +66,36 @@ class MobileErasureReceiptTests(unittest.TestCase):
         self.assertNotIn(INSTALLATION_ID, stored)
         self.assertNotIn(TEST_SECRET, stored)
 
+    def test_repopulation_rejects_historical_erasure_receipt_without_mutating_it(self):
+        self.seed()
+        release = {"ok": True, "released": 0, "rawInstallationPersisted": False}
+        with mock.patch.object(lifecycle, "_release_installation_ownership", return_value=release):
+            erased = lifecycle.delete_installation(self.payload())
+        self.assertTrue(erased["removed"])
+        digest = hashlib.sha256(INSTALLATION_ID.encode()).hexdigest()
+        first_receipt = lifecycle.mobile_erasure_receipt_by_subject_hash(digest)
+        self.assertIsNotNone(first_receipt)
+
+        mobile_devices.register_installation(self.payload())
+
+        self.assertIsNone(lifecycle.mobile_erasure_receipt_by_subject_hash(digest))
+        with mobile_devices.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) n FROM mobile_device").fetchone()["n"], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) n FROM mobile_erasure_receipt").fetchone()["n"], 1)
+            stored = repr(dict(db.execute("SELECT * FROM mobile_erasure_receipt").fetchone()))
+        self.assertNotIn(INSTALLATION_ID, stored)
+        self.assertNotIn(TEST_SECRET, stored)
+
+    def test_disabled_repopulated_installation_also_rejects_old_receipt(self):
+        self.seed()
+        release = {"ok": True, "released": 0, "rawInstallationPersisted": False}
+        with mock.patch.object(lifecycle, "_release_installation_ownership", return_value=release):
+            lifecycle.delete_installation(self.payload())
+        mobile_devices.register_installation(self.payload())
+        mobile_devices.unregister(self.payload())
+        digest = hashlib.sha256(INSTALLATION_ID.encode()).hexdigest()
+        self.assertIsNone(lifecycle.mobile_erasure_receipt_by_subject_hash(digest))
+
     def test_receipt_write_failure_rolls_back_mobile_rows(self):
         self.seed(); lifecycle._init_mobile_erasure_receipts()
         with mobile_devices.connect() as db:
