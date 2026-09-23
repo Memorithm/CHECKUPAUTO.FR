@@ -16,11 +16,20 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def provider_env(self, history_start="", future_days="", evidence_sha256=""):
+    def provider_env(
+        self,
+        history_start="",
+        future_days="",
+        evidence_sha256="",
+        vehicle_source="",
+        vehicle_evidence_sha256="",
+    ):
         return {
             mercure_provider_coverage.HISTORY_START_ENV: history_start,
             mercure_provider_coverage.FUTURE_DAYS_ENV: future_days,
             mercure_provider_coverage.EVIDENCE_SHA256_ENV: evidence_sha256,
+            mercure_provider_coverage.VEHICLE_SOURCE_ENV: vehicle_source,
+            mercure_provider_coverage.VEHICLE_EVIDENCE_SHA256_ENV: vehicle_evidence_sha256,
         }
 
     def test_unconfigured_provider_boundary_is_visible_and_fail_closed(self):
@@ -34,8 +43,11 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
             coverage["boundary"]["reason"],
             "provider_boundary_not_attested",
         )
+        self.assertEqual(coverage["boundary"]["vehicleInventory"]["state"], "unconfigured")
+        self.assertFalse(coverage["boundary"]["vehicleInventory"]["attested"])
         self.assertTrue(coverage["capability"]["requiresExplicitProviderBoundary"])
         self.assertTrue(coverage["capability"]["requiresAuthoritativeSourceEvidence"])
+        self.assertTrue(coverage["capability"]["requiresIndependentVehicleInventoryEvidence"])
         self.assertFalse(coverage["capability"]["rawEvidenceStoredInRepository"])
         self.assertFalse(state["summary"]["mercureProviderCoverageAttested"])
         self.assertEqual(state["summary"]["mercureProviderCoverageState"], "unconfigured")
@@ -62,11 +74,44 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
         self.assertEqual(coverage["boundary"]["reason"], "")
         self.assertEqual(
             set(coverage["boundary"]),
-            {"state", "attested", "historyStart", "futureDays", "evidenceSha256", "reason"},
+            {
+                "state",
+                "attested",
+                "historyStart",
+                "futureDays",
+                "evidenceSha256",
+                "reason",
+                "vehicleInventory",
+            },
         )
+        self.assertEqual(coverage["boundary"]["vehicleInventory"]["state"], "unconfigured")
         self.assertTrue(state["summary"]["mercureProviderCoverageAttested"])
         self.assertEqual(state["summary"]["mercureProviderCoverageState"], "attested")
         self.assertNotIn("provider contract body", repr(coverage))
+
+    def test_vehicle_inventory_attestation_is_visible_without_changing_temporal_gate(self):
+        vehicle_evidence_hash = "b" * 64
+        with mock.patch.dict(
+            os.environ,
+            self.provider_env(
+                vehicle_source=mercure_provider_coverage.AUTHORITATIVE_APPOINTMENT_SOURCE,
+                vehicle_evidence_sha256=vehicle_evidence_hash,
+            ),
+            clear=False,
+        ):
+            state = compliance_admin.snapshot(self.db)
+
+        coverage = state["mercureProviderCoverage"]
+        vehicle = coverage["boundary"]["vehicleInventory"]
+        self.assertEqual(vehicle["state"], "attested")
+        self.assertTrue(vehicle["attested"])
+        self.assertEqual(
+            vehicle["source"],
+            mercure_provider_coverage.AUTHORITATIVE_APPOINTMENT_SOURCE,
+        )
+        self.assertEqual(vehicle["evidenceSha256"], vehicle_evidence_hash)
+        self.assertFalse(state["summary"]["mercureProviderCoverageAttested"])
+        self.assertEqual(state["summary"]["mercureProviderCoverageState"], "unconfigured")
 
     def test_invalid_partial_boundary_is_reported_without_becoming_attested(self):
         with mock.patch.dict(
