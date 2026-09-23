@@ -227,6 +227,82 @@ class ReferralWalletPagedExportTest(unittest.TestCase):
         }
         self.assertEqual(actions, {"export_bounded"})
 
+    def test_stale_session_without_initial_audit_recovers_after_crash(self):
+        request = self._request("access")
+        self._insert_ledger(201)
+
+        with mock.patch.object(claims, "ownership_matches", return_value=True):
+            with mock.patch.object(
+                data_subject_rights,
+                "_audit_execution",
+                side_effect=RuntimeError("simulated crash before audit"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "simulated crash before audit"):
+                    rights.execute(
+                        request["id"],
+                        self.installation,
+                        self.account["id"],
+                        self.compliance_db,
+                    )
+
+            with compliance_store.connect(self.compliance_db) as db:
+                stale = db.execute(
+                    """SELECT session_id FROM referral_wallet_export_session
+                       WHERE request_id=?""",
+                    (request["id"],),
+                ).fetchone()
+                self.assertIsNotNone(stale)
+                stale_session_id = str(stale["session_id"])
+                audit_count = int(
+                    db.execute(
+                        """SELECT COUNT(*) n FROM rights_execution_audit
+                           WHERE request_id=? AND adapter=?""",
+                        (request["id"], rights.ADAPTER),
+                    ).fetchone()["n"]
+                )
+                self.assertEqual(audit_count, 0)
+
+            with self.assertRaisesRegex(RuntimeError, "encore active"):
+                rights.execute(
+                    request["id"],
+                    self.installation,
+                    self.account["id"],
+                    self.compliance_db,
+                )
+
+            with compliance_store.connect(self.compliance_db) as db:
+                db.execute(
+                    """UPDATE referral_wallet_export_session
+                       SET created_at='2000-01-01T00:00:00+00:00',
+                           updated_at='2000-01-01T00:00:00+00:00'
+                       WHERE request_id=?""",
+                    (request["id"],),
+                )
+
+            recovered = rights.execute(
+                request["id"],
+                self.installation,
+                self.account["id"],
+                self.compliance_db,
+            )
+
+        self.assertFalse(recovered["exportComplete"])
+        self.assertNotEqual(recovered["pagedExport"]["sessionId"], stale_session_id)
+        actions = [
+            row["action"]
+            for row in data_subject_rights.audit_rows(self.compliance_db)
+            if row["requestId"] == request["id"] and row["adapter"] == rights.ADAPTER
+        ]
+        self.assertEqual(actions, ["export_bounded"])
+        with compliance_store.connect(self.compliance_db) as db:
+            sessions = db.execute(
+                """SELECT session_id FROM referral_wallet_export_session
+                   WHERE request_id=?""",
+                (request["id"],),
+            ).fetchall()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(str(sessions[0]["session_id"]), recovered["pagedExport"]["sessionId"])
+
     def test_dispatcher_continuation_uses_opaque_server_session(self):
         request = self._request("access")
         self._insert_ledger(201)
