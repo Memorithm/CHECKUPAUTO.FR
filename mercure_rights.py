@@ -13,6 +13,7 @@ INVENTORY_PAST_DAYS = 365
 INVENTORY_FUTURE_DAYS = 365
 MAX_APPOINTMENTS = 500
 MAX_VEHICLES = 200
+MAX_BILLING_ROWS = 500
 
 
 def parse_subject_ref(value: object) -> tuple[str, str]:
@@ -68,13 +69,68 @@ def _event_vehicle_ids(event: dict) -> list[str]:
     return result
 
 
+def _bounded_billing_inventory(
+    session,
+    start: str,
+    end_exclusive: str,
+    appointment_ids: set[str],
+) -> dict:
+    """Cross-reference provider billing rows only through subject-proven appointment IDs.
+
+    ``/admin/rdv_by_client`` returns a centre-wide period inventory. It must never
+    be exported directly for a DSAR. Calendar rows already prove which appointment
+    IDs belong to the exact Mercure subject, so only those IDs may cross this
+    boundary. Provider failures are reduced to a bounded state and never reflected.
+    """
+    try:
+        rows = mercure._appointments(session, start, end_exclusive)
+    except Exception:
+        return {
+            "state": "unavailable",
+            "rows": [],
+            "matchingCountInWindow": 0,
+            "truncated": False,
+        }
+
+    matched = []
+    seen: set[str] = set()
+    matching_count = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        appointment_id = _provider_id(row.get("id"))
+        if not appointment_id or appointment_id not in appointment_ids or appointment_id in seen:
+            continue
+        seen.add(appointment_id)
+        matching_count += 1
+        if len(matched) >= MAX_BILLING_ROWS:
+            continue
+        raw_price = row.get("prix_tcc")
+        matched.append(
+            {
+                "appointmentId": appointment_id,
+                "paymentState": str(row.get("etat_paiement") or "").strip()[:40],
+                "priceTtc": None if raw_price in (None, "") else round(mercure._price(raw_price), 2),
+            }
+        )
+    return {
+        "state": "available",
+        "rows": matched,
+        "matchingCountInWindow": matching_count,
+        "truncated": matching_count > MAX_BILLING_ROWS,
+    }
+
+
 def _bounded_operational_inventory(session, client_kind: str, client_id: str) -> dict:
     today = mercure.business_today()
     start = today - datetime.timedelta(days=INVENTORY_PAST_DAYS)
     end_exclusive = today + datetime.timedelta(days=INVENTORY_FUTURE_DAYS + 1)
-    events = mercure._calendar_events(session, start.isoformat(), end_exclusive.isoformat())
+    start_value = start.isoformat()
+    end_value = end_exclusive.isoformat()
+    events = mercure._calendar_events(session, start_value, end_value)
 
     appointments = []
+    appointment_ids: set[str] = set()
     vehicle_ids: list[str] = []
     matching_count = 0
     for event in events:
@@ -85,9 +141,11 @@ def _bounded_operational_inventory(session, client_kind: str, client_id: str) ->
         for vehicle_id in ids:
             if vehicle_id not in vehicle_ids:
                 vehicle_ids.append(vehicle_id)
+        appointment_id = _provider_id(mercure._event_id(event))
+        if appointment_id:
+            appointment_ids.add(appointment_id)
         if len(appointments) >= MAX_APPOINTMENTS:
             continue
-        appointment_id = _provider_id(mercure._event_id(event))
         appointments.append(
             {
                 "appointmentId": appointment_id,
@@ -112,19 +170,24 @@ def _bounded_operational_inventory(session, client_kind: str, client_id: str) ->
             }
         )
 
+    billing = _bounded_billing_inventory(session, start_value, end_value, appointment_ids)
     return {
         "state": "available",
         "window": {
-            "start": start.isoformat(),
-            "endExclusive": end_exclusive.isoformat(),
+            "start": start_value,
+            "endExclusive": end_value,
             "pastDays": INVENTORY_PAST_DAYS,
             "futureDays": INVENTORY_FUTURE_DAYS,
         },
         "appointments": appointments,
         "vehicles": vehicles,
+        "billing": billing["rows"],
+        "billingState": billing["state"],
         "appointmentCountInWindow": matching_count,
+        "billingCountInWindow": billing["matchingCountInWindow"],
         "appointmentsTruncated": matching_count > MAX_APPOINTMENTS,
         "vehiclesTruncated": len(vehicle_ids) > MAX_VEHICLES,
+        "billingTruncated": billing["truncated"],
     }
 
 
@@ -147,9 +210,13 @@ def contact_snapshot(subject_ref: object) -> dict:
             "state": "unavailable",
             "appointments": [],
             "vehicles": [],
+            "billing": [],
+            "billingState": "unavailable",
             "appointmentCountInWindow": 0,
+            "billingCountInWindow": 0,
             "appointmentsTruncated": False,
             "vehiclesTruncated": False,
+            "billingTruncated": False,
         }
     return {
         "provider": "mercure",
@@ -168,6 +235,7 @@ def contact_snapshot(subject_ref: object) -> dict:
             "appointments": False,
             "billing": False,
             "boundedOperationalInventory": inventory.get("state") == "available",
+            "boundedBillingInventory": inventory.get("billingState") == "available",
         },
         "partial": True,
     }
