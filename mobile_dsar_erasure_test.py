@@ -113,6 +113,26 @@ class MobileDsarErasureTests(unittest.TestCase):
         self.assertNotIn(TOKEN, repr(audit))
         self.assertNotIn(SECRET, repr(audit))
 
+    def test_direct_executor_uses_the_same_recoverable_receipt_boundary(self):
+        result = data_subject_rights.execute(
+            self.request["id"],
+            INSTALLATION_ID,
+            adapter="mobile_installation",
+            db_path=self.compliance_db,
+        )
+        self.assertFalse(result["recoveredFromReceipt"])
+        self.assertEqual(len(result["mobileErasureEvidenceHash"]), 64)
+        self.assertEqual(mobile_devices.status()["total"], 0)
+
+        digest = hashlib.sha256(INSTALLATION_ID.encode("utf-8")).hexdigest()
+        receipt = referral_wallet_lifecycle.mobile_erasure_receipt_by_subject_hash(digest)
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt["evidenceHash"], result["mobileErasureEvidenceHash"])
+        self.assertEqual(receipt["removed"], result["removed"])
+        audit = data_subject_rights.audit_rows(self.compliance_db)
+        self.assertEqual(len(audit), 1)
+        self.assertEqual(audit[0]["action"], "erase")
+
     def test_retry_recovers_committed_receipt_after_audit_failure(self):
         with mock.patch.object(
             data_subject_rights,
