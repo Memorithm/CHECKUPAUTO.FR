@@ -219,6 +219,72 @@ class RightsRectificationTest(unittest.TestCase):
         self.assertEqual(len(self.rectification_receipts()), 1)
         self.assertEqual(data_subject_rights.audit_rows(self.compliance_db), [])
 
+    def test_recovery_refuses_receipt_after_later_device_change(self):
+        request = self.request()
+        correction = {"deadlineId": self.device_deadline, "dueDate": "2027-04-21"}
+        with mock.patch.object(
+            rectification.rights,
+            "_audit_execution",
+            side_effect=RuntimeError("simulated compliance audit failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated compliance audit failure"):
+                rectification.execute(
+                    request["id"],
+                    self.installation_id,
+                    correction,
+                    self.compliance_db,
+                )
+
+        mobile_devices.sync_deadlines({
+            "installationId": self.installation_id,
+            "registrationSecret": self.secret,
+            "deadlines": [{"deadlineId": self.device_deadline, "dueDate": "2027-09-01"}],
+        })
+
+        with self.assertRaisesRegex(RuntimeError, "obsolète"):
+            rectification.execute(
+                request["id"],
+                self.installation_id,
+                correction,
+                self.compliance_db,
+            )
+        self.assertEqual(self.due_date(self.device_deadline), ("2027-09-01", "device"))
+        self.assertEqual(len(self.rectification_receipts()), 1)
+        self.assertEqual(data_subject_rights.audit_rows(self.compliance_db), [])
+
+    def test_recovery_refuses_same_value_resync_as_newer_generation(self):
+        request = self.request()
+        correction = {"deadlineId": self.device_deadline, "dueDate": "2027-04-22"}
+        with mock.patch.object(
+            rectification.rights,
+            "_audit_execution",
+            side_effect=RuntimeError("simulated compliance audit failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated compliance audit failure"):
+                rectification.execute(
+                    request["id"],
+                    self.installation_id,
+                    correction,
+                    self.compliance_db,
+                )
+
+        mobile_devices.sync_deadlines({
+            "installationId": self.installation_id,
+            "registrationSecret": self.secret,
+            "deadlines": [{"deadlineId": self.device_deadline, "dueDate": "2027-04-22"}],
+        })
+
+        with self.assertRaisesRegex(RuntimeError, "obsolète"):
+            rectification.execute(
+                request["id"],
+                self.installation_id,
+                correction,
+                self.compliance_db,
+            )
+        self.assertEqual(self.due_date(self.device_deadline), ("2027-04-22", "device"))
+        self.assertEqual(len(self.rectification_receipts()), 1)
+        self.assertEqual(data_subject_rights.audit_rows(self.compliance_db), [])
+
     def test_capability_remains_partial_and_refuses_authoritative_sources(self):
         state = rectification.capability()
         self.assertFalse(state["bound"])
@@ -227,6 +293,7 @@ class RightsRectificationTest(unittest.TestCase):
         self.assertFalse(state["authoritativeSourcesMutable"])
         self.assertFalse(state["rawSubjectReferencePersisted"])
         self.assertTrue(state["crashRecoverable"])
+        self.assertTrue(state["recoveryRequiresCurrentState"])
         self.assertFalse(state["receiptStoresRawSubject"])
 
 
