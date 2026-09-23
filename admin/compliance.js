@@ -11,6 +11,12 @@ async function api(path,body){
  return data
 }
 function retentionPolicyFor(id){return (snapshot?.retention?.policies||[]).find(row=>row.id===id)||null}
+function retentionDurationLabel(row){
+ if(row.activeHours!==undefined&&row.activeHours!==null)return String(row.activeHours)+' h';
+ if(row.activeDays!==undefined&&row.activeDays!==null)return String(row.activeDays)+' j';
+ if(row.mode==='event')return 'Événement';
+ return '—'
+}
 function fillRetentionPolicy(){
  const id=$('#complianceRetentionRule')?.value,row=retentionPolicyFor(id);if(!row)return;
  $('#complianceRetentionDays').value=row.activeDays??'';
@@ -163,9 +169,9 @@ function render(){
  const configurable=retentionPolicies.filter(row=>row.mode===undefined);
  $('#complianceRetentionRule').innerHTML=configurable.map(row=>'<option value="'+esc(row.id)+'">'+esc(row.label)+'</option>').join('');
  $('#complianceRetentionRows').innerHTML=retentionPolicies.length?retentionPolicies.map(row=>{
-  const days=row.activeDays===undefined||row.activeDays===null?'—':String(row.activeDays)+' j';
+  const duration=retentionDurationLabel(row);
   const state=row.ready?'PRÊT':('BLOQUÉ · '+esc(row.blocker||'configuration requise'));
-  return '<tr><td>'+esc(row.label||row.id)+'</td><td>'+esc(row.store||'—')+'</td><td>'+days+'</td><td>'+esc(row.trigger||'—')+'</td><td>'+state+'</td><td>'+esc(row.justification||row.source||'—')+'</td></tr>';
+  return '<tr><td>'+esc(row.label||row.id)+'</td><td>'+esc(row.store||'—')+'</td><td>'+esc(duration)+'</td><td>'+esc(row.trigger||'—')+'</td><td>'+state+'</td><td>'+esc(row.justification||row.source||'—')+'</td></tr>';
  }).join(''):'<tr><td colspan="6">Aucune politique disponible.</td></tr>';
  const retentionAudit=retention.audit||[];
  $('#complianceRetentionAuditRows').innerHTML=retentionAudit.length?retentionAudit.map(row=>'<tr><td>'+new Date(row.createdAt).toLocaleString('fr-FR')+'</td><td>'+esc(row.ruleId)+'</td><td>'+esc(row.mode)+'</td><td>'+esc(row.removedCount)+'</td><td>'+esc(row.cutoffAt||'—')+'</td><td>'+esc((row.evidenceHash||'').slice(0,16))+'</td></tr>').join(''):'<tr><td colspan="6">Aucune exécution.</td></tr>';
