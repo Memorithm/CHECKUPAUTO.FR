@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -146,6 +147,130 @@ class BookingConversionPrivacyTest(unittest.TestCase):
                 "appointmentDate": "2026-02-31T10:00",
                 "amount": 80,
             })
+
+    def test_conversion_persists_only_derived_attribution_key(self):
+        intent = booking.create_intent({
+            "utmSource": "google",
+            "device": "desktop",
+            "path": "/reservation",
+            "service": "Contrôle technique",
+        }, "https://rdv.checkupauto.fr/")
+        raw_token = intent["token"]
+
+        booking.apply_conversion({
+            "externalId": "mercure-attribution-key-1",
+            "status": "confirmed",
+            "ccid": raw_token,
+            "amount": 80,
+        })
+
+        with analytics.connect() as db:
+            conversion = db.execute(
+                "SELECT attribution_token FROM booking_conversions WHERE external_id=?",
+                ("mercure-attribution-key-1",),
+            ).fetchone()["attribution_token"]
+            intent_row = db.execute(
+                "SELECT token,attribution_key FROM booking_intents WHERE token=?",
+                (raw_token,),
+            ).fetchone()
+
+        self.assertEqual(intent_row["token"], raw_token)
+        self.assertNotEqual(conversion, raw_token)
+        self.assertEqual(conversion, intent_row["attribution_key"])
+        self.assertRegex(conversion, r"^sha256-v1:[0-9a-f]{64}$")
+        self.assertEqual(booking.stats(30)["pendingIntents"], 0)
+
+    def test_legacy_raw_conversion_token_is_migrated_without_breaking_stats(self):
+        intent = booking.create_intent({
+            "utmSource": "direct",
+            "device": "mobile",
+            "path": "/reservation",
+        }, "https://rdv.checkupauto.fr/")
+        raw_token = intent["token"]
+        now = booking.now_iso()
+        with analytics.connect() as db:
+            db.execute(
+                """INSERT INTO booking_conversions(
+                   provider,external_id,status,first_seen_at,updated_at,confirmed_at,
+                   attribution_token,source,device
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    booking.PROVIDER,
+                    "legacy-conversion-token",
+                    "confirmed",
+                    now,
+                    now,
+                    now,
+                    raw_token,
+                    "Direct",
+                    "mobile",
+                ),
+            )
+            db.execute(
+                "DELETE FROM booking_schema_meta WHERE key=?",
+                (booking._BOOKING_ATTRIBUTION_STORAGE_KEY,),
+            )
+
+        booking.init_db()
+        with analytics.connect() as db:
+            stored = db.execute(
+                "SELECT attribution_token FROM booking_conversions WHERE external_id=?",
+                ("legacy-conversion-token",),
+            ).fetchone()["attribution_token"]
+            key = db.execute(
+                "SELECT attribution_key FROM booking_intents WHERE token=?",
+                (raw_token,),
+            ).fetchone()["attribution_key"]
+            marker = db.execute(
+                "SELECT value FROM booking_schema_meta WHERE key=?",
+                (booking._BOOKING_ATTRIBUTION_STORAGE_KEY,),
+            ).fetchone()["value"]
+
+        self.assertEqual(stored, key)
+        self.assertNotEqual(stored, raw_token)
+        self.assertEqual(marker, "sha256-v1")
+        self.assertEqual(booking.stats(30)["pendingIntents"], 0)
+
+    def test_init_repairs_raw_conversion_written_by_older_process(self):
+        intent = booking.create_intent({
+            "device": "desktop",
+            "path": "/reservation",
+        }, "https://rdv.checkupauto.fr/")
+        raw_token = intent["token"]
+        now = booking.now_iso()
+        with analytics.connect() as db:
+            db.execute(
+                """INSERT INTO booking_conversions(
+                   provider,external_id,status,first_seen_at,updated_at,confirmed_at,
+                   attribution_token
+                   ) VALUES(?,?,?,?,?,?,?)""",
+                (
+                    booking.PROVIDER,
+                    "rolling-conversion-token",
+                    "confirmed",
+                    now,
+                    now,
+                    now,
+                    raw_token,
+                ),
+            )
+
+        booking.init_db()
+        with analytics.connect() as db:
+            first = db.execute(
+                "SELECT attribution_token FROM booking_conversions WHERE external_id=?",
+                ("rolling-conversion-token",),
+            ).fetchone()["attribution_token"]
+        booking.init_db()
+        with analytics.connect() as db:
+            second = db.execute(
+                "SELECT attribution_token FROM booking_conversions WHERE external_id=?",
+                ("rolling-conversion-token",),
+            ).fetchone()["attribution_token"]
+
+        self.assertEqual(first, second)
+        self.assertRegex(second, r"^sha256-v1:[0-9a-f]{64}$")
+        self.assertNotEqual(second, raw_token)
 
 
 if __name__ == "__main__":

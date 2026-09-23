@@ -12,10 +12,69 @@ SECRET_FILE = PRIVATE_DIR / 'mercure-webhook-secret'
 PROVIDER = 'mercure-rdv'
 CONFIRMED = ('confirmed','completed')
 ALLOWED_STATUS = ('confirmed','completed','cancelled','no_show')
+_BOOKING_ATTRIBUTION_STORAGE_KEY = 'booking_conversion_attribution_storage'
+_BOOKING_ATTRIBUTION_STORAGE_VERSION = 'sha256-v1'
+_BOOKING_ATTRIBUTION_KEY_RE = re.compile(r'^sha256-v1:[0-9a-f]{64}$')
 
 
 def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+
+
+def _attribution_key(value):
+    raw=analytics.clean(value,120)
+    if not raw: return ''
+    material=b'checkupauto:booking-conversion-attribution:v1\x00'+raw.encode('utf-8')
+    return _BOOKING_ATTRIBUTION_STORAGE_VERSION+':'+hashlib.sha256(material).hexdigest()
+
+
+def _migrate_attribution_keys_locked(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS booking_schema_meta(
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )''')
+    marker=db.execute(
+        'SELECT value FROM booking_schema_meta WHERE key=?',
+        (_BOOKING_ATTRIBUTION_STORAGE_KEY,),
+    ).fetchone()
+    if marker and str(marker['value']) != _BOOKING_ATTRIBUTION_STORAGE_VERSION:
+        raise RuntimeError('Version de stockage attribution réservation inconnue')
+
+    # booking_intents retains its random browser token only for the short-lived
+    # checkout/contract flow. Keep a derived join key beside it so durable
+    # conversion rows never need the raw browser token.
+    for row in db.execute('SELECT token,attribution_key FROM booking_intents').fetchall():
+        expected=_attribution_key(row['token'])
+        if str(row['attribution_key'] or '') != expected:
+            db.execute(
+                'UPDATE booking_intents SET attribution_key=? WHERE token=?',
+                (expected,row['token']),
+            )
+
+    # Repair historical raw conversion tokens, and raw rows produced by an older
+    # process during a rolling deployment. Versioned keys are left untouched.
+    rows=db.execute('''SELECT provider,external_id,attribution_token
+      FROM booking_conversions WHERE attribution_token<>'' ''').fetchall()
+    for row in rows:
+        stored=str(row['attribution_token'])
+        if _BOOKING_ATTRIBUTION_KEY_RE.fullmatch(stored):
+            continue
+        db.execute(
+            '''UPDATE booking_conversions SET attribution_token=?
+               WHERE provider=? AND external_id=?''',
+            (_attribution_key(stored),row['provider'],row['external_id']),
+        )
+
+    if marker is None:
+        db.execute(
+            'INSERT INTO booking_schema_meta(key,value) VALUES(?,?)',
+            (_BOOKING_ATTRIBUTION_STORAGE_KEY,_BOOKING_ATTRIBUTION_STORAGE_VERSION),
+        )
+
+    invalid=db.execute('''SELECT attribution_token FROM booking_conversions
+      WHERE attribution_token<>'' ''').fetchall()
+    if any(not _BOOKING_ATTRIBUTION_KEY_RE.fullmatch(str(row['attribution_token'])) for row in invalid):
+        raise RuntimeError('Migration attribution réservation incomplète')
 
 
 def init_db():
@@ -23,6 +82,7 @@ def init_db():
         db.executescript('''
         CREATE TABLE IF NOT EXISTS booking_intents(
           token TEXT PRIMARY KEY,
+          attribution_key TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL,
           source TEXT NOT NULL,
           campaign TEXT NOT NULL DEFAULT '',
@@ -50,7 +110,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_booking_conversion_confirmed ON booking_conversions(confirmed_at);
         CREATE INDEX IF NOT EXISTS idx_booking_conversion_source ON booking_conversions(source);
         ''')
+        db.execute('BEGIN IMMEDIATE')
         intent_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_intents)')}
+        if 'attribution_key' not in intent_cols:
+            db.execute("ALTER TABLE booking_intents ADD COLUMN attribution_key TEXT NOT NULL DEFAULT ''")
         if 'referral_code' not in intent_cols:
             db.execute("ALTER TABLE booking_intents ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
         if 'preferred_date' not in intent_cols:
@@ -60,6 +123,9 @@ def init_db():
         conversion_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_conversions)')}
         if 'referral_code' not in conversion_cols:
             db.execute("ALTER TABLE booking_conversions ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
+        _migrate_attribution_keys_locked(db)
+        db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_booking_intents_attribution_key
+          ON booking_intents(attribution_key) WHERE attribution_key<>'' ''')
     analytics.DB.chmod(0o600)
     referrals.init_db()
     ensure_secret()
@@ -182,6 +248,7 @@ def auto_submit_html(token, service, nonce=""):
 
 def create_intent(params, booking_url):
     token=secrets.token_urlsafe(20)
+    attribution_key=_attribution_key(token)
     created=now_iso()
     source=analytics.classify_source(params.get('referrer',''),params.get('utmSource',''))
     campaign=analytics._safe_dimension(params.get('utmCampaign'),100)
@@ -196,8 +263,8 @@ def create_intent(params, booking_url):
     if preferred_time and not re.fullmatch(r'\d{2}:\d{2}',preferred_time):
         raise ValueError('preferredTime invalid')
     with analytics.connect() as db:
-        db.execute('INSERT INTO booking_intents(token,created_at,source,campaign,device,path,service,referral_code,preferred_date,preferred_time) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                   (token,created,source,campaign,device,path,service,referral_code,preferred_date,preferred_time))
+        db.execute('INSERT INTO booking_intents(token,attribution_key,created_at,source,campaign,device,path,service,referral_code,preferred_date,preferred_time) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                   (token,attribution_key,created,source,campaign,device,path,service,referral_code,preferred_date,preferred_time))
         db.execute("INSERT INTO events(occurred_at,event,path,source,campaign,device,referrer_host,service) VALUES(?,?,?,?,?,?,?,?)",
                    (created,'booking_click',path,source,campaign,device,'',service))
     parts=urlsplit(booking_url)
@@ -266,6 +333,7 @@ def apply_conversion(payload):
     if status not in ALLOWED_STATUS: raise ValueError('unsupported status')
     appointment=_appointment_at(payload.get('appointmentDate'))
     token=analytics.clean(payload.get('attributionToken') or payload.get('ccid'),120)
+    token_key=_attribution_key(token)
     acceptance=None
     if token and status in CONFIRMED:
         try: acceptance=compliance.finalize_checkout_acceptance(token,external_id)
@@ -298,7 +366,7 @@ def apply_conversion(payload):
           campaign=CASE WHEN excluded.campaign<>'' THEN excluded.campaign ELSE booking_conversions.campaign END,
           device=CASE WHEN excluded.device<>'unknown' THEN excluded.device ELSE booking_conversions.device END,
           referral_code=CASE WHEN excluded.referral_code<>'' THEN excluded.referral_code ELSE booking_conversions.referral_code END''',
-          (PROVIDER,external_id,status,now,now,confirmed,appointment,amount_cents,service,token,source,campaign,device,referral_code))
+          (PROVIDER,external_id,status,now,now,confirmed,appointment,amount_cents,service,token_key,source,campaign,device,referral_code))
     reward=referrals.record_pending(referral_code,PROVIDER,external_id,token) if referral_code else referrals.reward_status(PROVIDER,external_id)
     if status=='completed': reward=referrals.complete_control(PROVIDER,external_id) or reward
     elif status in ('cancelled','no_show'): reward=referrals.cancel_pending(PROVIDER,external_id) or reward
@@ -350,7 +418,7 @@ def stats(days=30):
         by_source=[dict(r) for r in db.execute('''SELECT source,COUNT(*) confirmed,COALESCE(SUM(amount_cents),0) revenueCents
           FROM booking_conversions WHERE confirmed_at>=? AND status IN ('confirmed','completed')
           GROUP BY source ORDER BY confirmed DESC,revenueCents DESC''',(start,))]
-        pending=db.execute("SELECT COUNT(*) n FROM booking_intents i WHERE i.created_at>=? AND NOT EXISTS(SELECT 1 FROM booking_conversions c WHERE c.attribution_token=i.token AND c.status IN ('confirmed','completed'))",(start,)).fetchone()['n']
+        pending=db.execute("SELECT COUNT(*) n FROM booking_intents i WHERE i.created_at>=? AND NOT EXISTS(SELECT 1 FROM booking_conversions c WHERE c.attribution_token=i.attribution_key AND c.status IN ('confirmed','completed'))",(start,)).fetchone()['n']
         recent=[dict(r) for r in db.execute('''SELECT external_id externalId,status,updated_at updatedAt,appointment_at appointmentAt,
           amount_cents amountCents,service,source,campaign
           FROM booking_conversions ORDER BY updated_at DESC LIMIT 30''')]
