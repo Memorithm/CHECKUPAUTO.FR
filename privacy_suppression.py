@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -34,6 +35,18 @@ DIRECT_MARKETING_PURPOSES = (
     "direct_marketing_sms",
     "direct_marketing_push",
 )
+_MARKETING_CHANNEL_FOR_PURPOSE = {
+    "direct_marketing_email": "email",
+    "direct_marketing_phone": "phone",
+    "direct_marketing_sms": "sms",
+    "direct_marketing_push": "push",
+}
+_MARKETING_SUBJECT_KIND_FOR_CHANNEL = {
+    "email": "email",
+    "phone": "phone",
+    "sms": "phone",
+    "push": "installation",
+}
 _KEY_FILE = "privacy-suppression-key"
 
 
@@ -115,8 +128,141 @@ def init_db(db_path: Path | str | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_privacy_suppression_active
               ON privacy_suppression(active,purpose,subject_kind);
+            CREATE TABLE IF NOT EXISTS privacy_store_receipt(
+              request_id TEXT NOT NULL,
+              store_name TEXT NOT NULL,
+              subject_kind TEXT NOT NULL,
+              subject_hash TEXT NOT NULL,
+              scope TEXT NOT NULL,
+              operation TEXT NOT NULL,
+              affected_rows INTEGER NOT NULL,
+              remaining_active_rows INTEGER NOT NULL,
+              evidence_hash TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              verified_at TEXT NOT NULL,
+              PRIMARY KEY(request_id,store_name,subject_kind,subject_hash,scope)
+            );
+            CREATE INDEX IF NOT EXISTS idx_privacy_store_receipt_request
+              ON privacy_store_receipt(request_id,store_name);
             """
         )
+
+
+def _table_exists(db, table_name: str) -> bool:
+    row = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def _rights_request_type(db, request_id: str) -> str:
+    if not request_id or not _table_exists(db, "rights_requests"):
+        return ""
+    row = db.execute(
+        "SELECT request_type FROM rights_requests WHERE request_id=? LIMIT 1",
+        (request_id,),
+    ).fetchone()
+    return str(row["request_type"]) if row else ""
+
+
+def _marketing_store_receipts(
+    db,
+    *,
+    request_id: str,
+    subject_kind: str,
+    subject_hash: str,
+    purposes: tuple[str, ...],
+    stamp: str,
+) -> list[dict]:
+    """Withdraw consent rows atomically when a DSAR withdrawal is suppressed.
+
+    The privacy gate and the durable marketing-consent state live in the same
+    compliance SQLite database. For an actual ``consent_withdrawal`` request we
+    therefore mutate both stores in the same transaction and retain a receipt
+    containing only the HMAC subject key plus a canonical evidence hash. Other
+    right types keep consent proof untouched and rely on suppression alone.
+    """
+    if _rights_request_type(db, request_id) != "consent_withdrawal":
+        return []
+    if not _table_exists(db, "marketing_consent"):
+        return []
+
+    receipts: list[dict] = []
+    for purpose in purposes:
+        channel = _MARKETING_CHANNEL_FOR_PURPOSE.get(purpose, "")
+        if not channel or _MARKETING_SUBJECT_KIND_FOR_CHANNEL[channel] != subject_kind:
+            continue
+        cursor = db.execute(
+            """UPDATE marketing_consent
+               SET state='withdrawn',withdrawn_at=?,withdrawal_source='data-subject-rights'
+               WHERE subject_kind=? AND subject_hash=? AND channel=? AND state='active'""",
+            (stamp, subject_kind, subject_hash, channel),
+        )
+        affected = int(cursor.rowcount or 0)
+        remaining = int(
+            db.execute(
+                """SELECT COUNT(*) n FROM marketing_consent
+                   WHERE subject_kind=? AND subject_hash=? AND channel=? AND state='active'""",
+                (subject_kind, subject_hash, channel),
+            ).fetchone()["n"]
+        )
+        if remaining:
+            raise RuntimeError("retrait marketing incomplet")
+        evidence = {
+            "requestId": request_id,
+            "store": "marketing_consent",
+            "subjectKind": subject_kind,
+            "subjectHash": subject_hash,
+            "scope": channel,
+            "operation": "withdraw",
+            "affectedRows": affected,
+            "remainingActiveRows": remaining,
+        }
+        canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        db.execute(
+            """INSERT INTO privacy_store_receipt(
+                 request_id,store_name,subject_kind,subject_hash,scope,operation,
+                 affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(request_id,store_name,subject_kind,subject_hash,scope) DO UPDATE SET
+                 remaining_active_rows=excluded.remaining_active_rows,
+                 verified_at=excluded.verified_at""",
+            (
+                request_id,
+                "marketing_consent",
+                subject_kind,
+                subject_hash,
+                channel,
+                "withdraw",
+                affected,
+                remaining,
+                evidence_hash,
+                stamp,
+                stamp,
+            ),
+        )
+        stored = db.execute(
+            """SELECT affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+               FROM privacy_store_receipt
+               WHERE request_id=? AND store_name='marketing_consent'
+                 AND subject_kind=? AND subject_hash=? AND scope=?""",
+            (request_id, subject_kind, subject_hash, channel),
+        ).fetchone()
+        receipts.append(
+            {
+                "store": "marketing_consent",
+                "scope": channel,
+                "operation": "withdraw",
+                "affectedRows": int(stored["affected_rows"]),
+                "remainingActiveRows": int(stored["remaining_active_rows"]),
+                "evidenceHash": str(stored["evidence_hash"]),
+                "createdAt": str(stored["created_at"]),
+                "verifiedAt": str(stored["verified_at"]),
+            }
+        )
+    return receipts
 
 
 def suppress(
@@ -135,7 +281,9 @@ def suppress(
     rid = str(request_id or "").strip().lower()[:64]
     stamp = _now_iso()
     init_db(db_path)
+    receipts: list[dict] = []
     with compliance_store.connect(db_path) as db:
+        db.execute("BEGIN IMMEDIATE")
         for purpose in clean:
             db.execute(
                 """INSERT INTO privacy_suppression(
@@ -147,7 +295,21 @@ def suppress(
                      updated_at=excluded.updated_at,active=1""",
                 (subject_kind, digest, purpose, rid, stamp, stamp),
             )
-    return {"ok": True, "subjectKind": subject_kind, "purposes": list(clean)}
+        receipts = _marketing_store_receipts(
+            db,
+            request_id=rid,
+            subject_kind=subject_kind,
+            subject_hash=digest,
+            purposes=clean,
+            stamp=stamp,
+        )
+    return {
+        "ok": True,
+        "subjectKind": subject_kind,
+        "purposes": list(clean),
+        "storeReceiptCount": len(receipts),
+        "storeReceipts": receipts,
+    }
 
 
 def unsuppress(
@@ -218,6 +380,37 @@ def any_suppressed(
     )
 
 
+def store_receipts(
+    request_id: object,
+    db_path: Path | str | None = None,
+) -> list[dict]:
+    rid = str(request_id or "").strip().lower()[:64]
+    if not rid:
+        raise ValueError("requestId requis")
+    init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        rows = db.execute(
+            """SELECT store_name,scope,operation,affected_rows,remaining_active_rows,
+                      evidence_hash,created_at,verified_at
+               FROM privacy_store_receipt WHERE request_id=?
+               ORDER BY store_name,scope,created_at""",
+            (rid,),
+        ).fetchall()
+    return [
+        {
+            "store": str(row["store_name"]),
+            "scope": str(row["scope"]),
+            "operation": str(row["operation"]),
+            "affectedRows": int(row["affected_rows"]),
+            "remainingActiveRows": int(row["remaining_active_rows"]),
+            "evidenceHash": str(row["evidence_hash"]),
+            "createdAt": str(row["created_at"]),
+            "verifiedAt": str(row["verified_at"]),
+        }
+        for row in rows
+    ]
+
+
 def summary(db_path: Path | str | None = None) -> dict:
     init_db(db_path)
     with compliance_store.connect(db_path) as db:
@@ -228,9 +421,14 @@ def summary(db_path: Path | str | None = None) -> dict:
             """SELECT purpose,COUNT(*) n FROM privacy_suppression
                WHERE active=1 GROUP BY purpose ORDER BY purpose"""
         ).fetchall()
+        receipt_total = int(
+            db.execute("SELECT COUNT(*) n FROM privacy_store_receipt").fetchone()["n"]
+        )
     return {
         "active": total,
         "byPurpose": {str(row["purpose"]): int(row["n"]) for row in rows},
         "identityProtection": "HMAC-SHA256",
         "privateKeyFile": _KEY_FILE,
+        "storeReceiptCount": receipt_total,
+        "storeEvidenceStores": ["marketing_consent"],
     }
