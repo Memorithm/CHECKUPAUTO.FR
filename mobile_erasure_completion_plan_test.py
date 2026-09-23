@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -90,9 +91,11 @@ class MobileErasureCompletionPlanTests(unittest.TestCase):
         self.assertTrue(state["knownScopeComplete"])
         self.assertFalse(state["globalCoverageComplete"])
         self.assertFalse(state["closureReady"])
+        expected_hash = hashlib.sha256(SUBJECT.encode("utf-8")).hexdigest()
         self.assertGreaterEqual(lookup.call_count, 1)
-        subject_hash = compliance_store.create_rights_request.__module__
-        self.assertNotEqual(subject_hash, SUBJECT)
+        for call in lookup.call_args_list:
+            self.assertEqual(call.args[0], expected_hash)
+            self.assertNotEqual(call.args[0], SUBJECT)
 
     def test_receipt_preceding_request_is_not_completion_proof(self):
         request = self.request()
