@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import uuid
 from pathlib import Path
 
 import data_subject_rights
-import mobile_devices
 import referral_wallet_lifecycle
 
 
@@ -34,77 +30,6 @@ def _removed_from_receipt(receipt: dict) -> dict:
         "deadlineRecords": max(0, int(removed.get("deadlineRecords") or 0)),
         "vehicleBindingRecords": max(0, int(removed.get("vehicleBindingRecords") or 0)),
     }
-
-
-def _atomic_mobile_receipt(installation_id: str) -> tuple[dict, str, str]:
-    """Erase the verified mobile subject and persist proof in one DB transaction.
-
-    The caller has already re-verified the DSAR subject. The mobile receipt is the
-    crash boundary: if the later compliance-audit write fails, the receipt survives
-    and a retry can recover without recreating or exposing the deleted personal data.
-    """
-    installation_hash = hashlib.sha256(installation_id.encode("utf-8")).hexdigest()
-    referral_wallet_lifecycle._init_mobile_erasure_receipts()
-    with mobile_devices.connect() as db:
-        db.execute("BEGIN IMMEDIATE")
-        removed = {
-            "deviceRecords": int(
-                db.execute(
-                    "SELECT COUNT(*) n FROM mobile_device WHERE installation_id=?",
-                    (installation_id,),
-                ).fetchone()["n"]
-            ),
-            "deadlineRecords": int(
-                db.execute(
-                    "SELECT COUNT(*) n FROM mobile_deadline WHERE installation_id=?",
-                    (installation_id,),
-                ).fetchone()["n"]
-            ),
-            "vehicleBindingRecords": int(
-                db.execute(
-                    "SELECT COUNT(*) n FROM mobile_vehicle_binding WHERE installation_id=?",
-                    (installation_id,),
-                ).fetchone()["n"]
-            ),
-        }
-        stamp = data_subject_rights._now_iso()
-        receipt_id = uuid.uuid4().hex
-        proof = {
-            "receiptId": receipt_id,
-            "installationHash": installation_hash,
-            "removed": removed,
-            "erasedAt": stamp,
-        }
-        canonical = json.dumps(
-            proof,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
-        db.execute(
-            "DELETE FROM mobile_vehicle_binding WHERE installation_id=?",
-            (installation_id,),
-        )
-        db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
-        db.execute(
-            """INSERT INTO mobile_erasure_receipt(
-                 receipt_id,installation_hash,evidence_hash,device_records,
-                 deadline_records,vehicle_binding_records,erased_at
-               ) VALUES(?,?,?,?,?,?,?)""",
-            (
-                receipt_id,
-                installation_hash,
-                evidence_hash,
-                removed["deviceRecords"],
-                removed["deadlineRecords"],
-                removed["vehicleBindingRecords"],
-                stamp,
-            ),
-        )
-    return removed, evidence_hash, stamp
 
 
 def execute(
@@ -136,7 +61,13 @@ def execute(
     else:
         release = referral_wallet_lifecycle._release_installation_ownership(installation_id)
         ownership_released = int(release["released"])
-        removed, evidence_hash, erased_at = _atomic_mobile_receipt(installation_id)
+        erased = referral_wallet_lifecycle._erase_mobile_rows_with_receipt(
+            installation_id,
+            receipt_if_absent=True,
+        )
+        removed = dict(erased["removedCounts"])
+        evidence_hash = str(erased["evidenceHash"])
+        erased_at = str(erased["erasedAt"])
         recovered_from_receipt = False
 
     evidence = {

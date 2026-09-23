@@ -131,6 +131,119 @@ def _release_installation_ownership(installation_id: str) -> dict:
     }
 
 
+def _erase_mobile_rows_with_receipt(
+    installation_id: str,
+    *,
+    expected_secret_hash: str | None = None,
+    receipt_if_absent: bool = False,
+) -> dict:
+    """Delete mobile rows and persist the minimised proof in one transaction.
+
+    Authenticated callers provide ``expected_secret_hash`` so identity verification
+    happens inside the same write transaction as deletion. A verified DSAR caller
+    may instead request a zero-row receipt when the mobile subject is already absent;
+    that records the verified absence without weakening public mobile authentication.
+    """
+    installation_id = mobile_devices._install_id(installation_id)
+    installation_hash = _installation_hash(installation_id)
+    _init_mobile_erasure_receipts()
+    with mobile_devices.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        device = db.execute(
+            "SELECT secret_hash FROM mobile_device WHERE installation_id=?",
+            (installation_id,),
+        ).fetchone()
+        if expected_secret_hash is not None:
+            if not device:
+                return {
+                    "removed": False,
+                    "removedCounts": {
+                        "deviceRecords": 0,
+                        "deadlineRecords": 0,
+                        "vehicleBindingRecords": 0,
+                    },
+                    "evidenceHash": "",
+                    "erasedAt": "",
+                }
+            if not hmac.compare_digest(str(device["secret_hash"]), expected_secret_hash):
+                raise PermissionError("identité mobile refusée")
+        elif not device and not receipt_if_absent:
+            return {
+                "removed": False,
+                "removedCounts": {
+                    "deviceRecords": 0,
+                    "deadlineRecords": 0,
+                    "vehicleBindingRecords": 0,
+                },
+                "evidenceHash": "",
+                "erasedAt": "",
+            }
+
+        removed = {
+            "deviceRecords": int(
+                db.execute(
+                    "SELECT COUNT(*) n FROM mobile_device WHERE installation_id=?",
+                    (installation_id,),
+                ).fetchone()["n"]
+            ),
+            "deadlineRecords": int(
+                db.execute(
+                    "SELECT COUNT(*) n FROM mobile_deadline WHERE installation_id=?",
+                    (installation_id,),
+                ).fetchone()["n"]
+            ),
+            "vehicleBindingRecords": int(
+                db.execute(
+                    "SELECT COUNT(*) n FROM mobile_vehicle_binding WHERE installation_id=?",
+                    (installation_id,),
+                ).fetchone()["n"]
+            ),
+        }
+        stamp = mobile_devices._now_iso()
+        receipt_id = uuid.uuid4().hex
+        evidence = {
+            "receiptId": receipt_id,
+            "installationHash": installation_hash,
+            "removed": removed,
+            "erasedAt": stamp,
+        }
+        canonical = json.dumps(
+            evidence,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
+        db.execute(
+            "DELETE FROM mobile_vehicle_binding WHERE installation_id=?",
+            (installation_id,),
+        )
+        db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
+        db.execute(
+            """INSERT INTO mobile_erasure_receipt(
+                 receipt_id,installation_hash,evidence_hash,device_records,
+                 deadline_records,vehicle_binding_records,erased_at
+               ) VALUES(?,?,?,?,?,?,?)""",
+            (
+                receipt_id,
+                installation_hash,
+                evidence_hash,
+                removed["deviceRecords"],
+                removed["deadlineRecords"],
+                removed["vehicleBindingRecords"],
+                stamp,
+            ),
+        )
+    return {
+        "removed": bool(sum(removed.values())),
+        "removedCounts": removed,
+        "evidenceHash": evidence_hash,
+        "erasedAt": stamp,
+    }
+
+
 def release_for_authenticated_installation(payload: dict) -> dict:
     """Release wallet ownership evidence before deleting a mobile installation.
 
@@ -159,85 +272,19 @@ def release_for_authenticated_installation(payload: dict) -> dict:
 def _erase_authenticated_mobile(payload: dict) -> dict:
     """Delete one authenticated installation and atomically persist its proof.
 
-    The receipt transaction is the crash boundary: after COMMIT, both the mobile
-    rows are gone and their non-identifying evidence exists; before COMMIT, neither
-    change is visible. A retry after a lost response therefore observes an absent
+    Identity verification, mobile deletion and receipt insertion share one SQLite
+    write transaction. A retry after a lost response therefore observes an absent
     installation without creating a second or synthetic receipt.
     """
     installation_id = mobile_devices._install_id(payload.get("installationId"))
     secret_hash = mobile_devices._hash(
         mobile_devices._secret(payload.get("registrationSecret"))
     )
-    installation_hash = _installation_hash(installation_id)
-    _init_mobile_erasure_receipts()
-    with mobile_devices.connect() as db:
-        db.execute("BEGIN IMMEDIATE")
-        row = db.execute(
-            "SELECT secret_hash FROM mobile_device WHERE installation_id=?",
-            (installation_id,),
-        ).fetchone()
-        if not row:
-            return {"ok": True, "removed": False}
-        if not hmac.compare_digest(str(row["secret_hash"]), secret_hash):
-            raise PermissionError("identité mobile refusée")
-
-        device_count = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM mobile_device WHERE installation_id=?",
-                (installation_id,),
-            ).fetchone()["n"]
-        )
-        deadline_count = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM mobile_deadline WHERE installation_id=?",
-                (installation_id,),
-            ).fetchone()["n"]
-        )
-        binding_count = int(
-            db.execute(
-                "SELECT COUNT(*) n FROM mobile_vehicle_binding WHERE installation_id=?",
-                (installation_id,),
-            ).fetchone()["n"]
-        )
-        stamp = mobile_devices._now_iso()
-        receipt_id = uuid.uuid4().hex
-        evidence = {
-            "receiptId": receipt_id,
-            "installationHash": installation_hash,
-            "removed": {
-                "deviceRecords": device_count,
-                "deadlineRecords": deadline_count,
-                "vehicleBindingRecords": binding_count,
-            },
-            "erasedAt": stamp,
-        }
-        canonical = json.dumps(
-            evidence,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-        db.execute("DELETE FROM mobile_deadline WHERE installation_id=?", (installation_id,))
-        db.execute("DELETE FROM mobile_vehicle_binding WHERE installation_id=?", (installation_id,))
-        db.execute("DELETE FROM mobile_device WHERE installation_id=?", (installation_id,))
-        db.execute(
-            """INSERT INTO mobile_erasure_receipt(
-                 receipt_id,installation_hash,evidence_hash,device_records,
-                 deadline_records,vehicle_binding_records,erased_at
-               ) VALUES(?,?,?,?,?,?,?)""",
-            (
-                receipt_id,
-                installation_hash,
-                evidence_hash,
-                device_count,
-                deadline_count,
-                binding_count,
-                stamp,
-            ),
-        )
-    return {"ok": True, "removed": True}
+    erased = _erase_mobile_rows_with_receipt(
+        installation_id,
+        expected_secret_hash=secret_hash,
+    )
+    return {"ok": True, "removed": bool(erased["removed"])}
 
 
 def delete_installation(payload: dict) -> dict:
