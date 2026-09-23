@@ -34,6 +34,14 @@ AUTO_RULES = {
         "store": "analytics.events",
         "trigger": "occurred_at",
     },
+    "booking_browser_tokens": {
+        "label": "Secrets navigateur temporaires de réservation",
+        "mode": "fixed_duration",
+        "activeHours": booking_bridge.BOOKING_BROWSER_TOKEN_TTL_HOURS,
+        "source": "booking_bridge.BOOKING_BROWSER_TOKEN_TTL_HOURS",
+        "store": "analytics.booking_intents.token",
+        "trigger": "created_at",
+    },
     "booking_intents": {
         "label": "Intentions de réservation / attribution",
         "mode": "site_config",
@@ -363,6 +371,15 @@ def _purge_analytics(days: int, *, dry_run: bool) -> int:
         if not dry_run:
             db.execute("DELETE FROM events WHERE occurred_at<?", (cutoff,))
     return count
+
+
+def _retire_booking_browser_tokens(
+    *,
+    current: datetime.datetime,
+    dry_run: bool,
+) -> int:
+    booking_bridge.init_db()
+    return int(booking_bridge.retire_expired_browser_tokens(now=current, dry_run=dry_run))
 
 
 def _purge_booking_intents(days: int, *, dry_run: bool) -> int:
@@ -714,6 +731,13 @@ def run_once(
             days = int(state["activeDays"])
             cutoff_at = _cutoff(days)
             removed = _purge_analytics(days, dry_run=dry_run)
+        elif rule_id == "booking_browser_tokens":
+            current = _now()
+            hours = int(state["activeHours"])
+            cutoff_at = (
+                current - datetime.timedelta(hours=hours)
+            ).isoformat(timespec="seconds")
+            removed = _retire_booking_browser_tokens(current=current, dry_run=dry_run)
         elif rule_id == "booking_intents":
             days = int(state["activeDays"])
             cutoff_at = _cutoff(days)
