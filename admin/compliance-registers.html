@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>CyberCheck — Registres de conformité</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <main class="shell" style="display:block;max-width:1500px;margin:0 auto;padding:32px">
+    <section class="panel control-panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">CONFORMITÉ OPÉRATIONNELLE</p>
+          <h1>Registres RGPD &amp; sous-traitants</h1>
+          <p class="hint">Vue en lecture seule des activités de traitement, du registre des sous-traitants et des blocages calculés par le backend. Les données affichées proviennent du même snapshot que le Compliance Center.</p>
+        </div>
+        <div class="button-row">
+          <span id="operationsState" class="gsc-status warning">Diagnostic…</span>
+          <button type="button" id="operationsRefresh" class="secondary">Actualiser</button>
+          <a class="preview" href="/admin/#compliance">Retour au Compliance Center</a>
+        </div>
+      </div>
+
+      <div class="metric-grid">
+        <article><small>ACTIVITÉS ACTIVES</small><strong id="operationsActivities">—</strong></article>
+        <article><small>SOUS-TRAITANTS ACTIFS</small><strong id="operationsProcessors">—</strong></article>
+        <article><small>BLOQUEURS</small><strong id="operationsBlockers">—</strong></article>
+        <article><small>ATTESTATION REGISTRES</small><strong id="operationsAttestation">—</strong></article>
+      </div>
+
+      <p id="operationsMessage" class="hint">Chargement des registres…</p>
+
+      <div class="integration-box">
+        <div class="panel-head compact"><div><h2>Blocages opérationnels</h2><p class="hint">Un registre vide, une revue dépassée, un DPA en attente, un transfert non documenté ou une revue de risque incomplète maintient la garde de mise en production fermée.</p></div></div>
+        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Type</th><th>Objet</th><th>Identifiant</th></tr></thead><tbody id="operationsBlockerRows"><tr><td colspan="3">Chargement…</td></tr></tbody></table></div>
+      </div>
+
+      <div class="integration-box">
+        <div class="panel-head compact"><div><h2>Registre des activités de traitement</h2><p class="hint">Finalités, bases légales, systèmes, responsable, risque/AIPD et échéance de revue issus du registre Article 30 opérationnel.</p></div></div>
+        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Activité</th><th>Rôle</th><th>Finalités</th><th>Bases légales</th><th>Systèmes</th><th>Responsable</th><th>Risque / AIPD</th><th>Revue</th></tr></thead><tbody id="operationsActivityRows"><tr><td colspan="8">Chargement…</td></tr></tbody></table></div>
+      </div>
+
+      <div class="integration-box">
+        <div class="panel-head compact"><div><h2>Sous-traitants &amp; sous-sous-traitants</h2><p class="hint">État DPA, localisation d’hébergement, transferts, sous-traitants ultérieurs et échéances de revue. Cette vue n’invente aucune donnée fournisseur : elle affiche uniquement les faits enregistrés dans le registre.</p></div></div>
+        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Prestataire</th><th>Service</th><th>DPA</th><th>Hébergement</th><th>Transfert</th><th>Sous-traitants ultérieurs</th><th>Revue</th></tr></thead><tbody id="operationsProcessorRows"><tr><td colspan="7">Chargement…</td></tr></tbody></table></div>
+      </div>
+    </section>
+  </main>
+  <script src="/admin/compliance-registers.js" defer></script>
+</body>
+</html>
