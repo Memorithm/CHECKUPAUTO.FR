@@ -94,9 +94,10 @@ def _assert_recovery_state(
 
     A receipt proves that the correction transaction committed, but a later device sync
     may legitimately replace or delete that local deadline before the compliance audit
-    is retried.  The retry therefore accepts the receipt only while the exact device
-    deadline generation written by the correction still exists. ``updated_at`` acts as
-    the generation marker without adding raw identifiers or dates to the receipt.
+    is retried. The retry therefore accepts the receipt only while the exact device
+    deadline generation written by the correction still exists. The correction writes
+    a microsecond-precision ``updated_at`` marker, whereas ordinary mobile syncs use the
+    public store clock, so even a same-value later sync invalidates the stale receipt.
     """
     device = db.execute(
         "SELECT installation_id FROM mobile_device WHERE installation_id=?",
@@ -126,7 +127,7 @@ def _apply_with_receipt(
     """Apply a device-owned correction and persist its recovery receipt atomically.
 
     The mobile store keeps only SHA-256 links to the compliance request/subject and to
-    the requested correction.  If the separate compliance audit write fails after this
+    the requested correction. If the separate compliance audit write fails after this
     transaction commits, an exact retry can recover from the receipt without mutating
     the deadline again. A retry carrying a different correction, or a receipt whose
     corrected deadline has since changed, fails closed.
@@ -192,7 +193,7 @@ def _apply_with_receipt(
         if str(deadline["source"]) != mobile_devices.DEVICE_DEADLINE_SOURCE:
             raise PermissionError("échéance autoritaire non rectifiable")
 
-        executed_at = rights._now_iso()
+        executed_at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds")
         db.execute(
             """UPDATE mobile_deadline SET due_date=?,updated_at=?
                WHERE installation_id=? AND deadline_id=? AND source=?""",
