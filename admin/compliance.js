@@ -89,6 +89,27 @@ async function editRightsPlan(requestId){
   await load();setMessage('Plan RGPD enregistré. La couverture globale reste bloquée tant que tous les stores ne sont pas couverts.');
  }catch(e){setMessage(e.message,true)}
 }
+function mercureCoverageStateLabel(state){
+ if(state==='attested')return 'ATTESTÉ';
+ if(state==='invalid')return 'INVALIDE';
+ return 'NON CONFIGURÉ'
+}
+function renderMercureProviderCoverage(){
+ const coverage=snapshot?.mercureProviderCoverage||{},boundary=coverage.boundary||{};
+ const anchor=$('#complianceMessage');if(!anchor)return;
+ let box=$('#complianceMercureProviderCoverage');
+ if(!box){box=document.createElement('div');box.id='complianceMercureProviderCoverage';box.className='integration-box';anchor.insertAdjacentElement('afterend',box)}
+ const state=String(boundary.state||'unconfigured');
+ const attested=state==='attested'&&boundary.attested===true;
+ const historyStart=String(boundary.historyStart||'—');
+ const futureDays=Number.isInteger(boundary.futureDays)&&boundary.futureDays>=0?String(boundary.futureDays)+' j':'—';
+ const evidence=/^[0-9a-f]{64}$/.test(String(boundary.evidenceSha256||''))?String(boundary.evidenceSha256):'—';
+ const reason=String(boundary.reason||'');
+ box.innerHTML='<div class="panel-head compact"><div><h3>Frontière DSAR Mercure</h3><p class="hint">Périmètre temporel attesté par une preuve fournisseur ou contractuelle externe. Seule son empreinte SHA-256 est affichée ; aucune preuve brute n’est conservée dans Git ni renvoyée par cette vue.</p></div><span class="gsc-status '+(attested?'online':'warning')+'">'+esc(mercureCoverageStateLabel(state))+'</span></div>'+
+  '<div class="mercure-live-grid"><article><small>DÉBUT HISTORIQUE</small><strong>'+esc(historyStart)+'</strong></article><article><small>HORIZON FUTUR</small><strong>'+esc(futureDays)+'</strong></article><article><small>PREUVE SHA-256</small><strong><code>'+esc(evidence)+'</code></strong></article><article><small>VÉHICULES</small><strong>PARTIEL</strong><span>Inventaire exhaustif non prouvé</span></article></div>'+
+  (reason?'<p class="warning-text">Diagnostic : '+esc(reason)+'</p>':'')+
+  '<p class="hint">L’attestation de frontière ne suffit pas à prouver l’exhaustivité des véhicules. La complétude Mercure reste bloquée tant qu’une source autoritaire client→tous véhicules n’est pas vérifiée.</p>';
+}
 function render(){
  if(!snapshot)return;
  const s=snapshot.summary||{}, settings=snapshot.settings||{};
@@ -104,6 +125,7 @@ function render(){
  $('#complianceWithdrawal').textContent=s.withdrawalFunctionBound
   ? ('Opérationnelle · '+String(withdrawal.pendingReceipts||0)+' accusé(s) en attente')
   : 'À relier au contrat';
+ renderMercureProviderCoverage();
  for(const key of ['controllerName','legalForm','capital','registeredAddress','registrationId','vatNumber','publicationDirector','contactEmail','privacyContact','mediatorName','mediatorUrl','mediatorAddress','hostName','hostAddress','hostPhone','approvalAuthority','approvalReference']){
   const el=$('#compliance_'+key);if(el)el.value=settings[key]||'';
  }
