@@ -15,6 +15,9 @@ _PROVIDER = "mercure-rdv"
 _CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]{3,23}$")
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _ALLOWED_REWARD_STATUS = {"pending", "earned", "cancelled", "reversed"}
+_ATTRIBUTION_STORAGE_KEY = "attribution_token_storage"
+_ATTRIBUTION_STORAGE_VERSION = "sha256-v1"
+_ATTRIBUTION_KEY_RE = re.compile(r"^sha256-v1:[0-9a-f]{64}$")
 
 
 def now_iso() -> str:
@@ -60,6 +63,74 @@ def _reward_ledger_reference(provider: str, external_id: str) -> str:
 
 def _legacy_reward_ledger_reference(provider: str, external_id: str) -> str:
     return f"{provider}:{external_id}"
+
+
+def _attribution_token_key(value: object) -> str:
+    """Derive a domain-separated, non-reversible idempotence key.
+
+    Booking attribution tokens are bearer-like browser correlation values. The
+    referral engine only needs equality, never the original token, so persistence
+    is limited to a SHA-256 derivative. The version prefix makes future rotation
+    explicit without guessing from hash-shaped legacy input.
+    """
+    raw = str(value or "").strip()[:120]
+    if not raw:
+        return ""
+    material = b"checkupauto:referral-attribution:v1\x00" + raw.encode("utf-8")
+    return _ATTRIBUTION_STORAGE_VERSION + ":" + hashlib.sha256(material).hexdigest()
+
+
+def _migrate_attribution_tokens_locked(db) -> None:
+    """Migrate historical raw attribution tokens while holding a write lock.
+
+    The schema marker prevents repeated hashing. Rows created by an older process
+    during a rolling deployment are still repaired because a valid stored key has
+    an unambiguous versioned shape that browser-generated raw tokens do not use.
+    """
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS referral_schema_meta(
+             key TEXT PRIMARY KEY,
+             value TEXT NOT NULL
+           )"""
+    )
+    marker = db.execute(
+        "SELECT value FROM referral_schema_meta WHERE key=?",
+        (_ATTRIBUTION_STORAGE_KEY,),
+    ).fetchone()
+    if marker and str(marker["value"]) != _ATTRIBUTION_STORAGE_VERSION:
+        raise RuntimeError("Version de stockage d'attribution inconnue")
+
+    rows = db.execute(
+        """SELECT provider,external_id,attribution_token
+           FROM referral_rewards WHERE attribution_token<>''"""
+    ).fetchall()
+    migrate_all = marker is None
+    for row in rows:
+        stored = str(row["attribution_token"])
+        if not migrate_all and _ATTRIBUTION_KEY_RE.fullmatch(stored):
+            continue
+        derived = _attribution_token_key(stored)
+        try:
+            db.execute(
+                """UPDATE referral_rewards SET attribution_token=?
+                   WHERE provider=? AND external_id=?""",
+                (derived, row["provider"], row["external_id"]),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise RuntimeError("Collision de clé d'attribution") from exc
+
+    if marker is None:
+        db.execute(
+            "INSERT INTO referral_schema_meta(key,value) VALUES(?,?)",
+            (_ATTRIBUTION_STORAGE_KEY, _ATTRIBUTION_STORAGE_VERSION),
+        )
+
+    invalid = db.execute(
+        """SELECT attribution_token FROM referral_rewards
+           WHERE attribution_token<>''"""
+    ).fetchall()
+    if any(not _ATTRIBUTION_KEY_RE.fullmatch(str(row["attribution_token"])) for row in invalid):
+        raise RuntimeError("Migration de clé d'attribution incomplète")
 
 
 def init_db() -> None:
@@ -137,6 +208,8 @@ def init_db() -> None:
             );
             """
         )
+        db.execute("BEGIN IMMEDIATE")
+        _migrate_attribution_tokens_locked(db)
         db.executescript(
             """
             -- Never DROP these invariant triggers during normal init: concurrent
@@ -257,6 +330,7 @@ def record_pending(
     code = valid_code_or_empty(code)
     external_id = str(external_id or "").strip()[:120]
     token = str(attribution_token or "").strip()[:120]
+    token_key = _attribution_token_key(token)
     provider = str(provider or _PROVIDER).strip()[:60] or _PROVIDER
     if not code or not external_id:
         return None
@@ -266,10 +340,10 @@ def record_pending(
         account = _account_by_code(db, code)
         if not account:
             return None
-        if token:
+        if token_key:
             existing = db.execute(
                 "SELECT * FROM referral_rewards WHERE attribution_token=?",
-                (token,),
+                (token_key,),
             ).fetchone()
             if existing:
                 if (
@@ -283,11 +357,11 @@ def record_pending(
                     if not conflict:
                         db.execute(
                             "UPDATE referral_rewards SET provider=?,external_id=?,updated_at=? WHERE attribution_token=?",
-                            (provider, external_id, now, token),
+                            (provider, external_id, now, token_key),
                         )
                         existing = db.execute(
                             "SELECT * FROM referral_rewards WHERE attribution_token=?",
-                            (token,),
+                            (token_key,),
                         ).fetchone()
                 return dict(existing)
         existing = db.execute(
@@ -308,7 +382,7 @@ def record_pending(
                 code,
                 "pending",
                 int(account["reward_cents"]),
-                token,
+                token_key,
                 now,
                 now,
             ),
