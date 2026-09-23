@@ -40,6 +40,11 @@ def _install_id(value: object) -> str:
     return raw
 
 
+def _assert_processing_allowed(installation_id: str) -> None:
+    if privacy.is_suppressed("installation", installation_id, "all_processing"):
+        raise PermissionError("traitement mobile refusé")
+
+
 def _secret(value: object) -> str:
     raw = str(value or "").strip()
     if not _SECRET_RE.fullmatch(raw):
@@ -185,6 +190,7 @@ def register_installation(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
     installation_id = _install_id(payload.get("installationId"))
+    _assert_processing_allowed(installation_id)
     secret_hash = _hash(_secret(payload.get("registrationSecret")))
     now = _now_iso()
     init_db()
@@ -212,6 +218,7 @@ def register(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("payload invalide")
     installation_id = _install_id(payload.get("installationId"))
+    _assert_processing_allowed(installation_id)
     secret = _secret(payload.get("registrationSecret"))
     token = _device_token(payload.get("deviceToken"))
     environment = _environment(payload.get("environment"))
@@ -310,6 +317,7 @@ def disable_invalid_token(installation_id: str, device_token: str, reason: str) 
 
 
 def _authenticated_installation(db: sqlite3.Connection, installation_id: str, secret_hash: str) -> sqlite3.Row:
+    _assert_processing_allowed(installation_id)
     row = db.execute(
         """SELECT installation_id,secret_hash,device_token,environment,disabled_at
            FROM mobile_device WHERE installation_id=?""",
@@ -588,6 +596,7 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
     binding can call it after resolving Mercure vehicle identities.
     """
     installation_id = _install_id(installation_id)
+    _assert_processing_allowed(installation_id)
     if not isinstance(deadlines, list) or len(deadlines) > MAX_DEADLINES_PER_INSTALLATION:
         raise ValueError("deadlines invalides")
     parsed: list[tuple[str, str]] = []
