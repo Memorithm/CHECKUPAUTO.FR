@@ -45,14 +45,15 @@ def snapshot(account_id: object) -> dict:
     state because their provider/external IDs identify third-party appointments and
     must not be disclosed to the wallet owner as part of this adapter.
 
-    ``ledgerTruncated`` is authoritative for completeness: when false, the returned
-    ledger contains every live ledger row for the account because ``ledgerCount`` is
-    counted in the same database snapshot as the bounded query.
+    Every value is read inside one explicit SQLite read transaction. Therefore
+    ``ledgerTruncated`` is authoritative for that snapshot: when false, the returned
+    ledger contains every live ledger row visible in the same consistent snapshot.
     """
     account = _account_id(account_id)
     referral_engine.init_db()
     referral_wallet_claims.init_db()
     with analytics.connect() as db:
+        db.execute("BEGIN")
         row = db.execute(
             "SELECT id,code,active,reward_cents,currency,created_at FROM referral_accounts WHERE id=?",
             (account,),
@@ -64,6 +65,13 @@ def snapshot(account_id: object) -> dict:
                FROM referral_rewards WHERE account_id=? GROUP BY status ORDER BY status""",
             (account,),
         ).fetchall()
+        pending_cents = int(
+            db.execute(
+                """SELECT COALESCE(SUM(reward_cents),0) total
+                   FROM referral_rewards WHERE account_id=? AND status='pending'""",
+                (account,),
+            ).fetchone()["total"]
+        )
         ledger = db.execute(
             """SELECT kind,amount_cents,reference,created_at
                FROM referral_ledger WHERE account_id=?
@@ -76,7 +84,7 @@ def snapshot(account_id: object) -> dict:
                 (account,),
             ).fetchone()["n"]
         )
-    summary = referral_engine.account_summary(str(row["code"]))
+        balance_cents = referral_engine._wallet_balance_locked(db, account)
     return {
         "account": {
             "accountId": str(row["id"]),
@@ -87,8 +95,8 @@ def snapshot(account_id: object) -> dict:
             "createdAt": str(row["created_at"]),
         },
         "wallet": {
-            "balanceCents": int(summary["balanceCents"]),
-            "pendingCents": int(summary["pendingCents"]),
+            "balanceCents": balance_cents,
+            "pendingCents": pending_cents,
         },
         "rewards": [
             {
