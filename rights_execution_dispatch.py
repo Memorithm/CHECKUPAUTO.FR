@@ -81,6 +81,63 @@ def _provider_erasure_unavailable(store: str, reason: str) -> dict:
     }
 
 
+def _recover_completed_mercure_erasure(
+    body: dict,
+    db_path: Path | str | None = None,
+) -> dict | None:
+    """Recover provider-keyed erasure work after central suppression was audited.
+
+    Recovery is intentionally narrow: the request must still be executable, the
+    submitted subject must re-verify as a direct Mercure subject, the central
+    privacy suppression audit must already contain suppress_complete, and at
+    least one dependent local receipt must still be missing. A normally completed
+    request remains duplicate-protected.
+    """
+    raw_ref = str(body.get("subjectRef") or "").strip()
+    try:
+        mercure_rights.parse_subject_ref(raw_ref)
+    except ValueError:
+        return None
+
+    rid = data_subject_rights._request_id(body.get("id"))
+    row = data_subject_rights._request(rid, db_path)
+    if str(row["status"]) not in {"open", "in_progress"}:
+        return None
+    if str(row["request_type"]) != "erasure":
+        return None
+    data_subject_rights._verify_subject(
+        row,
+        raw_ref,
+        "privacy_suppression",
+        db_path,
+    )
+    actions = set(
+        data_subject_rights._adapter_actions(
+            rid,
+            "privacy_suppression",
+            db_path,
+        )
+    )
+    if "suppress_complete" not in actions:
+        return None
+
+    review_receipt = review_followup_privacy.receipt(rid)
+    booking_receipt = booking_conversion_erasure.receipt(rid)
+    if review_receipt is not None and booking_receipt is not None:
+        return None
+
+    return {
+        "ok": True,
+        "requestId": rid,
+        "requestType": "erasure",
+        "adapter": "privacy_suppression",
+        "purposes": ["all_processing"],
+        "requestStatus": "in_progress",
+        "requestComplete": False,
+        "recoveredFromSuppressionAudit": True,
+    }
+
+
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
     """Route one verified DSAR operation to its narrow store adapter.
 
@@ -129,13 +186,24 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
                     body.get("subjectRef"),
                     db_path,
                 )
-        result = data_subject_rights.execute(
-            body.get("id"),
-            body.get("subjectRef"),
-            adapter=adapter,
-            purpose=str(body.get("purpose") or ""),
-            db_path=db_path,
-        )
+        try:
+            result = data_subject_rights.execute(
+                body.get("id"),
+                body.get("subjectRef"),
+                adapter=adapter,
+                purpose=str(body.get("purpose") or ""),
+                db_path=db_path,
+            )
+        except RuntimeError as exc:
+            if (
+                adapter != "privacy_suppression"
+                or str(exc) != "adaptateur déjà exécuté pour cette demande"
+            ):
+                raise
+            recovered = _recover_completed_mercure_erasure(body, db_path)
+            if recovered is None:
+                raise
+            result = recovered
         if adapter == "privacy_suppression" and str(result.get("requestType") or "") == "erasure":
             # The central adapter has already reverified the request/subject pair.
             # Reuse that verified result rather than performing a second request
