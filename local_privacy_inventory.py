@@ -12,7 +12,7 @@ import analytics_store
 import booking_conversion_reconciliation
 
 
-INVENTORY_SCOPE = "known-local-privacy-stores-v2"
+INVENTORY_SCOPE = "known-local-privacy-stores-v3"
 
 
 def _row(
@@ -148,6 +148,17 @@ def snapshot() -> dict:
             limitation="direct_mercure_subject_ref_only",
         ),
         booking_row,
+        _row(
+            "withdrawal_requests",
+            "withdrawal_rights",
+            "direct_subject_and_contract_evidence",
+            "partial_wired",
+            subject_erasure_applicable=True,
+            adapter="withdrawal_evidence",
+            binding_source="withdrawal_requests.receipt_email_hash",
+            prerequisite="exact_verified_receipt_email_subject_ref",
+            limitation="access_portability_email_only_erasure_not_implemented_retention_rule_withdrawal_evidence",
+        ),
     ]
 
     unresolved_states = {"unresolved", "conditional_unwired", "partial_wired"}
@@ -174,5 +185,6 @@ def snapshot() -> dict:
             "inventory_scope_not_yet_exhaustive",
             "provider_reference_stores_require_attested_subject_appointment_inventory",
             "local_booking_reconciliation_does_not_prove_provider_coverage",
+            "withdrawal_erasure_requires_retention_aware_implementation",
         ],
     }
