@@ -59,6 +59,7 @@ class RightsExecutionBookingConversionTest(unittest.TestCase):
             result = dispatch.execute(payload, "compliance.sqlite3")
 
         central.assert_called_once()
+        self.assertTrue(central.call_args.kwargs["resume_completed_erasure"])
         snapshot.assert_called_once_with("account:42")
         review.assert_called_once_with("request-1", ("apt-subject",))
         booking.assert_called_once_with("request-1", ("apt-subject",))
