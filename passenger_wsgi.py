@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 import http.client
 import ipaddress
+import json
 import os
 import secrets
+import subprocess
 import threading
+import time
 from urllib.parse import quote
+
+import public_surface_provenance
 
 _BACKEND_LOCK = threading.RLock()
 _BACKEND_SERVER = None
 _BACKEND_THREAD = None
 _PROXY_TOKEN = secrets.token_urlsafe(32)
+_PROVENANCE_LOCK = threading.RLock()
+_PROVENANCE_CACHE = (0.0, b"")
+_PROVENANCE_CACHE_SECONDS = 5.0
+_ROOT = Path(__file__).resolve().parent
 _HOP_BY_HOP = {
     "connection",
     "keep-alive",
@@ -112,6 +122,57 @@ def _request_body(environ: dict) -> bytes:
     return bytes(body)
 
 
+def _git_output(*args: str) -> str:
+    return subprocess.run(
+        ["git", "-c", f"safe.directory={_ROOT}", "-C", str(_ROOT), *args],
+        capture_output=True,
+        text=True,
+        timeout=4,
+        check=True,
+    ).stdout.strip()
+
+
+def _runtime_git_state() -> dict:
+    try:
+        head = _git_output("rev-parse", "HEAD")
+        branch = _git_output("rev-parse", "--abbrev-ref", "HEAD")
+        status = _git_output("status", "--porcelain=v1")
+        return {"available": True, "head": head, "branch": branch, "dirty": bool(status)}
+    except Exception:
+        return {"available": False, "head": "", "branch": "", "dirty": None}
+
+
+def _public_provenance_body() -> bytes:
+    global _PROVENANCE_CACHE
+    now = time.monotonic()
+    with _PROVENANCE_LOCK:
+        cached_at, cached = _PROVENANCE_CACHE
+        if cached and now - cached_at < _PROVENANCE_CACHE_SECONDS:
+            return cached
+        payload = public_surface_provenance.runtime_evidence(_runtime_git_state())
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        _PROVENANCE_CACHE = (now, raw)
+        return raw
+
+
+def _public_provenance_response(environ: dict, start_response):
+    method = str(environ.get("REQUEST_METHOD") or "GET").upper()
+    path = str(environ.get("PATH_INFO") or "/")
+    if path != public_surface_provenance.DEPLOYMENT_PROVENANCE_PATH or method not in {"GET", "HEAD"}:
+        return None
+    payload = _public_provenance_body()
+    start_response(
+        "200 OK",
+        [
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Content-Length", str(len(payload))),
+            ("Cache-Control", "no-store"),
+            ("X-Content-Type-Options", "nosniff"),
+        ],
+    )
+    return [b"" if method == "HEAD" else payload]
+
+
 class _ResponseIterable:
     def __init__(self, response, connection):
         self.response = response
@@ -133,6 +194,10 @@ class _ResponseIterable:
 
 def application(environ, start_response):
     try:
+        direct = _public_provenance_response(environ, start_response)
+        if direct is not None:
+            return direct
+
         host, port = _ensure_backend()
         method = str(environ.get("REQUEST_METHOD") or "GET").upper()
         target = _request_target(environ)
