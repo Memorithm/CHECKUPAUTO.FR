@@ -77,6 +77,7 @@ class PaylineConfigurationTest(unittest.TestCase):
     def test_endpoint_is_pinned_to_homologation(self):
         config = payline.PaylineSandboxConfig.from_mapping(fixture())
         self.assertEqual(config.webpayment_endpoint, "https://homologation.payline.com/V4/services/WebPaymentAPI")
+        self.assertEqual(config.directpayment_endpoint, "https://homologation.payline.com/V4/services/DirectPaymentAPI")
         with self.assertRaises(payline.PaylineConfigurationError):
             replace(config, environment="production")
 
