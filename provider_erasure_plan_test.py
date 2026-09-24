@@ -69,6 +69,17 @@ class ProviderErasurePlanTest(unittest.TestCase):
             0o600,
         )
 
+    def test_subject_kind_is_canonicalized(self):
+        plan.stage(self.request_id, "Account:42", ["apt-1"])
+        loaded = plan.load(self.request_id, "account:42")
+        self.assertEqual(loaded["appointmentIds"], ("apt-1",))
+
+    def test_wrong_master_key_fails_closed(self):
+        plan.stage(self.request_id, self.subject_ref, ["apt-1"])
+        plan._key_path().write_bytes(os.urandom(32))
+        with self.assertRaisesRegex(RuntimeError, "illisible"):
+            plan.load(self.request_id, self.subject_ref)
+
     def test_wrong_subject_cannot_load_plan(self):
         plan.stage(self.request_id, self.subject_ref, ["apt-1"])
         with self.assertRaisesRegex(PermissionError, "autre sujet"):
