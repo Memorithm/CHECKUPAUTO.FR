@@ -62,6 +62,18 @@ Ce transport ne signifie toujours pas que le compte marchand est authentifié ou
 
 Le back-office Paiements reçoit uniquement un état minimisé : configuration présente/valide, transport disponible et portes opérationnelles. Aucun `merchantId`, `accessKey`, `contractNumber` ou origine privée n'est renvoyé au navigateur. Tant que l'authentification réelle auprès de Monext et le rattachement du contrat n'ont pas été vérifiés, les indicateurs correspondants restent faux.
 
+### Retours navigateur et notification Payline
+
+Les routes sandbox sont maintenant liées à l'application :
+
+- `/payment/payline/return?paymentId=…` pour le retour du navigateur ;
+- `/payment/payline/cancel?paymentId=…` pour une interruption utilisateur ;
+- `/api/payments/payline/notify?notificationType=webtrs&token=…` pour le signal serveur Payline.
+
+Le `paymentId` est un identifiant aléatoire CheckupAuto ; il sert uniquement à retrouver l'intention déjà créée. Aucun paramètre de résultat venant du navigateur n'est accepté. Le retour et la notification relisent l'état auprès de Payline avec `getWebPaymentDetails`, puis appliquent seulement l'événement vérifié au journal idempotent. La route d'annulation ne modifie jamais l'état du paiement sur la seule foi du navigateur.
+
+Les réponses navigateur sont `noindex` et n'exposent ni token Payline, ni identifiant marchand, ni corps prestataire. Une configuration privée absente ou une relecture fournisseur indisponible laisse le paiement non confirmé et retourne un état temporairement indisponible plutôt qu'un faux succès.
+
 ## Accès à préparer avec Monext
 
 Les données à obtenir depuis le **compte marchand Payline**, séparément pour les tests, sont :
