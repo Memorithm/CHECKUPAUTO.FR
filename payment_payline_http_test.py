@@ -119,6 +119,20 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         self.assertEqual(self.store.get(self.intent.payment_id).state, "created")
 
 
+
+    def test_checkout_page_is_first_party_noindex_and_contains_no_payment_secret(self):
+        handler=Handler(routes.CHECKOUT_ROUTE)
+        self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],200)
+        body=handler.response["data"]
+        self.assertIn(b"Paiement s",body)
+        self.assertIn(b"Payline / Monext",body)
+        self.assertIn(b"location.hash",body)
+        self.assertNotIn(b"merchantId",body)
+        self.assertNotIn(b"accessKey",body)
+        self.assertNotIn(b"contractNumber",body)
+        self.assertIn("noindex",handler.response["headers"]["X-Robots-Tag"])
+
     def test_public_start_route_accepts_only_server_bound_browser_identity(self):
         handler=Handler(
             routes.START_ROUTE,
