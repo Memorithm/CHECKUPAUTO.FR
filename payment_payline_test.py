@@ -47,7 +47,7 @@ def start_response(code="00000", token="TOKEN_FIXTURE_123",
 </soapenv:Envelope>""".encode()
 
 
-def refund_response(code="00000"):
+def refund_response(code="00000", short_message="ACCEPTED"):
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
  xmlns:impl="http://impl.ws.payline.experian.com"
@@ -68,7 +68,7 @@ def details_response(code="00000", short_message="ACCEPTED", amount="8000", curr
  xmlns:obj="http://obj.ws.payline.experian.com">
  <soapenv:Body>
   <impl:getWebPaymentDetailsResponse>
-   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>ACCEPTED</obj:shortMessage></impl:result>
+   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>{short_message}</obj:shortMessage></impl:result>
    <impl:transaction><obj:id>{transaction_id}</obj:id><obj:orderReference>other-field</obj:orderReference></impl:transaction>
    <impl:payment><obj:amount>{amount}</obj:amount><obj:currency>{currency}</obj:currency></impl:payment>
    <impl:order><obj:ref>{order_ref}</obj:ref><obj:amount>{amount}</obj:amount><obj:currency>{currency}</obj:currency></impl:order>
