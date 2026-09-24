@@ -19,14 +19,14 @@ def config():
     )
 
 
-def details_xml(payment_id: str, transaction_id: str, code: str, amount: int = 8000) -> bytes:
+def details_xml(payment_id: str, transaction_id: str, code: str, short_message: str, amount: int = 8000) -> bytes:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
  xmlns:impl="http://impl.ws.payline.experian.com"
  xmlns:obj="http://obj.ws.payline.experian.com">
  <soapenv:Body>
   <impl:getWebPaymentDetailsResponse>
-   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>TEST</obj:shortMessage></impl:result>
+   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>{short_message}</obj:shortMessage></impl:result>
    <impl:transaction><obj:id>{transaction_id}</obj:id></impl:transaction>
    <impl:payment><obj:amount>{amount}</obj:amount><obj:currency>978</obj:currency></impl:payment>
    <impl:order><obj:ref>{payment_id}</obj:ref><obj:amount>{amount}</obj:amount><obj:currency>978</obj:currency></impl:order>
@@ -45,8 +45,10 @@ class PaymentStateMachineRegressionTest(unittest.TestCase):
         self.intent=self.store.bind_provider(created.payment_id,"TOKEN_FIXTURE_123")
 
     def event(self, state: str, tx: str, code: str):
+        short={"captured":"ACCEPTED","declined":"REFUSED","pending":"INPROGRESS",
+               "cancelled":"CANCELLED","error":"ERROR"}[state]
         return payline.parse_details_response(
-            details_xml(self.intent.payment_id,tx,code),
+            details_xml(self.intent.payment_id,tx,code,short),
             self.store.get(self.intent.payment_id),
             "TOKEN_FIXTURE_123",
         )
@@ -101,7 +103,7 @@ class PaymentStateMachineRegressionTest(unittest.TestCase):
     def test_malformed_provider_transaction_id_is_rejected_not_sanitized(self):
         with self.assertRaisesRegex(core.PaymentError,"^payline_transaction_invalid$"):
             payline.parse_details_response(
-                details_xml(self.intent.payment_id,"TXN 123","00000"),
+                details_xml(self.intent.payment_id,"TXN 123","00000","ACCEPTED"),
                 self.intent,
                 "TOKEN_FIXTURE_123",
             )
