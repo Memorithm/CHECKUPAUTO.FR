@@ -81,6 +81,23 @@ def _provider_erasure_unavailable(store: str, reason: str) -> dict:
     }
 
 
+def _provider_erasure_recovery_needed(
+    body: dict,
+    db_path: Path | str | None = None,
+) -> bool:
+    """Resume only a direct Mercure erasure whose local tail is incomplete."""
+    raw_ref = str(body.get("subjectRef") or "").strip()
+    try:
+        mercure_rights.parse_subject_ref(raw_ref)
+        rid = data_subject_rights._request_id(body.get("id"))
+    except ValueError:
+        return False
+    return (
+        review_followup_privacy.receipt(rid) is None
+        or booking_conversion_erasure.receipt(rid) is None
+    )
+
+
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
     """Route one verified DSAR operation to its narrow store adapter.
 
@@ -138,7 +155,10 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             "db_path": db_path,
         }
         if adapter == "privacy_suppression":
-            execute_kwargs["resume_completed_erasure"] = True
+            execute_kwargs["resume_completed_erasure"] = _provider_erasure_recovery_needed(
+                body,
+                db_path,
+            )
         result = data_subject_rights.execute(
             body.get("id"),
             body.get("subjectRef"),
