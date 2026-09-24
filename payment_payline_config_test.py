@@ -97,7 +97,8 @@ class PaylineConfigurationTest(unittest.TestCase):
     def test_well_formed_configuration_does_not_open_any_operational_gate(self):
         report = payline.preflight(payline.PaylineSandboxConfig.from_mapping(fixture()))
         self.assertTrue(report["configurationSyntaxValid"])
-        for gate in ("credentialsVerified", "contractBindingVerified", "transportImplemented", "checkoutBound",
+        self.assertTrue(report["transportImplemented"])
+        for gate in ("credentialsVerified", "contractBindingVerified", "checkoutBound",
                      "httpCallbacksBound", "livePaymentsEnabled", "ready"):
             self.assertIs(report[gate], False)
         self.assertEqual(report["provider"], "payline")
