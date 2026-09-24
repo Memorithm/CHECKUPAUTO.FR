@@ -270,9 +270,28 @@ def create_synthetic_test_appointment(service_key, date_value, time_value):
     appointment_id=str((body or {}).get('id') or ((body or {}).get('event') or {}).get('id') or '')
     if not appointment_id: raise RuntimeError('Mercure n’a pas retourné l’identifiant du rendez-vous test')
     end=(datetime.date.fromisoformat(date_value)+datetime.timedelta(days=1)).isoformat()
-    events=_calendar_events(s,date_value,end)
-    verified=any(_event_id(e)==appointment_id for e in events)
-    if not verified: raise RuntimeError('Rendez-vous créé mais non retrouvé dans le calendrier Mercure')
+    try:
+        events=_calendar_events(s,date_value,end)
+        verified=any(_event_id(e)==appointment_id for e in events)
+        if not verified:
+            raise RuntimeError('Rendez-vous créé mais non retrouvé dans le calendrier Mercure')
+    except Exception:
+        # Creation already returned an authoritative appointment id. If the
+        # verification read fails, best-effort delete that synthetic record so
+        # a staging/payment-test failure cannot leave a real calendar slot
+        # occupied. Preserve the original verification error to the caller.
+        try:
+            cleanup=_check_auth(s.post(
+                BASE+'/admin/rendez_vous_remove',
+                data={'rendezvous_id':appointment_id},
+                timeout=25,
+                allow_redirects=False,
+            ))
+            if cleanup.status_code not in (200,201):
+                pass
+        except Exception:
+            pass
+        raise
     return {'appointmentId':appointment_id,'verified':True,'providerStatus':r.status_code}
 
 
