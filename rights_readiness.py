@@ -7,6 +7,7 @@ import mercure_rectification_boundary
 import referral_wallet_rights
 import rights_rectification
 import rights_subject_bindings
+import withdrawal_readiness
 
 
 SUPPORTED_BINDING_PROVENANCE = (
@@ -36,10 +37,11 @@ def capability(db_path: Path | str | None = None) -> dict:
     ``rights_subject_bindings`` owns Mercure/contract proof provenance,
     ``rights_rectification`` exposes the deliberately bounded local correction
     path, ``mercure_rectification_boundary`` records whether an authoritative
-    provider mutation primitive has actually been verified, and
+    provider mutation primitive has actually been verified,
     ``referral_wallet_rights`` exposes only the wallet access/portability path
-    after explicit mobile ownership proof. No partial adapter is allowed to flip
-    the global ``bound`` flag.
+    after explicit mobile ownership proof, and ``withdrawal_readiness`` keeps
+    withdrawal implementation separate from retention-policy executability. No
+    partial adapter is allowed to flip the global ``bound`` flag.
     """
     result = dict(data_subject_rights.capability(db_path))
     recent = rights_subject_bindings.rows(db_path, limit=500)
@@ -79,5 +81,20 @@ def capability(db_path: Path | str | None = None) -> dict:
         result["supportedAdapters"] = supported
         partial = set(result.get("partialSystemAdapters") or [])
         partial.add("referral_wallet")
+        result["partialSystemAdapters"] = sorted(partial)
+
+    withdrawal = withdrawal_readiness.capability(db_path)
+    result["withdrawalEvidenceExecution"] = withdrawal
+    withdrawal_rights = [
+        str(value)
+        for value in (withdrawal.get("supportedRights") or [])
+        if str(value)
+    ]
+    if withdrawal_rights:
+        supported = dict(result.get("supportedAdapters") or {})
+        supported[str(withdrawal.get("adapter") or "withdrawal_evidence")] = withdrawal_rights
+        result["supportedAdapters"] = supported
+        partial = set(result.get("partialSystemAdapters") or [])
+        partial.add(str(withdrawal.get("adapter") or "withdrawal_evidence"))
         result["partialSystemAdapters"] = sorted(partial)
     return result
