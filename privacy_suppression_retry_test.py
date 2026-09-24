@@ -215,6 +215,36 @@ class PrivacySuppressionRetryTest(unittest.TestCase):
         self.assertEqual(resumed["executionId"], first["executionId"])
         self.assertEqual(rights.audit_rows(self.compliance_db), audit_before)
 
+    def test_completed_erasure_resume_requires_same_request_tombstone(self):
+        email = "client@example.fr"
+        request = self.request("erasure", email)
+        rights.execute(
+            request["id"],
+            email,
+            adapter="privacy_suppression",
+            db_path=self.compliance_db,
+        )
+        privacy_suppression.suppress(
+            "email",
+            email,
+            ("all_processing",),
+            request_id="f" * 32,
+            db_path=self.compliance_db,
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "preuve de suppression du sujet introuvable",
+        ):
+            rights.execute(
+                request["id"],
+                email,
+                adapter="privacy_suppression",
+                db_path=self.compliance_db,
+                resume_completed_erasure=True,
+            )
+        self.assertEqual(len(rights.audit_rows(self.compliance_db)), 1)
+
     def test_completed_non_erasure_is_not_resumable_as_erasure(self):
         email = "client@example.fr"
         request = self.request("objection", email)
