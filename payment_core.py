@@ -109,7 +109,7 @@ class VerifiedEvent:
 
     def __post_init__(self):
         text(self.payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
-        text(self.provider_reference, r"[A-Za-z0-9_-]{1,64}", "provider_reference_invalid")
+        text(self.provider_reference, r"[A-Za-z0-9_-]{1,128}", "provider_reference_invalid")
         text(self.event_id, r"[A-Za-z0-9:_-]{1,128}", "event_id_invalid")
         allowed = {
             "paypal": {"captured"},
