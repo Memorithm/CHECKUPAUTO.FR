@@ -4,11 +4,12 @@ import json
 from urllib import error, parse, request
 
 
-MARKER_PATH = "/assets/cybercheck-runtime-marker.json"
+MARKER_PATH = "/assets/cybercheck-runtime-marker.bin"
 EXPECTED_SCHEMA_VERSION = 1
 EXPECTED_SURFACE = "checkupauto-cybercheck"
 _MAX_RESPONSE_BYTES = 4096
 _TIMEOUT_SECONDS = 5.0
+_ALLOWED_CONTENT_TYPES = {"application/json", "text/json", "application/octet-stream"}
 
 
 class _NoRedirect(request.HTTPRedirectHandler):
@@ -48,7 +49,7 @@ def probe(canonical_url: str, *, opener=None, timeout: float = _TIMEOUT_SECONDS)
     req = request.Request(
         url,
         headers={
-            "Accept": "application/json",
+            "Accept": "application/json, application/octet-stream;q=0.9",
             "User-Agent": "CheckupAuto-Public-Surface-Probe/1",
         },
         method="GET",
@@ -60,7 +61,7 @@ def probe(canonical_url: str, *, opener=None, timeout: float = _TIMEOUT_SECONDS)
             if status != 200:
                 return _result("unexpected_status")
             content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-            if content_type not in {"application/json", "text/json"}:
+            if content_type not in _ALLOWED_CONTENT_TYPES:
                 return _result("invalid_content_type")
             raw = response.read(_MAX_RESPONSE_BYTES + 1)
             if len(raw) > _MAX_RESPONSE_BYTES:
