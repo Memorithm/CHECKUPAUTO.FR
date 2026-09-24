@@ -21,6 +21,8 @@ class TrustedPaymentQuoteTest(unittest.TestCase):
         self.env.start(); self.addCleanup(self.env.stop)
         self.analytics_patch=patch.object(analytics, "DB", self.root/"analytics.sqlite3")
         self.analytics_patch.start(); self.addCleanup(self.analytics_patch.stop)
+        self.booking_secret_patch=patch.object(booking, "SECRET_FILE", self.root/"private"/"mercure-webhook-secret")
+        self.booking_secret_patch.start(); self.addCleanup(self.booking_secret_patch.stop)
         self.external_id="RDV-2026-000123"
         self._conversion(self.external_id, "confirmed", "Contrôle technique", 8000)
         self._acceptance(self.external_id, "a"*64)
