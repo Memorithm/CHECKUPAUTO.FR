@@ -108,14 +108,59 @@ class TrustedPaymentQuoteTest(unittest.TestCase):
         with self.assertRaisesRegex(core.PaymentError,"^payline_sandbox_required$"):
             checkout.create_sandbox_intent(self.external_id,"paypal")
 
+
+    def test_payline_browser_start_is_idempotent_after_ready_binding(self):
+        with patch.object(booking, "authoritative_external_id_for_browser_token", return_value=self.external_id), \
+             patch.object(checkout.payline_private, "load", return_value=object()):
+            calls=[]
+            def starter(intent, config):
+                calls.append(intent.payment_id)
+                return checkout.payline.StartResult(
+                    "TOKEN_FIXTURE_123",
+                    "https://homologation-webpayment.payline.com/webpayment/?token=TOKEN_FIXTURE_123",
+                )
+            first=checkout.start_payline_for_browser("ccid-fixture","cct-fixture",starter=starter)
+            second=checkout.start_payline_for_browser("ccid-fixture","cct-fixture",starter=starter)
+        self.assertEqual(first["paymentId"],second["paymentId"])
+        self.assertFalse(first["reused"])
+        self.assertTrue(second["reused"])
+        self.assertEqual(calls,[first["paymentId"]])
+        stored=core.SandboxJournal(checkout.journal_path()).get(first["paymentId"])
+        self.assertEqual(stored.provider_reference,"TOKEN_FIXTURE_123")
+
+    def test_payline_browser_start_blocks_ambiguous_network_retry(self):
+        with patch.object(booking, "authoritative_external_id_for_browser_token", return_value=self.external_id), \
+             patch.object(checkout.payline_private, "load", return_value=object()):
+            with self.assertRaises(core.PaymentError):
+                checkout.start_payline_for_browser(
+                    "ccid-fixture","cct-fixture",
+                    starter=lambda intent,config: (_ for _ in ()).throw(core.PaymentError("payline_transport_unavailable")),
+                )
+            with self.assertRaisesRegex(core.PaymentError,"^payment_start_reconciliation_required$"):
+                checkout.start_payline_for_browser(
+                    "ccid-fixture","cct-fixture",
+                    starter=lambda intent,config: self.fail("ambiguous start must not be retried"),
+                )
+
+    def test_missing_payline_configuration_does_not_poison_future_start(self):
+        error=checkout.payline_private.PaylinePrivateConfigurationError("payline_private_missing")
+        with patch.object(booking, "authoritative_external_id_for_browser_token", return_value=self.external_id), \
+             patch.object(checkout.payline_private, "load", side_effect=error):
+            with self.assertRaises(checkout.payline_private.PaylinePrivateConfigurationError):
+                checkout.start_payline_for_browser("ccid-fixture","cct-fixture")
+        with sqlite3.connect(checkout.journal_path()) as db:
+            count=db.execute("SELECT COUNT(*) FROM payment_provider_starts").fetchone()[0]
+        self.assertEqual(count,0)
+
     def test_capability_keeps_provider_start_and_live_payments_closed(self):
         cap=checkout.capability()
         self.assertTrue(cap["authoritativeBookingBound"])
         self.assertTrue(cap["contractAcceptanceBound"])
         self.assertTrue(cap["serverAuthoritativePrice"])
         self.assertFalse(cap["browserAmountAccepted"])
-        self.assertFalse(cap["providerStartBound"])
-        self.assertFalse(cap["publicStartRouteBound"])
+        self.assertTrue(cap["providerStartBound"])
+        self.assertTrue(cap["publicStartRouteBound"])
+        self.assertTrue(cap["ambiguousStartRetryBlocked"])
         self.assertFalse(cap["livePaymentsEnabled"])
 
 
