@@ -6,6 +6,7 @@ import compliance_operations
 import compliance_register_attestation
 import compliance_store
 import data_subject_rights
+import local_privacy_inventory
 import marketing_campaigns
 import marketing_consent
 import mercure_provider_coverage
@@ -168,6 +169,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         "capability": mercure_provider_coverage.capability(),
     }
     mercure_rectification = mercure_rectification_boundary.capability()
+    local_privacy = local_privacy_inventory.snapshot()
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
 
@@ -271,6 +273,13 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["mercureRectificationVerified"] = bool(
         mercure_rectification.get("completionEligible")
     )
+    summary["localPrivacyInventoryComplete"] = bool(local_privacy.get("inventoryComplete"))
+    summary["localPrivacyKnownExecutionCoverageComplete"] = bool(
+        local_privacy.get("knownExecutionCoverageComplete")
+    )
+    summary["localPrivacyUnresolvedStoreCount"] = int(
+        local_privacy.get("unresolvedStoreCount") or 0
+    )
 
     phase2_blockers = []
     if not summary["rightsCompletionGlobalCoverage"]:
@@ -281,6 +290,11 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         phase2_blockers.append("marketing_consent_unbound")
     if not summary["marketingCampaignsBound"]:
         phase2_blockers.append("marketing_campaign_execution_unbound")
+    if not (
+        summary["localPrivacyInventoryComplete"]
+        and summary["localPrivacyKnownExecutionCoverageComplete"]
+    ):
+        phase2_blockers.append("local_privacy_store_inventory_incomplete")
     summary["phase2Blockers"] = phase2_blockers
     summary["phase2BlockerCount"] = len(phase2_blockers)
     summary["phase2CoverageReady"] = not phase2_blockers
@@ -322,5 +336,6 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     }
     result["mercureProviderCoverage"] = mercure_provider
     result["mercureRectification"] = mercure_rectification
+    result["localPrivacyStoreInventory"] = local_privacy
     result["retention"] = retention
     return result
