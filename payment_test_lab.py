@@ -24,10 +24,12 @@ SERVICE_LABELS = {
     "technical": "Contrôle technique",
     "fitted": "Véhicule aménagé",
 }
-OUTCOME_CODES = {
-    "captured": "00000",
-    "declined": "01001",
-    "pending": "02005",
+OUTCOME_RESULTS = {
+    "captured": ("00000", "ACCEPTED"),
+    "declined": ("01001", "REFUSED"),
+    "pending": ("02005", "INPROGRESS"),
+    "cancelled": ("02319", "CANCELLED"),
+    "error": ("02101", "ERROR"),
 }
 
 
@@ -236,7 +238,7 @@ def _run(token: str, payment_id: str):
     return dict(row)
 
 
-def _details_xml(*, code: str, payment_id: str, provider_reference: str,
+def _details_xml(*, code: str, short_message: str, payment_id: str, provider_reference: str,
                  amount_cents: int, transaction_id: str) -> bytes:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
@@ -244,7 +246,7 @@ def _details_xml(*, code: str, payment_id: str, provider_reference: str,
  xmlns:obj="http://obj.ws.payline.experian.com">
  <soapenv:Body>
   <impl:getWebPaymentDetailsResponse>
-   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>TEST</obj:shortMessage></impl:result>
+   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>{short_message}</obj:shortMessage></impl:result>
    <impl:transaction><obj:id>{transaction_id}</obj:id></impl:transaction>
    <impl:payment><obj:amount>{amount_cents}</obj:amount><obj:currency>978</obj:currency></impl:payment>
    <impl:order><obj:ref>{payment_id}</obj:ref><obj:amount>{amount_cents}</obj:amount><obj:currency>978</obj:currency></impl:order>
@@ -256,9 +258,10 @@ def _details_xml(*, code: str, payment_id: str, provider_reference: str,
 def apply_result(token: str, payment_id: str, outcome: str) -> dict:
     row=_run(token,payment_id)
     outcome=str(outcome or "").strip().lower()
-    code=OUTCOME_CODES.get(outcome)
-    if not code:
+    result=OUTCOME_RESULTS.get(outcome)
+    if not result:
         raise PaymentTestError("payment_test_outcome_invalid")
+    code,short_message=result
     store=SandboxJournal(checkout.journal_path())
     intent=store.get(str(payment_id))
     if intent.provider!="payline" or not intent.provider_reference:
@@ -267,6 +270,7 @@ def apply_result(token: str, payment_id: str, outcome: str) -> dict:
     event=payline.parse_details_response(
         _details_xml(
             code=code,
+            short_message=short_message,
             payment_id=intent.payment_id,
             provider_reference=intent.provider_reference,
             amount_cents=intent.amount_cents,
