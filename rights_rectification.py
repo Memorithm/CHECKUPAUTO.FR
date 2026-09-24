@@ -9,6 +9,7 @@ from pathlib import Path
 
 import data_subject_rights as rights
 import mobile_devices
+import notification_rectification
 
 
 ADAPTER = "mobile_deadline_rectification"
@@ -127,10 +128,10 @@ def _apply_with_receipt(
     """Apply a device-owned correction and persist its recovery receipt atomically.
 
     The mobile store keeps only SHA-256 links to the compliance request/subject and to
-    the requested correction. If the separate compliance audit write fails after this
-    transaction commits, an exact retry can recover from the receipt without mutating
-    the deadline again. A retry carrying a different correction, or a receipt whose
-    corrected deadline has since changed, fails closed.
+    the requested correction. If a later cross-store reconciliation or compliance audit
+    write fails after this transaction commits, an exact retry can recover from the
+    receipt without mutating the deadline again. A retry carrying a different correction,
+    or a receipt whose corrected deadline has since changed, fails closed.
     """
     request_hash = _sha256(request_id)
     subject_ref_hash = _sha256(installation_id)
@@ -231,16 +232,18 @@ def execute(
     correction: object,
     db_path: Path | str | None = None,
 ) -> dict:
-    """Rectify one user-managed mobile deadline without touching Mercure truth.
+    """Rectify one user-managed mobile deadline and reconcile dependent push evidence.
 
     The operation is deliberately narrow: only an existing ``source=device`` due
     date can be changed. Authoritative Mercure deadlines, vehicle bindings and
     device credentials are outside this executor and therefore fail closed.
 
     Mobile mutation and its minimized recovery receipt are committed atomically.
-    The compliance audit lives in a separate store; if that write fails, an exact
-    retry resumes from the receipt only while the corrected mobile state is still
-    current rather than applying or auditing a stale correction.
+    NotificationBroker is then reconciled so permanent incidents tied to older due
+    dates no longer remain actionable or degrade readiness. Sent notification history
+    is not modified. The compliance audit lives in a separate store; if either later
+    step fails, an exact retry resumes from the receipt only while the corrected mobile
+    state is still current.
     """
     rid = rights._request_id(request_id)
     row = rights._request(rid, db_path)
@@ -256,6 +259,13 @@ def execute(
     deadline_id, due_date = _correction(correction)
 
     receipt = _apply_with_receipt(rid, installation_id, deadline_id, due_date)
+    broker_reconciliation = notification_rectification.reconcile_mobile_deadline(
+        deadline_id,
+        due_date,
+    )
+    if int(broker_reconciliation.get("openStalePermanentFailures") or 0) != 0:
+        raise RuntimeError("incidents de notification obsolètes non réconciliés")
+
     evidence = {
         "requestId": rid,
         "requestType": "rectification",
@@ -265,6 +275,13 @@ def execute(
         "recordCount": 1,
         "correctionHash": receipt["correctionHash"],
         "receiptHash": receipt["receiptHash"],
+        "notificationBroker": {
+            "storePresent": bool(broker_reconciliation.get("storePresent")),
+            "resolvedPermanentFailures": int(
+                broker_reconciliation.get("resolvedPermanentFailures") or 0
+            ),
+            "openStalePermanentFailures": 0,
+        },
     }
     execution_id = rights._audit_execution(row, ADAPTER, "rectify", evidence, db_path)
     return {
@@ -276,6 +293,10 @@ def execute(
         "source": mobile_devices.DEVICE_DEADLINE_SOURCE,
         "updated": True,
         "recoveredFromReceipt": bool(receipt["recovered"]),
+        "notificationBrokerReconciled": True,
+        "resolvedNotificationIncidents": int(
+            broker_reconciliation.get("resolvedPermanentFailures") or 0
+        ),
         "executionId": execution_id,
         "requestStatus": "in_progress",
         "requestComplete": False,
@@ -283,6 +304,7 @@ def execute(
 
 
 def capability() -> dict:
+    notification = notification_rectification.capability()
     return {
         "bound": False,
         "partial": True,
@@ -292,6 +314,11 @@ def capability() -> dict:
         "mutableSources": [mobile_devices.DEVICE_DEADLINE_SOURCE],
         "authoritativeSourcesMutable": False,
         "primarySubjectRequired": True,
+        "reconciledStores": ["mobile_deadline", notification["store"]],
+        "notificationBrokerStaleIncidentResolution": bool(
+            notification["resolvesStalePermanentFailures"]
+        ),
+        "sentNotificationHistoryMutable": bool(notification["sentHistoryMutable"]),
         "rawSubjectReferencePersisted": False,
         "auditStoresEvidenceHashOnly": True,
         "crashRecoverable": True,
