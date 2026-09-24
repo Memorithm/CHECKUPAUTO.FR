@@ -58,7 +58,7 @@ class PaylineConfigurationTest(unittest.TestCase):
     def test_empty_oversized_and_control_character_values_are_refused(self):
         cases = {"merchantId": ["", "1" * 33, "1:2", " 123", "123\n"],
                  "accessKey": ["", "x" * 257, "secret\r\nInjected:value", "white space", "clé"],
-                 "contractNumber": ["", "x" * 51, "../contract", "contract\x00" ]}
+                 "contractNumber": ["", "x" * 21, "../contract", "contract\x00" ]}
         for name, invalid in cases.items():
             for value in invalid:
                 with self.subTest(field=name, value=value), self.assertRaises(payline.PaylineConfigurationError):
