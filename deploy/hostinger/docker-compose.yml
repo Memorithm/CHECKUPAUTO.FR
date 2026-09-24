@@ -16,6 +16,7 @@ services:
       CYBERCHECK_SECURITY_DIR: "/var/lib/checkupauto/security"
       CYBERCHECK_INTEGRITY_DIR: "/var/lib/checkupauto/integrity"
       CYBERCHECK_MOBILE_PUSH_ENABLED: "0"
+      CYBERCHECK_PAYMENT_REQUIRED: "1"
     volumes:
       - /srv/checkupauto/staging/state/data:/var/lib/checkupauto/data
       - /srv/checkupauto/staging/state/private:/var/lib/checkupauto/private
