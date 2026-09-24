@@ -81,7 +81,7 @@ class Intent:
 
     def __post_init__(self):
         text(self.payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
-        if self.provider not in {"paypal", "monetico"} or self.environment != "sandbox":
+        if self.provider not in {"paypal", "monetico", "payline"} or self.environment != "sandbox":
             raise PaymentError("sandbox_provider_required")
         cents(self.amount_cents)
         try:
@@ -110,7 +110,7 @@ class VerifiedEvent:
         text(self.payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
         text(self.provider_reference, r"[A-Za-z0-9_-]{1,64}", "provider_reference_invalid")
         text(self.event_id, r"[A-Za-z0-9:_-]{1,128}", "event_id_invalid")
-        allowed = {"paypal": {"captured"}, "monetico": {"authorized", "pending", "declined"}}
+        allowed = {"paypal": {"captured"}, "monetico": {"authorized", "pending", "declined"}, "payline": {"captured", "pending", "declined"}}
         if self.state not in allowed.get(self.provider, set()):
             raise PaymentError("event_state_invalid")
         cents(self.amount_cents)
@@ -139,7 +139,7 @@ class SandboxJournal:
               payment_id TEXT PRIMARY KEY,
               booking_hash TEXT NOT NULL UNIQUE,
               quote_hash TEXT NOT NULL,
-              provider TEXT NOT NULL CHECK(provider IN ('paypal','monetico')),
+              provider TEXT NOT NULL CHECK(provider IN ('paypal','monetico','payline')),
               environment TEXT NOT NULL CHECK(environment='sandbox'),
               amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
               currency TEXT NOT NULL CHECK(currency='EUR'),
@@ -180,7 +180,7 @@ class SandboxJournal:
             return self._intent(db.execute("SELECT * FROM payment_intents WHERE payment_id=?", (payment_id,)).fetchone())
 
     def create(self, quote: Quote, provider: str) -> Intent:
-        if not isinstance(quote, Quote) or provider not in {"paypal", "monetico"}:
+        if not isinstance(quote, Quote) or provider not in {"paypal", "monetico", "payline"}:
             raise PaymentError("quote_or_provider_invalid")
         binding = digest(["mercure-rdv", quote.booking_reference])
         quote_hash = digest([quote.service, quote.amount_cents, quote.terms_hash])
@@ -239,7 +239,7 @@ class SandboxJournal:
 
 def capability() -> dict:
     return {
-        "environment": "sandbox", "providers": ["paypal", "monetico"],
+        "environment": "sandbox", "providers": ["paypal", "monetico", "payline"],
         "livePaymentsEnabled": False, "checkoutBound": False,
         "httpCallbacksBound": False, "refundsBound": False,
         "merchantSecretsConfigured": False,
