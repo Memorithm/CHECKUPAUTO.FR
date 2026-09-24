@@ -7,6 +7,7 @@ from urllib import error, parse, request
 
 MARKER_PATH = "/assets/cybercheck-runtime-marker.bin"
 DEPLOYMENT_PROVENANCE_PATH = "/api/public/deployment-provenance"
+DEPLOYMENT_ARTIFACT_PATH = "/assets/cybercheck-deployment-provenance.bin"
 EXPECTED_SCHEMA_VERSION = 1
 EXPECTED_SURFACE = "checkupauto-cybercheck"
 _MAX_RESPONSE_BYTES = 4096
@@ -91,6 +92,30 @@ def runtime_evidence(git_state: dict) -> dict:
         "gitSha": head if _SHA_RE.fullmatch(head) else "",
         "branch": "main" if branch == "main" else "",
         "clean": dirty is False if isinstance(dirty, bool) else None,
+    }
+
+
+def deployment_artifact_evidence(approved_sha: str) -> dict:
+    """Return minimal provenance for an immutable RemoteOps-approved git archive.
+
+    Hostinger releases are created from ``git archive <approved SHA>`` rather
+    than a live checkout, so there is intentionally no ``.git`` directory in
+    the deployed image.  The release directory name is therefore the trusted
+    immutable revision input.  Invalid revisions fail closed and never claim
+    a clean/verified deployment.
+    """
+    sha = str(approved_sha or "").strip()
+    verified = _SHA_RE.fullmatch(sha) is not None
+    return {
+        "schemaVersion": EXPECTED_SCHEMA_VERSION,
+        "surface": EXPECTED_SURFACE,
+        "purpose": "public-deployment-provenance",
+        "verified": verified,
+        "state": "verified" if verified else "invalid_git_sha",
+        "gitSha": sha if verified else "",
+        "branch": "main" if verified else "",
+        "clean": True if verified else None,
+        "source": "remoteops-approved-git-archive" if verified else "",
     }
 
 
