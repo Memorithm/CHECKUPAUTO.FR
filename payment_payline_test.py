@@ -318,6 +318,15 @@ class PaylineJournalMigrationTest(unittest.TestCase):
                   captured_amount_cents INTEGER NOT NULL,
                   updated_at TEXT NOT NULL
                 );
+                CREATE TABLE payment_provider_starts(
+                  payment_id TEXT PRIMARY KEY REFERENCES payment_intents(payment_id),
+                  provider TEXT NOT NULL CHECK(provider='payline'),
+                  state TEXT NOT NULL CHECK(state IN ('attempting','ready','indeterminate')),
+                  provider_reference TEXT NOT NULL DEFAULT '',
+                  redirect_url TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
                 """)
                 db.execute("INSERT INTO payment_intents VALUES(?,?,?,?,?,?,?,?,?,?)",(
                     "2"*32,"booking","quote","payline","sandbox",8000,"EUR",
@@ -325,6 +334,11 @@ class PaylineJournalMigrationTest(unittest.TestCase):
                 ))
                 db.execute("INSERT INTO payment_provider_transactions VALUES(?,?,?,?,?)",(
                     "2"*32,"payline","TXN_OLD",8000,STAMP,
+                ))
+                db.execute("INSERT INTO payment_provider_starts VALUES(?,?,?,?,?,?,?)",(
+                    "2"*32,"payline","ready","TOKEN_OLD",
+                    "https://homologation-webpayment.payline.com/webpayment/?token=TOKEN_OLD",
+                    STAMP,STAMP,
                 ))
             path.chmod(0o600)
             store=core.SandboxJournal(path)
@@ -335,9 +349,16 @@ class PaylineJournalMigrationTest(unittest.TestCase):
                     "SELECT sql FROM sqlite_master WHERE type='table' AND name='payment_intents'"
                 ).fetchone()[0]
                 fk=db.execute("PRAGMA foreign_key_list(payment_provider_transactions)").fetchall()
+                start_fk=db.execute("PRAGMA foreign_key_list(payment_provider_starts)").fetchall()
+                start_row=db.execute(
+                    "SELECT state,provider_reference FROM payment_provider_starts WHERE payment_id=?",
+                    ("2"*32,),
+                ).fetchone()
                 self.assertIn("'cancelled'",state_sql)
                 self.assertIn("'error'",state_sql)
                 self.assertEqual(fk[0][2],"payment_intents")
+                self.assertEqual(start_fk[0][2],"payment_intents")
+                self.assertEqual(start_row,("ready","TOKEN_OLD"))
                 self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(),[])
 
     def test_payline_verified_event_persists_transaction_idempotently(self):
