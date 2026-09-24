@@ -209,6 +209,8 @@ def _post(config: PaylineSandboxConfig, body: bytes, soap_action: str, *, endpoi
             data = response.read(MAX_RESPONSE_BYTES + 1)
     except PaymentError:
         raise
+    except urllib.error.HTTPError:
+        raise PaymentError("payline_transport_status") from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise PaymentError("payline_transport_unavailable") from None
     if len(data) > MAX_RESPONSE_BYTES:
@@ -302,8 +304,7 @@ def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEv
     order_ref = _child_text(order, "ref", "payline_order_reference_missing")
     if order_ref != intent.payment_id:
         raise PaymentError("payline_order_reference_mismatch")
-    transaction_id = re.sub(r"[^A-Za-z0-9:_-]", "", transaction_id)
-    if not transaction_id or len(transaction_id) > 50:
+    if not re.fullmatch(r"[A-Za-z0-9:_-]{1,50}", transaction_id):
         raise PaymentError("payline_transaction_invalid")
 
     if code == "00000":
