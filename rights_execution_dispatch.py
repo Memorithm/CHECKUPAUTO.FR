@@ -10,6 +10,7 @@ import referral_wallet_rights
 import review_followup_privacy
 import rights_completion_plan
 import rights_rectification
+import withdrawal_rights
 
 
 _BASE_FIELDS = {"id", "subjectRef", "adapter"}
@@ -47,6 +48,14 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
     if adapter == contract_subject_rights.ADAPTER:
         _exact_fields(body, _BASE_FIELDS)
         return contract_subject_rights.execute(
+            body.get("id"),
+            body.get("subjectRef"),
+            db_path,
+        )
+
+    if adapter == withdrawal_rights.ADAPTER:
+        _exact_fields(body, _BASE_FIELDS)
+        return withdrawal_rights.execute(
             body.get("id"),
             body.get("subjectRef"),
             db_path,
@@ -129,14 +138,17 @@ def capability(db_path: Path | str | None = None) -> dict:
     rectification = rights_rectification.capability()
     wallet = referral_wallet_rights.capability(db_path)
     contracts = contract_subject_rights.capability()
+    withdrawal = withdrawal_rights.capability()
     adapters = dict(central)
     adapters[rights_rectification.ADAPTER] = [rectification["requestType"]]
     adapters[referral_wallet_rights.ADAPTER] = list(wallet.get("supportedRights") or [])
+    adapters[withdrawal_rights.ADAPTER] = list(withdrawal.get("supportedRights") or [])
     return {
         "dispatchReady": True,
         "globalCoverageComplete": False,
         "supportedAdapters": adapters,
         "contractSubject": contracts,
+        "withdrawalEvidence": withdrawal,
         "rectification": rectification,
         "referralWallet": wallet,
         "completionPlan": rights_completion_plan.capability(),

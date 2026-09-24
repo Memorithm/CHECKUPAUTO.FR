@@ -14,10 +14,10 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
 
         self.assertFalse(state["inventoryComplete"])
         self.assertFalse(state["knownExecutionCoverageComplete"])
-        self.assertEqual(state["scope"], "known-local-privacy-stores-v2")
+        self.assertEqual(state["scope"], "known-local-privacy-stores-v3")
         self.assertEqual(
             set(state["unresolvedStores"]),
-            {"review_followup", "booking_conversions"},
+            {"review_followup", "booking_conversions", "withdrawal_requests"},
         )
         self.assertEqual(rows["review_followup"]["executionState"], "partial_wired")
         self.assertEqual(rows["review_followup"]["adapter"], "privacy_suppression")
@@ -46,6 +46,18 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertEqual(
             rows["booking_conversions"]["observability"],
             state["bookingConversionReconciliation"],
+        )
+        withdrawal = rows["withdrawal_requests"]
+        self.assertEqual(withdrawal["executionState"], "partial_wired")
+        self.assertEqual(withdrawal["adapter"], "withdrawal_evidence")
+        self.assertEqual(
+            withdrawal["bindingSource"],
+            "withdrawal_requests.receipt_email_hash",
+        )
+        self.assertIn("erasure_not_implemented", withdrawal["limitation"])
+        self.assertIn(
+            "withdrawal_erasure_requires_retention_aware_implementation",
+            state["limitations"],
         )
 
     def test_zero_local_booking_residuals_do_not_close_provider_backed_store(self):
@@ -130,7 +142,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertTrue(row["subjectErasureApplicable"])
         self.assertEqual(row["executionState"], "unresolved")
         self.assertIn("analytics_event", state["unresolvedStores"])
-        self.assertEqual(state["unresolvedStoreCount"], 3)
+        self.assertEqual(state["unresolvedStoreCount"], 4)
 
     def test_inventory_contains_no_subject_value_or_secret_material(self):
         serialized = repr(inventory.snapshot())
