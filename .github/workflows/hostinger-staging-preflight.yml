@@ -8,6 +8,7 @@ on:
       - 'admin_server.py'
       - 'admin_server_runtime_test.py'
       - 'deploy/hostinger/**'
+      - 'hostinger_staging_*_test.py'
       - '.github/workflows/hostinger-staging-*.yml'
 
 permissions:
@@ -31,7 +32,11 @@ jobs:
           python3 -m compileall -q admin_server.py deploy
           python3 -m venv "$RUNNER_TEMP/checkupauto-preflight"
           "$RUNNER_TEMP/checkupauto-preflight/bin/pip" install --disable-pip-version-check --quiet -r requirements.txt
-          "$RUNNER_TEMP/checkupauto-preflight/bin/python" -m unittest -v admin_server_runtime_test.py hostinger_staging_tls_readiness_test.py
+          "$RUNNER_TEMP/checkupauto-preflight/bin/python" -m unittest -v \
+            admin_server_runtime_test.py \
+            hostinger_staging_tls_readiness_test.py \
+            hostinger_staging_control_plane_test.py \
+            hostinger_staging_deployment_provenance_test.py
       - name: Validate Docker compose model
         shell: bash
         env:
