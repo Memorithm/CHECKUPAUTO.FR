@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   monitor:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 5
     env:
       STAGING_ORIGIN: https://stage.179.198.210.187.sslip.io
