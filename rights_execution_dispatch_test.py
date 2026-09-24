@@ -80,6 +80,7 @@ class RightsExecutionDispatchTest(unittest.TestCase):
             )
 
         self.assertEqual(execute.call_args.kwargs["purpose"], "direct_marketing_email")
+        self.assertTrue(execute.call_args.kwargs["resume_completed_erasure"])
 
     def test_routes_bounded_rectification_with_exact_correction_object(self):
         correction = {
