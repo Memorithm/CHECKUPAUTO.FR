@@ -152,6 +152,71 @@ def start_payline_for_browser(ccid: str, cct: str, *, starter=None) -> dict:
         db.close()
 
 
+def activity(limit: int = 50) -> dict:
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise PaymentError("payment_activity_limit_invalid")
+    path=journal_path()
+    if not path.is_file():
+        return {
+            "summary":{"total":0,"created":0,"pending":0,"declined":0,"authorized":0,"captured":0,
+                       "readyStarts":0,"indeterminateStarts":0},
+            "transactions":[],
+        }
+    store=SandboxJournal(path)
+    del store
+    with sqlite3.connect(path,timeout=5) as db:
+        db.row_factory=sqlite3.Row
+        has_starts=bool(db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='payment_provider_starts'"
+        ).fetchone())
+        if has_starts:
+            rows=db.execute("""SELECT i.payment_id,i.provider,i.environment,i.amount_cents,i.currency,
+              i.state,i.created_at,i.provider_reference,s.state AS start_state
+              FROM payment_intents i
+              LEFT JOIN payment_provider_starts s ON s.payment_id=i.payment_id
+              ORDER BY i.created_at DESC,i.payment_id DESC LIMIT ?""",(limit,)).fetchall()
+            start_counts={
+                row["state"]:int(row["n"]) for row in db.execute(
+                    "SELECT state,COUNT(*) AS n FROM payment_provider_starts GROUP BY state"
+                ).fetchall()
+            }
+        else:
+            rows=db.execute("""SELECT payment_id,provider,environment,amount_cents,currency,
+              state,created_at,provider_reference,NULL AS start_state
+              FROM payment_intents
+              ORDER BY created_at DESC,payment_id DESC LIMIT ?""",(limit,)).fetchall()
+            start_counts={}
+        state_counts={
+            row["state"]:int(row["n"]) for row in db.execute(
+                "SELECT state,COUNT(*) AS n FROM payment_intents GROUP BY state"
+            ).fetchall()
+        }
+        total=int(db.execute("SELECT COUNT(*) FROM payment_intents").fetchone()[0])
+    return {
+        "summary":{
+            "total":total,
+            "created":state_counts.get("created",0),
+            "pending":state_counts.get("pending",0),
+            "declined":state_counts.get("declined",0),
+            "authorized":state_counts.get("authorized",0),
+            "captured":state_counts.get("captured",0),
+            "readyStarts":start_counts.get("ready",0),
+            "indeterminateStarts":start_counts.get("indeterminate",0),
+        },
+        "transactions":[{
+            "paymentId":str(row["payment_id"]),
+            "provider":str(row["provider"]),
+            "environment":str(row["environment"]),
+            "amountCents":int(row["amount_cents"]),
+            "currency":str(row["currency"]),
+            "state":str(row["state"]),
+            "createdAt":str(row["created_at"]),
+            "providerBound":bool(row["provider_reference"]),
+            "startState":str(row["start_state"] or ""),
+        } for row in rows],
+    }
+
+
 def capability() -> dict:
     return {
         "environment": "sandbox",
