@@ -73,8 +73,9 @@ def _request_id(value: object) -> str:
 
 def _subject_hash(value: object) -> str:
     raw = str(value or "").strip()
-    mercure_rights.parse_subject_ref(raw)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    client_kind, client_id = mercure_rights.parse_subject_ref(raw)
+    canonical = f"{client_kind}:{client_id}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _appointment_ids(values: Iterable[object]) -> tuple[str, ...]:
@@ -114,20 +115,32 @@ def _key() -> bytes:
         return raw
 
     raw = secrets.token_bytes(32)
+    fd, temp_name = tempfile.mkstemp(prefix=".provider-erasure-key-", dir=root)
+    temp = Path(temp_name)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raw = path.read_bytes()
-        if len(raw) != 32:
-            raise RuntimeError("clé du plan d'effacement invalide")
-        return raw
-    try:
+        os.fchmod(fd, 0o600)
         os.write(fd, raw)
         os.fsync(fd)
-    finally:
         os.close(fd)
-    _fsync_dir(root)
-    return raw
+        fd = -1
+        try:
+            os.link(temp, path)
+            _fsync_dir(root)
+        except FileExistsError:
+            pass
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temp.unlink(missing_ok=True)
+
+    stored = path.read_bytes()
+    if len(stored) != 32:
+        raise RuntimeError("clé du plan d'effacement invalide")
+    try:
+        path.chmod(0o600)
+    except PermissionError:
+        pass
+    return stored
 
 
 def _aad(request_id: str) -> bytes:
@@ -235,10 +248,16 @@ def stage(
                 pass
             _fsync_dir(root)
         except FileExistsError:
-            return load(rid, subject_ref) or {}
+            existing_after_race = load(rid, subject_ref)
+            if existing_after_race is None:
+                raise RuntimeError("plan d'effacement concurrent introuvable")
+            return existing_after_race
     finally:
         temp.unlink(missing_ok=True)
-    return load(rid, subject_ref) or {}
+    stored = load(rid, subject_ref)
+    if stored is None:
+        raise RuntimeError("plan d'effacement non persisté")
+    return stored
 
 
 def clear(
