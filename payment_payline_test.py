@@ -74,8 +74,8 @@ class PaylineSoapConstructionTest(unittest.TestCase):
         root = ET.fromstring(raw)
         values = [str(n.text or "") for n in root.iter()]
         for expected in ("34", "8000", "978", "101", "CPT", cfg.contract_number,
-                         "https://stage.example/payment/payline/return",
-                         "https://stage.example/payment/payline/cancel",
+                         "https://stage.example/payment/payline/return?paymentId=" + "a" * 32,
+                         "https://stage.example/payment/payline/cancel?paymentId=" + "a" * 32,
                          "https://stage.example/api/payments/payline/notify",
                          "a" * 32, "fr", "SSL"):
             self.assertIn(expected, values)

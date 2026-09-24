@@ -79,11 +79,15 @@ def _soap(operation: str) -> tuple[ET.Element, ET.Element]:
     return envelope, request
 
 
-def _urls(config: PaylineSandboxConfig) -> tuple[str, str, str]:
+def _urls(config: PaylineSandboxConfig, payment_id: str) -> tuple[str, str, str]:
     origin = config.public_origin
+    payment_id = str(payment_id)
+    if not re.fullmatch(r"[0-9a-f]{32}", payment_id):
+        raise PaymentError("payment_id_invalid")
+    state = "?paymentId=" + payment_id
     return (
-        origin + "/payment/payline/return",
-        origin + "/payment/payline/cancel",
+        origin + "/payment/payline/return" + state,
+        origin + "/payment/payline/cancel" + state,
         origin + "/api/payments/payline/notify",
     )
 
@@ -104,7 +108,7 @@ def do_web_payment_xml(intent: Intent, config: PaylineSandboxConfig) -> bytes:
     _sub(payment, OBJ_NS, "mode", "CPT")
     _sub(payment, OBJ_NS, "contractNumber", config.contract_number)
 
-    return_url, cancel_url, notification_url = _urls(config)
+    return_url, cancel_url, notification_url = _urls(config, intent.payment_id)
     _sub(req, IMPL_NS, "returnURL", return_url)
     _sub(req, IMPL_NS, "cancelURL", cancel_url)
 
@@ -291,7 +295,7 @@ def capability() -> dict:
         "getWebPaymentDetailsImplemented": True,
         "hostedPaymentPage": True,
         "panCollectedByCheckupAuto": False,
-        "callbacksBound": False,
+        "callbacksBound": True,
         "checkoutBound": False,
         "refundsBound": False,
         "livePaymentsEnabled": False,

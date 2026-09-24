@@ -1,0 +1,172 @@
+"""Public Payline sandbox return/notification routes.
+
+Every provider signal is treated as a trigger to reread the transaction from
+Payline over authenticated TLS. Browser query strings never mutate payment state.
+"""
+from __future__ import annotations
+
+import html
+import os
+import re
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+import payment_payline as payline
+import payment_payline_private as private_config
+from payment_core import PaymentError, SandboxJournal
+
+RETURN_ROUTE = "/payment/payline/return"
+CANCEL_ROUTE = "/payment/payline/cancel"
+NOTIFY_ROUTE = "/api/payments/payline/notify"
+
+
+def journal_path() -> Path:
+    data_dir = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
+    return data_dir / "payments.sqlite3"
+
+
+def _journal_existing() -> SandboxJournal:
+    path = journal_path()
+    if not path.is_file():
+        raise PaymentError("intent_not_found")
+    return SandboxJournal(path)
+
+
+def _single(query: str, name: str, pattern: str, code: str) -> str:
+    values = parse_qs(query, keep_blank_values=True).get(name, [])
+    if len(values) != 1 or not re.fullmatch(pattern, values[0]):
+        raise PaymentError(code)
+    return values[0]
+
+
+def _apply_by_payment_id(payment_id: str):
+    store = _journal_existing()
+    intent = store.get(payment_id)
+    if intent.provider != "payline" or not intent.provider_reference:
+        raise PaymentError("payline_bound_intent_required")
+    config = private_config.load()
+    event = payline.refresh(intent, config)
+    return store._apply_verified(event)
+
+
+def _apply_by_token(token: str):
+    store = _journal_existing()
+    intent = store.get_by_provider_reference("payline", token)
+    config = private_config.load()
+    event = payline.refresh(intent, config)
+    return store._apply_verified(event)
+
+
+def _page(title: str, message: str, state: str) -> bytes:
+    safe_title = html.escape(title)
+    safe_message = html.escape(message)
+    safe_state = html.escape(state)
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>{safe_title} | Checkup Auto</title>
+<style>body{{font-family:system-ui;margin:0;background:#f6f7f3;color:#17372b}}main{{max-width:720px;margin:auto;padding:72px 24px}}
+a{{color:#1f5845}}.card{{background:#fff;border:1px solid #dbe1d8;border-radius:18px;padding:32px}}
+small{{letter-spacing:.12em;text-transform:uppercase;color:#66776e}}h1{{font-size:clamp(34px,7vw,64px);letter-spacing:-.04em}}
+p{{line-height:1.65;color:#40584d}}</style></head>
+<body><main><a href="/">← Checkup Auto</a><div class="card"><small>PAIEMENT · {safe_state}</small>
+<h1>{safe_title}</h1><p>{safe_message}</p></div></main></body></html>""".encode("utf-8")
+
+
+def _browser_result(handler, query: str) -> bool:
+    try:
+        payment_id = _single(query, "paymentId", r"[0-9a-f]{32}", "payment_id_invalid")
+        intent = _apply_by_payment_id(payment_id)
+    except private_config.PaylinePrivateConfigurationError:
+        handler.send_bytes(
+            _page("Paiement en cours de vérification",
+                  "La confirmation bancaire est temporairement indisponible. Aucun succès n’est enregistré sans vérification auprès du prestataire.",
+                  "VÉRIFICATION"),
+            "text/html; charset=utf-8", 503, "no-store",
+            {"X-Robots-Tag": "noindex, nofollow, noarchive", "Retry-After": "30"},
+        )
+        return True
+    except PaymentError:
+        handler.send_bytes(
+            _page("Paiement non vérifiable",
+                  "Nous ne pouvons pas confirmer ce paiement depuis cette page. Aucun statut bancaire n’a été accepté depuis le navigateur.",
+                  "NON CONFIRMÉ"),
+            "text/html; charset=utf-8", 400, "no-store",
+            {"X-Robots-Tag": "noindex, nofollow, noarchive"},
+        )
+        return True
+    except Exception:
+        handler.send_bytes(
+            _page("Paiement en cours de vérification",
+                  "Le résultat bancaire n’est pas disponible pour le moment. Aucun succès n’est enregistré sans preuve du prestataire.",
+                  "VÉRIFICATION"),
+            "text/html; charset=utf-8", 503, "no-store",
+            {"X-Robots-Tag": "noindex, nofollow, noarchive", "Retry-After": "30"},
+        )
+        return True
+
+    if intent.state == "captured":
+        title = "Paiement confirmé"
+        message = "Le paiement a été relu et confirmé auprès du prestataire. Votre réservation peut poursuivre son rapprochement."
+        state = "CONFIRMÉ"
+    elif intent.state == "declined":
+        title = "Paiement non validé"
+        message = "Le prestataire n’a pas validé le paiement. Aucun succès n’a été enregistré."
+        state = "NON VALIDÉ"
+    else:
+        title = "Paiement en cours de confirmation"
+        message = "Le prestataire n’a pas encore fourni de résultat final. La réservation ne sera pas marquée payée avant confirmation."
+        state = "EN ATTENTE"
+    handler.send_bytes(
+        _page(title, message, state),
+        "text/html; charset=utf-8", 200, "no-store",
+        {"X-Robots-Tag": "noindex, nofollow, noarchive"},
+    )
+    return True
+
+
+def _cancel(handler) -> bool:
+    # A browser cancellation is intentionally not accepted as payment evidence.
+    handler.send_bytes(
+        _page("Paiement interrompu",
+              "Le parcours de paiement a été interrompu. Aucun statut bancaire n’a été modifié à partir de cette redirection.",
+              "INTERROMPU"),
+        "text/html; charset=utf-8", 200, "no-store",
+        {"X-Robots-Tag": "noindex, nofollow, noarchive"},
+    )
+    return True
+
+
+def _notify(handler, query: str) -> bool:
+    try:
+        notification_type = _single(query, "notificationType", r"[A-Za-z0-9_-]{1,32}", "notification_type_invalid")
+        if notification_type != "webtrs":
+            raise PaymentError("notification_type_invalid")
+        token = _single(query, "token", r"[A-Za-z0-9_-]{1,80}", "payline_token_invalid")
+        _apply_by_token(token)
+    except private_config.PaylinePrivateConfigurationError:
+        handler.send_bytes(b"", "text/plain; charset=utf-8", 503, "no-store", {"Retry-After": "30"})
+        return True
+    except PaymentError as exc:
+        code = str(exc)
+        status = 404 if code == "intent_not_found" else 400
+        handler.send_bytes(b"", "text/plain; charset=utf-8", status, "no-store")
+        return True
+    except Exception:
+        handler.send_bytes(b"", "text/plain; charset=utf-8", 503, "no-store", {"Retry-After": "30"})
+        return True
+    handler.send_bytes(b"", "text/plain; charset=utf-8", 204, "no-store")
+    return True
+
+
+def handle(handler) -> bool:
+    if getattr(handler, "command", "") != "GET":
+        return False
+    parsed = urlsplit(handler.path)
+    if parsed.path == RETURN_ROUTE:
+        return _browser_result(handler, parsed.query)
+    if parsed.path == CANCEL_ROUTE:
+        return _cancel(handler)
+    if parsed.path == NOTIFY_ROUTE:
+        return _notify(handler, parsed.query)
+    return False

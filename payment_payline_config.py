@@ -98,7 +98,7 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
     if config is not None and not isinstance(config, PaylineSandboxConfig):
         raise PaylineConfigurationError("payline_configuration_type_invalid")
     blockers = ["provider_authentication_unverified", "contract_binding_unverified",
-                "checkout_not_bound", "callbacks_not_bound"]
+                "checkout_not_bound"]
     if config is None:
         blockers.insert(0, "explicit_api_configuration_missing")
     return {
@@ -108,6 +108,6 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
         "requiredFields": list(REQUIRED_FIELDS),
         "credentialsVerified": False, "contractBindingVerified": False,
         "transportImplemented": True, "checkoutBound": False,
-        "httpCallbacksBound": False, "livePaymentsEnabled": False,
+        "httpCallbacksBound": True, "livePaymentsEnabled": False,
         "ready": False, "blockingReasons": blockers,
     }
