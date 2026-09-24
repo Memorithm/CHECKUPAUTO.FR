@@ -100,6 +100,41 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertEqual(result["counts"]["ready"], len(result["components"]))
         self.assertTrue(all(item["remediation"] is None for item in result["components"]))
 
+    def test_runtime_git_provenance_is_exposed_without_paths_or_secrets(self):
+        patches = healthy_patches()
+        runtime_sha = "a" * 40
+        patches[11] = mock.patch.object(readiness.security_integrity, "posture", return_value={
+            "ok": True,
+            "vulnerabilities": {"count": 0},
+            "git": {"available": True, "head": runtime_sha, "branch": "main", "dirty": False},
+            "integrity": {"baselineGitHead": runtime_sha},
+        })
+        result = self._run_with(patches)
+        self.assertEqual(result["runtime"], {
+            "gitSha": runtime_sha,
+            "gitShaAvailable": True,
+            "gitBranch": "main",
+            "gitDirty": False,
+            "baselineGitSha": runtime_sha,
+            "baselineMatchesRuntime": True,
+        })
+        self.assertNotIn("path", result["runtime"])
+        self.assertNotIn("remote", result["runtime"])
+
+    def test_runtime_git_provenance_fails_closed_on_invalid_sha(self):
+        patches = healthy_patches()
+        patches[11] = mock.patch.object(readiness.security_integrity, "posture", return_value={
+            "ok": True,
+            "vulnerabilities": {"count": 0},
+            "git": {"available": True, "head": "not-a-sha", "branch": "main", "dirty": False},
+            "integrity": {"baselineGitHead": "also-invalid"},
+        })
+        result = self._run_with(patches)
+        self.assertEqual(result["runtime"]["gitSha"], "")
+        self.assertFalse(result["runtime"]["gitShaAvailable"])
+        self.assertEqual(result["runtime"]["baselineGitSha"], "")
+        self.assertFalse(result["runtime"]["baselineMatchesRuntime"])
+
     def test_external_and_configuration_blockers_are_distinct(self):
         patches = healthy_patches()
         patches[1] = mock.patch.object(readiness.notification_broker, "status", return_value={

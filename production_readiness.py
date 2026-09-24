@@ -212,6 +212,31 @@ def _failed(key: str, label: str, critical: bool, error: str) -> dict:
     return _component(key, label, "degraded", error, critical=critical)
 
 
+def _runtime_provenance(posture: dict | None) -> dict:
+    posture = posture if isinstance(posture, dict) else {}
+    git = posture.get("git") if isinstance(posture.get("git"), dict) else {}
+    integrity = posture.get("integrity") if isinstance(posture.get("integrity"), dict) else {}
+
+    def valid_sha(value: object) -> str:
+        sha = str(value or "").strip().lower()
+        return sha if len(sha) == 40 and all(ch in "0123456789abcdef" for ch in sha) else ""
+
+    runtime_sha = valid_sha(git.get("head"))
+    baseline_sha = valid_sha(integrity.get("baselineGitHead"))
+    dirty_raw = git.get("dirty")
+    branch = str(git.get("branch") or "").strip()
+    if len(branch) > 100:
+        branch = branch[:100]
+    return {
+        "gitSha": runtime_sha,
+        "gitShaAvailable": bool(runtime_sha),
+        "gitBranch": branch,
+        "gitDirty": dirty_raw if isinstance(dirty_raw, bool) else None,
+        "baselineGitSha": baseline_sha,
+        "baselineMatchesRuntime": bool(runtime_sha and baseline_sha and runtime_sha == baseline_sha),
+    }
+
+
 def _google_integration_component(integrations: dict) -> dict:
     oauth = bool(integrations.get("oauthAuthorized"))
     oauth_health = integrations.get("oauthHealth") or {}
@@ -671,10 +696,12 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         metrics={"pass": int(totals.get("pass") or 0), "info": infos, "warning": warnings, "fail": failures},
     ))
 
+    runtime_provenance = _runtime_provenance(None)
     posture, error = _safe("Sentinel", security_integrity.posture)
     if error:
         components.append(_failed("security", "Sécurité / observabilité", True, error))
     else:
+        runtime_provenance = _runtime_provenance(posture)
         ok = bool(posture.get("ok"))
         vulnerabilities = (posture.get("vulnerabilities") or {}).get("count") or 0
         components.append(_component(
@@ -743,5 +770,6 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             "blockingComponents": critical_blockers,
         },
         "components": components,
+        "runtime": runtime_provenance,
         "privacy": "Le diagnostic n’expose aucun secret, token, identifiant client ou donnée Mercure nominative.",
     }
