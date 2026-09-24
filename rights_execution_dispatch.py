@@ -91,8 +91,11 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
     before the separate compliance audit write.
 
     Review follow-up and booking conversions are keyed only by provider
-    appointment ids. After the central privacy-suppression adapter has verified
-    the rights request, an erasure may therefore remove those local rows only
+    appointment ids. The dispatcher may resume an erasure whose central
+    privacy-suppression audit already completed, so an interruption after that
+    audit cannot strand the two crash-recoverable local receipts. After the
+    central adapter has verified the rights request, an erasure may remove those
+    local rows only
     when Mercure independently proves a complete appointment inventory for the
     submitted provider subject reference.
     """
@@ -129,12 +132,17 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
                     body.get("subjectRef"),
                     db_path,
                 )
+        execute_kwargs = {
+            "adapter": adapter,
+            "purpose": str(body.get("purpose") or ""),
+            "db_path": db_path,
+        }
+        if adapter == "privacy_suppression":
+            execute_kwargs["resume_completed_erasure"] = True
         result = data_subject_rights.execute(
             body.get("id"),
             body.get("subjectRef"),
-            adapter=adapter,
-            purpose=str(body.get("purpose") or ""),
-            db_path=db_path,
+            **execute_kwargs,
         )
         if adapter == "privacy_suppression" and str(result.get("requestType") or "") == "erasure":
             # The central adapter has already reverified the request/subject pair.
