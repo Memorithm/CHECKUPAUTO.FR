@@ -650,6 +650,37 @@ def consent_receipts(db_path: Path | str | None = None, limit: int = 50) -> list
     ]
 
 
+def contract_acceptance_receipt(
+    contract_ref: str,
+    *,
+    db_path: Path | str | None = None,
+) -> dict | None:
+    contract_ref = _text(contract_ref, "contractRef", 200, required=True)
+    init_db(db_path)
+    with connect(db_path) as db:
+        row = db.execute(
+            """SELECT receipt_id,contract_ref,purpose,document_type,document_version,content_hash,
+                      accepted_at,immediate_performance,source
+               FROM consent_receipts
+               WHERE contract_ref=? AND purpose='contract_terms' AND document_type='terms'
+               ORDER BY accepted_at DESC LIMIT 1""",
+            (contract_ref,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row["receipt_id"],
+        "contractRef": row["contract_ref"],
+        "purpose": row["purpose"],
+        "documentType": row["document_type"],
+        "documentVersion": row["document_version"],
+        "contentHash": row["content_hash"],
+        "acceptedAt": row["accepted_at"],
+        "immediatePerformance": bool(row["immediate_performance"]),
+        "source": row["source"],
+    }
+
+
 def _checkout_token_hash(booking_token: str) -> str:
     token = _text(booking_token, "bookingToken", 256, required=True)
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
