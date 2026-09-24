@@ -1250,7 +1250,22 @@ def initialize_runtime(*,background=True):
    _RUNTIME_BACKGROUND_READY=True
  return {'coreReady':_RUNTIME_CORE_READY,'backgroundReady':_RUNTIME_BACKGROUND_READY}
 
+def server_bind_address(environment=None):
+ env = os.environ if environment is None else environment
+ host = str(env.get('CYBERCHECK_BIND_HOST') or '127.0.0.1').strip()
+ if host not in {'127.0.0.1','0.0.0.0','::'}:
+  raise ValueError('CYBERCHECK_BIND_HOST invalide')
+ try:
+  port = int(str(env.get('CYBERCHECK_BIND_PORT') or '8765').strip())
+ except ValueError as exc:
+  raise ValueError('CYBERCHECK_BIND_PORT invalide') from exc
+ if port < 1 or port > 65535:
+  raise ValueError('CYBERCHECK_BIND_PORT invalide')
+ return host, port
+
 if __name__=='__main__':
  initialize_runtime(background=True)
- print('CyberCheck admin/SEO server on http://127.0.0.1:8765',flush=True)
- ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
+ host,port=server_bind_address()
+ printable_host='127.0.0.1' if host=='0.0.0.0' else host
+ print(f'CyberCheck admin/SEO server on http://{printable_host}:{port}',flush=True)
+ ThreadingHTTPServer((host,port),Handler).serve_forever()
