@@ -150,9 +150,19 @@ def _adapter_can_retry_partial(
 
 def _completed_privacy_suppression_erasure_result(
     row: sqlite3.Row,
+    subject_ref: str,
     db_path: Path | str | None = None,
 ) -> dict:
-    """Return a replay context without writing a second suppression audit."""
+    """Return a replay context bound to the exact previously suppressed subject."""
+    subject_kind, subject_value = _suppression_subject(subject_ref)
+    normalized_kind, normalized_value = privacy_suppression.normalize(
+        subject_kind,
+        subject_value,
+    )
+    subject_hash = privacy_suppression.identity_hash(
+        normalized_kind,
+        normalized_value,
+    )
     _init_audit(db_path)
     with compliance_store.connect(db_path) as db:
         execution = db.execute(
@@ -162,8 +172,21 @@ def _completed_privacy_suppression_erasure_result(
                ORDER BY created_at DESC,execution_id DESC LIMIT 1""",
             (row["request_id"],),
         ).fetchone()
+        tombstone = db.execute(
+            """SELECT 1 FROM privacy_suppression
+               WHERE subject_kind=? AND subject_hash=?
+                 AND purpose='all_processing' AND request_id=? AND active=1
+               LIMIT 1""",
+            (
+                normalized_kind,
+                subject_hash,
+                row["request_id"],
+            ),
+        ).fetchone()
     if not execution:
         raise RuntimeError("audit de suppression complète introuvable")
+    if not tombstone:
+        raise RuntimeError("preuve de suppression du sujet introuvable")
     return {
         "ok": True,
         "requestId": str(row["request_id"]),
@@ -490,7 +513,7 @@ def execute(
             and adapter == "privacy_suppression"
             and request_type == "erasure"
         ):
-            return _completed_privacy_suppression_erasure_result(row, db_path)
+            return _completed_privacy_suppression_erasure_result(row, ref, db_path)
         raise RuntimeError("adaptateur déjà exécuté pour cette demande")
 
     if adapter == "mobile_installation":
