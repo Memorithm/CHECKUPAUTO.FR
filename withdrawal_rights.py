@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import re
@@ -7,11 +8,13 @@ from pathlib import Path
 
 import compliance_store
 import data_subject_rights
+import retention_enforcement
 import withdrawal_service
 
 
 ADAPTER = "withdrawal_evidence"
-SUPPORTED_RIGHTS = ("access", "portability")
+SUPPORTED_RIGHTS = ("access", "portability", "erasure")
+RETENTION_RULE = "withdrawal_evidence"
 
 
 def _email(value: object) -> str:
@@ -23,6 +26,19 @@ def _email(value: object) -> str:
 
 def _email_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _timestamp(value: object) -> datetime.datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
 
 
 def snapshot(subject_email: object, db_path: Path | str | None = None) -> dict:
@@ -81,6 +97,75 @@ def snapshot(subject_email: object, db_path: Path | str | None = None) -> dict:
     }
 
 
+def erase(subject_email: object, db_path: Path | str | None = None) -> dict:
+    """Erase expired evidence for one verified receipt e-mail, fail-closed.
+
+    Withdrawal evidence can be retained only under an explicitly configured and
+    legally reviewed retention policy. Rows still inside that validated window
+    are retained; rows with malformed timestamps are also retained rather than
+    guessed expired. Historical or alternate subject e-mails are never inferred.
+    """
+    email = _email(subject_email)
+    retention = retention_enforcement.policy(RETENTION_RULE, db_path)
+    if not retention.get("ready") or not retention.get("legalReviewConfirmed"):
+        raise RuntimeError("politique de conservation des rétractations non prête")
+    try:
+        active_days = int(retention.get("activeDays"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("durée de conservation des rétractations invalide") from exc
+    if active_days < 1:
+        raise RuntimeError("durée de conservation des rétractations invalide")
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - datetime.timedelta(days=active_days)
+    digest = _email_hash(email)
+    withdrawal_service.init_db(db_path)
+    with compliance_store.connect(db_path) as db:
+        rows = db.execute(
+            """SELECT request_id,submitted_at FROM withdrawal_requests
+               WHERE receipt_email_hash=? ORDER BY submitted_at,request_id""",
+            (digest,),
+        ).fetchall()
+        expired_ids: list[str] = []
+        malformed = 0
+        for row in rows:
+            submitted = _timestamp(row["submitted_at"])
+            if submitted is None:
+                malformed += 1
+            elif submitted < cutoff:
+                expired_ids.append(str(row["request_id"]))
+        if expired_ids:
+            db.executemany(
+                "DELETE FROM withdrawal_requests WHERE request_id=? AND receipt_email_hash=?",
+                [(request_id, digest) for request_id in expired_ids],
+            )
+        remaining = int(
+            db.execute(
+                "SELECT COUNT(*) n FROM withdrawal_requests WHERE receipt_email_hash=?",
+                (digest,),
+            ).fetchone()["n"]
+        )
+
+    matched = len(rows)
+    erased = len(expired_ids)
+    retained = remaining
+    return {
+        "retentionRule": RETENTION_RULE,
+        "retentionPolicyReady": True,
+        "legalReviewConfirmed": True,
+        "activeDays": active_days,
+        "cutoffAt": cutoff.isoformat(timespec="seconds"),
+        "matchedCount": matched,
+        "erasedCount": erased,
+        "retainedCount": retained,
+        "retainedMalformedTimestampCount": malformed,
+        "lookup": "receipt_email_hash",
+        "localLookupCompleteForEmail": True,
+        "subjectCoverageComplete": False,
+        "partial": True,
+    }
+
+
 def execute(
     request_id: object,
     subject_ref: object,
@@ -99,26 +184,49 @@ def execute(
     if not data_subject_rights._adapter_can_retry_partial(rid, ADAPTER, db_path):
         raise RuntimeError("adaptateur déjà exécuté pour cette demande")
 
-    data = snapshot(raw_ref, db_path)
-    canonical = json.dumps(
-        data,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    evidence = {
-        "requestId": rid,
-        "requestType": request_type,
-        "adapter": ADAPTER,
-        "recordCount": int(data["recordCount"]),
-        "localLookupCompleteForEmail": True,
-        "subjectCoverageComplete": False,
-        "exportHash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-    }
+    if request_type == "erasure":
+        data = erase(raw_ref, db_path)
+        evidence = {
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": ADAPTER,
+            "retentionRule": RETENTION_RULE,
+            "retentionPolicyReady": True,
+            "legalReviewConfirmed": True,
+            "activeDays": int(data["activeDays"]),
+            "matchedCount": int(data["matchedCount"]),
+            "erasedCount": int(data["erasedCount"]),
+            "retainedCount": int(data["retainedCount"]),
+            "retainedMalformedTimestampCount": int(
+                data["retainedMalformedTimestampCount"]
+            ),
+            "localLookupCompleteForEmail": True,
+            "subjectCoverageComplete": False,
+        }
+        action = "erase_retention_applied"
+    else:
+        data = snapshot(raw_ref, db_path)
+        canonical = json.dumps(
+            data,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        evidence = {
+            "requestId": rid,
+            "requestType": request_type,
+            "adapter": ADAPTER,
+            "recordCount": int(data["recordCount"]),
+            "localLookupCompleteForEmail": True,
+            "subjectCoverageComplete": False,
+            "exportHash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        }
+        action = "export"
+
     execution_id = data_subject_rights._audit_execution(
         row,
         ADAPTER,
-        "export",
+        action,
         evidence,
         db_path,
     )
@@ -144,7 +252,8 @@ def capability() -> dict:
         "clearSubjectReferencePersistedByAdapter": False,
         "localLookupCompleteForEmail": True,
         "subjectCoverageComplete": False,
-        "erasureImplemented": False,
-        "retentionRule": "withdrawal_evidence",
+        "erasureImplemented": True,
+        "erasureRequiresReadyValidatedRetentionPolicy": True,
+        "retentionRule": RETENTION_RULE,
         "limitation": "historical_or_alternate_subject_email_not_inferred",
     }
