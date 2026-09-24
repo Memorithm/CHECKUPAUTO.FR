@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    runs-on: [self-hosted, Linux, ARM64, remoteops, thor]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
