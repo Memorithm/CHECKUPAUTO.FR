@@ -12,12 +12,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import payment_payline as payline
+import payment_checkout as checkout
 import payment_payline_private as private_config
 from payment_core import PaymentError, SandboxJournal
 
 RETURN_ROUTE = "/payment/payline/return"
 CANCEL_ROUTE = "/payment/payline/cancel"
 NOTIFY_ROUTE = "/api/payments/payline/notify"
+START_ROUTE = "/api/payments/payline/start"
 
 
 def journal_path() -> Path:
@@ -159,10 +161,39 @@ def _notify(handler, query: str) -> bool:
     return True
 
 
+def _start(handler) -> bool:
+    if not handler._admin_origin_ok() or handler.headers.get("Sec-Fetch-Site","")=="cross-site":
+        handler.send_json({"ok":False,"error":"payment_origin_not_allowed"},403)
+        return True
+    if handler.headers.get("Content-Type","").split(";",1)[0].strip().lower()!="application/json":
+        handler.send_json({"ok":False,"error":"payment_content_type_invalid"},415)
+        return True
+    try:
+        payload=handler._read_json()
+        if not isinstance(payload,dict) or set(payload)!={"ccid","cct"}:
+            raise PaymentError("payment_start_payload_invalid")
+        result=checkout.start_payline_for_browser(payload.get("ccid"),payload.get("cct"))
+    except private_config.PaylinePrivateConfigurationError:
+        handler.send_json({"ok":False,"error":"payment_provider_not_configured"},503,{"Retry-After":"60"})
+        return True
+    except PaymentError as exc:
+        code=str(exc)
+        status=409 if code=="payment_start_reconciliation_required" else 400
+        handler.send_json({"ok":False,"error":code},status)
+        return True
+    except Exception:
+        handler.send_json({"ok":False,"error":"payment_start_unavailable"},503,{"Retry-After":"30"})
+        return True
+    handler.send_json({"ok":True,**result},201 if not result.get("reused") else 200)
+    return True
+
+
 def handle(handler) -> bool:
+    parsed = urlsplit(handler.path)
+    if getattr(handler, "command", "") == "POST" and parsed.path == START_ROUTE:
+        return _start(handler)
     if getattr(handler, "command", "") != "GET":
         return False
-    parsed = urlsplit(handler.path)
     if parsed.path == RETURN_ROUTE:
         return _browser_result(handler, parsed.query)
     if parsed.path == CANCEL_ROUTE:
