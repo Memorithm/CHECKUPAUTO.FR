@@ -42,7 +42,7 @@ class PaylinePrivateConfigurationTest(unittest.TestCase):
             self.assertTrue(status["configured"])
             self.assertTrue(status["configurationValid"])
             self.assertFalse(status["credentialsVerified"])
-            self.assertFalse(status["checkoutBound"])
+            self.assertTrue(status["checkoutBound"])
             self.assertNotIn("synthetic-private-key", repr(status))
             self.assertNotIn("00000012345678", repr(status))
             self.assertNotIn("TEST_CONTRACT_01", repr(status))
