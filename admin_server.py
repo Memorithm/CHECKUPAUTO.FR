@@ -40,6 +40,7 @@ import compliance_admin as compliance_admin
 import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
 import payment_contract_http
+import payment_payline_http
 import data_subject_rights as data_subject_rights
 import rights_execution_dispatch as rights_execution_dispatch
 import withdrawal_service as withdrawals
@@ -273,6 +274,7 @@ class Handler(SimpleHTTPRequestHandler):
   return raw.replace('</head>',block+'\n</head>',1).encode()
  def do_GET(self):
   if not self._guard(): return
+  if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=PASSWORD): return
   parsed=urlparse(self.path); path=parsed.path
   if path=='/api/integrations/google/oauth/callback':
