@@ -16,6 +16,7 @@ BOOKING_BROWSER_TOKEN_TTL_HOURS = 48
 _BOOKING_ATTRIBUTION_STORAGE_KEY = 'booking_conversion_attribution_storage'
 _BOOKING_ATTRIBUTION_STORAGE_VERSION = 'sha256-v1'
 _BOOKING_ATTRIBUTION_KEY_RE = re.compile(r'^sha256-v1:[0-9a-f]{64}$')
+_BROWSER_SYNTHETIC_PREFIX = 'browser-'
 
 
 def now_iso():
@@ -366,6 +367,17 @@ def _appointment_at(value):
     raise ValueError('appointmentDate invalid')
 
 
+def _authoritative_conversion_for_token(db, token_key):
+    if not token_key:
+        return None
+    return db.execute(
+        '''SELECT * FROM booking_conversions
+           WHERE provider=? AND attribution_token=? AND external_id NOT LIKE ?
+           ORDER BY updated_at DESC,external_id DESC LIMIT 1''',
+        (PROVIDER,token_key,_BROWSER_SYNTHETIC_PREFIX+'%'),
+    ).fetchone()
+
+
 def apply_conversion(payload):
     if not isinstance(payload,dict): raise ValueError('invalid payload')
     external_id=analytics.clean(payload.get('externalId') or payload.get('id'),120)
@@ -382,6 +394,8 @@ def apply_conversion(payload):
     service=analytics._safe_dimension(payload.get('service'),120)
     amount_cents=_money_cents(payload.get('amount'))
     source='Non attribué'; campaign=''; device='unknown'; referral_code=''
+    synthetic_reconciled=0
+    authoritative_reused=False
     with analytics.connect() as db:
         if token:
             intent=db.execute(
@@ -396,26 +410,46 @@ def apply_conversion(payload):
             referral_code=referrals.valid_code_or_empty(payload.get('referralCode'))
         if source=='Non attribué' and payload.get('source'):
             source=analytics._safe_dimension(payload.get('source'),100)
-        now=now_iso(); confirmed=now if status in CONFIRMED else None
-        db.execute('''INSERT INTO booking_conversions(
-          provider,external_id,status,first_seen_at,updated_at,confirmed_at,appointment_at,
-          amount_cents,service,attribution_token,source,campaign,device,referral_code)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(provider,external_id) DO UPDATE SET
-          status=excluded.status,updated_at=excluded.updated_at,
-          confirmed_at=CASE WHEN excluded.status IN ('confirmed','completed') THEN COALESCE(booking_conversions.confirmed_at,excluded.confirmed_at) ELSE booking_conversions.confirmed_at END,
-          appointment_at=excluded.appointment_at,amount_cents=excluded.amount_cents,
-          service=excluded.service,attribution_token=CASE WHEN excluded.attribution_token<>'' THEN excluded.attribution_token ELSE booking_conversions.attribution_token END,
-          source=CASE WHEN excluded.source<>'Non attribué' THEN excluded.source ELSE booking_conversions.source END,
-          campaign=CASE WHEN excluded.campaign<>'' THEN excluded.campaign ELSE booking_conversions.campaign END,
-          device=CASE WHEN excluded.device<>'unknown' THEN excluded.device ELSE booking_conversions.device END,
-          referral_code=CASE WHEN excluded.referral_code<>'' THEN excluded.referral_code ELSE booking_conversions.referral_code END''',
-          (PROVIDER,external_id,status,now,now,confirmed,appointment,amount_cents,service,token_key,source,campaign,device,referral_code))
+
+        if external_id.startswith(_BROWSER_SYNTHETIC_PREFIX) and token_key:
+            authoritative=_authoritative_conversion_for_token(db,token_key)
+            if authoritative:
+                external_id=str(authoritative['external_id'])
+                status=str(authoritative['status'])
+                source=str(authoritative['source'])
+                referral_code=str(authoritative['referral_code'] or referral_code)
+                authoritative_reused=True
+
+        if not authoritative_reused:
+            now=now_iso(); confirmed=now if status in CONFIRMED else None
+            db.execute('''INSERT INTO booking_conversions(
+              provider,external_id,status,first_seen_at,updated_at,confirmed_at,appointment_at,
+              amount_cents,service,attribution_token,source,campaign,device,referral_code)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+              ON CONFLICT(provider,external_id) DO UPDATE SET
+              status=excluded.status,updated_at=excluded.updated_at,
+              confirmed_at=CASE WHEN excluded.status IN ('confirmed','completed') THEN COALESCE(booking_conversions.confirmed_at,excluded.confirmed_at) ELSE booking_conversions.confirmed_at END,
+              appointment_at=excluded.appointment_at,amount_cents=excluded.amount_cents,
+              service=excluded.service,attribution_token=CASE WHEN excluded.attribution_token<>'' THEN excluded.attribution_token ELSE booking_conversions.attribution_token END,
+              source=CASE WHEN excluded.source<>'Non attribué' THEN excluded.source ELSE booking_conversions.source END,
+              campaign=CASE WHEN excluded.campaign<>'' THEN excluded.campaign ELSE booking_conversions.campaign END,
+              device=CASE WHEN excluded.device<>'unknown' THEN excluded.device ELSE booking_conversions.device END,
+              referral_code=CASE WHEN excluded.referral_code<>'' THEN excluded.referral_code ELSE booking_conversions.referral_code END''',
+              (PROVIDER,external_id,status,now,now,confirmed,appointment,amount_cents,service,token_key,source,campaign,device,referral_code))
+            if token_key and not external_id.startswith(_BROWSER_SYNTHETIC_PREFIX):
+                synthetic_reconciled=int(db.execute(
+                    '''DELETE FROM booking_conversions
+                       WHERE provider=? AND attribution_token=? AND external_id LIKE ?''',
+                    (PROVIDER,token_key,_BROWSER_SYNTHETIC_PREFIX+'%'),
+                ).rowcount or 0)
+
     reward=referrals.record_pending(referral_code,PROVIDER,external_id,token) if referral_code else referrals.reward_status(PROVIDER,external_id)
     if status=='completed': reward=referrals.complete_control(PROVIDER,external_id) or reward
     elif status in ('cancelled','no_show'): reward=referrals.cancel_pending(PROVIDER,external_id) or reward
     return {'ok':True,'externalId':external_id,'status':status,'attributed':source!='Non attribué','source':source,
             'contractAcceptanceBound':bool(acceptance),
+            'syntheticConversionsReconciled':synthetic_reconciled,
+            'authoritativeConversionReused':authoritative_reused,
             'referralCode':referral_code or (reward.get('referral_code') if reward else None),
             'referralStatus':reward.get('status') if reward else None}
 
@@ -433,8 +467,9 @@ def browser_confirmation(payload):
     if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=BOOKING_BROWSER_TOKEN_TTL_HOURS):
         raise ValueError('attribution token expired')
     # The provider callback only fires after a successful appointment creation.
-    # Use a deterministic id so retries/beacons remain idempotent.
-    external='browser-'+hashlib.sha256((ccid+'|'+route).encode()).hexdigest()[:24]
+    # Use a deterministic id so retries/beacons remain idempotent until the
+    # authoritative provider conversion can be reconciled through attribution.
+    external=_BROWSER_SYNTHETIC_PREFIX+hashlib.sha256((ccid+'|'+route).encode()).hexdigest()[:24]
     service=intent['service']
     amount=0.0
     presta=mercure_prestation(service)
