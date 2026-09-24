@@ -146,6 +146,30 @@ function renderProcessors(rows){
  }
 }
 
+function renderBookingReconciliation(snapshot){
+ const booking=snapshot?.bookingConversionReconciliation||{};
+ const available=booking.available===true;
+ const residual=Number.isInteger(booking.localResidualRows)?booking.localResidualRows:0;
+ const withoutAttribution=Number.isInteger(booking.syntheticRowsWithoutAttribution)?booking.syntheticRowsWithoutAttribution:0;
+ const state=$('#bookingSyntheticState');
+ if(state){
+  state.textContent=!available?'INDISPONIBLE':(residual===0?'AUCUN RÉSIDU LOCAL':'RÉSIDUS À TRAITER');
+  state.className='gsc-status '+(available&&residual===0?'online':'warning');
+ }
+ if($('#bookingSyntheticResidual'))$('#bookingSyntheticResidual').textContent=available?String(residual):'—';
+ if($('#bookingSyntheticWithoutAttribution'))$('#bookingSyntheticWithoutAttribution').textContent=available?String(withoutAttribution):'—';
+ if($('#bookingProviderInference'))$('#bookingProviderInference').textContent=booking.providerIdInferenceUsed===true?'OUI':'NON';
+ if($('#bookingProviderCoverage'))$('#bookingProviderCoverage').textContent=booking.providerCoverageProven===true?'PROUVÉE':'NON PROUVÉE';
+ const diagnostic=$('#bookingSyntheticDiagnostic');
+ if(diagnostic){
+  diagnostic.textContent=!available
+   ? 'Le store analytics n’est pas disponible ou n’est pas initialisé ; aucune conclusion de couverture ne peut être tirée.'
+   : (residual===0
+      ? 'Aucun résidu synthétique local n’est actuellement observé. Ce résultat ne prouve pas que Mercure a exposé tous les rendez-vous fournisseur.'
+      : 'Des lignes synthétiques locales restent sans correspondance fournisseur prouvée. Le rapprochement reste strictement limité à la même clé d’attribution dérivée.');
+ }
+}
+
 function render(snapshot){
  const operations=snapshot?.operations||{};
  const summary=operations.summary||{};
@@ -157,7 +181,7 @@ function render(snapshot){
  if($('#operationsProcessors'))$('#operationsProcessors').textContent=String(summary.activeProcessorCount??0)+' / '+String(summary.processorCount??0);
  if($('#operationsBlockers'))$('#operationsBlockers').textContent=String(summary.blockerCount??0);
  if($('#operationsAttestation'))$('#operationsAttestation').textContent=attestation.current?'À JOUR':(attestation.stale?'OBSOLÈTE':'À ATTESTER');
- renderBlockers(summary.blockers);renderActivities(operations.processingActivities);renderProcessors(operations.processors);
+ renderBlockers(summary.blockers);renderActivities(operations.processingActivities);renderProcessors(operations.processors);renderBookingReconciliation(snapshot);
 }
 
 async function jsonResponse(response){

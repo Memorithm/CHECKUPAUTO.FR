@@ -38,6 +38,17 @@
         <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Type</th><th>Objet</th><th>Identifiant</th></tr></thead><tbody id="operationsBlockerRows"><tr><td colspan="3">Chargement…</td></tr></tbody></table></div>
       </div>
 
+      <div class="integration-box" id="bookingSyntheticObservability">
+        <div class="panel-head compact"><div><h2>Conversions de réservation synthétiques</h2><p class="hint">Observabilité locale des anciens callbacks navigateur <code>browser-*</code>. Aucun identifiant de rendez-vous Mercure n’est déduit de ces lignes et un compteur local à zéro ne prouve pas l’exhaustivité fournisseur.</p></div><span id="bookingSyntheticState" class="gsc-status warning">Diagnostic…</span></div>
+        <div class="metric-grid">
+          <article><small>RÉSIDUS LOCAUX</small><strong id="bookingSyntheticResidual">—</strong></article>
+          <article><small>SANS ATTRIBUTION</small><strong id="bookingSyntheticWithoutAttribution">—</strong></article>
+          <article><small>IDENTIFIANT FOURNISSEUR INFÉRÉ</small><strong id="bookingProviderInference">NON</strong></article>
+          <article><small>COUVERTURE FOURNISSEUR</small><strong id="bookingProviderCoverage">NON PROUVÉE</strong></article>
+        </div>
+        <p id="bookingSyntheticDiagnostic" class="hint">Chargement du diagnostic local…</p>
+      </div>
+
       <form id="activityForm" class="integration-box" autocomplete="off">
         <div class="panel-head compact"><div><h2>Ajouter / modifier une activité de traitement</h2><p class="hint">Les listes acceptent une valeur par ligne. Les champs obligatoires sont validés par le registre backend.</p></div><div class="button-row"><button type="button" id="activityReset" class="secondary">Nouveau</button><button type="submit" id="activitySave">Enregistrer</button></div></div>
         <input type="hidden" id="activityId">
