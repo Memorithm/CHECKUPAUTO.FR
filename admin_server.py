@@ -232,7 +232,7 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/app','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation'}
+  dynamic={'/','/index.html','/app','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
