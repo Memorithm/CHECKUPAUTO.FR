@@ -11,6 +11,9 @@ final class MobileBootstrapTests: XCTestCase {
         XCTAssertEqual(config.reminders.leadDays, [60, 30, 15, 7, 1])
         XCTAssertEqual(config.reminders.timezone, "Europe/Paris")
         XCTAssertEqual(config.referral.rewardCents, 500)
+        XCTAssertEqual(config.booking.url, "https://rdv.checkupauto.fr/")
+        XCTAssertEqual(config.app.landingUrl, "https://www.checkupauto.fr/app")
+        XCTAssertEqual(config.app.downloadPath, "/go/app")
     }
 
     func testRejectsUnknownSchema() throws {
