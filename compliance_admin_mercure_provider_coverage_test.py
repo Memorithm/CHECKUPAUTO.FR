@@ -21,6 +21,8 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
         history_start="",
         future_days="",
         evidence_sha256="",
+        appointment_source="",
+        appointment_evidence_sha256="",
         vehicle_source="",
         vehicle_evidence_sha256="",
     ):
@@ -28,6 +30,8 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
             mercure_provider_coverage.HISTORY_START_ENV: history_start,
             mercure_provider_coverage.FUTURE_DAYS_ENV: future_days,
             mercure_provider_coverage.EVIDENCE_SHA256_ENV: evidence_sha256,
+            mercure_provider_coverage.APPOINTMENT_SOURCE_ENV: appointment_source,
+            mercure_provider_coverage.APPOINTMENT_EVIDENCE_SHA256_ENV: appointment_evidence_sha256,
             mercure_provider_coverage.VEHICLE_SOURCE_ENV: vehicle_source,
             mercure_provider_coverage.VEHICLE_EVIDENCE_SHA256_ENV: vehicle_evidence_sha256,
         }
@@ -43,16 +47,19 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
             coverage["boundary"]["reason"],
             "provider_boundary_not_attested",
         )
+        self.assertEqual(coverage["boundary"]["appointmentInventory"]["state"], "unconfigured")
+        self.assertFalse(coverage["boundary"]["appointmentInventory"]["attested"])
         self.assertEqual(coverage["boundary"]["vehicleInventory"]["state"], "unconfigured")
         self.assertFalse(coverage["boundary"]["vehicleInventory"]["attested"])
         self.assertTrue(coverage["capability"]["requiresExplicitProviderBoundary"])
         self.assertTrue(coverage["capability"]["requiresAuthoritativeSourceEvidence"])
+        self.assertTrue(coverage["capability"]["requiresIndependentAppointmentInventoryEvidence"])
         self.assertTrue(coverage["capability"]["requiresIndependentVehicleInventoryEvidence"])
         self.assertFalse(coverage["capability"]["rawEvidenceStoredInRepository"])
         self.assertFalse(state["summary"]["mercureProviderCoverageAttested"])
         self.assertEqual(state["summary"]["mercureProviderCoverageState"], "unconfigured")
 
-    def test_attested_boundary_exposes_only_bounded_non_secret_state(self):
+    def test_temporal_boundary_without_appointment_authority_remains_unattested(self):
         evidence_hash = "a" * 64
         with mock.patch.dict(
             os.environ,
@@ -60,6 +67,36 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
                 history_start="2020-01-01",
                 future_days="730",
                 evidence_sha256=evidence_hash,
+            ),
+            clear=False,
+        ):
+            state = compliance_admin.snapshot(self.db)
+
+        coverage = state["mercureProviderCoverage"]
+        self.assertEqual(coverage["boundary"]["state"], "unconfigured")
+        self.assertFalse(coverage["boundary"]["attested"])
+        self.assertEqual(
+            coverage["boundary"]["reason"],
+            "provider_appointment_inventory_not_attested",
+        )
+        self.assertEqual(coverage["boundary"]["historyStart"], "2020-01-01")
+        self.assertEqual(coverage["boundary"]["futureDays"], 730)
+        self.assertEqual(coverage["boundary"]["evidenceSha256"], evidence_hash)
+        self.assertFalse(state["summary"]["mercureProviderCoverageAttested"])
+
+    def test_attested_boundary_exposes_only_bounded_non_secret_state(self):
+        evidence_hash = "a" * 64
+        appointment_evidence_hash = "c" * 64
+        with mock.patch.dict(
+            os.environ,
+            self.provider_env(
+                history_start="2020-01-01",
+                future_days="730",
+                evidence_sha256=evidence_hash,
+                appointment_source=(
+                    mercure_provider_coverage.AUTHORITATIVE_APPOINTMENT_INVENTORY_SOURCE
+                ),
+                appointment_evidence_sha256=appointment_evidence_hash,
             ),
             clear=False,
         ):
@@ -81,9 +118,18 @@ class ComplianceAdminMercureProviderCoverageTest(unittest.TestCase):
                 "futureDays",
                 "evidenceSha256",
                 "reason",
+                "appointmentInventory",
                 "vehicleInventory",
             },
         )
+        appointment = coverage["boundary"]["appointmentInventory"]
+        self.assertEqual(appointment["state"], "attested")
+        self.assertTrue(appointment["attested"])
+        self.assertEqual(
+            appointment["source"],
+            mercure_provider_coverage.AUTHORITATIVE_APPOINTMENT_INVENTORY_SOURCE,
+        )
+        self.assertEqual(appointment["evidenceSha256"], appointment_evidence_hash)
         self.assertEqual(coverage["boundary"]["vehicleInventory"]["state"], "unconfigured")
         self.assertTrue(state["summary"]["mercureProviderCoverageAttested"])
         self.assertEqual(state["summary"]["mercureProviderCoverageState"], "attested")
