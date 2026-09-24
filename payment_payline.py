@@ -355,7 +355,8 @@ def parse_refund_response(xml: bytes) -> RefundResult:
     root=_parse(xml)
     result=_first(root,"result","payline_result_missing")
     code=_child_text(result,"code","payline_result_missing")
-    if code not in {"00000","02500"}:
+    short_message=_child_text(result,"shortMessage","payline_short_message_missing").upper()
+    if short_message != "ACCEPTED" or code not in {"00000","02500"}:
         raise PaymentError("payline_refund_refused")
     return RefundResult(code)
 
