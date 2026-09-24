@@ -63,12 +63,12 @@
   const data=await response.json();
   if(!data.ok||!data.summary||!Array.isArray(data.transactions))throw new Error('Réponse activité paiements invalide.');
   const summary=data.summary,root=$('#paymentsActivitySummary');root.replaceChildren();
-  const values=[['Intentions',summary.total],['Capturés',summary.captured],['En attente',summary.pending],['Refusés',summary.declined],['Démarrages à réconcilier',summary.indeterminateStarts]];
+  const values=[['Intentions',summary.total],['Capturés',summary.captured],['En attente',summary.pending],['Refusés',summary.declined],['Annulés',summary.cancelled||0],['Erreurs techniques',summary.error||0],['Démarrages à réconcilier',summary.indeterminateStarts]];
   for(const [label,value] of values){const p=document.createElement('p'),strong=document.createElement('strong');strong.textContent=label+' : ';p.append(strong,document.createTextNode(String(value)));root.append(p);}
   const body=$('#paymentsActivity');body.replaceChildren();
   for(const row of data.transactions){
    const tr=document.createElement('tr');
-   const stateLabels={created:'Créé',pending:'En attente',declined:'Refusé',authorized:'Autorisé',captured:'Capturé'};
+   const stateLabels={created:'Créé',pending:'En attente',declined:'Refusé',cancelled:'Annulé',error:'Erreur technique',authorized:'Autorisé',captured:'Capturé'};
    const startLabels={ready:'Prêt',attempting:'Démarrage',indeterminate:'À réconcilier','':'—'};
    const values=[row.createdAt,row.paymentId.slice(0,12)+'…',(row.amountCents/100).toFixed(2)+' '+row.currency,stateLabels[row.state]||row.state,startLabels[row.startState]||row.startState];
    for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);
