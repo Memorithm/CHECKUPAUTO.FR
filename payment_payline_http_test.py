@@ -68,7 +68,7 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         return core.VerifiedEvent(
             self.intent.payment_id, "payline", "TOKEN_FIXTURE_123",
             "payline:TXN_123:00000" if state == "captured" else "payline:TXN_123:01001",
-            state, 8000,
+            state, 8000, "TXN_123",
         )
 
     def test_browser_return_rereads_provider_and_applies_verified_event(self):
@@ -81,6 +81,33 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         refresh.assert_called_once()
         self.assertIn("noindex", handler.response["headers"]["X-Robots-Tag"])
 
+    def test_browser_return_distinguishes_provider_cancel_and_technical_error(self):
+        cases=(
+            ("cancelled","Paiement annul"),
+            ("error","Paiement non finalis"),
+        )
+        for state,needle in cases:
+            with self.subTest(state=state):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                data = Path(tmp.name) / "data"
+                data.mkdir()
+                with patch.dict(os.environ, {"CYBERCHECK_DATA_DIR":str(data)}, clear=False):
+                    store=core.SandboxJournal(routes.journal_path())
+                    created=store.create(core.Quote("appointment-"+state,"technical",8000,"c"*64),"payline")
+                    intent=store.bind_provider(created.payment_id,"TOKEN_"+state.upper())
+                    event=core.VerifiedEvent(
+                        intent.payment_id,"payline",intent.provider_reference,
+                        "payline:"+state+":fixture",state,8000,"",
+                    )
+                    handler=Handler("/payment/payline/return?paymentId="+intent.payment_id)
+                    with patch.object(private_config,"load",return_value=object()), \
+                         patch.object(routes.payline,"refresh",return_value=event):
+                        self.assertTrue(routes.handle(handler))
+                    self.assertEqual(handler.response["status"],200)
+                    self.assertIn(needle.encode(),handler.response["data"])
+                    self.assertEqual(store.get(intent.payment_id).state,state)
+
     def test_browser_cannot_supply_or_forge_a_success_state(self):
         handler = Handler("/payment/payline/return?paymentId=" + self.intent.payment_id + "&status=captured")
         with patch.object(private_config, "load", return_value=object()),              patch.object(routes.payline, "refresh", side_effect=core.PaymentError("payline_result_not_final")):
@@ -88,17 +115,40 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         self.assertEqual(handler.response["status"], 400)
         self.assertEqual(self.store.get(self.intent.payment_id).state, "created")
 
-    def test_cancel_redirect_never_mutates_payment_state(self):
+    def test_cancel_redirect_is_only_a_trigger_for_authenticated_provider_reread(self):
         handler = Handler("/payment/payline/cancel?paymentId=" + self.intent.payment_id + "&status=success")
-        with patch.object(routes.payline, "refresh", side_effect=AssertionError("cancel must not call provider")):
+        event=core.VerifiedEvent(
+            self.intent.payment_id,"payline",self.intent.provider_reference,
+            "payline:cancel:fixture","cancelled",8000,"",
+        )
+        with patch.object(private_config,"load",return_value=object()), \
+             patch.object(routes.payline, "refresh", return_value=event) as refresh:
             self.assertTrue(routes.handle(handler))
         self.assertEqual(handler.response["status"], 200)
-        self.assertEqual(self.store.get(self.intent.payment_id).state, "created")
-        self.assertIn(b"interrompu", handler.response["data"])
+        self.assertEqual(self.store.get(self.intent.payment_id).state, "cancelled")
+        self.assertIn(b"Paiement annul", handler.response["data"])
+        refresh.assert_called_once()
+
+    def test_cancel_redirect_cannot_forge_success(self):
+        handler = Handler("/payment/payline/cancel?paymentId=" + self.intent.payment_id + "&status=captured")
+        with patch.object(private_config,"load",return_value=object()), \
+             patch.object(routes.payline,"refresh",side_effect=core.PaymentError("payline_result_state_unknown")):
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],400)
+        self.assertEqual(self.store.get(self.intent.payment_id).state,"created")
 
     def test_notification_token_is_only_a_trigger_for_authenticated_reread(self):
         handler = Handler("/api/payments/payline/notify?notificationType=webtrs&token=TOKEN_FIXTURE_123&status=captured&amount=1")
         with patch.object(private_config, "load", return_value=object()),              patch.object(routes.payline, "refresh", return_value=self.verified()) as refresh:
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"], 204)
+        self.assertEqual(self.store.get(self.intent.payment_id).state, "captured")
+        refresh.assert_called_once()
+
+    def test_notification_type_accepts_documented_uppercase_WEBTRS(self):
+        handler = Handler("/api/payments/payline/notify?notificationType=WEBTRS&token=TOKEN_FIXTURE_123")
+        with patch.object(private_config, "load", return_value=object()), \
+             patch.object(routes.payline, "refresh", return_value=self.verified()) as refresh:
             self.assertTrue(routes.handle(handler))
         self.assertEqual(handler.response["status"], 204)
         self.assertEqual(self.store.get(self.intent.payment_id).state, "captured")

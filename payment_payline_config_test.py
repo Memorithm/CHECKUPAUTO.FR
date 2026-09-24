@@ -100,11 +100,13 @@ class PaylineConfigurationTest(unittest.TestCase):
         self.assertTrue(report["configurationSyntaxValid"])
         self.assertTrue(report["transportImplemented"])
         self.assertTrue(report["httpCallbacksBound"])
-        for gate in ("credentialsVerified", "contractBindingVerified", "checkoutBound",
+        self.assertTrue(report["checkoutBound"])
+        for gate in ("credentialsVerified", "contractBindingVerified",
                      "livePaymentsEnabled", "ready"):
             self.assertIs(report[gate], False)
         self.assertEqual(report["provider"], "payline")
         self.assertIn("contract_binding_unverified", report["blockingReasons"])
+        self.assertNotIn("checkout_not_bound", report["blockingReasons"])
 
     def test_missing_configuration_is_explicit_and_does_not_use_environment(self):
         with patch.dict("os.environ", {"PAYLINE_MERCHANT_ID": "123456789", "PAYLINE_ACCESS_KEY": "fixture"}):

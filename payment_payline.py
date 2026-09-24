@@ -209,6 +209,8 @@ def _post(config: PaylineSandboxConfig, body: bytes, soap_action: str, *, endpoi
             data = response.read(MAX_RESPONSE_BYTES + 1)
     except PaymentError:
         raise
+    except urllib.error.HTTPError:
+        raise PaymentError("payline_transport_status") from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise PaymentError("payline_transport_unavailable") from None
     if len(data) > MAX_RESPONSE_BYTES:
@@ -291,35 +293,53 @@ def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEv
     root = _parse(xml)
     result = _first(root, "result", "payline_result_missing")
     code = _child_text(result, "code", "payline_result_missing")
+    short_message = _child_text(result, "shortMessage", "payline_short_message_missing").upper()
+
+    # Monext documents ShortMessage as the transaction-state authority.
+    # Result codes explain the reason and cannot safely be classified by
+    # prefix alone (for example 04001/04003 are PENDING_RISK, not REFUSED).
+    if short_message == "ACCEPTED":
+        state = "captured"
+    elif short_message == "REFUSED":
+        state = "declined"
+    elif short_message == "CANCELLED":
+        state = "cancelled"
+    elif short_message == "ERROR":
+        state = "error"
+    elif short_message in {"INPROGRESS", "ONHOLD_PARTNER", "PENDING_RISK"}:
+        state = "pending"
+    else:
+        raise PaymentError("payline_result_state_unknown")
+
     payment = _first(root, "payment", "payline_payment_missing")
     amount = _child_text(payment, "amount", "payline_amount_missing")
     currency = _child_text(payment, "currency", "payline_currency_missing")
     if amount != str(intent.amount_cents) or currency != EUR_NUMERIC:
         raise PaymentError("payline_amount_or_currency_mismatch")
-    transaction = _first(root, "transaction", "payline_transaction_missing")
-    transaction_id = _child_text(transaction, "id", "payline_transaction_missing")
+
     order = _first(root, "order", "payline_order_missing")
     order_ref = _child_text(order, "ref", "payline_order_reference_missing")
     if order_ref != intent.payment_id:
         raise PaymentError("payline_order_reference_mismatch")
-    transaction_id = re.sub(r"[^A-Za-z0-9:_-]", "", transaction_id)
-    if not transaction_id or len(transaction_id) > 50:
+
+    transaction = _first(root, "transaction", "payline_transaction_missing")
+    transaction_id = _child_text(
+        transaction,
+        "id",
+        "payline_transaction_missing",
+        required=(state == "captured"),
+    )
+    if transaction_id and not re.fullmatch(r"[A-Za-z0-9:_-]{1,50}", transaction_id):
         raise PaymentError("payline_transaction_invalid")
+    if state == "captured" and not transaction_id:
+        raise PaymentError("payline_transaction_missing")
 
-    if code == "00000":
-        state = "captured"
-    elif code.startswith("01") or code.startswith("04") or code in {"02319", "02302"}:
-        state = "declined"
-    elif code == "02005":
-        state = "pending"
-    else:
-        raise PaymentError("payline_result_not_final")
-
+    event_key = transaction_id or intent.provider_reference
     return VerifiedEvent(
         intent.payment_id,
         "payline",
         intent.provider_reference,
-        "payline:" + transaction_id + ":" + code,
+        "payline:" + event_key + ":" + code + ":" + short_message,
         state,
         intent.amount_cents,
         transaction_id,
@@ -335,7 +355,8 @@ def parse_refund_response(xml: bytes) -> RefundResult:
     root=_parse(xml)
     result=_first(root,"result","payline_result_missing")
     code=_child_text(result,"code","payline_result_missing")
-    if code not in {"00000","02500"}:
+    short_message=_child_text(result,"shortMessage","payline_short_message_missing").upper()
+    if short_message != "ACCEPTED" or code not in {"00000","02500"}:
         raise PaymentError("payline_refund_refused")
     return RefundResult(code)
 

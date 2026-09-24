@@ -115,9 +115,17 @@ def _browser_result(handler, query: str) -> bool:
         message = "Le paiement a été relu et confirmé auprès du prestataire. Votre réservation peut poursuivre son rapprochement."
         state = "CONFIRMÉ"
     elif intent.state == "declined":
-        title = "Paiement non validé"
-        message = "Le prestataire n’a pas validé le paiement. Aucun succès n’a été enregistré."
-        state = "NON VALIDÉ"
+        title = "Paiement refusé"
+        message = "Le prestataire a refusé le paiement. Aucun succès n’a été enregistré."
+        state = "REFUSÉ"
+    elif intent.state == "cancelled":
+        title = "Paiement annulé"
+        message = "Le parcours bancaire a été annulé. Aucun paiement n’a été enregistré."
+        state = "ANNULÉ"
+    elif intent.state == "error":
+        title = "Paiement non finalisé"
+        message = "Le prestataire signale une erreur technique finale. Aucun paiement n’a été enregistré."
+        state = "ERREUR"
     else:
         title = "Paiement en cours de confirmation"
         message = "Le prestataire n’a pas encore fourni de résultat final. La réservation ne sera pas marquée payée avant confirmation."
@@ -130,22 +138,17 @@ def _browser_result(handler, query: str) -> bool:
     return True
 
 
-def _cancel(handler) -> bool:
-    # A browser cancellation is intentionally not accepted as payment evidence.
-    handler.send_bytes(
-        _page("Paiement interrompu",
-              "Le parcours de paiement a été interrompu. Aucun statut bancaire n’a été modifié à partir de cette redirection.",
-              "INTERROMPU"),
-        "text/html; charset=utf-8", 200, "no-store",
-        {"X-Robots-Tag": "noindex, nofollow, noarchive"},
-    )
-    return True
+def _cancel(handler, query: str) -> bool:
+    # The browser redirect remains non-authoritative, but it is a useful trigger
+    # for an authenticated getWebPaymentDetails reread. This prevents a genuine
+    # Payline cancellation from leaving the local intent stuck in "created".
+    return _browser_result(handler, query)
 
 
 def _notify(handler, query: str) -> bool:
     try:
         notification_type = _single(query, "notificationType", r"[A-Za-z0-9_-]{1,32}", "notification_type_invalid")
-        if notification_type != "webtrs":
+        if notification_type.lower() != "webtrs":
             raise PaymentError("notification_type_invalid")
         token = _single(query, "token", r"[A-Za-z0-9_-]{1,80}", "payline_token_invalid")
         _apply_by_token(token)
@@ -257,7 +260,7 @@ def handle(handler) -> bool:
     if parsed.path == RETURN_ROUTE:
         return _browser_result(handler, parsed.query)
     if parsed.path == CANCEL_ROUTE:
-        return _cancel(handler)
+        return _cancel(handler, parsed.query)
     if parsed.path == NOTIFY_ROUTE:
         return _notify(handler, parsed.query)
     return False

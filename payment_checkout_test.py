@@ -155,6 +155,25 @@ class TrustedPaymentQuoteTest(unittest.TestCase):
         stored=core.SandboxJournal(checkout.journal_path()).get(first["paymentId"])
         self.assertEqual(stored.provider_reference,"TOKEN_FIXTURE_123")
 
+    def test_payline_provider_refusal_does_not_poison_a_corrected_retry(self):
+        with patch.object(booking, "authoritative_external_id_for_browser_token", return_value=self.external_id), \
+             patch.object(checkout.payline_private, "load", return_value=object()):
+            with self.assertRaisesRegex(core.PaymentError,"^payline_start_refused$"):
+                checkout.start_payline_for_browser(
+                    "ccid-fixture","cct-fixture",
+                    starter=lambda intent,config: (_ for _ in ()).throw(core.PaymentError("payline_start_refused")),
+                )
+            second=checkout.start_payline_for_browser(
+                "ccid-fixture","cct-fixture",
+                starter=lambda intent,config: checkout.payline.StartResult(
+                    "TOKEN_RETRY_OK",
+                    "https://homologation-webpayment.payline.com/webpayment/?token=TOKEN_RETRY_OK",
+                ),
+            )
+        self.assertFalse(second["reused"])
+        self.assertEqual(second["state"],"created")
+        self.assertEqual(second["redirectUrl"],"https://homologation-webpayment.payline.com/webpayment/?token=TOKEN_RETRY_OK")
+
     def test_payline_browser_start_blocks_ambiguous_network_retry(self):
         with patch.object(booking, "authoritative_external_id_for_browser_token", return_value=self.external_id), \
              patch.object(checkout.payline_private, "load", return_value=object()):

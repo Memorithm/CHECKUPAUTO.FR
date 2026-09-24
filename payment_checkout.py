@@ -126,6 +126,33 @@ def start_payline_for_browser(ccid: str, cct: str, *, starter=None) -> dict:
               WHERE payment_id=? AND state='attempting'""",
               (result.token,result.redirect_url,dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),intent.payment_id))
             db.commit()
+        except PaymentError as exc:
+            if str(exc) == "payline_start_refused":
+                # A provider-level refusal is definitive: no hosted-payment
+                # session was created, so keeping an "indeterminate" lock would
+                # incorrectly prevent a corrected retry. Remove only this
+                # pre-session attempt marker; the server-authoritative payment
+                # intent remains unchanged.
+                try:
+                    db.execute("BEGIN IMMEDIATE")
+                    db.execute(
+                        "DELETE FROM payment_provider_starts WHERE payment_id=? AND state='attempting'",
+                        (intent.payment_id,),
+                    )
+                    db.commit()
+                except Exception:
+                    pass
+                raise
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("""UPDATE payment_provider_starts
+                  SET state='indeterminate',updated_at=?
+                  WHERE payment_id=? AND state='attempting'""",
+                  (dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),intent.payment_id))
+                db.commit()
+            except Exception:
+                pass
+            raise
         except Exception:
             try:
                 db.execute("BEGIN IMMEDIATE")
@@ -158,8 +185,8 @@ def activity(limit: int = 50) -> dict:
     path=journal_path()
     if not path.is_file():
         return {
-            "summary":{"total":0,"created":0,"pending":0,"declined":0,"authorized":0,"captured":0,
-                       "readyStarts":0,"indeterminateStarts":0},
+            "summary":{"total":0,"created":0,"pending":0,"declined":0,"cancelled":0,"error":0,
+                       "authorized":0,"captured":0,"readyStarts":0,"indeterminateStarts":0},
             "transactions":[],
         }
     store=SandboxJournal(path)
@@ -198,6 +225,8 @@ def activity(limit: int = 50) -> dict:
             "created":state_counts.get("created",0),
             "pending":state_counts.get("pending",0),
             "declined":state_counts.get("declined",0),
+            "cancelled":state_counts.get("cancelled",0),
+            "error":state_counts.get("error",0),
             "authorized":state_counts.get("authorized",0),
             "captured":state_counts.get("captured",0),
             "readyStarts":start_counts.get("ready",0),
