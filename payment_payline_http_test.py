@@ -81,6 +81,33 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         refresh.assert_called_once()
         self.assertIn("noindex", handler.response["headers"]["X-Robots-Tag"])
 
+    def test_browser_return_distinguishes_provider_cancel_and_technical_error(self):
+        cases=(
+            ("cancelled","Paiement annul"),
+            ("error","Paiement non finalis"),
+        )
+        for state,needle in cases:
+            with self.subTest(state=state):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                data = Path(tmp.name) / "data"
+                data.mkdir()
+                with patch.dict(os.environ, {"CYBERCHECK_DATA_DIR":str(data)}, clear=False):
+                    store=core.SandboxJournal(routes.journal_path())
+                    created=store.create(core.Quote("appointment-"+state,"technical",8000,"c"*64),"payline")
+                    intent=store.bind_provider(created.payment_id,"TOKEN_"+state.upper())
+                    event=core.VerifiedEvent(
+                        intent.payment_id,"payline",intent.provider_reference,
+                        "payline:"+state+":fixture",state,8000,"",
+                    )
+                    handler=Handler("/payment/payline/return?paymentId="+intent.payment_id)
+                    with patch.object(private_config,"load",return_value=object()), \
+                         patch.object(routes.payline,"refresh",return_value=event):
+                        self.assertTrue(routes.handle(handler))
+                    self.assertEqual(handler.response["status"],200)
+                    self.assertIn(needle.encode(),handler.response["data"])
+                    self.assertEqual(store.get(intent.payment_id).state,state)
+
     def test_browser_cannot_supply_or_forge_a_success_state(self):
         handler = Handler("/payment/payline/return?paymentId=" + self.intent.payment_id + "&status=captured")
         with patch.object(private_config, "load", return_value=object()),              patch.object(routes.payline, "refresh", side_effect=core.PaymentError("payline_result_not_final")):
