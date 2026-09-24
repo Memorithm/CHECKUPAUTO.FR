@@ -115,9 +115,17 @@ def _browser_result(handler, query: str) -> bool:
         message = "Le paiement a été relu et confirmé auprès du prestataire. Votre réservation peut poursuivre son rapprochement."
         state = "CONFIRMÉ"
     elif intent.state == "declined":
-        title = "Paiement non validé"
-        message = "Le prestataire n’a pas validé le paiement. Aucun succès n’a été enregistré."
-        state = "NON VALIDÉ"
+        title = "Paiement refusé"
+        message = "Le prestataire a refusé le paiement. Aucun succès n’a été enregistré."
+        state = "REFUSÉ"
+    elif intent.state == "cancelled":
+        title = "Paiement annulé"
+        message = "Le parcours bancaire a été annulé. Aucun paiement n’a été enregistré."
+        state = "ANNULÉ"
+    elif intent.state == "error":
+        title = "Paiement non finalisé"
+        message = "Le prestataire signale une erreur technique finale. Aucun paiement n’a été enregistré."
+        state = "ERREUR"
     else:
         title = "Paiement en cours de confirmation"
         message = "Le prestataire n’a pas encore fourni de résultat final. La réservation ne sera pas marquée payée avant confirmation."
