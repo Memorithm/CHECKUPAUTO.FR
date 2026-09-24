@@ -22,6 +22,18 @@ class ComplianceMercureCoverageUiTest(unittest.TestCase):
         self.assertNotIn("CYBERCHECK_MERCURE_DSAR_COVERAGE_EVIDENCE", SCRIPT)
         self.assertIn("aucune preuve brute", SCRIPT)
 
+    def test_appointment_inventory_attestation_is_rendered_independently_and_fail_closed(self):
+        self.assertIn("boundary.appointmentInventory", SCRIPT)
+        self.assertIn("appointment.source", SCRIPT)
+        self.assertIn("appointment.evidenceSha256", SCRIPT)
+        self.assertIn("INVENTAIRE RENDEZ-VOUS", SCRIPT)
+        self.assertIn("SOURCE RENDEZ-VOUS", SCRIPT)
+        self.assertIn("PREUVE RENDEZ-VOUS SHA-256", SCRIPT)
+        self.assertIn("exhaustivité du calendrier sujet", SCRIPT)
+        self.assertIn("frontière temporelle seule ne prouve jamais", SCRIPT)
+        self.assertIn("reste requise", SCRIPT)
+        self.assertNotIn("CYBERCHECK_MERCURE_DSAR_APPOINTMENT_INVENTORY_EVIDENCE", SCRIPT)
+
     def test_vehicle_attestation_is_rendered_independently_and_fail_closed(self):
         self.assertIn("boundary.vehicleInventory", SCRIPT)
         self.assertIn("vehicle.evidenceSha256", SCRIPT)
