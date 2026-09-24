@@ -105,8 +105,8 @@ jobs:
           trap 'rm -f "$cancel_body" "$return_body"' EXIT
 
           cancel_code="$(curl -sS -o "$cancel_body" -w '%{http_code}' --max-time 15             "$STAGING_ORIGIN/payment/payline/cancel?paymentId=00000000000000000000000000000000")"
-          test "$cancel_code" = 200
-          grep -qi 'Paiement interrompu' "$cancel_body"
+          test "$cancel_code" = 400
+          grep -qi 'Paiement non vérifiable' "$cancel_body"
           grep -qi 'noindex' "$cancel_body"
 
           return_code="$(curl -sS -o "$return_body" -w '%{http_code}' --max-time 15             "$STAGING_ORIGIN/payment/payline/return?paymentId=invalid")"
