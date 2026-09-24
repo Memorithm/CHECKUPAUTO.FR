@@ -14,6 +14,7 @@ from payment_contract_store import (ContractStore, ContractInvalid, ContractConf
                                     MAX_BYTES, parse_json)
 
 ROUTE = "/api/admin/payments/contract"
+ACTIVITY_ROUTE = "/api/admin/payments/activity"
 
 
 def csrf_token(secret: str, headers, hour: int | None = None) -> str:
@@ -34,7 +35,7 @@ def handle(handler, *, secret: str) -> bool:
         return True
 
     parsed = urlsplit(handler.path)
-    if parsed.path != ROUTE:
+    if parsed.path not in {ROUTE, ACTIVITY_ROUTE}:
         return False
     if not handler.authorized():
         handler.require_auth()
@@ -49,6 +50,14 @@ def handle(handler, *, secret: str) -> bool:
 
     if parsed.query or parsed.fragment:
         return reject("payments_query_not_allowed", 400)
+    if parsed.path == ACTIVITY_ROUTE:
+        if handler.command != "GET":
+            return reject("payments_method_not_allowed", 405)
+        try:
+            handler.send_json({"ok":True,**payment_checkout.activity()})
+        except Exception:
+            return reject("payments_activity_unavailable",500)
+        return True
     if handler.command not in {"GET", "POST"}:
         return reject("payments_method_not_allowed", 405)
     if handler.command == "POST":
