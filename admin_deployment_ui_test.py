@@ -75,6 +75,18 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertIn('id="deploymentCheckUpdate"', html)
         self.assertIn('id="deploymentRollbackCandidates"', html)
 
+    def test_github_freshness_is_explicit_and_fail_closed_in_admin_ui(self):
+        html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
+        self.assertIn('id="deploymentGitHubFreshness"', html)
+        self.assertIn('renderGitHubFreshness', script)
+        self.assertIn('controllerSha', script)
+        self.assertIn('githubLatestSha', script)
+        for state in ('current', 'behind', 'ahead', 'diverged', 'unverified'):
+            self.assertIn(state, script)
+        self.assertIn("metric.textContent", script)
+        self.assertNotIn("deploymentGitHubFreshness').innerHTML", script)
+
     def test_update_source_ui_is_write_only(self):
         html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")

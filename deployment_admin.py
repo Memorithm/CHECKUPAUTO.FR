@@ -117,6 +117,33 @@ def _current_sha() -> str:
     return state.sha
 
 
+def _github_freshness(controller_sha: str, latest_sha: str) -> dict:
+    controller = str(controller_sha or "").strip().lower()
+    latest = str(latest_sha or "").strip().lower()
+    result = {
+        "verified": False,
+        "state": "unverified",
+        "controllerSha": controller if re.fullmatch(r"[0-9a-f]{40}", controller) else "",
+        "githubLatestSha": latest if re.fullmatch(r"[0-9a-f]{40}", latest) else "",
+    }
+    if not result["controllerSha"] or not result["githubLatestSha"]:
+        return result
+    if result["controllerSha"] == result["githubLatestSha"]:
+        result.update({"verified": True, "state": "current"})
+        return result
+    try:
+        if github_source.is_ancestor(result["controllerSha"], result["githubLatestSha"]):
+            result.update({"verified": True, "state": "behind"})
+            return result
+        if github_source.is_ancestor(result["githubLatestSha"], result["controllerSha"]):
+            result.update({"verified": True, "state": "ahead"})
+            return result
+    except Exception:
+        return result
+    result.update({"verified": True, "state": "diverged"})
+    return result
+
+
 def status() -> dict:
     source = _source_state()
     return {
@@ -130,6 +157,7 @@ def status() -> dict:
             "buildCapable": source.build_capable,
             "reason": source.reason,
             "remote": github_source.public_status(),
+            "freshness": _github_freshness(source.sha, ""),
         },
         "knownHostsConfigured": _known_hosts_path().is_file(),
         "jobs": list_jobs(12),
@@ -188,6 +216,7 @@ def test_update_source() -> dict:
         "ok": True,
         "source": status,
         "latestSha": sha,
+        "freshness": _github_freshness(_source_state().sha, sha),
     }
 
 

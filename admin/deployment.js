@@ -250,9 +250,45 @@
     return Boolean(state.source && state.source.buildCapable);
   }
 
+  function renderGitHubFreshness(freshness) {
+    const evidence = freshness || {};
+    const relation = evidence.verified ? (evidence.state || 'unverified') : 'unverified';
+    const labels = {
+      current: 'À jour',
+      behind: 'En retard',
+      ahead: 'En avance',
+      diverged: 'Divergé',
+      unverified: 'Non vérifiée'
+    };
+    const metric = $('deploymentGitHubFreshness');
+    if (metric) {
+      metric.textContent = labels[relation] || labels.unverified;
+      metric.className = 'gsc-status ' + (relation === 'current' ? 'online' : 'warning');
+    }
+
+    const detail = $('deploymentGitHubDetail');
+    if (!detail) return;
+    const controller = evidence.controllerSha || '';
+    const latest = evidence.githubLatestSha || '';
+    if (relation === 'current') {
+      detail.textContent = 'Contrôleur au dernier SHA GitHub vérifié : ' + latest.slice(0, 12) + '.';
+    } else if (relation === 'behind') {
+      detail.textContent = 'Contrôleur en retard : ' + controller.slice(0, 12) + ' → GitHub ' + latest.slice(0, 12) + '.';
+    } else if (relation === 'ahead') {
+      detail.textContent = 'Contrôleur en avance sur la branche GitHub configurée : ' + controller.slice(0, 12) + ' vs ' + latest.slice(0, 12) + '.';
+    } else if (relation === 'diverged') {
+      detail.textContent = 'Historique du contrôleur divergent de la branche GitHub configurée ; diagnostic requis.';
+    } else if (latest) {
+      detail.textContent = 'GitHub répond au SHA ' + latest.slice(0, 12) + ', mais la relation avec le contrôleur n’est pas vérifiée.';
+    } else {
+      detail.textContent = 'Fraîcheur GitHub non vérifiée : utilise « Tester la source » pour comparer le contrôleur à la branche configurée.';
+    }
+  }
+
   function renderSourceState() {
     const source = state.source || {};
     const remote = source.remote || {};
+    renderGitHubFreshness(source.freshness || {});
     const labels = {
       git_checkout: 'Git local prêt',
       github_remote: 'GitHub prêt',
@@ -303,6 +339,7 @@
       body: JSON.stringify({})
     });
     const sha = result.latestSha || '';
+    renderGitHubFreshness(result.freshness || {});
     $('deploymentGitHubState').textContent = 'Vérifiée';
     $('deploymentGitHubState').className = 'gsc-status online';
     $('deploymentGitHubDetail').textContent =
