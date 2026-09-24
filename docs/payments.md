@@ -74,6 +74,16 @@ Le `paymentId` est un identifiant aléatoire CheckupAuto ; il sert uniquement à
 
 Les réponses navigateur sont `noindex` et n'exposent ni token Payline, ni identifiant marchand, ni corps prestataire. Une configuration privée absente ou une relecture fournisseur indisponible laisse le paiement non confirmé et retourne un état temporairement indisponible plutôt qu'un faux succès.
 
+### Devis de paiement lié à la réservation autoritaire
+
+`payment_checkout.py` établit maintenant la frontière entre Mercure et le domaine paiement. Une intention sandbox ne peut être créée qu'à partir d'une réservation Mercure autoritaire déjà en état `confirmed` ou `completed`, jamais depuis le placeholder de confirmation navigateur.
+
+Le service et le montant sont relus dans `booking_conversions`. Le navigateur ne fournit ni prix ni type de prestation au domaine paiement. Les deux seules familles payables restent le contrôle technique, plafonné à 80 €, et le véhicule aménagé/VASP, plafonné à 90 € ; un montant autoritaire inférieur reste possible pour un tarif promotionnel effectivement remonté par Mercure.
+
+La création exige également une preuve finale d'acceptation des CGV associée à la référence de réservation autoritaire. Le `content_hash` de cette preuve devient le `terms_hash` du devis paiement. La référence Mercure brute n'est pas persistée dans le journal paiement : elle est transformée en une référence opaque dérivée.
+
+Cette tranche crée seulement une intention interne sandbox et ne contacte pas Payline. Les portes `providerStartBound`, `publicStartRouteBound` et `livePaymentsEnabled` restent donc fermées. Cette séparation évite qu'un prix, un service ou une acceptation de CGV envoyés par le navigateur deviennent une autorité de paiement.
+
 ## Accès à préparer avec Monext
 
 Les données à obtenir depuis le **compte marchand Payline**, séparément pour les tests, sont :

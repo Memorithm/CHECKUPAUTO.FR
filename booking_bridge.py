@@ -367,6 +367,47 @@ def _appointment_at(value):
     raise ValueError('appointmentDate invalid')
 
 
+def authoritative_payment_basis(external_id):
+    external_id=analytics.clean(external_id,120)
+    if not external_id or external_id.startswith(_BROWSER_SYNTHETIC_PREFIX):
+        raise ValueError('authoritative booking reference required')
+    with analytics.connect() as db:
+        row=db.execute(
+            '''SELECT provider,external_id,status,amount_cents,service,appointment_at
+               FROM booking_conversions
+               WHERE provider=? AND external_id=? LIMIT 1''',
+            (PROVIDER,external_id),
+        ).fetchone()
+    if not row or str(row['status']) not in CONFIRMED:
+        raise ValueError('confirmed booking required')
+
+    folded=_fold(row['service'])
+    service_map={
+        'controle technique':('technical',8000),
+        'tout vehicule hors camping car':('technical',8000),
+        'vehicule amenage':('fitted',9000),
+        'visite technique vasp (camping car,sanitaire,food truck,...)':('fitted',9000),
+    }
+    resolved=service_map.get(folded)
+    if not resolved:
+        raise ValueError('payable service required')
+    service_key,maximum=resolved
+    amount=int(row['amount_cents'] or 0)
+    if amount<1 or amount>maximum:
+        raise ValueError('authoritative payment amount invalid')
+    booking_reference='mercure:'+hashlib.sha256(
+        ('mercure-rdv\x00'+str(row['external_id'])).encode('utf-8')
+    ).hexdigest()[:40]
+    return {
+        'bookingReference':booking_reference,
+        'provider':PROVIDER,
+        'status':str(row['status']),
+        'service':service_key,
+        'amountCents':amount,
+        'appointmentAt':str(row['appointment_at'] or ''),
+    }
+
+
 def _authoritative_conversion_for_token(db, token_key):
     if not token_key:
         return None
