@@ -100,8 +100,15 @@ function mercureCoverageStateLabel(state){
  if(state==='invalid')return 'INVALIDE';
  return 'NON CONFIGURÉ'
 }
+function mercureRectificationStateLabel(state){
+ if(state==='verified')return 'VÉRIFIÉ';
+ if(state==='provider_attested')return 'ATTESTÉ FOURNISSEUR';
+ if(state==='invalid')return 'INVALIDE';
+ return 'NON VÉRIFIÉ'
+}
 function renderMercureProviderCoverage(){
  const coverage=snapshot?.mercureProviderCoverage||{},boundary=coverage.boundary||{},vehicle=boundary.vehicleInventory||{};
+ const rectification=snapshot?.mercureRectification||{},rectificationEvidenceState=rectification.providerMutationEvidence||{};
  const anchor=$('#complianceMessage');if(!anchor)return;
  let box=$('#complianceMercureProviderCoverage');
  if(!box){box=document.createElement('div');box.id='complianceMercureProviderCoverage';box.className='integration-box';anchor.insertAdjacentElement('afterend',box)}
@@ -115,11 +122,18 @@ function renderMercureProviderCoverage(){
  const vehicleAttested=vehicleState==='attested'&&vehicle.attested===true;
  const vehicleEvidence=/^[0-9a-f]{64}$/.test(String(vehicle.evidenceSha256||''))?String(vehicle.evidenceSha256):'—';
  const vehicleReason=String(vehicle.reason||'');
+ const rectificationState=String(rectification.state||'unverified');
+ const rectificationVerified=rectificationState==='verified'&&rectification.providerMutationCapabilityVerified===true&&rectification.completionEligible===true;
+ const rectificationEvidence=/^[0-9a-f]{64}$/.test(String(rectificationEvidenceState.evidenceSha256||''))?String(rectificationEvidenceState.evidenceSha256):'—';
+ const rectificationAttestedFields=(rectificationEvidenceState.fields||[]).map(String);
+ const rectificationMutationFields=(rectification.verifiedAuthoritativeMutationFields||[]).map(String);
+ const rectificationVerificationFields=(rectification.providerBackedVerificationFields||[]).map(String);
+ const rectificationReason=String(rectification.reason||'');
  box.innerHTML='<div class="panel-head compact"><div><h3>Frontière DSAR Mercure</h3><p class="hint">Périmètre temporel attesté par une preuve fournisseur ou contractuelle externe. Seule son empreinte SHA-256 est affichée ; aucune preuve brute n’est conservée dans Git ni renvoyée par cette vue.</p></div><span class="gsc-status '+(attested?'online':'warning')+'">'+esc(mercureCoverageStateLabel(state))+'</span></div>'+
   '<div class="mercure-live-grid"><article><small>DÉBUT HISTORIQUE</small><strong>'+esc(historyStart)+'</strong></article><article><small>HORIZON FUTUR</small><strong>'+esc(futureDays)+'</strong></article><article><small>PREUVE TEMPORELLE SHA-256</small><strong><code>'+esc(evidence)+'</code></strong></article><article><small>INVENTAIRE VÉHICULES</small><strong>'+esc(mercureCoverageStateLabel(vehicleState))+'</strong><span>Preuve indépendante de la relation sujet→tous véhicules</span></article><article><small>PREUVE VÉHICULE SHA-256</small><strong><code>'+esc(vehicleEvidence)+'</code></strong></article></div>'+
   (reason?'<p class="warning-text">Diagnostic temporel : '+esc(reason)+'</p>':'')+
   (vehicleReason?'<p class="warning-text">Diagnostic véhicules : '+esc(vehicleReason)+'</p>':'')+
-  '<p class="hint">Une attestation véhicule '+(vehicleAttested?'est présente':'reste requise')+'. Elle ne suffit pas, à elle seule, à déclarer une exécution complète : la frontière temporelle doit être appliquée, les lectures véhicule réussir et l’inventaire ne doit pas être tronqué.</p>';
+  '<p class="hint">Une attestation véhicule '+(vehicleAttested?'est présente':'reste requise')+'. Elle ne suffit pas, à elle seule, à déclarer une exécution complète : la frontière temporelle doit être appliquée, les lectures véhicule réussir et l’inventaire ne doit pas être tronqué.</p>'+  '<div class="panel-head compact"><div><h3>Rectification autoritaire Mercure</h3><p class="hint">État indépendant de la couverture DSAR en lecture. Une preuve fournisseur seule ne constitue jamais une capacité de mutation vérifiée.</p></div><span class="gsc-status '+(rectificationVerified?'online':'warning')+'">'+esc(mercureRectificationStateLabel(rectificationState))+'</span></div>'+  '<div class="mercure-live-grid"><article><small>CHAMPS ATTESTÉS FOURNISSEUR</small><strong>'+esc(rectificationAttestedFields.join(', ')||'Aucun')+'</strong></article><article><small>CHAMPS MUTATION IMPLÉMENTÉS</small><strong>'+esc(rectificationMutationFields.join(', ')||'Aucun')+'</strong></article><article><small>CHAMPS VÉRIFIÉS FOURNISSEUR</small><strong>'+esc(rectificationVerificationFields.join(', ')||'Aucun')+'</strong></article><article><small>PREUVE RECTIFICATION SHA-256</small><strong><code>'+esc(rectificationEvidence)+'</code></strong></article></div>'+  (rectificationReason?'<p class="warning-text">Diagnostic rectification : '+esc(rectificationReason)+'</p>':'')+  '<p class="hint">Le statut VÉRIFIÉ exige simultanément une primitive applicative documentée, une attestation couvrant les mêmes champs et une vérification provider-backed. Tant que ces trois conditions ne sont pas réunies, la rectification Mercure reste incomplète.</p>';
 }
 function render(){
  if(!snapshot)return;
