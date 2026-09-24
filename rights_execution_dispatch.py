@@ -6,6 +6,7 @@ import contract_subject_rights
 import data_subject_rights
 import mobile_dsar_erasure
 import referral_wallet_rights
+import review_followup_privacy
 import rights_completion_plan
 import rights_rectification
 
@@ -32,6 +33,11 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
     the opaque session id resolves server-side bounded state only. Mobile erasure
     uses a dedicated crash-recoverable boundary so the mobile receipt is durable
     before the separate compliance audit write.
+
+    Review follow-up is keyed only by provider appointment ids. After the central
+    privacy-suppression adapter has verified the rights request, an erasure may
+    therefore remove those local rows only when Mercure independently proves a
+    complete appointment inventory for the submitted provider subject reference.
     """
     body = _payload(payload)
     adapter = str(body.get("adapter") or "").strip()
@@ -58,13 +64,25 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
                     body.get("subjectRef"),
                     db_path,
                 )
-        return data_subject_rights.execute(
+        result = data_subject_rights.execute(
             body.get("id"),
             body.get("subjectRef"),
             adapter=adapter,
             purpose=str(body.get("purpose") or ""),
             db_path=db_path,
         )
+        if adapter == "privacy_suppression" and str(result.get("requestType") or "") == "erasure":
+            # The central adapter has already reverified the request/subject pair.
+            # Reuse that verified result rather than performing a second request
+            # lookup, which also keeps generic dispatcher tests independent from
+            # compliance-store fixtures.
+            rid = data_subject_rights._request_id(body.get("id"))
+            result = dict(result)
+            result["reviewFollowupErasure"] = review_followup_privacy.erase_for_mercure_subject(
+                rid,
+                body.get("subjectRef"),
+            )
+        return result
 
     if adapter == rights_rectification.ADAPTER:
         _exact_fields(body, _BASE_FIELDS | {"correction"})

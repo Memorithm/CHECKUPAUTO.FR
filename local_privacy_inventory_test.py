@@ -18,9 +18,15 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
             set(state["unresolvedStores"]),
             {"review_followup", "booking_conversions"},
         )
+        self.assertEqual(rows["review_followup"]["executionState"], "partial_wired")
+        self.assertEqual(rows["review_followup"]["adapter"], "privacy_suppression")
         self.assertEqual(
             rows["review_followup"]["bindingSource"],
             "mercure_rights.operationalInventory.appointments",
+        )
+        self.assertEqual(
+            rows["review_followup"]["limitation"],
+            "direct_mercure_subject_ref_only",
         )
         self.assertEqual(
             rows["booking_conversions"]["prerequisite"],

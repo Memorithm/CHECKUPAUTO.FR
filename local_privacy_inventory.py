@@ -101,13 +101,14 @@ def snapshot() -> dict:
         ),
         _row(
             "review_followup",
-            "review_followup",
+            "review_followup_privacy",
             "provider_appointment_reference",
-            "conditional_unwired",
+            "partial_wired",
             subject_erasure_applicable=True,
+            adapter="privacy_suppression",
             binding_source="mercure_rights.operationalInventory.appointments",
             prerequisite="mercure_provider_inventory_attested_and_complete",
-            limitation="no_direct_local_subject_key",
+            limitation="direct_mercure_subject_ref_only",
         ),
         _row(
             "booking_conversions",
@@ -121,7 +122,7 @@ def snapshot() -> dict:
         ),
     ]
 
-    unresolved_states = {"unresolved", "conditional_unwired"}
+    unresolved_states = {"unresolved", "conditional_unwired", "partial_wired"}
     unresolved = [row for row in stores if row["executionState"] in unresolved_states]
     return {
         "scope": INVENTORY_SCOPE,
