@@ -1,3 +1,4 @@
+import ast
 import io
 import json
 import pathlib
@@ -57,17 +58,33 @@ def _marker(**overrides):
     return json.dumps(payload).encode("utf-8")
 
 
+def _public_asset_suffixes():
+    module = ast.parse((ROOT / "security_guard.py").read_text(encoding="utf-8"))
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if any(isinstance(target, ast.Name) and target.id == "_ASSET_SUFFIXES" for target in node.targets):
+            value = ast.literal_eval(node.value)
+            if isinstance(value, set):
+                return value
+    raise AssertionError("_ASSET_SUFFIXES not found")
+
+
 class PublicSurfaceProvenanceTest(unittest.TestCase):
-    def test_marker_asset_matches_probe_contract(self):
-        payload = json.loads((ROOT / "assets" / "cybercheck-runtime-marker.json").read_text(encoding="utf-8"))
+    def test_marker_asset_matches_probe_contract_and_static_policy(self):
+        payload = json.loads((ROOT / "assets" / "cybercheck-runtime-marker.bin").read_text(encoding="utf-8"))
         self.assertEqual(payload["schemaVersion"], provenance.EXPECTED_SCHEMA_VERSION)
         self.assertEqual(payload["surface"], provenance.EXPECTED_SURFACE)
         self.assertEqual(payload["purpose"], "public-routing-provenance")
+        self.assertEqual(provenance.MARKER_PATH, "/assets/cybercheck-runtime-marker.bin")
+        suffixes = _public_asset_suffixes()
+        self.assertIn(pathlib.Path(provenance.MARKER_PATH).suffix, suffixes)
+        self.assertNotIn(".json", suffixes)
 
     def test_marker_url_is_strictly_bound_to_public_https_host(self):
         self.assertEqual(
             provenance.marker_url("https://www.checkupauto.fr/anything?ignored=yes"),
-            "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.json",
+            "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.bin",
         )
         for value in (
             "http://www.checkupauto.fr/",
@@ -80,23 +97,30 @@ class PublicSurfaceProvenanceTest(unittest.TestCase):
                 provenance.marker_url(value)
 
     def test_valid_marker_verifies_surface_without_returning_response_body(self):
-        response = _Response(_marker())
+        response = _Response(_marker(), content_type="application/octet-stream")
         opener = _Opener(response)
         result = provenance.probe("https://www.checkupauto.fr/", opener=opener, timeout=1.5)
         self.assertEqual(result, {
             "ok": True,
             "state": "verified",
             "surface": "checkupauto-cybercheck",
-            "markerPath": "/assets/cybercheck-runtime-marker.json",
+            "markerPath": "/assets/cybercheck-runtime-marker.bin",
         })
         self.assertEqual(opener.timeout, 1.5)
-        self.assertEqual(opener.request.full_url, "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.json")
+        self.assertEqual(opener.request.full_url, "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.bin")
         self.assertTrue(response.closed)
         self.assertNotIn("payload", result)
 
+    def test_json_content_type_remains_accepted_for_reverse_proxy_overrides(self):
+        result = provenance.probe(
+            "https://www.checkupauto.fr/",
+            opener=_Opener(_Response(_marker(), content_type="application/json; charset=utf-8")),
+        )
+        self.assertTrue(result["ok"])
+
     def test_redirect_is_fail_closed(self):
         exc = error.HTTPError(
-            "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.json",
+            "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.bin",
             302,
             "Found",
             {"Location": "https://rdv.checkupauto.fr/"},
@@ -109,7 +133,7 @@ class PublicSurfaceProvenanceTest(unittest.TestCase):
 
     def test_missing_marker_and_transport_failure_are_distinct_but_fail_closed(self):
         missing = error.HTTPError(
-            "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.json",
+            "https://www.checkupauto.fr/assets/cybercheck-runtime-marker.bin",
             404,
             "Not Found",
             {},
@@ -127,11 +151,11 @@ class PublicSurfaceProvenanceTest(unittest.TestCase):
 
     def test_wrong_surface_invalid_content_and_oversize_never_verify(self):
         cases = (
-            (_Response(_marker(surface="historical-site")), "surface_mismatch"),
-            (_Response(_marker(schemaVersion=2)), "invalid_marker"),
-            (_Response(b"not-json"), "invalid_marker"),
+            (_Response(_marker(surface="historical-site"), content_type="application/octet-stream"), "surface_mismatch"),
+            (_Response(_marker(schemaVersion=2), content_type="application/octet-stream"), "invalid_marker"),
+            (_Response(b"not-json", content_type="application/octet-stream"), "invalid_marker"),
             (_Response(_marker(), content_type="text/html"), "invalid_content_type"),
-            (_Response(b"{" + b"x" * 5000 + b"}"), "response_too_large"),
+            (_Response(b"{" + b"x" * 5000 + b"}", content_type="application/octet-stream"), "response_too_large"),
         )
         for response, expected in cases:
             with self.subTest(expected=expected):
