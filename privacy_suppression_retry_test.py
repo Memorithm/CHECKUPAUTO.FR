@@ -178,6 +178,65 @@ class PrivacySuppressionRetryTest(unittest.TestCase):
             )
         )
 
+    def test_completed_erasure_can_resume_downstream_without_second_audit(self):
+        email = "client@example.fr"
+        request = self.request("erasure", email)
+
+        first = rights.execute(
+            request["id"],
+            email,
+            adapter="privacy_suppression",
+            db_path=self.compliance_db,
+        )
+        self.assertTrue(first["identityResolutionComplete"])
+        self.assertFalse(first.get("recoveredFromCompletedAudit", False))
+        audit_before = rights.audit_rows(self.compliance_db)
+        self.assertEqual(len(audit_before), 1)
+        self.assertEqual(audit_before[0]["action"], "suppress_complete")
+
+        with self.assertRaisesRegex(RuntimeError, "adaptateur déjà exécuté"):
+            rights.execute(
+                request["id"],
+                email,
+                adapter="privacy_suppression",
+                db_path=self.compliance_db,
+            )
+
+        resumed = rights.execute(
+            request["id"],
+            email,
+            adapter="privacy_suppression",
+            db_path=self.compliance_db,
+            resume_completed_erasure=True,
+        )
+        self.assertTrue(resumed["recoveredFromCompletedAudit"])
+        self.assertEqual(resumed["requestType"], "erasure")
+        self.assertEqual(resumed["purposes"], ["all_processing"])
+        self.assertEqual(resumed["executionId"], first["executionId"])
+        self.assertEqual(rights.audit_rows(self.compliance_db), audit_before)
+
+    def test_completed_non_erasure_is_not_resumable_as_erasure(self):
+        email = "client@example.fr"
+        request = self.request("objection", email)
+        rights.execute(
+            request["id"],
+            email,
+            adapter="privacy_suppression",
+            purpose="direct_marketing_email",
+            db_path=self.compliance_db,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "adaptateur déjà exécuté"):
+            rights.execute(
+                request["id"],
+                email,
+                adapter="privacy_suppression",
+                purpose="direct_marketing_email",
+                db_path=self.compliance_db,
+                resume_completed_erasure=True,
+            )
+        self.assertEqual(len(rights.audit_rows(self.compliance_db)), 1)
+
     def test_capability_exposes_privacy_suppression_retry_completion_action(self):
         state = rights.capability(self.compliance_db)
         self.assertEqual(
