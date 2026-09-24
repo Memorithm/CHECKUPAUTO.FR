@@ -217,8 +217,14 @@ class PaylineRefundFoundationTest(unittest.TestCase):
 
     def test_refund_result_requires_provider_acceptance(self):
         self.assertEqual(payline.parse_refund_response(refund_response()).result_code,"00000")
-        with self.assertRaisesRegex(core.PaymentError,"^payline_refund_refused$"):
-            payline.parse_refund_response(refund_response("02101"))
+        self.assertEqual(
+            payline.parse_refund_response(refund_response("02500","ACCEPTED")).result_code,
+            "02500",
+        )
+        for code,short_message in (("02101","ERROR"),("00000","ERROR"),("02500","REFUSED")):
+            with self.subTest(code=code,short_message=short_message), \
+                 self.assertRaisesRegex(core.PaymentError,"^payline_refund_refused$"):
+                payline.parse_refund_response(refund_response(code,short_message))
 
     def test_refund_sender_is_injectable_and_direct_endpoint_is_pinned(self):
         seen=[]
