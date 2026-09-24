@@ -62,10 +62,25 @@ getent ahostsv4 "$HOST" | grep -q '179\.198\.210\.187' || {
   exit 31
 }
 
-code="$(curl -sS -o /tmp/checkupauto-stage-body -w '%{http_code}' --max-time 20 "https://$HOST/")"
-echo "staging_http_code=$code"
-test "$code" = 200
-grep -qi 'checkup' /tmp/checkupauto-stage-body
-rm -f /tmp/checkupauto-stage-body
+# Traefik can briefly present its default self-signed certificate while ACME is
+# obtaining the first trusted certificate for a newly-created staging router.
+# Retry the *verified* HTTPS request rather than weakening certificate checks.
+body=/tmp/checkupauto-stage-body
+verified=0
+for _ in $(seq 1 30); do
+  rm -f "$body"
+  if code="$(curl -fsS -o "$body" -w '%{http_code}' --max-time 10 "https://$HOST/")"; then
+    if [ "$code" = 200 ] && grep -qi 'checkup' "$body"; then
+      verified=1
+      break
+    fi
+  fi
+  sleep 3
+done
+rm -f "$body"
+if [ "$verified" -ne 1 ]; then
+  echo "STAGING_TRUSTED_HTTPS_NOT_READY=$HOST"
+  exit 32
+fi
 
 printf 'CHECKUPAUTO_STAGING_DEPLOY_OK\nhost=%s\nrelease=%s\n' "$HOST" "$(basename "$RELEASE")"
