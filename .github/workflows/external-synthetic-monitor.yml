@@ -12,6 +12,7 @@ on:
       - 'mobile_bootstrap.py'
       - 'site_config_store.py'
       - 'booking_bridge.py'
+      - 'payment_*.py'
   schedule:
     - cron: '*/5 * * * *'
 
@@ -94,6 +95,28 @@ jobs:
           assert services['fitted']['duration'] > 0
           print('BOOKING_CONTRACT_MONITOR_OK')
           PY
+
+      - name: Check payment callback surface fails closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          cancel_body="$(mktemp)"
+          return_body="$(mktemp)"
+          trap 'rm -f "$cancel_body" "$return_body"' EXIT
+
+          cancel_code="$(curl -sS -o "$cancel_body" -w '%{http_code}' --max-time 15             "$STAGING_ORIGIN/payment/payline/cancel?paymentId=00000000000000000000000000000000")"
+          test "$cancel_code" = 200
+          grep -qi 'Paiement interrompu' "$cancel_body"
+          grep -qi 'noindex' "$cancel_body"
+
+          return_code="$(curl -sS -o "$return_body" -w '%{http_code}' --max-time 15             "$STAGING_ORIGIN/payment/payline/return?paymentId=invalid")"
+          test "$return_code" = 400
+          grep -qi 'Paiement non vérifiable' "$return_body"
+          grep -qi 'noindex' "$return_body"
+
+          notify_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15             "$STAGING_ORIGIN/api/payments/payline/notify?notificationType=webtrs&token=UNKNOWN_TOKEN")"
+          test "$notify_code" = 404
+          echo "PAYLINE_CALLBACK_FAIL_CLOSED_MONITOR_OK"
 
       - name: Check staging configuration remains non-indexed
         shell: bash
