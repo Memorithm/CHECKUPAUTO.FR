@@ -316,7 +316,13 @@ class SandboxJournal:
             current = self._intent(row)
             if (current.provider, current.provider_reference, current.amount_cents) != (event.provider, event.provider_reference, event.amount_cents):
                 raise PaymentError("event_binding_mismatch")
-            if event.provider_transaction_id:
+            # Only a verified capture is authoritative transaction evidence.
+            # Pending/declined attempts may legitimately be followed by a new
+            # provider transaction during a retry and must not reserve the
+            # payment_id -> transaction_id mapping.
+            if event.state == "captured":
+                if not event.provider_transaction_id:
+                    raise PaymentError("provider_transaction_required")
                 existing_tx=db.execute(
                     "SELECT payment_id,provider,transaction_id,captured_amount_cents FROM payment_provider_transactions WHERE payment_id=? OR transaction_id=?",
                     (event.payment_id,event.provider_transaction_id),
