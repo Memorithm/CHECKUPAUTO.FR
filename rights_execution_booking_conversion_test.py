@@ -41,6 +41,11 @@ class RightsExecutionBookingConversionTest(unittest.TestCase):
             ) as central,
             mock.patch.object(dispatch.data_subject_rights, "_request_id", return_value="request-1"),
             mock.patch.object(
+                dispatch,
+                "_provider_erasure_recovery_needed",
+                return_value=True,
+            ) as recovery,
+            mock.patch.object(
                 dispatch.mercure_rights,
                 "contact_snapshot",
                 return_value=self.complete_snapshot("apt-subject"),
@@ -59,6 +64,7 @@ class RightsExecutionBookingConversionTest(unittest.TestCase):
             result = dispatch.execute(payload, "compliance.sqlite3")
 
         central.assert_called_once()
+        recovery.assert_called_once_with(payload, "compliance.sqlite3")
         self.assertTrue(central.call_args.kwargs["resume_completed_erasure"])
         snapshot.assert_called_once_with("account:42")
         review.assert_called_once_with("request-1", ("apt-subject",))
