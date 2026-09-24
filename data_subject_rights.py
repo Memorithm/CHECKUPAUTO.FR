@@ -148,6 +148,36 @@ def _adapter_can_retry_partial(
     return bool(completion_action and completion_action not in actions)
 
 
+def _completed_privacy_suppression_erasure_result(
+    row: sqlite3.Row,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Return a replay context without writing a second suppression audit."""
+    _init_audit(db_path)
+    with compliance_store.connect(db_path) as db:
+        execution = db.execute(
+            """SELECT execution_id FROM rights_execution_audit
+               WHERE request_id=? AND adapter='privacy_suppression'
+                 AND action='suppress_complete'
+               ORDER BY created_at DESC,execution_id DESC LIMIT 1""",
+            (row["request_id"],),
+        ).fetchone()
+    if not execution:
+        raise RuntimeError("audit de suppression complète introuvable")
+    return {
+        "ok": True,
+        "requestId": str(row["request_id"]),
+        "requestType": "erasure",
+        "adapter": "privacy_suppression",
+        "purposes": ["all_processing"],
+        "identityResolutionComplete": True,
+        "recoveredFromCompletedAudit": True,
+        "executionId": str(execution["execution_id"]),
+        "requestStatus": str(row["status"]),
+        "requestComplete": False,
+    }
+
+
 def _mobile_snapshot(installation_id: str) -> dict:
     mobile_devices.init_db()
     with mobile_devices.connect() as db:
@@ -440,6 +470,7 @@ def execute(
     adapter: str,
     purpose: str = "",
     db_path: Path | str | None = None,
+    resume_completed_erasure: bool = False,
 ) -> dict:
     rid = _request_id(request_id)
     adapter = str(adapter or "").strip()
@@ -454,6 +485,12 @@ def execute(
     if request_type not in SUPPORTED_ADAPTERS[adapter]:
         raise NotImplementedError("type de droit non pris en charge par cet adaptateur")
     if not _adapter_can_retry_partial(rid, adapter, db_path):
+        if (
+            resume_completed_erasure is True
+            and adapter == "privacy_suppression"
+            and request_type == "erasure"
+        ):
+            return _completed_privacy_suppression_erasure_result(row, db_path)
         raise RuntimeError("adaptateur déjà exécuté pour cette demande")
 
     if adapter == "mobile_installation":
