@@ -1,0 +1,271 @@
+"""Payline / Monext WebPayment sandbox transport.
+
+Implements only the homologation SOAP WebPayment flow:
+- doWebPayment -> token + hosted redirect URL
+- getWebPaymentDetails -> authenticated final-state reread
+
+No production endpoint, PAN/CVV collection, refund or browser-trusted success path exists here.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import re
+import ssl
+import urllib.error
+import urllib.request
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from urllib.parse import urlsplit
+
+from payment_core import Intent, PaymentError, VerifiedEvent, cents
+from payment_payline_config import PaylineSandboxConfig
+
+API_VERSION = "34"
+EUR_NUMERIC = "978"
+SOAP_ENV = "http://schemas.xmlsoap.org/soap/envelope/"
+IMPL_NS = "http://impl.ws.payline.experian.com"
+OBJ_NS = "http://obj.ws.payline.experian.com"
+MAX_RESPONSE_BYTES = 256 * 1024
+
+ET.register_namespace("soapenv", SOAP_ENV)
+ET.register_namespace("impl", IMPL_NS)
+ET.register_namespace("obj", OBJ_NS)
+
+
+@dataclass(frozen=True)
+class StartResult:
+    token: str
+    redirect_url: str
+
+    def __post_init__(self):
+        _token(self.token)
+        _redirect(self.redirect_url)
+
+
+def _token(value: object) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
+        raise PaymentError("payline_token_invalid")
+    return value
+
+
+def _redirect(value: object) -> str:
+    if not isinstance(value, str) or len(value) > 2048 or not value.isascii():
+        raise PaymentError("payline_redirect_invalid")
+    try:
+        u = urlsplit(value)
+    except ValueError:
+        raise PaymentError("payline_redirect_invalid") from None
+    if u.scheme != "https" or not u.hostname or u.username or u.password or u.fragment:
+        raise PaymentError("payline_redirect_invalid")
+    host = u.hostname.lower()
+    allowed = host == "homologation-webpayment.payline.com" or host.endswith(".payline.com")
+    if not allowed:
+        raise PaymentError("payline_redirect_invalid")
+    return value
+
+
+def _sub(parent: ET.Element, ns: str, name: str, text: object | None = None) -> ET.Element:
+    node = ET.SubElement(parent, f"{{{ns}}}{name}")
+    if text is not None:
+        node.text = str(text)
+    return node
+
+
+def _soap(operation: str) -> tuple[ET.Element, ET.Element]:
+    envelope = ET.Element(f"{{{SOAP_ENV}}}Envelope")
+    _sub(envelope, SOAP_ENV, "Header")
+    body = _sub(envelope, SOAP_ENV, "Body")
+    request = _sub(body, IMPL_NS, operation)
+    return envelope, request
+
+
+def _urls(config: PaylineSandboxConfig) -> tuple[str, str, str]:
+    origin = config.public_origin
+    return (
+        origin + "/payment/payline/return",
+        origin + "/payment/payline/cancel",
+        origin + "/api/payments/payline/notify",
+    )
+
+
+def do_web_payment_xml(intent: Intent, config: PaylineSandboxConfig) -> bytes:
+    if not isinstance(intent, Intent) or intent.provider != "payline" or intent.environment != "sandbox":
+        raise PaymentError("payline_intent_required")
+    if not isinstance(config, PaylineSandboxConfig):
+        raise PaymentError("payline_configuration_required")
+
+    envelope, req = _soap("doWebPaymentRequest")
+    _sub(req, IMPL_NS, "version", API_VERSION)
+
+    payment = _sub(req, IMPL_NS, "payment")
+    _sub(payment, OBJ_NS, "amount", cents(intent.amount_cents))
+    _sub(payment, OBJ_NS, "currency", EUR_NUMERIC)
+    _sub(payment, OBJ_NS, "action", "101")
+    _sub(payment, OBJ_NS, "mode", "CPT")
+    _sub(payment, OBJ_NS, "contractNumber", config.contract_number)
+
+    return_url, cancel_url, notification_url = _urls(config)
+    _sub(req, IMPL_NS, "returnURL", return_url)
+    _sub(req, IMPL_NS, "cancelURL", cancel_url)
+
+    order = _sub(req, IMPL_NS, "order")
+    _sub(order, OBJ_NS, "ref", intent.payment_id)
+    _sub(order, OBJ_NS, "amount", cents(intent.amount_cents))
+    _sub(order, OBJ_NS, "currency", EUR_NUMERIC)
+    _sub(order, OBJ_NS, "date", dt.datetime.now().strftime("%d/%m/%Y %H:%M"))
+
+    _sub(req, IMPL_NS, "notificationURL", notification_url)
+
+    selected = _sub(req, IMPL_NS, "selectedContractList")
+    _sub(selected, OBJ_NS, "selectedContract", config.contract_number)
+
+    buyer = _sub(req, IMPL_NS, "buyer")
+    _sub(buyer, OBJ_NS, "customerId", intent.payment_id)
+
+    _sub(req, IMPL_NS, "languageCode", "fr")
+    _sub(req, IMPL_NS, "securityMode", "SSL")
+    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
+
+
+def get_details_xml(token: str) -> bytes:
+    envelope, req = _soap("getWebPaymentDetailsRequest")
+    _sub(req, IMPL_NS, "version", API_VERSION)
+    _sub(req, IMPL_NS, "token", _token(token))
+    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise PaymentError("payline_transport_redirect_refused")
+
+
+def _post(config: PaylineSandboxConfig, body: bytes, soap_action: str) -> bytes:
+    if not isinstance(body, (bytes, bytearray)) or not body or len(body) > 128 * 1024:
+        raise PaymentError("payline_request_invalid")
+    headers = {
+        "Content-Type": "text/xml; charset=utf-8",
+        "Accept": "text/xml",
+        "SOAPAction": soap_action,
+        **config.authentication_headers(),
+    }
+    request = urllib.request.Request(config.webpayment_endpoint, data=bytes(body), headers=headers, method="POST")
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        _NoRedirect(),
+    )
+    try:
+        with opener.open(request, timeout=30) as response:
+            if response.status != 200:
+                raise PaymentError("payline_transport_status")
+            data = response.read(MAX_RESPONSE_BYTES + 1)
+    except PaymentError:
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise PaymentError("payline_transport_unavailable") from None
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise PaymentError("payline_response_too_large")
+    return data
+
+
+def _parse(xml: bytes) -> ET.Element:
+    if not isinstance(xml, (bytes, bytearray)) or not xml or len(xml) > MAX_RESPONSE_BYTES:
+        raise PaymentError("payline_response_invalid")
+    upper = bytes(xml).upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise PaymentError("payline_response_invalid")
+    try:
+        return ET.fromstring(bytes(xml))
+    except ET.ParseError:
+        raise PaymentError("payline_response_invalid") from None
+
+
+def _local(node: ET.Element, name: str) -> list[ET.Element]:
+    return [item for item in node.iter() if item.tag.rsplit("}", 1)[-1] == name]
+
+
+def _one_text(node: ET.Element, name: str, code: str, *, required: bool = True) -> str:
+    values = [str(item.text or "").strip() for item in _local(node, name)]
+    values = [value for value in values if value]
+    if not values:
+        if required:
+            raise PaymentError(code)
+        return ""
+    if len(set(values)) > 1:
+        raise PaymentError(code)
+    return values[0]
+
+
+def parse_start_response(xml: bytes) -> StartResult:
+    root = _parse(xml)
+    code = _one_text(root, "code", "payline_result_missing")
+    if code != "00000":
+        raise PaymentError("payline_start_refused")
+    token = _one_text(root, "token", "payline_token_missing")
+    redirect = _one_text(root, "redirectURL", "payline_redirect_missing")
+    return StartResult(_token(token), _redirect(redirect))
+
+
+def start(intent: Intent, config: PaylineSandboxConfig, *, sender=None) -> StartResult:
+    sender = sender or (lambda body: _post(config, body, "doWebPayment"))
+    return parse_start_response(sender(do_web_payment_xml(intent, config)))
+
+
+def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEvent:
+    if intent.provider != "payline" or not intent.provider_reference:
+        raise PaymentError("payline_bound_intent_required")
+    if intent.provider_reference != _token(token):
+        raise PaymentError("payline_token_binding_mismatch")
+    root = _parse(xml)
+    code = _one_text(root, "code", "payline_result_missing")
+    amounts = [str(x.text or "").strip() for x in _local(root, "amount") if str(x.text or "").strip()]
+    currencies = [str(x.text or "").strip() for x in _local(root, "currency") if str(x.text or "").strip()]
+    if str(intent.amount_cents) not in amounts or EUR_NUMERIC not in currencies:
+        raise PaymentError("payline_amount_or_currency_mismatch")
+    refs = [str(x.text or "").strip() for x in _local(root, "ref") if str(x.text or "").strip()]
+    order_refs = [str(x.text or "").strip() for x in _local(root, "orderReference") if str(x.text or "").strip()]
+    if intent.payment_id not in refs and intent.payment_id not in order_refs:
+        raise PaymentError("payline_order_reference_mismatch")
+    transaction_id = _one_text(root, "id", "payline_transaction_missing")
+    transaction_id = re.sub(r"[^A-Za-z0-9:_-]", "", transaction_id)
+    if not transaction_id or len(transaction_id) > 80:
+        raise PaymentError("payline_transaction_invalid")
+
+    if code == "00000":
+        state = "captured"
+    elif code.startswith("01") or code.startswith("04") or code in {"02319", "02302"}:
+        state = "declined"
+    elif code == "02005":
+        state = "pending"
+    else:
+        raise PaymentError("payline_result_not_final")
+
+    return VerifiedEvent(
+        intent.payment_id,
+        "payline",
+        intent.provider_reference,
+        "payline:" + transaction_id + ":" + code,
+        state,
+        intent.amount_cents,
+    )
+
+
+def refresh(intent: Intent, config: PaylineSandboxConfig, *, sender=None) -> VerifiedEvent:
+    sender = sender or (lambda body: _post(config, body, "getWebPaymentDetails"))
+    return parse_details_response(sender(get_details_xml(intent.provider_reference)), intent, intent.provider_reference)
+
+
+def capability() -> dict:
+    return {
+        "provider": "payline",
+        "environment": "sandbox",
+        "apiVersion": int(API_VERSION),
+        "transportImplemented": True,
+        "doWebPaymentImplemented": True,
+        "getWebPaymentDetailsImplemented": True,
+        "hostedPaymentPage": True,
+        "panCollectedByCheckupAuto": False,
+        "callbacksBound": False,
+        "checkoutBound": False,
+        "refundsBound": False,
+        "livePaymentsEnabled": False,
+    }
