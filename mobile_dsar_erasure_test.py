@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ import analytics_store as analytics
 import compliance_store
 import data_subject_rights
 import mobile_devices
+import notification_broker
 import referral_wallet_lifecycle
 import rights_execution_dispatch
 
@@ -24,6 +26,8 @@ class MobileDsarErasureTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.compliance_db = self.root / "compliance.sqlite3"
+        self.old_private = os.environ.get("CYBERCHECK_PRIVATE_DIR")
+        os.environ["CYBERCHECK_PRIVATE_DIR"] = str(self.root / "private")
 
         self.analytics_patch = mock.patch.object(
             analytics,
@@ -70,14 +74,22 @@ class MobileDsarErasureTests(unittest.TestCase):
                     "2026-09-23T00:00:00+00:00",
                 ),
             )
+        self.old_notification_dir, self.old_notification_db = notification_broker.DATA_DIR, notification_broker.DB
+        notification_broker.DATA_DIR = self.root / "notification"
+        notification_broker.DB = notification_broker.DATA_DIR / "notification-broker.sqlite3"
         self.request = compliance_store.create_rights_request(
             {"type": "erasure", "subjectRef": INSTALLATION_ID},
             self.compliance_db,
         )
 
     def tearDown(self):
+        notification_broker.DATA_DIR, notification_broker.DB = self.old_notification_dir, self.old_notification_db
         mobile_devices.DATA_DIR, mobile_devices.DB = self.old_mobile_dir, self.old_mobile_db
         self.analytics_patch.stop()
+        if self.old_private is None:
+            os.environ.pop("CYBERCHECK_PRIVATE_DIR", None)
+        else:
+            os.environ["CYBERCHECK_PRIVATE_DIR"] = self.old_private
         self.tmp.cleanup()
 
     def payload(self):
@@ -99,6 +111,7 @@ class MobileDsarErasureTests(unittest.TestCase):
         )
         self.assertFalse(result["recoveredFromReceipt"])
         self.assertEqual(len(result["mobileErasureEvidenceHash"]), 64)
+        self.assertEqual(result["notificationPrivacy"]["remainingPrivacyBindings"], 0)
         self.assertEqual(mobile_devices.status()["total"], 0)
 
         digest = hashlib.sha256(INSTALLATION_ID.encode("utf-8")).hexdigest()
@@ -122,6 +135,7 @@ class MobileDsarErasureTests(unittest.TestCase):
         )
         self.assertFalse(result["recoveredFromReceipt"])
         self.assertEqual(len(result["mobileErasureEvidenceHash"]), 64)
+        self.assertEqual(result["notificationPrivacy"]["remainingPrivacyBindings"], 0)
         self.assertEqual(mobile_devices.status()["total"], 0)
 
         digest = hashlib.sha256(INSTALLATION_ID.encode("utf-8")).hexdigest()
@@ -157,6 +171,7 @@ class MobileDsarErasureTests(unittest.TestCase):
         self.assertTrue(retry["recoveredFromReceipt"])
         self.assertEqual(retry["mobileErasureEvidenceHash"], committed["evidenceHash"])
         self.assertEqual(retry["removed"], committed["removed"])
+        self.assertEqual(retry["notificationPrivacy"]["remainingPrivacyBindings"], 0)
         self.assertEqual(len(data_subject_rights.audit_rows(self.compliance_db)), 1)
         with mobile_devices.connect() as db:
             self.assertEqual(
