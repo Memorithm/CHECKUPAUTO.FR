@@ -131,6 +131,15 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         self.assertEqual(self.store.get(self.intent.payment_id).state, "captured")
         refresh.assert_called_once()
 
+    def test_notification_type_accepts_documented_uppercase_WEBTRS(self):
+        handler = Handler("/api/payments/payline/notify?notificationType=WEBTRS&token=TOKEN_FIXTURE_123")
+        with patch.object(private_config, "load", return_value=object()), \
+             patch.object(routes.payline, "refresh", return_value=self.verified()) as refresh:
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"], 204)
+        self.assertEqual(self.store.get(self.intent.payment_id).state, "captured")
+        refresh.assert_called_once()
+
     def test_unknown_notification_token_does_not_call_provider(self):
         handler = Handler("/api/payments/payline/notify?notificationType=webtrs&token=UNKNOWN_TOKEN")
         with patch.object(private_config, "load", side_effect=AssertionError("config must not be loaded")),              patch.object(routes.payline, "refresh", side_effect=AssertionError("provider must not be called")):
