@@ -158,8 +158,8 @@ def activity(limit: int = 50) -> dict:
     path=journal_path()
     if not path.is_file():
         return {
-            "summary":{"total":0,"created":0,"pending":0,"declined":0,"authorized":0,"captured":0,
-                       "readyStarts":0,"indeterminateStarts":0},
+            "summary":{"total":0,"created":0,"pending":0,"declined":0,"cancelled":0,"error":0,
+                       "authorized":0,"captured":0,"readyStarts":0,"indeterminateStarts":0},
             "transactions":[],
         }
     store=SandboxJournal(path)
@@ -198,6 +198,8 @@ def activity(limit: int = 50) -> dict:
             "created":state_counts.get("created",0),
             "pending":state_counts.get("pending",0),
             "declined":state_counts.get("declined",0),
+            "cancelled":state_counts.get("cancelled",0),
+            "error":state_counts.get("error",0),
             "authorized":state_counts.get("authorized",0),
             "captured":state_counts.get("captured",0),
             "readyStarts":start_counts.get("ready",0),
