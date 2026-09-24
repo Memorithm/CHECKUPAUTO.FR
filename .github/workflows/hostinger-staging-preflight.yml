@@ -15,7 +15,10 @@ permissions:
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, ARM64, remoteops, thor]
+    # RemoteOps is the control plane for the real Hostinger deployment. This
+    # repository preflight must stay runnable with CHECKUPAUTO.FR's own runner
+    # rather than depending on a runner registration scoped to RemoteOps.
+    runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -28,7 +31,7 @@ jobs:
           python3 -m compileall -q admin_server.py deploy
           python3 -m venv "$RUNNER_TEMP/checkupauto-preflight"
           "$RUNNER_TEMP/checkupauto-preflight/bin/pip" install --disable-pip-version-check --quiet -r requirements.txt
-          "$RUNNER_TEMP/checkupauto-preflight/bin/python" -m unittest -v admin_server_runtime_test.py
+          "$RUNNER_TEMP/checkupauto-preflight/bin/python" -m unittest -v admin_server_runtime_test.py hostinger_staging_tls_readiness_test.py
       - name: Validate Docker compose model
         shell: bash
         env:
