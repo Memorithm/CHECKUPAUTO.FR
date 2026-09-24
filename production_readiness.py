@@ -12,6 +12,7 @@ import ios_release_preflight
 import mobile_claim_delivery
 import notification_broker
 import notification_preflight
+import public_surface_provenance
 import referral_engine
 import referral_integrity_audit
 import reminder_dispatch
@@ -31,8 +32,8 @@ _STATE_RANK = {
 _REMEDIATION = {
     "public_site": {
         "code": "restore_public_https",
-        "summary": "Rétablir l’URL canonique HTTPS www.checkupauto.fr avant toute publication.",
-        "verify": "Relancer le diagnostic et obtenir Site public = PRÊT.",
+        "summary": "Rétablir la surface CyberCheck sur l’URL canonique HTTPS www.checkupauto.fr avant toute publication.",
+        "verify": "Relancer le diagnostic et obtenir une preuve de surface publique CyberCheck vérifiée.",
         "target": "#seo-control",
         "external": False,
     },
@@ -200,12 +201,93 @@ def _safe(label: str, fn):
 
 
 def _public_site(config: dict) -> dict:
-    raw = str((config.get("seo") or {}).get("canonicalUrl") or "").strip()
-    parsed = urlparse(raw)
-    valid = parsed.scheme == "https" and (parsed.hostname or "").lower() == "www.checkupauto.fr"
-    state = "ready" if valid else "degraded"
-    detail = "HTTPS canonique CheckupAuto actif" if valid else "URL canonique publique invalide"
-    return _component("public_site", "Site public", state, detail, critical=True)
+    seo = config.get("seo") if isinstance(config, dict) else {}
+    seo = seo if isinstance(seo, dict) else {}
+    raw = str(seo.get("canonicalUrl") or "").strip()
+    activation_requested = bool(seo.get("indexingEnabled"))
+    try:
+        parsed = urlparse(raw)
+        port = parsed.port
+        valid = (
+            parsed.scheme == "https"
+            and (parsed.hostname or "").lower() == "www.checkupauto.fr"
+            and port in (None, 443)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.path in ("", "/")
+        )
+    except (TypeError, ValueError):
+        valid = False
+
+    if not valid:
+        return _component(
+            "public_site",
+            "Site public",
+            "degraded",
+            "URL canonique publique invalide",
+            critical=True,
+            metrics={
+                "canonicalValid": False,
+                "activationRequested": activation_requested,
+                "publicSurfaceProbeState": "canonical_url_invalid",
+                "publicSurfaceVerified": False,
+            },
+        )
+
+    if not activation_requested:
+        return _component(
+            "public_site",
+            "Site public",
+            "ready",
+            "HTTPS canonique CheckupAuto configuré · preuve de surface requise à l’activation",
+            critical=True,
+            metrics={
+                "canonicalValid": True,
+                "activationRequested": False,
+                "publicSurfaceProbeState": "deferred",
+                "publicSurfaceVerified": False,
+            },
+        )
+
+    allowed_states = {
+        "verified",
+        "redirected",
+        "marker_not_found",
+        "unavailable",
+        "invalid_marker",
+        "surface_mismatch",
+        "invalid_content_type",
+        "response_too_large",
+        "unexpected_status",
+        "http_error",
+        "canonical_url_invalid",
+    }
+    try:
+        probe = public_surface_provenance.probe(raw)
+        probe = probe if isinstance(probe, dict) else {}
+        probe_state = str(probe.get("state") or "invalid_probe_result")
+        if probe_state not in allowed_states:
+            probe_state = "invalid_probe_result"
+        verified = bool(probe.get("ok")) and probe_state == "verified"
+    except Exception:
+        probe_state = "probe_error"
+        verified = False
+
+    return _component(
+        "public_site",
+        "Site public",
+        "ready" if verified else "degraded",
+        "Surface CyberCheck publique vérifiée" if verified else "Surface CyberCheck publique non vérifiée",
+        critical=True,
+        metrics={
+            "canonicalValid": True,
+            "activationRequested": True,
+            "publicSurfaceProbeState": probe_state,
+            "publicSurfaceVerified": verified,
+        },
+    )
 
 
 def _failed(key: str, label: str, critical: bool, error: str) -> dict:
