@@ -338,13 +338,10 @@
       method: 'POST',
       body: JSON.stringify({})
     });
-    const sha = result.latestSha || '';
     renderGitHubFreshness(result.freshness || {});
     $('deploymentGitHubState').textContent = 'Vérifiée';
     $('deploymentGitHubState').className = 'gsc-status online';
-    $('deploymentGitHubDetail').textContent =
-      'Source accessible · dernier SHA : ' + sha.slice(0, 12);
-    setMessage('Source GitHub vérifiée.');
+    setMessage('Source GitHub accessible ; fraîcheur du contrôleur évaluée.');
   }
 
   async function deleteUpdateSourceToken() {

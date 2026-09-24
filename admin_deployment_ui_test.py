@@ -86,6 +86,8 @@ class AdminDeploymentUITest(unittest.TestCase):
             self.assertIn(state, script)
         self.assertIn("metric.textContent", script)
         self.assertNotIn("deploymentGitHubFreshness').innerHTML", script)
+        self.assertNotIn("Source accessible · dernier SHA", script)
+        self.assertIn("fraîcheur du contrôleur évaluée", script)
 
     def test_update_source_ui_is_write_only(self):
         html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
