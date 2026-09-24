@@ -12,6 +12,7 @@ import ios_release_preflight
 import mobile_claim_delivery
 import notification_broker
 import notification_preflight
+import payment_payline_private
 import public_surface_provenance
 import referral_engine
 import referral_integrity_audit
@@ -63,6 +64,13 @@ _REMEDIATION = {
         "summary": "Configurer SMTP chiffré ou OAuth Gmail, puis exécuter le préflight sans envoi.",
         "verify": "Le transport e-mail doit être configured et son préflight doit être prêt.",
         "target": "#notifications",
+        "external": True,
+    },
+    "payment": {
+        "code": "complete_payline_activation",
+        "summary": "Configurer Payline / Monext hors Git, valider le contrat marchand en homologation puis ouvrir explicitement l’encaissement réel.",
+        "verify": "Configuration privée valide, identifiants et contrat vérifiés, checkout/callbacks raccordés et livePaymentsEnabled=true.",
+        "target": "/admin/payments.html",
         "external": True,
     },
     "apns": {
@@ -478,6 +486,52 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
                 "overdueIncidentNotifications": overdue_incidents,
                 "operationalRegistersReady": operational_ready,
                 "operationalBlockerCount": len(operational_blockers),
+            },
+        ))
+
+    payment, payment_error = _safe("payment", payment_payline_private.status)
+    if payment_error:
+        components.append(_failed("payment", "Paiement Payline / Monext", True, payment_error))
+    else:
+        configured = bool(payment.get("configured"))
+        configuration_valid = bool(payment.get("configurationValid"))
+        credentials_verified = bool(payment.get("credentialsVerified"))
+        contract_verified = bool(payment.get("contractBindingVerified"))
+        checkout_bound = bool(payment.get("checkoutBound"))
+        callbacks_bound = bool(payment.get("callbacksBound"))
+        live_enabled = bool(payment.get("livePaymentsEnabled"))
+        if not configured or not configuration_valid:
+            payment_state = "configuration_required"
+            payment_detail = "Configuration privée Payline / Monext à installer hors Git"
+        elif not credentials_verified or not contract_verified:
+            payment_state = "blocked_external"
+            payment_detail = "Homologation Monext à vérifier avec les identifiants et le contrat marchand"
+        elif not checkout_bound or not callbacks_bound:
+            payment_state = "degraded"
+            payment_detail = "Chaîne checkout ou callbacks bancaires incomplète"
+        elif not live_enabled:
+            payment_state = "blocked_external"
+            payment_detail = "Homologation prête mais encaissement réel non activé"
+        else:
+            payment_state = "ready"
+            payment_detail = "Paiement Payline / Monext prêt pour l’encaissement"
+        components.append(_component(
+            "payment",
+            "Paiement Payline / Monext",
+            payment_state,
+            payment_detail,
+            critical=True,
+            metrics={
+                "environment": payment.get("environment"),
+                "configured": configured,
+                "configurationValid": configuration_valid,
+                "credentialsVerified": credentials_verified,
+                "contractBindingVerified": contract_verified,
+                "transportImplemented": bool(payment.get("transportImplemented")),
+                "checkoutBound": checkout_bound,
+                "callbacksBound": callbacks_bound,
+                "livePaymentsEnabled": live_enabled,
+                "blockingReasons": list(payment.get("blockingReasons") or [])[:10],
             },
         ))
 
