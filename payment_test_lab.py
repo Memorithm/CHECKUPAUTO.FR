@@ -104,6 +104,26 @@ def _appointment(value: object, name: str, pattern: str) -> str:
     return raw
 
 
+def _test_terms() -> dict:
+    current=compliance.published_document("terms")
+    if current:
+        return current
+    if not enabled():
+        raise PaymentTestError("payment_test_terms_unavailable")
+    return compliance.save_document({
+        "type":"terms",
+        "version":"staging-test-v1",
+        "title":"Conditions de test — staging",
+        "body":(
+            "Document exclusivement destiné aux essais du parcours CheckupAuto sur l’environnement "
+            "de staging. Il ne constitue pas les conditions générales de vente de production et "
+            "n’autorise aucun encaissement bancaire réel. Les rendez-vous créés par ce parcours "
+            "sont synthétiques et doivent être supprimés à l’issue du test."
+        ),
+        "action":"publish",
+    })
+
+
 def create_reservation(token: str, service_key: str, date_value: str, time_value: str,
                        *, accept_terms: bool, immediate_performance: bool) -> dict:
     _require_enabled()
@@ -135,9 +155,7 @@ def create_reservation(token: str, service_key: str, date_value: str, time_value
         ccid=str(site_booking["token"])
         cct=_step("payment_test_browser_binding_failed",lambda: booking.browser_token(ccid))
 
-        terms=_step("payment_test_terms_lookup_failed",lambda: compliance.published_document("terms"))
-        if not terms:
-            raise PaymentTestError("payment_test_terms_unavailable")
+        terms=_step("payment_test_terms_lookup_failed",_test_terms)
         _step("payment_test_terms_acceptance_failed",lambda: booking.record_terms_acceptance({
             "ccid":ccid,
             "cct":cct,
