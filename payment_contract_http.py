@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 import rights_completion_admin_route
 import payment_payline_private
+import payment_checkout
 from payment_contract_store import (ContractStore, ContractInvalid, ContractConflict,
                                     MAX_BYTES, parse_json)
 
@@ -80,6 +81,7 @@ def handle(handler, *, secret: str) -> bool:
             result = store.update(parse_json(raw))
         result["csrfToken"] = csrf_token(secret, handler.headers)
         result["runtime"] = payment_payline_private.status()
+        result["runtime"]["checkoutBasis"] = payment_checkout.capability()
         handler.send_json(result)
     except ContractConflict:
         return reject("payments_contract_conflict_reload", 409)
