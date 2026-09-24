@@ -63,6 +63,51 @@ class MercureSchemaTest(unittest.TestCase):
         }])
 
 
+    @patch.object(mercure, "_session")
+    @patch.object(mercure, "_calendar_events")
+    @patch("mercure_public_client.service")
+    def test_synthetic_creation_verification_failure_best_effort_removes_created_slot(self, service, events, session):
+        service.return_value={"duration":75,"id":"11"}
+        browser=Mock()
+        created=Mock(status_code=200,text="")
+        created.raise_for_status.return_value=None
+        created.json.return_value={"id":"RDV-TEST-987"}
+        removed=Mock(status_code=200,text="")
+        browser.post.side_effect=[created,removed]
+        session.return_value=browser
+        events.side_effect=RuntimeError("calendar temporarily unavailable")
+
+        with self.assertRaisesRegex(RuntimeError,"calendar temporarily unavailable"):
+            mercure.create_synthetic_test_appointment("technical","2026-10-03","15:00")
+
+        self.assertEqual(browser.post.call_count,2)
+        cleanup=browser.post.call_args_list[1]
+        self.assertEqual(cleanup.args[0],mercure.BASE+"/admin/rendez_vous_remove")
+        self.assertEqual(cleanup.kwargs["data"],{"rendezvous_id":"RDV-TEST-987"})
+
+    @patch.object(mercure, "_session")
+    @patch.object(mercure, "_calendar_events")
+    @patch("mercure_public_client.service")
+    def test_synthetic_creation_missing_calendar_event_also_removes_created_slot(self, service, events, session):
+        service.return_value={"duration":75,"id":"11"}
+        browser=Mock()
+        created=Mock(status_code=200,text="")
+        created.raise_for_status.return_value=None
+        created.json.return_value={"id":"RDV-TEST-654"}
+        removed=Mock(status_code=200,text="")
+        browser.post.side_effect=[created,removed]
+        session.return_value=browser
+        events.return_value=[]
+
+        with self.assertRaisesRegex(RuntimeError,"non retrouvé"):
+            mercure.create_synthetic_test_appointment("technical","2026-10-03","15:40")
+
+        self.assertEqual(browser.post.call_count,2)
+        self.assertEqual(
+            browser.post.call_args_list[1].kwargs["data"],
+            {"rendezvous_id":"RDV-TEST-654"},
+        )
+
     @patch.object(mercure, "_session", side_effect=RuntimeError("client@example.fr bearer_secret=SUPER-SECRET-VALUE"))
     def test_session_status_redacts_unexpected_exception_text(self, _session):
         result = mercure.session_status()
