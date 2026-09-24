@@ -138,16 +138,11 @@ def _browser_result(handler, query: str) -> bool:
     return True
 
 
-def _cancel(handler) -> bool:
-    # A browser cancellation is intentionally not accepted as payment evidence.
-    handler.send_bytes(
-        _page("Paiement interrompu",
-              "Le parcours de paiement a été interrompu. Aucun statut bancaire n’a été modifié à partir de cette redirection.",
-              "INTERROMPU"),
-        "text/html; charset=utf-8", 200, "no-store",
-        {"X-Robots-Tag": "noindex, nofollow, noarchive"},
-    )
-    return True
+def _cancel(handler, query: str) -> bool:
+    # The browser redirect remains non-authoritative, but it is a useful trigger
+    # for an authenticated getWebPaymentDetails reread. This prevents a genuine
+    # Payline cancellation from leaving the local intent stuck in "created".
+    return _browser_result(handler, query)
 
 
 def _notify(handler, query: str) -> bool:
@@ -265,7 +260,7 @@ def handle(handler) -> bool:
     if parsed.path == RETURN_ROUTE:
         return _browser_result(handler, parsed.query)
     if parsed.path == CANCEL_ROUTE:
-        return _cancel(handler)
+        return _cancel(handler, parsed.query)
     if parsed.path == NOTIFY_ROUTE:
         return _notify(handler, parsed.query)
     return False
