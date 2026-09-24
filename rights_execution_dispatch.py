@@ -6,6 +6,7 @@ import booking_conversion_erasure
 import contract_subject_rights
 import data_subject_rights
 import mobile_dsar_erasure
+import mercure_rights
 import referral_wallet_rights
 import review_followup_privacy
 import rights_completion_plan
@@ -25,6 +26,59 @@ def _payload(value: object) -> dict:
 def _exact_fields(payload: dict, fields: set[str]) -> None:
     if set(payload) != fields:
         raise ValueError("payload d'exécution de droit invalide")
+
+
+def _shared_mercure_erasure_inventory(subject_ref: object) -> tuple[tuple[str, ...] | None, str]:
+    """Resolve one complete provider appointment set for all dependent erasure stores."""
+    raw_ref = str(subject_ref or "").strip()
+    try:
+        mercure_rights.parse_subject_ref(raw_ref)
+    except ValueError:
+        return None, "mercure_subject_reference_required"
+
+    try:
+        snapshot = mercure_rights.contact_snapshot(raw_ref)
+    except Exception:
+        return None, "mercure_appointment_inventory_unavailable"
+
+    coverage = snapshot.get("coverage") or {}
+    if not bool(coverage.get("appointments")):
+        return None, "mercure_appointment_inventory_incomplete"
+
+    inventory = snapshot.get("operationalInventory") or {}
+    rows = inventory.get("appointments") or []
+    if not isinstance(rows, list):
+        raise RuntimeError("inventaire Mercure des rendez-vous invalide")
+
+    appointment_ids: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError("inventaire Mercure des rendez-vous invalide")
+        appointment_id = str(row.get("appointmentId") or "").strip()
+        if not appointment_id or len(appointment_id) > 128:
+            raise RuntimeError("preuve Mercure de rendez-vous incomplète")
+        appointment_ids.append(appointment_id)
+
+    clean = tuple(sorted(set(appointment_ids)))
+    limit = min(
+        review_followup_privacy.MAX_APPOINTMENT_IDS,
+        booking_conversion_erasure.MAX_APPOINTMENT_IDS,
+    )
+    if len(clean) > limit:
+        raise RuntimeError("inventaire Mercure des rendez-vous trop volumineux")
+    provider_count = int(inventory.get("appointmentCountInWindow") or 0)
+    if provider_count != len(clean):
+        raise RuntimeError("inventaire Mercure des rendez-vous incohérent")
+    return clean, ""
+
+
+def _provider_erasure_unavailable(store: str, reason: str) -> dict:
+    return {
+        "store": store,
+        "executed": False,
+        "coverageComplete": False,
+        "reason": reason,
+    }
 
 
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
@@ -89,14 +143,40 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             # fail-closed when the Mercure inventory is incomplete.
             rid = data_subject_rights._request_id(body.get("id"))
             result = dict(result)
-            result["reviewFollowupErasure"] = review_followup_privacy.erase_for_mercure_subject(
-                rid,
-                body.get("subjectRef"),
+            appointment_ids, inventory_reason = _shared_mercure_erasure_inventory(
+                body.get("subjectRef")
             )
-            result["bookingConversionErasure"] = booking_conversion_erasure.erase_for_mercure_subject(
-                rid,
-                body.get("subjectRef"),
-            )
+            if inventory_reason:
+                result["reviewFollowupErasure"] = _provider_erasure_unavailable(
+                    "review_followup",
+                    inventory_reason,
+                )
+                result["bookingConversionErasure"] = _provider_erasure_unavailable(
+                    "booking_conversions",
+                    inventory_reason,
+                )
+            else:
+                assert appointment_ids is not None
+                review_mutation = review_followup_privacy.erase_appointments(
+                    rid,
+                    appointment_ids,
+                )
+                result["reviewFollowupErasure"] = {
+                    **review_mutation,
+                    "executed": True,
+                    "coverageComplete": True,
+                    "reason": "",
+                }
+                booking_mutation = booking_conversion_erasure.erase_appointments(
+                    rid,
+                    appointment_ids,
+                )
+                result["bookingConversionErasure"] = {
+                    **booking_mutation,
+                    "executed": True,
+                    "coverageComplete": True,
+                    "reason": "",
+                }
         return result
 
     if adapter == rights_rectification.ADAPTER:
