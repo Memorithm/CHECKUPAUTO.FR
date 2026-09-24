@@ -32,6 +32,83 @@ function readinessAction(row, remediation) {
   row.appendChild(cell);
 }
 
+function readinessGitSha(value) {
+  const sha = String(value || '').trim().toLowerCase();
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : '';
+}
+
+function readinessRuntimeCard(label, id) {
+  const article = document.createElement('article');
+  const small = document.createElement('small');
+  const strong = document.createElement('strong');
+  small.textContent = label;
+  strong.id = id;
+  strong.textContent = '—';
+  article.append(small, strong);
+  return article;
+}
+
+function ensureRuntimeProvenancePanel() {
+  const section = readinessEl('readiness');
+  if (!section) return null;
+  const existing = readinessEl('readinessRuntimeProvenance');
+  if (existing) return existing;
+
+  const panel = document.createElement('div');
+  panel.id = 'readinessRuntimeProvenance';
+  panel.className = 'integration-box';
+
+  const heading = document.createElement('div');
+  heading.className = 'panel-head compact';
+  const copy = document.createElement('div');
+  const title = document.createElement('h3');
+  title.textContent = 'Provenance du runtime';
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = 'Compare le code réellement exécuté au baseline d’intégrité local. Une correspondance avec ce baseline ne prouve pas, à elle seule, que le runtime exécute le dernier main GitHub.';
+  copy.append(title, hint);
+  heading.appendChild(copy);
+
+  const grid = document.createElement('div');
+  grid.className = 'metric-grid';
+  grid.append(
+    readinessRuntimeCard('RUNTIME SHA', 'readinessRuntimeSha'),
+    readinessRuntimeCard('BRANCHE RUNTIME', 'readinessRuntimeBranch'),
+    readinessRuntimeCard('WORKTREE', 'readinessRuntimeDirty'),
+    readinessRuntimeCard('BASELINE SHA', 'readinessBaselineSha'),
+    readinessRuntimeCard('BASELINE / RUNTIME', 'readinessBaselineMatch'),
+  );
+  panel.append(heading, grid);
+
+  const table = section.querySelector('.table-scroll');
+  if (table) table.before(panel);
+  else section.appendChild(panel);
+  return panel;
+}
+
+function renderRuntimeProvenance(runtime) {
+  ensureRuntimeProvenancePanel();
+  runtime = runtime && typeof runtime === 'object' ? runtime : {};
+  const runtimeSha = runtime.gitShaAvailable === true ? readinessGitSha(runtime.gitSha) : '';
+  const baselineSha = readinessGitSha(runtime.baselineGitSha);
+  const branch = typeof runtime.gitBranch === 'string' ? runtime.gitBranch.trim().slice(0, 100) : '';
+  const dirty = runtime.gitDirty === false ? 'PROPRE' : runtime.gitDirty === true ? 'MODIFIÉ' : 'NON VÉRIFIÉ';
+  let baselineMatch = 'NON VÉRIFIÉ';
+  if (runtimeSha && baselineSha && runtime.baselineMatchesRuntime === true) baselineMatch = 'CONFORME';
+  else if (runtimeSha && baselineSha && runtime.baselineMatchesRuntime === false) baselineMatch = 'ÉCART';
+
+  const shaEl = readinessEl('readinessRuntimeSha');
+  const branchEl = readinessEl('readinessRuntimeBranch');
+  const dirtyEl = readinessEl('readinessRuntimeDirty');
+  const baselineEl = readinessEl('readinessBaselineSha');
+  const matchEl = readinessEl('readinessBaselineMatch');
+  if (shaEl) shaEl.textContent = runtimeSha || '—';
+  if (branchEl) branchEl.textContent = branch || '—';
+  if (dirtyEl) dirtyEl.textContent = dirty;
+  if (baselineEl) baselineEl.textContent = baselineSha || '—';
+  if (matchEl) matchEl.textContent = baselineMatch;
+}
+
 function renderReadinessComponents(items) {
   const body = readinessEl('readinessComponents');
   if (!body) return;
@@ -77,6 +154,7 @@ async function loadProductionReadiness() {
     readinessEl('readinessConfig').textContent = counts.configuration_required || 0;
     readinessEl('readinessExternal').textContent = counts.blocked_external || 0;
     readinessEl('readinessDegraded').textContent = counts.degraded || 0;
+    renderRuntimeProvenance(data.runtime);
     renderReadinessComponents(Array.isArray(data.components) ? data.components : []);
     if (badge) {
       badge.textContent = readinessLabel(data.state);
@@ -87,6 +165,7 @@ async function loadProductionReadiness() {
       badge.textContent = 'INDISPONIBLE';
       badge.className = 'gsc-status offline';
     }
+    renderRuntimeProvenance({});
     renderReadinessComponents([]);
   }
 }
