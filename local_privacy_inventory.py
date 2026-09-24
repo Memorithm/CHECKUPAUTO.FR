@@ -112,13 +112,14 @@ def snapshot() -> dict:
         ),
         _row(
             "booking_conversions",
-            "booking_bridge",
+            "booking_conversion_erasure",
             "provider_appointment_reference_with_minimized_attribution",
-            "conditional_unwired",
+            "partial_wired",
             subject_erasure_applicable=True,
+            adapter="privacy_suppression",
             binding_source="mercure_rights.operationalInventory.appointments",
             prerequisite="mercure_provider_inventory_attested_and_complete",
-            limitation="no_subject_complete_local_mutation_receipt",
+            limitation="direct_mercure_subject_ref_and_provider_external_id_only_browser_synthetic_unresolved",
         ),
     ]
 

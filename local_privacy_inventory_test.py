@@ -28,9 +28,19 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
             rows["review_followup"]["limitation"],
             "direct_mercure_subject_ref_only",
         )
+        self.assertEqual(rows["booking_conversions"]["executionState"], "partial_wired")
+        self.assertEqual(rows["booking_conversions"]["adapter"], "privacy_suppression")
+        self.assertEqual(
+            rows["booking_conversions"]["bindingSource"],
+            "mercure_rights.operationalInventory.appointments",
+        )
         self.assertEqual(
             rows["booking_conversions"]["prerequisite"],
             "mercure_provider_inventory_attested_and_complete",
+        )
+        self.assertIn(
+            "browser_synthetic_unresolved",
+            rows["booking_conversions"]["limitation"],
         )
 
     def test_analytics_is_not_given_an_invented_subject_erasure_path(self):
