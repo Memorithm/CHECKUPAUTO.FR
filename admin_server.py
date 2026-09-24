@@ -41,6 +41,7 @@ import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
 import payment_contract_http
 import payment_payline_http
+import payment_test_http
 import data_subject_rights as data_subject_rights
 import rights_execution_dispatch as rights_execution_dispatch
 import withdrawal_service as withdrawals
@@ -176,7 +177,7 @@ class Handler(SimpleHTTPRequestHandler):
   self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
   self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
   response_path=urlparse(self.path).path
-  if response_path.startswith('/admin') or response_path=='/app/claim': self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
+  if response_path.startswith('/admin') or response_path.startswith('/payment/test') or response_path=='/app/claim': self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
   return super().end_headers()
  def do_OPTIONS(self):
   if not self._guard(): return
@@ -232,7 +233,7 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/app','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation'}
+  dynamic={'/','/index.html','/app','/payment/payline/checkout','/payment/test','/payment/test/provider','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
@@ -274,6 +275,8 @@ class Handler(SimpleHTTPRequestHandler):
   return raw.replace('</head>',block+'\n</head>',1).encode()
  def do_GET(self):
   if not self._guard(): return
+  if payment_test_http.handle(self): return
+  if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=PASSWORD): return
   parsed=urlparse(self.path); path=parsed.path
