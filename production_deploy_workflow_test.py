@@ -14,7 +14,7 @@ class ProductionDeployWorkflowTest(unittest.TestCase):
         gate = self.workflow.index("- name: Validate signed main commit and Security CI")
         checkout = self.workflow.index("- name: Checkout approved main commit")
         deploy = self.workflow.index("- name: Deploy current approved main commit")
-        verify = self.workflow.index("- name: Verify canonical public CyberCheck surface")
+        verify = self.workflow.index("- name: Verify canonical public CyberCheck surface and revision")
         self.assertLess(gate, checkout)
         self.assertLess(checkout, deploy)
         self.assertLess(deploy, verify)
@@ -24,9 +24,10 @@ class ProductionDeployWorkflowTest(unittest.TestCase):
         self.assertIn("ref: ${{ inputs.sha }}", self.workflow)
         self.assertIn("persist-credentials: false", self.workflow)
 
-    def test_public_surface_probe_is_a_required_post_deploy_gate(self):
+    def test_public_surface_and_revision_probe_is_a_required_post_deploy_gate(self):
+        self.assertIn("DEPLOY_SHA: ${{ inputs.sha }}", self.workflow)
         self.assertIn(
-            "run: python3 scripts/check-public-surface.py https://www.checkupauto.fr/",
+            'run: python3 scripts/check-public-surface.py https://www.checkupauto.fr/ "$DEPLOY_SHA"',
             self.workflow,
         )
         self.assertNotIn("continue-on-error", self.workflow)
