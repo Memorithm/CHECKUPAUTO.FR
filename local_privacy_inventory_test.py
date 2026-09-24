@@ -14,7 +14,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
 
         self.assertFalse(state["inventoryComplete"])
         self.assertFalse(state["knownExecutionCoverageComplete"])
-        self.assertEqual(state["scope"], "known-local-privacy-stores-v3")
+        self.assertEqual(state["scope"], "known-local-privacy-stores-v4")
         self.assertEqual(
             set(state["unresolvedStores"]),
             {"review_followup", "booking_conversions", "withdrawal_requests"},
@@ -54,9 +54,13 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
             withdrawal["bindingSource"],
             "withdrawal_requests.receipt_email_hash",
         )
-        self.assertIn("erasure_not_implemented", withdrawal["limitation"])
+        self.assertIn("retention_governed_erasure", withdrawal["limitation"])
         self.assertIn(
-            "withdrawal_erasure_requires_retention_aware_implementation",
+            "validated_retention_policy_for_erasure",
+            withdrawal["prerequisite"],
+        )
+        self.assertIn(
+            "withdrawal_subject_coverage_limited_to_exact_verified_receipt_email",
             state["limitations"],
         )
 
