@@ -27,4 +27,55 @@ final class MobileBootstrapTests: XCTestCase {
         )
         XCTAssertThrowsError(try invalid.validated())
     }
+
+    func testRejectsUntrustedBookingOrigin() throws {
+        let invalid = MobileBootstrap(
+            schemaVersion: 1,
+            reminders: MobileBootstrap.fallback.reminders,
+            booking: MobileBookingConfig(url: "https://example.com/"),
+            notifications: MobileBootstrap.fallback.notifications,
+            referral: MobileBootstrap.fallback.referral,
+            app: MobileBootstrap.fallback.app
+        )
+        XCTAssertThrowsError(try invalid.validated())
+    }
+
+    func testRejectsBookingURLWithCredentialsOrQuery() throws {
+        for url in [
+            "https://user@rdv.checkupauto.fr/",
+            "https://rdv.checkupauto.fr/?source=test",
+        ] {
+            let invalid = MobileBootstrap(
+                schemaVersion: 1,
+                reminders: MobileBootstrap.fallback.reminders,
+                booking: MobileBookingConfig(url: url),
+                notifications: MobileBootstrap.fallback.notifications,
+                referral: MobileBootstrap.fallback.referral,
+                app: MobileBootstrap.fallback.app
+            )
+            XCTAssertThrowsError(try invalid.validated(), url)
+        }
+    }
+
+    func testRejectsUntrustedAppDistributionOriginOrPath() throws {
+        for landing in [
+            "https://example.com/app",
+            "https://www.checkupauto.fr/other",
+            "https://www.checkupauto.fr/app?source=test",
+        ] {
+            let invalid = MobileBootstrap(
+                schemaVersion: 1,
+                reminders: MobileBootstrap.fallback.reminders,
+                booking: MobileBootstrap.fallback.booking,
+                notifications: MobileBootstrap.fallback.notifications,
+                referral: MobileBootstrap.fallback.referral,
+                app: MobileAppConfig(
+                    landingUrl: landing,
+                    available: false,
+                    downloadPath: "/go/app"
+                )
+            )
+            XCTAssertThrowsError(try invalid.validated(), landing)
+        }
+    }
 }
