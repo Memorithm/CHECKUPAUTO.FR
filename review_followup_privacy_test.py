@@ -111,6 +111,36 @@ class ReviewFollowupPrivacyTest(unittest.TestCase):
         self.assertEqual(self.remaining(), [])
         self.assertEqual(privacy.receipt("request-3")["affectedRows"], 2)
 
+    def test_replay_rejects_changed_provider_inventory_before_mutation(self):
+        self.seed("apt-first")
+        first_snapshot = self.complete_snapshot("apt-first")
+        with mock.patch.object(
+            privacy.mercure_rights,
+            "contact_snapshot",
+            return_value=first_snapshot,
+        ):
+            privacy.erase_for_mercure_subject("request-drift", "account:42")
+
+        first_receipt = privacy.receipt("request-drift")
+        self.seed("apt-second")
+        changed_snapshot = self.complete_snapshot("apt-first", "apt-second")
+        with mock.patch.object(
+            privacy.mercure_rights,
+            "contact_snapshot",
+            return_value=changed_snapshot,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "inventaire Mercure modifié pour le même requestId",
+            ):
+                privacy.erase_for_mercure_subject("request-drift", "account:42")
+
+        self.assertEqual(self.remaining(), ["apt-second"])
+        self.assertEqual(
+            privacy.receipt("request-drift")["appointmentSetHash"],
+            first_receipt["appointmentSetHash"],
+        )
+
     def test_complete_empty_inventory_records_verified_absence(self):
         with mock.patch.object(
             privacy.mercure_rights,
