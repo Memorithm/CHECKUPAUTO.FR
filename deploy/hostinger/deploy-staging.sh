@@ -34,6 +34,17 @@ cd "$CURRENT/deploy/hostinger"
 export CHECKUPAUTO_STAGING_HOST="$HOST"
 export CHECKUPAUTO_IMAGE_TAG="$(basename "$RELEASE")"
 docker compose build --pull web
+
+# security_integrity intentionally refuses to invent its own first baseline at
+# application startup. Provision it as a distinct root-controlled deployment
+# step against the exact image that will be started, then return ownership to
+# the unprivileged runtime UID/GID used by the image.
+docker compose run --rm --no-deps --user 0:0 web \
+  python -c 'import security_integrity; security_integrity.create_baseline(True)'
+test -s "$STATE/integrity/integrity-baseline.json"
+chown 10001:10001 "$STATE/integrity/integrity-baseline.json"
+chmod 0640 "$STATE/integrity/integrity-baseline.json"
+
 docker compose up -d --remove-orphans
 
 healthy=0
