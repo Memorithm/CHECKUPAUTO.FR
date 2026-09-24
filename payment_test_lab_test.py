@@ -66,7 +66,7 @@ class PaymentTestLabTest(unittest.TestCase):
              }), \
              patch.object(lab.booking,"create_intent",side_effect=RuntimeError("boom")), \
              patch.object(lab.booking_test,"remove_appointment") as remove:
-            with self.assertRaises(RuntimeError):
+            with self.assertRaisesRegex(lab.PaymentTestError,"^payment_test_booking_intent_failed$"):
                 lab.create_reservation(
                     "session-token","technical","2026-10-03","09:00",
                     accept_terms=True,immediate_performance=True,
