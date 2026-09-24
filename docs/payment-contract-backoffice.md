@@ -39,9 +39,9 @@ L'exemple ne crée ni compte bancaire, ni contrat chez le prestataire. Exécuter
 
 ## Ce qui n'est pas activé
 
-Ce menu traite la fiche d'acquisition, **pas les clés API**. `merchantId` API, `accessKey`, `contractNumber`, secrets PayPal et données de carte sont refusés par ce schéma. La future configuration des connecteurs devra disposer de sa propre gestion des secrets ; aucune valeur TPE/BIN/Merchant ID Mastercard n'est convertie en identifiant API.
+Ce menu traite la fiche d'acquisition, **pas les clés API**. `merchantId` API, `accessKey`, `contractNumber`, secrets PayPal et données de carte sont refusés par ce schéma. La configuration sandbox Payline dispose désormais de son stockage privé séparé (`CYBERCHECK_PRIVATE_DIR/payments/payline-sandbox.json`) ; aucune valeur TPE/BIN/Merchant ID Mastercard n'est convertie en identifiant API.
 
-Les indicateurs `contractVerified`, `apiCredentialsConfigured`, `checkoutBound` et `livePaymentsEnabled` restent faux. Ils décrivent les capacités de cette tranche, pas le résultat d'une inspection des autres coffres ou d'un appel à la banque. Le choix Payline / Monext est confirmé, mais la simple sauvegarde de la fiche ne vérifie pas les identifiants API ni le contrat distant.
+Les indicateurs de fiche `contractVerified`, `apiCredentialsConfigured`, `checkoutBound` et `livePaymentsEnabled` restent faux. Le panneau d'état du raccordement affiche séparément les capacités runtime : transport et callbacks sandbox peuvent être présents tandis que l'authentification fournisseur, le rattachement du contrat, le checkout et le réel restent fermés. Ils décrivent les capacités de cette tranche, pas le résultat d'une inspection des autres coffres ou d'un appel à la banque. Le choix Payline / Monext est confirmé, mais la simple sauvegarde de la fiche ne vérifie pas les identifiants API ni le contrat distant.
 
 L'édition ne déclenche aucun appel fournisseur, paiement, remboursement, notification, modification de réservation Mercure ou changement de configuration d'hébergement. PayPal direct reste séparé. Monetico n'est pas le connecteur sélectionné pour ce contrat.
 
