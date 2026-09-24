@@ -71,6 +71,19 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertEqual(self.request(address, authorization)[2]['fields']['nlsa'], '001')
             self.assertTrue((private / 'payments' / 'contract.enc').exists())
 
+    def test_runtime_status_is_secret_free_and_live_payments_remain_closed(self):
+        with self.server() as (address, authorization, private):
+            status, _, body = self.request(address, authorization)
+            self.assertEqual(status, 200)
+            runtime = body["runtime"]
+            self.assertEqual(runtime["provider"], "payline")
+            self.assertTrue(runtime["transportImplemented"])
+            self.assertFalse(runtime["livePaymentsEnabled"])
+            self.assertFalse(runtime["checkoutBound"])
+            self.assertNotIn("merchantId", repr(runtime))
+            self.assertNotIn("accessKey", repr(runtime))
+            self.assertNotIn("contractNumber", repr(runtime))
+
     def test_http_validation_never_returns_submitted_secret(self):
         with self.server() as (address, authorization, private):
             data = self.request(address, authorization)[2]

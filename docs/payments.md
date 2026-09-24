@@ -1,7 +1,7 @@
 # Paiements CheckupAuto — PayPal direct et Payline / Monext
 
-État : fondations sandbox, non raccordées au checkout. Aucune transaction réelle.
-Mise à jour : 22 septembre 2026.
+État : transport Payline/Monext sandbox implémenté, non raccordé au checkout. Aucune transaction réelle.
+Mise à jour : 24 septembre 2026.
 
 ## Plateforme bancaire identifiée : Payline / Monext, pas Monetico
 
@@ -43,6 +43,24 @@ Le module ne lit aucun coffre, aucune variable d'environnement et aucune fiche b
 Les en-têtes retournés par `authentication_headers()` contiennent un secret encodé : **ne jamais les journaliser, les envoyer au navigateur ou les sauvegarder dans Git**. Base64 n'est pas un chiffrement. `repr(config)` masque les valeurs, mais ce masquage ne remplace pas la protection des objets en mémoire ni un coffre adapté.
 
 Quatorze nouveaux tests locaux ont réussi sur Python 3.13 : séparation des champs API et acquéreur, refus du réel, conservation des zéros, authentification correcte, origine HTTPS, masquage des valeurs et absence d'effet réseau. Ils n'utilisent aucun paramètre réel du commerçant.
+
+## Transport Payline sandbox implémenté le 24 septembre 2026
+
+`payment_payline.py` implémente maintenant le transport SOAP WebPayment **homologation uniquement**. Il utilise l'endpoint fixe `https://homologation.payline.com/V4/services/WebPaymentAPI`, l'authentification HTTP Basic préparée par la configuration privée et la version API Payline 34.
+
+Le parcours codé couvre `doWebPayment` avec paiement comptant action 101, page hébergée Payline, puis `getWebPaymentDetails`. Le navigateur n'est jamais une source de vérité : le résultat n'est transformé en `VerifiedEvent` qu'après relecture authentifiée côté serveur et contrôle du token, du montant en centimes, de la devise EUR (978) et de la référence de commande CheckupAuto. Les codes de résultat sont bornés : succès `00000`, refus identifiés et état explicitement en attente ; un code technique ou inconnu n'est pas converti en réussite.
+
+Le journal sandbox accepte désormais le fournisseur `payline`. Une migration conservatrice reconstruit l'ancienne contrainte SQLite `paypal/monetico` sans réinterpréter les intentions ni les événements historiques. Les événements Payline sont idempotents comme les autres connecteurs.
+
+Le parseur XML refuse les réponses surdimensionnées, DTD/ENTITY et ambiguïtés de champs critiques. Les redirections de sandbox sont limitées aux hôtes Payline d'homologation. Les identifiants API et l'Access Key ne sont jamais placés dans la trame métier ni dans les erreurs.
+
+Ce transport ne signifie toujours pas que le compte marchand est authentifié ou que le contrat est actif. `checkoutBound=false`, `httpCallbacksBound=false`, `refundsBound=false` et `livePaymentsEnabled=false` restent fermés tant que nous n'avons pas les paramètres de l'environnement d'homologation, la recette fournisseur et la liaison sûre à la réservation.
+
+### Configuration privée du connecteur
+
+`payment_payline_private.py` charge maintenant la configuration sandbox exclusivement depuis un fichier privé hors du dépôt, par défaut `CYBERCHECK_PRIVATE_DIR/payments/payline-sandbox.json` ou via `CYBERCHECK_PAYLINE_CONFIG_PATH`. Le fichier doit appartenir à l'utilisateur du service, être régulier, non symbolique et sans droits groupe/autres. Le serveur ne crée ni ne modifie ce secret.
+
+Le back-office Paiements reçoit uniquement un état minimisé : configuration présente/valide, transport disponible et portes opérationnelles. Aucun `merchantId`, `accessKey`, `contractNumber` ou origine privée n'est renvoyé au navigateur. Tant que l'authentification réelle auprès de Monext et le rattachement du contrat n'ont pas été vérifiés, les indicateurs correspondants restent faux.
 
 ## Accès à préparer avec Monext
 

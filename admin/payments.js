@@ -4,8 +4,25 @@
  let snapshot=null, dirty=false, busy=false;
  const message=(text,error=false)=>{$('#paymentsMessage').textContent=text;$('#paymentsMessage').classList.toggle('error',error);};
  const setBusy=value=>{busy=value;$('#paymentsEditor').disabled=value||!snapshot;};
+ function runtime(data){
+  const root=$('#paymentsRuntime');root.replaceChildren();
+  const state=data.runtime||{};
+  const rows=[
+   ['Transport Payline sandbox',state.transportImplemented===true?'Prêt':'Indisponible'],
+   ['Configuration API privée',state.configured===true&&state.configurationValid===true?'Présente':'À configurer'],
+   ['Identifiants vérifiés chez Monext',state.credentialsVerified===true?'Oui':'Non'],
+   ['Contrat Payline vérifié',state.contractBindingVerified===true?'Oui':'Non'],
+   ['Checkout raccordé',state.checkoutBound===true?'Oui':'Non'],
+   ['Callbacks raccordés',state.callbacksBound===true?'Oui':'Non'],
+   ['Paiements réels',state.livePaymentsEnabled===true?'ACTIFS':'Désactivés'],
+  ];
+  for(const [label,value] of rows){
+   const row=document.createElement('p'),strong=document.createElement('strong');
+   strong.textContent=label+' : ';row.append(strong,document.createTextNode(value));root.append(row);
+  }
+ }
  function show(data){
-  snapshot=data;dirty=false;const root=$('#paymentsFields');root.replaceChildren();
+  snapshot=data;dirty=false;runtime(data);const root=$('#paymentsFields');root.replaceChildren();
   const groups=new Map();
   for(const spec of data.schema){
    if(!groups.has(spec.group)){
@@ -34,7 +51,7 @@
   if(response.status===401||response.status===403){$('#paymentsAuth').hidden=false;throw new Error('Connexion, double authentification ou session à renouveler. Revenir au back-office puis recharger cette page.');}
   if(response.status===409)throw new Error('La fiche a été modifiée ailleurs. Vos saisies sont conservées à l’écran. Rechargez la fiche avant de réappliquer vos modifications.');
   if(!response.ok)throw new Error(response.status===400?'Fiche refusée : vérifier les champs et leurs formats. Aucun changement enregistré.':'Configuration indisponible. Aucun succès d’enregistrement confirmé.');
-  const data=await response.json();if(!data.ok||data.provider!=='payline_monext'||!Array.isArray(data.schema))throw new Error('Réponse de configuration invalide.');return data;
+  const data=await response.json();if(!data.ok||data.provider!=='payline_monext'||!Array.isArray(data.schema)||!data.runtime)throw new Error('Réponse de configuration invalide.');return data;
  }
  async function reload(){
   if(busy)return;if(dirty&&!confirm('Abandonner les modifications non enregistrées et recharger ?'))return;

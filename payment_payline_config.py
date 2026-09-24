@@ -1,4 +1,4 @@
-"""Explicit Payline/Monext sandbox configuration; no transport or live payments.
+"""Explicit Payline/Monext sandbox configuration; sandbox transport only, no live payments.
 
 Acquiring-bank TPE/BIN/NLSA/Mastercard references are not API credentials.
 Only the named API fields from the merchant administration centre are accepted.
@@ -65,7 +65,7 @@ class PaylineSandboxConfig:
         # These are bounded project input policies, not proof of valid accounts.
         _value(self.merchant_id, r"[0-9]{1,32}", "payline_merchant_id_invalid")
         _value(self.access_key, r"[\x21-\x7e]{1,256}", "payline_access_key_invalid")
-        _value(self.contract_number, r"[A-Za-z0-9_-]{1,50}", "payline_contract_number_invalid")
+        _value(self.contract_number, r"[A-Za-z0-9_-]{1,20}", "payline_contract_number_invalid")
         _origin(self.public_origin)
 
     @classmethod
@@ -88,7 +88,7 @@ class PaylineSandboxConfig:
         return SANDBOX_WEBPAYMENT_ENDPOINT
 
     def authentication_headers(self) -> dict[str, str]:
-        """For a future TLS API transport only. Do not log or send to browsers."""
+        """For the sandbox TLS API transport only. Do not log or send to browsers."""
         encoded = base64.b64encode((self.merchant_id + ":" + self.access_key).encode("ascii"))
         return {"Authorization": "Basic " + encoded.decode("ascii")}
 
@@ -98,7 +98,7 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
     if config is not None and not isinstance(config, PaylineSandboxConfig):
         raise PaylineConfigurationError("payline_configuration_type_invalid")
     blockers = ["provider_authentication_unverified", "contract_binding_unverified",
-                "payline_transport_not_implemented", "checkout_not_bound"]
+                "checkout_not_bound", "callbacks_not_bound"]
     if config is None:
         blockers.insert(0, "explicit_api_configuration_missing")
     return {
@@ -107,7 +107,7 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
         "configurationSyntaxValid": config is not None,
         "requiredFields": list(REQUIRED_FIELDS),
         "credentialsVerified": False, "contractBindingVerified": False,
-        "transportImplemented": False, "checkoutBound": False,
+        "transportImplemented": True, "checkoutBound": False,
         "httpCallbacksBound": False, "livePaymentsEnabled": False,
         "ready": False, "blockingReasons": blockers,
     }
