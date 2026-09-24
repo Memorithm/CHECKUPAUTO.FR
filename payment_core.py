@@ -91,7 +91,7 @@ class Intent:
         except (ValueError, TypeError):
             raise PaymentError("timestamp_invalid") from None
         if self.provider_reference:
-            text(self.provider_reference, r"[A-Za-z0-9_-]{1,64}", "provider_reference_invalid")
+            text(self.provider_reference, r"[A-Za-z0-9_-]{1,128}", "provider_reference_invalid")
         if self.state not in {"created", "pending", "declined", "authorized", "captured"}:
             raise PaymentError("state_invalid")
 
@@ -235,6 +235,16 @@ class SandboxJournal:
         with self._connect() as db:
             return self._intent(db.execute("SELECT * FROM payment_intents WHERE payment_id=?", (payment_id,)).fetchone())
 
+    def get_by_provider_reference(self, provider: str, provider_reference: str) -> Intent:
+        if provider not in {"paypal", "monetico", "payline"}:
+            raise PaymentError("provider_invalid")
+        text(provider_reference, r"[A-Za-z0-9_-]{1,128}", "provider_reference_invalid")
+        with self._connect() as db:
+            return self._intent(db.execute(
+                "SELECT * FROM payment_intents WHERE provider=? AND provider_reference=?",
+                (provider, provider_reference),
+            ).fetchone())
+
     def create(self, quote: Quote, provider: str) -> Intent:
         if not isinstance(quote, Quote) or provider not in {"paypal", "monetico", "payline"}:
             raise PaymentError("quote_or_provider_invalid")
@@ -255,7 +265,7 @@ class SandboxJournal:
             return self._intent(db.execute("SELECT * FROM payment_intents WHERE payment_id=?", (payment_id,)).fetchone())
 
     def bind_provider(self, payment_id: str, provider_reference: str) -> Intent:
-        text(provider_reference, r"[A-Za-z0-9_-]{1,64}", "provider_reference_invalid")
+        text(provider_reference, r"[A-Za-z0-9_-]{1,128}", "provider_reference_invalid")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             current = self._intent(db.execute("SELECT * FROM payment_intents WHERE payment_id=?", (payment_id,)).fetchone())
