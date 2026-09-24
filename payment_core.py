@@ -92,7 +92,7 @@ class Intent:
             raise PaymentError("timestamp_invalid") from None
         if self.provider_reference:
             text(self.provider_reference, r"[A-Za-z0-9_-]{1,128}", "provider_reference_invalid")
-        if self.state not in {"created", "pending", "declined", "authorized", "captured"}:
+        if self.state not in {"created", "pending", "declined", "cancelled", "error", "authorized", "captured"}:
             raise PaymentError("state_invalid")
 
 
@@ -111,7 +111,11 @@ class VerifiedEvent:
         text(self.payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
         text(self.provider_reference, r"[A-Za-z0-9_-]{1,64}", "provider_reference_invalid")
         text(self.event_id, r"[A-Za-z0-9:_-]{1,128}", "event_id_invalid")
-        allowed = {"paypal": {"captured"}, "monetico": {"authorized", "pending", "declined"}, "payline": {"captured", "pending", "declined"}}
+        allowed = {
+            "paypal": {"captured"},
+            "monetico": {"authorized", "pending", "declined"},
+            "payline": {"captured", "pending", "declined", "cancelled", "error"},
+        }
         if self.state not in allowed.get(self.provider, set()):
             raise PaymentError("event_state_invalid")
         cents(self.amount_cents)
@@ -153,7 +157,7 @@ class SandboxJournal:
               amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
               currency TEXT NOT NULL CHECK(currency='EUR'),
               provider_reference TEXT NOT NULL DEFAULT '',
-              state TEXT NOT NULL CHECK(state IN ('created','pending','declined','authorized','captured')),
+              state TEXT NOT NULL CHECK(state IN ('created','pending','declined','cancelled','error','authorized','captured')),
               created_at TEXT NOT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS payment_provider_reference
@@ -178,9 +182,19 @@ class SandboxJournal:
             sql = str(db.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='payment_intents'"
             ).fetchone()["sql"] or "")
-            if "'payline'" not in sql:
+            needs_rebuild = (
+                "'payline'" not in sql
+                or "'cancelled'" not in sql
+                or "'error'" not in sql
+            )
+            if needs_rebuild:
+                # Rebuild the complete FK family together. SQLite can rewrite FK
+                # targets when a parent table is renamed; rebuilding children
+                # prevents a legacy child from retaining a reference to the
+                # temporary payment_intents_legacy table.
                 db.executescript("""
                 ALTER TABLE payment_events RENAME TO payment_events_legacy;
+                ALTER TABLE payment_provider_transactions RENAME TO payment_provider_transactions_legacy;
                 DROP INDEX IF EXISTS payment_provider_reference;
                 ALTER TABLE payment_intents RENAME TO payment_intents_legacy;
 
@@ -193,7 +207,7 @@ class SandboxJournal:
                   amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
                   currency TEXT NOT NULL CHECK(currency='EUR'),
                   provider_reference TEXT NOT NULL DEFAULT '',
-                  state TEXT NOT NULL CHECK(state IN ('created','pending','declined','authorized','captured')),
+                  state TEXT NOT NULL CHECK(state IN ('created','pending','declined','cancelled','error','authorized','captured')),
                   created_at TEXT NOT NULL
                 );
                 INSERT INTO payment_intents
@@ -217,7 +231,19 @@ class SandboxJournal:
                   SELECT provider,event_hash,payment_id,evidence_hash,state,received_at
                   FROM payment_events_legacy;
 
+                CREATE TABLE payment_provider_transactions(
+                  payment_id TEXT PRIMARY KEY REFERENCES payment_intents(payment_id),
+                  provider TEXT NOT NULL,
+                  transaction_id TEXT NOT NULL UNIQUE,
+                  captured_amount_cents INTEGER NOT NULL CHECK(typeof(captured_amount_cents)='integer' AND captured_amount_cents BETWEEN 1 AND 9000),
+                  updated_at TEXT NOT NULL
+                );
+                INSERT INTO payment_provider_transactions
+                  SELECT payment_id,provider,transaction_id,captured_amount_cents,updated_at
+                  FROM payment_provider_transactions_legacy;
+
                 DROP TABLE payment_events_legacy;
+                DROP TABLE payment_provider_transactions_legacy;
                 DROP TABLE payment_intents_legacy;
                 """)
             violations = db.execute("PRAGMA foreign_key_check").fetchall()
@@ -346,7 +372,15 @@ class SandboxJournal:
                     raise PaymentError("event_replay_conflict")
                 return current
             # Declines can be followed by success; delayed failures cannot erase it.
-            rank = {"created": 0, "pending": 1, "declined": 1, "authorized": 2, "captured": 3}
+            rank = {
+                "created": 0,
+                "pending": 1,
+                "declined": 1,
+                "cancelled": 1,
+                "error": 1,
+                "authorized": 2,
+                "captured": 3,
+            }
             state = event.state if rank[event.state] >= rank[current.state] else current.state
             db.execute("INSERT INTO payment_events VALUES(?,?,?,?,?,?)", (event.provider, event_hash, event.payment_id, evidence, event.state, stamp()))
             db.execute("UPDATE payment_intents SET state=? WHERE payment_id=?", (state, event.payment_id))
