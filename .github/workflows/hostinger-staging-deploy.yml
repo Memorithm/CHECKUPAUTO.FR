@@ -1,4 +1,4 @@
-name: Hostinger staging deploy
+name: Hostinger staging release gate
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - '.dockerignore'
       - 'admin_server.py'
       - 'deploy/hostinger/**'
+      - 'hostinger_staging_*_test.py'
       - '.github/workflows/hostinger-staging-deploy.yml'
   workflow_dispatch:
 
@@ -15,45 +16,53 @@ permissions:
   contents: read
 
 concurrency:
-  group: checkupauto-hostinger-staging
-  cancel-in-progress: false
+  group: checkupauto-hostinger-staging-release-gate
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  release-gate:
+    # Memorithm/RemoteOps is the privileged deployment control plane. This
+    # repository only proves that the exact main revision is safe to hand off;
+    # it must never depend on RemoteOps-scoped SSH material or runner labels.
     if: github.repository == 'Memorithm/CHECKUPAUTO.FR'
-    runs-on: [self-hosted, Linux, ARM64, remoteops, thor]
-    timeout-minutes: 20
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 15
     env:
-      HOSTINGER_HOST: 179.198.210.187
-      HOSTINGER_STAGING_HOST: stage.179.198.210.187.sslip.io
-      HOSTINGER_KEY: /srv/remoteops/keys/checkupauto-hostinger-kvm4-ed25519
-      HOSTINGER_KNOWN_HOSTS: /srv/remoteops/keys/checkupauto-hostinger-kvm4_known_hosts
+      CHECKUPAUTO_STAGING_HOST: stage.179.198.210.187.sslip.io
+      CHECKUPAUTO_IMAGE_TAG: release-gate
     steps:
-      - name: Checkout approved source
+      - name: Checkout exact release candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
-      - name: Verify RemoteOps SSH material
+      - name: Verify immutable source revision
         shell: bash
         run: |
           set -euo pipefail
-          sudo -n test -f "$HOSTINGER_KEY"
-          sudo -n test -f "$HOSTINGER_KNOWN_HOSTS"
-          sudo -n ssh-keygen -y -f "$HOSTINGER_KEY" >/dev/null
-          echo "HOSTINGER_REMOTEOPS_MATERIAL_OK"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --quiet
+          git diff --cached --quiet
+          echo "HOSTINGER_RELEASE_SOURCE_VERIFIED=$GITHUB_SHA"
 
-      - name: Upload immutable release
+      - name: Validate Hostinger deployment contract
         shell: bash
         run: |
           set -euo pipefail
-          release="/srv/checkupauto/staging/releases/$GITHUB_SHA"
-          tar             --exclude=.git             --exclude=.venv             --exclude='__pycache__'             -czf - .           | sudo -n ssh               -i "$HOSTINGER_KEY"               -o BatchMode=yes               -o IdentitiesOnly=yes               -o StrictHostKeyChecking=yes               -o UserKnownHostsFile="$HOSTINGER_KNOWN_HOSTS"               "root@$HOSTINGER_HOST"               "set -euo pipefail; release='$release'; case \"\$release\" in /srv/checkupauto/staging/releases/*) ;; *) exit 90;; esac; rm -rf \"\$release\"; mkdir -p \"\$release\"; tar -xzf - -C \"\$release\""
-          echo "HOSTINGER_RELEASE_UPLOADED=$GITHUB_SHA"
+          bash -n deploy/hostinger/deploy-staging.sh
+          python3 -m compileall -q admin_server.py deploy
+          python3 -m venv "$RUNNER_TEMP/checkupauto-hostinger-release-gate"
+          "$RUNNER_TEMP/checkupauto-hostinger-release-gate/bin/pip" install --disable-pip-version-check --quiet -r requirements.txt
+          "$RUNNER_TEMP/checkupauto-hostinger-release-gate/bin/python" -m unittest -v \
+            admin_server_runtime_test.py \
+            hostinger_staging_tls_readiness_test.py \
+            hostinger_staging_control_plane_test.py
 
-      - name: Deploy and verify staging
+      - name: Validate Docker compose model
         shell: bash
         run: |
           set -euo pipefail
-          release="/srv/checkupauto/staging/releases/$GITHUB_SHA"
-          sudo -n ssh             -i "$HOSTINGER_KEY"             -o BatchMode=yes             -o IdentitiesOnly=yes             -o StrictHostKeyChecking=yes             -o UserKnownHostsFile="$HOSTINGER_KNOWN_HOSTS"             "root@$HOSTINGER_HOST"             "CHECKUPAUTO_STAGING_HOST='$HOSTINGER_STAGING_HOST' bash '$release/deploy/hostinger/deploy-staging.sh' '$release'"
+          docker compose -f deploy/hostinger/docker-compose.yml config >"$RUNNER_TEMP/checkupauto-hostinger-compose.yml"
+          grep -q 'checkupauto-staging-web' "$RUNNER_TEMP/checkupauto-hostinger-compose.yml"
+          grep -q 'stage.179.198.210.187.sslip.io' "$RUNNER_TEMP/checkupauto-hostinger-compose.yml"
+          echo "HOSTINGER_RELEASE_READY_FOR_REMOTEOPS=$GITHUB_SHA"
