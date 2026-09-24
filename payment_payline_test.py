@@ -54,13 +54,13 @@ def refund_response(code="00000"):
  xmlns:obj="http://obj.ws.payline.experian.com">
  <soapenv:Body>
   <impl:doRefundResponse>
-   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>ACCEPTED</obj:shortMessage></impl:result>
+   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>{short_message}</obj:shortMessage></impl:result>
   </impl:doRefundResponse>
  </soapenv:Body>
 </soapenv:Envelope>""".encode()
 
 
-def details_response(code="00000", amount="8000", currency="978", order_ref="a"*32,
+def details_response(code="00000", short_message="ACCEPTED", amount="8000", currency="978", order_ref="a"*32,
                      transaction_id="TXN_123456"):
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
@@ -128,16 +128,40 @@ class PaylineVerificationTest(unittest.TestCase):
         event = payline.parse_details_response(details_response(), intent(bound=True), "TOKEN_FIXTURE_123")
         self.assertEqual(event.provider_transaction_id, "TXN_123456")
 
-    def test_declined_and_pending_results_remain_distinct(self):
-        for code, expected in (("01001", "declined"), ("04012", "declined"), ("02319", "declined"), ("02005", "pending")):
-            with self.subTest(code=code):
-                event = payline.parse_details_response(details_response(code=code), intent(bound=True), "TOKEN_FIXTURE_123")
+    def test_documented_short_message_controls_transaction_state(self):
+        cases = (
+            ("01001", "REFUSED", "declined"),
+            ("04012", "REFUSED", "declined"),
+            ("02319", "CANCELLED", "cancelled"),
+            ("03022", "CANCELLED", "cancelled"),
+            ("02101", "ERROR", "error"),
+            ("02005", "INPROGRESS", "pending"),
+            ("04001", "PENDING_RISK", "pending"),
+            ("04003", "PENDING_RISK", "pending"),
+            ("12000", "ONHOLD_PARTNER", "pending"),
+        )
+        for code, short_message, expected in cases:
+            with self.subTest(code=code,short_message=short_message):
+                event = payline.parse_details_response(
+                    details_response(code=code,short_message=short_message),
+                    intent(bound=True),
+                    "TOKEN_FIXTURE_123",
+                )
                 self.assertEqual(event.state, expected)
 
-    def test_unknown_or_technical_result_is_not_persistable(self):
-        for code in ("02101", "99999", ""):
-            with self.subTest(code=code), self.assertRaises(core.PaymentError):
-                payline.parse_details_response(details_response(code=code), intent(bound=True), "TOKEN_FIXTURE_123")
+    def test_code_prefix_cannot_override_documented_short_message(self):
+        event=payline.parse_details_response(
+            details_response(code="04001",short_message="PENDING_RISK"),
+            intent(bound=True),
+            "TOKEN_FIXTURE_123",
+        )
+        self.assertEqual(event.state,"pending")
+        with self.assertRaisesRegex(core.PaymentError,"^payline_result_state_unknown$"):
+            payline.parse_details_response(
+                details_response(code="99999",short_message="MYSTERY"),
+                intent(bound=True),
+                "TOKEN_FIXTURE_123",
+            )
 
     def test_response_cannot_override_trusted_payment_binding(self):
         cases = [
@@ -256,6 +280,59 @@ class PaylineJournalMigrationTest(unittest.TestCase):
             with sqlite3.connect(path) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM payment_events").fetchone()[0], 1)
                 self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_existing_payline_database_migrates_new_failure_states_and_fk_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"payments.sqlite3"
+            with sqlite3.connect(path) as db:
+                db.executescript("""
+                CREATE TABLE payment_intents(
+                  payment_id TEXT PRIMARY KEY,
+                  booking_hash TEXT NOT NULL UNIQUE,
+                  quote_hash TEXT NOT NULL,
+                  provider TEXT NOT NULL CHECK(provider IN ('paypal','monetico','payline')),
+                  environment TEXT NOT NULL CHECK(environment='sandbox'),
+                  amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
+                  currency TEXT NOT NULL CHECK(currency='EUR'),
+                  provider_reference TEXT NOT NULL DEFAULT '',
+                  state TEXT NOT NULL CHECK(state IN ('created','pending','declined','authorized','captured')),
+                  created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX payment_provider_reference
+                  ON payment_intents(provider,provider_reference) WHERE provider_reference<>'';
+                CREATE TABLE payment_events(
+                  provider TEXT NOT NULL,event_hash TEXT NOT NULL,
+                  payment_id TEXT NOT NULL REFERENCES payment_intents(payment_id),
+                  evidence_hash TEXT NOT NULL,state TEXT NOT NULL,received_at TEXT NOT NULL,
+                  PRIMARY KEY(provider,event_hash)
+                );
+                CREATE TABLE payment_provider_transactions(
+                  payment_id TEXT PRIMARY KEY REFERENCES payment_intents(payment_id),
+                  provider TEXT NOT NULL,transaction_id TEXT NOT NULL UNIQUE,
+                  captured_amount_cents INTEGER NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                """)
+                db.execute("INSERT INTO payment_intents VALUES(?,?,?,?,?,?,?,?,?,?)",(
+                    "2"*32,"booking","quote","payline","sandbox",8000,"EUR",
+                    "TOKEN_OLD","captured",STAMP,
+                ))
+                db.execute("INSERT INTO payment_provider_transactions VALUES(?,?,?,?,?)",(
+                    "2"*32,"payline","TXN_OLD",8000,STAMP,
+                ))
+            path.chmod(0o600)
+            store=core.SandboxJournal(path)
+            self.assertEqual(store.get("2"*32).state,"captured")
+            self.assertEqual(store.provider_transaction("2"*32)["transactionId"],"TXN_OLD")
+            with sqlite3.connect(path) as db:
+                state_sql=db.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='payment_intents'"
+                ).fetchone()[0]
+                fk=db.execute("PRAGMA foreign_key_list(payment_provider_transactions)").fetchall()
+                self.assertIn("'cancelled'",state_sql)
+                self.assertIn("'error'",state_sql)
+                self.assertEqual(fk[0][2],"payment_intents")
+                self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(),[])
 
     def test_payline_verified_event_persists_transaction_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:
