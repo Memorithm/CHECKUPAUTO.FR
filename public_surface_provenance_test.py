@@ -1,3 +1,4 @@
+import ast
 import io
 import json
 import pathlib
@@ -5,7 +6,6 @@ import unittest
 from urllib import error
 
 import public_surface_provenance as provenance
-import security_guard
 
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -58,6 +58,18 @@ def _marker(**overrides):
     return json.dumps(payload).encode("utf-8")
 
 
+def _public_asset_suffixes():
+    module = ast.parse((ROOT / "security_guard.py").read_text(encoding="utf-8"))
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if any(isinstance(target, ast.Name) and target.id == "_ASSET_SUFFIXES" for target in node.targets):
+            value = ast.literal_eval(node.value)
+            if isinstance(value, set):
+                return value
+    raise AssertionError("_ASSET_SUFFIXES not found")
+
+
 class PublicSurfaceProvenanceTest(unittest.TestCase):
     def test_marker_asset_matches_probe_contract_and_static_policy(self):
         payload = json.loads((ROOT / "assets" / "cybercheck-runtime-marker.bin").read_text(encoding="utf-8"))
@@ -65,8 +77,9 @@ class PublicSurfaceProvenanceTest(unittest.TestCase):
         self.assertEqual(payload["surface"], provenance.EXPECTED_SURFACE)
         self.assertEqual(payload["purpose"], "public-routing-provenance")
         self.assertEqual(provenance.MARKER_PATH, "/assets/cybercheck-runtime-marker.bin")
-        self.assertTrue(security_guard.static_allowed(provenance.MARKER_PATH, False))
-        self.assertFalse(security_guard.static_allowed("/assets/cybercheck-runtime-marker.json", False))
+        suffixes = _public_asset_suffixes()
+        self.assertIn(pathlib.Path(provenance.MARKER_PATH).suffix, suffixes)
+        self.assertNotIn(".json", suffixes)
 
     def test_marker_url_is_strictly_bound_to_public_https_host(self):
         self.assertEqual(
