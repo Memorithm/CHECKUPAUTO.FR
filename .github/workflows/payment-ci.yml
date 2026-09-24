@@ -1,0 +1,55 @@
+name: Payment CI
+
+on:
+  pull_request:
+    paths:
+      - 'payment_*.py'
+      - 'booking_bridge.py'
+      - 'compliance_store.py'
+      - 'mercure_admin_client.py'
+      - 'admin/payments.*'
+      - '.github/workflows/payment-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'payment_*.py'
+      - 'booking_bridge.py'
+      - 'compliance_store.py'
+      - 'mercure_admin_client.py'
+      - 'admin/payments.*'
+      - '.github/workflows/payment-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payment-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Prepare isolated payment runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .payment-ci-venv
+          .payment-ci-venv/bin/python -m pip install --disable-pip-version-check --quiet -r requirements.txt
+          runtime_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-payment-ci.XXXXXX")"
+          chmod 700 "$runtime_dir"
+          printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
+          printf 'CYBERCHECK_PRIVATE_DIR=%s/private\n' "$runtime_dir" >> "$GITHUB_ENV"
+          mkdir -m 700 "$runtime_dir/private"
+      - name: Run payment domain tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          .payment-ci-venv/bin/python -m unittest -v             payment_checkout_test.py             payment_connectors_test.py             payment_payline_config_test.py             payment_payline_private_test.py             payment_payline_test.py             payment_payline_http_test.py             payment_state_machine_regression_test.py             payment_test_lab_test.py             payment_test_http_test.py             payment_contract_test.py             payment_contract_routes_test.py             payment_contract_csrf_test.py             payment_contract_frontend_test.py
+      - name: Check payment JavaScript syntax
+        shell: bash
+        run: node --check admin/payments.js
