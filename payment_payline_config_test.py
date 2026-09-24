@@ -98,8 +98,9 @@ class PaylineConfigurationTest(unittest.TestCase):
         report = payline.preflight(payline.PaylineSandboxConfig.from_mapping(fixture()))
         self.assertTrue(report["configurationSyntaxValid"])
         self.assertTrue(report["transportImplemented"])
+        self.assertTrue(report["httpCallbacksBound"])
         for gate in ("credentialsVerified", "contractBindingVerified", "checkoutBound",
-                     "httpCallbacksBound", "livePaymentsEnabled", "ready"):
+                     "livePaymentsEnabled", "ready"):
             self.assertIs(report[gate], False)
         self.assertEqual(report["provider"], "payline")
         self.assertIn("contract_binding_unverified", report["blockingReasons"])
