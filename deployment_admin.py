@@ -736,13 +736,23 @@ def start_job(
     source = _source_state()
     if action in {"install", "update"} and not source.build_capable:
         raise RuntimeError("source de build indisponible pour install/update")
+    preflight = None
     if action in {"install", "update"}:
-        _require_authoritative_source_current(source)
+        preflight = _require_authoritative_source_current(source)
     selected_sha = str(sha or "").strip().lower()
     if action in {"install", "update"} and not selected_sha:
         selected_sha = deployment_source.desired_sha(ROOT)
     if not re.fullmatch(r"[0-9a-f]{40}", selected_sha):
         raise ValueError("SHA de release invalide")
+    if (
+        action in {"install", "update"}
+        and preflight
+        and preflight.get("required")
+        and selected_sha != preflight.get("githubLatestSha")
+    ):
+        raise RuntimeError(
+            "déploiement bloqué: SHA demandé différent du SHA GitHub vérifié"
+        )
 
     lock_handle = _execution_lock()
     record = {

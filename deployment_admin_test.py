@@ -380,6 +380,19 @@ class DeploymentAdminTest(unittest.TestCase):
             admin.start_job("production", "update")
         execute.assert_not_called()
 
+    @mock.patch.object(admin.github_source, "token_configured", return_value=True)
+    @mock.patch.object(admin.github_source, "latest_sha", return_value=SHA)
+    @mock.patch.object(admin.executor, "execute_deployment")
+    @mock.patch.object(admin, "_source_state")
+    def test_start_job_rejects_explicit_older_sha_when_github_is_authoritative(self, source_state, execute, _latest, _token):
+        admin.save_target(self.payload())
+        source_state.return_value = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        with self.assertRaisesRegex(RuntimeError, "SHA demandé.*GitHub vérifié"):
+            admin.start_job("production", "install", sha="b" * 40)
+        execute.assert_not_called()
+
     @mock.patch.object(admin.executor, "execute_deployment")
     @mock.patch.object(admin, "_source_state")
     def test_start_job_is_async_and_persists_sanitized_result(self, source_state, execute):
