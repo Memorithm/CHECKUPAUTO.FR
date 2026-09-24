@@ -319,3 +319,6 @@ Les boutons de l'interface ne constituent pas la frontière de sécurité. L'ex�
 
 Ainsi, un appel API direct ne peut pas contourner les protections visibles dans le back-office.
 
+## Fraîcheur GitHub du contrôleur
+
+Le Deployment Center distingue trois preuves différentes : la version exécutée par le contrôleur, la version déployée sur la cible et le dernier commit retourné par la branche GitHub configurée. La fraîcheur GitHub n'est marquée vérifiée qu'après une réponse GitHub valide et une comparaison d'ascendance explicite. Les états sont `current`, `behind`, `ahead`, `diverged` ou `unverified`. Une erreur réseau, un token absent, un SHA invalide ou une comparaison impossible reste `unverified`; aucun baseline local n'est utilisé pour déduire le dernier `main`.

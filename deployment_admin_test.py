@@ -267,6 +267,56 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertEqual(result["latestSha"], "c" * 40)
         self.assertNotIn("tokenValue", str(result))
 
+    @mock.patch.object(admin.github_source, "is_ancestor")
+    def test_github_freshness_current_needs_no_ancestry_query(self, is_ancestor):
+        result = admin._github_freshness(SHA, SHA)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["state"], "current")
+        self.assertEqual(result["controllerSha"], SHA)
+        self.assertEqual(result["githubLatestSha"], SHA)
+        is_ancestor.assert_not_called()
+
+    @mock.patch.object(admin.github_source, "is_ancestor", return_value=True)
+    def test_github_freshness_reports_controller_behind(self, is_ancestor):
+        latest = "b" * 40
+        result = admin._github_freshness(SHA, latest)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["state"], "behind")
+        is_ancestor.assert_called_once_with(SHA, latest)
+
+    @mock.patch.object(admin.github_source, "is_ancestor", side_effect=[False, True])
+    def test_github_freshness_reports_controller_ahead(self, is_ancestor):
+        latest = "b" * 40
+        result = admin._github_freshness(SHA, latest)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["state"], "ahead")
+        self.assertEqual(
+            is_ancestor.call_args_list,
+            [mock.call(SHA, latest), mock.call(latest, SHA)],
+        )
+
+    @mock.patch.object(admin.github_source, "is_ancestor", side_effect=[False, False])
+    def test_github_freshness_reports_verified_divergence(self, is_ancestor):
+        result = admin._github_freshness(SHA, "b" * 40)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["state"], "diverged")
+        self.assertEqual(is_ancestor.call_count, 2)
+
+    @mock.patch.object(admin.github_source, "is_ancestor", side_effect=RuntimeError("github unavailable"))
+    def test_github_freshness_fails_closed_when_comparison_fails(self, _is_ancestor):
+        latest = "b" * 40
+        result = admin._github_freshness(SHA, latest)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["state"], "unverified")
+        self.assertEqual(result["controllerSha"], SHA)
+        self.assertEqual(result["githubLatestSha"], latest)
+
+    def test_github_freshness_rejects_invalid_sha_evidence(self):
+        result = admin._github_freshness("short", "b" * 40)
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["state"], "unverified")
+        self.assertEqual(result["controllerSha"], "")
+
     @mock.patch.object(admin.executor, "execute_deployment")
     @mock.patch.object(admin, "_source_state")
     def test_start_job_is_async_and_persists_sanitized_result(self, source_state, execute):
