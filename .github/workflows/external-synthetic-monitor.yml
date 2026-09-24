@@ -1,0 +1,119 @@
+name: External synthetic monitor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/external-synthetic-monitor.yml'
+      - '.github/workflows/ios-core-ci.yml'
+      - 'ios/CheckupAutoReminder/**'
+      - 'admin_server.py'
+      - 'mobile_bootstrap.py'
+      - 'site_config_store.py'
+      - 'booking_bridge.py'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-external-synthetic-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      STAGING_ORIGIN: https://stage.179.198.210.187.sslip.io
+      LEGACY_PUBLIC_ORIGIN: https://www.checkupauto.fr
+    steps:
+      - name: Check staging homepage and TLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          code="$(curl -fsS -o "$body" -w '%{http_code}' --max-time 15 "$STAGING_ORIGIN/")"
+          test "$code" = 200
+          grep -qi 'Checkup Auto' "$body"
+          grep -qi 'noindex' "$body"
+
+          expiry="$(
+            timeout 15 openssl s_client               -connect stage.179.198.210.187.sslip.io:443               -servername stage.179.198.210.187.sslip.io               </dev/null 2>/dev/null             | openssl x509 -noout -enddate             | cut -d= -f2-
+          )"
+          test -n "$expiry"
+          expires_epoch="$(date -d "$expiry" +%s)"
+          now_epoch="$(date +%s)"
+          remaining_days="$(( (expires_epoch - now_epoch) / 86400 ))"
+          echo "staging_tls_days_remaining=$remaining_days"
+          test "$remaining_days" -ge 14
+
+      - name: Check mobile bootstrap contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/mobile/bootstrap" -o /tmp/mobile-bootstrap.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/mobile-bootstrap.json', encoding='utf-8') as f:
+              p=json.load(f)
+          assert p.get('schemaVersion') == 1
+          reminders=p.get('reminders') or {}
+          assert reminders.get('leadDays') == [60,30,15,7,1]
+          assert reminders.get('hour') == 9
+          assert reminders.get('timezone') == 'Europe/Paris'
+          notifications=p.get('notifications') or {}
+          assert isinstance(notifications.get('remotePushActive'), bool)
+          assert isinstance(notifications.get('localFallback'), bool)
+          assert notifications['localFallback'] is (not notifications['remotePushActive'])
+          booking=p.get('booking') or {}
+          assert str(booking.get('url') or '').startswith('https://')
+          print('MOBILE_BOOTSTRAP_MONITOR_OK')
+          PY
+
+      - name: Check booking contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/booking/services" -o /tmp/booking-services.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/booking-services.json', encoding='utf-8') as f:
+              p=json.load(f)
+          services={row['key']: row for row in p.get('services') or []}
+          assert services['technical']['basePrice'] == 80.0
+          assert services['fitted']['basePrice'] == 90.0
+          assert services['technical']['duration'] > 0
+          assert services['fitted']['duration'] > 0
+          print('BOOKING_CONTRACT_MONITOR_OK')
+          PY
+
+      - name: Check staging configuration remains non-indexed
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/site-config" -o /tmp/site-config.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/site-config.json', encoding='utf-8') as f:
+              p=json.load(f)
+          seo=p.get('seo') or {}
+          assert seo.get('indexingEnabled') is False
+          assert seo.get('canonicalUrl') == 'https://www.checkupauto.fr/'
+          print('STAGING_NOINDEX_MONITOR_OK')
+          PY
+
+      - name: Check legacy production remains reachable before DNS cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          final="$(curl -fsSL --max-time 20 -o /tmp/legacy-public.html -w '%{url_effective}' "$LEGACY_PUBLIC_ORIGIN/")"
+          test -s /tmp/legacy-public.html
+          case "$final" in
+            https://www.checkupauto.fr/*|https://checkupauto.fr/*|https://rdv.checkupauto.fr/*) ;;
+            *) echo "Unexpected legacy redirect target: $final"; exit 1 ;;
+          esac
+          echo "legacy_public_effective_url=$final"

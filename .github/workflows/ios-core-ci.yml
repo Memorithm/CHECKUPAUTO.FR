@@ -2,6 +2,14 @@ name: iOS Core CI
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'ios/CheckupAutoReminder/**'
+      - 'ios_release_runner.py'
+      - '.github/workflows/ios-core-ci.yml'
   pull_request:
     paths:
       - 'ios/CheckupAutoReminder/**'
@@ -18,7 +26,7 @@ concurrency:
 jobs:
   swift-and-xcode:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 30
