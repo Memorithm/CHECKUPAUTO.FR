@@ -34,6 +34,13 @@ cd "$CURRENT/deploy/hostinger"
 export CHECKUPAUTO_STAGING_HOST="$HOST"
 export CHECKUPAUTO_IMAGE_TAG="$(basename "$RELEASE")"
 docker compose build --pull web
+
+# The integrity supervisor is fail-closed: a freshly built immutable image must
+# receive an approved baseline before the long-running server is allowed to start.
+docker compose stop web >/dev/null 2>&1 || true
+docker compose run --rm --no-deps web \
+  python -c 'import security_integrity; security_integrity.create_baseline(True); print("INTEGRITY_BASELINE_PROVISIONED")'
+
 docker compose up -d --remove-orphans
 
 healthy=0
