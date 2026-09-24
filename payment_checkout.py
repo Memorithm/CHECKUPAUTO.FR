@@ -109,14 +109,14 @@ def start_payline_for_browser(ccid: str, cct: str, *, starter=None) -> dict:
                     "reused":True,
                 }
             raise PaymentError("payment_start_reconciliation_required")
+        config=payline_private.load()
+        start_fn=starter or payline.start
         now=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         db.execute("""INSERT INTO payment_provider_starts(
           payment_id,provider,state,provider_reference,redirect_url,created_at,updated_at
         ) VALUES(?,'payline','attempting','','',?,?)""",(intent.payment_id,now,now))
         db.commit()
 
-        config=payline_private.load()
-        start_fn=starter or payline.start
         try:
             result=start_fn(intent,config)
             bound=store.bind_provider(intent.payment_id,result.token)
