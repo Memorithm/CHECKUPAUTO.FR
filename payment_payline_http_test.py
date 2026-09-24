@@ -68,7 +68,7 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         return core.VerifiedEvent(
             self.intent.payment_id, "payline", "TOKEN_FIXTURE_123",
             "payline:TXN_123:00000" if state == "captured" else "payline:TXN_123:01001",
-            state, 8000,
+            state, 8000, "TXN_123",
         )
 
     def test_browser_return_rereads_provider_and_applies_verified_event(self):
