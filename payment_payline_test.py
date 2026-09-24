@@ -47,6 +47,19 @@ def start_response(code="00000", token="TOKEN_FIXTURE_123",
 </soapenv:Envelope>""".encode()
 
 
+def refund_response(code="00000"):
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+ xmlns:impl="http://impl.ws.payline.experian.com"
+ xmlns:obj="http://obj.ws.payline.experian.com">
+ <soapenv:Body>
+  <impl:doRefundResponse>
+   <impl:result><obj:code>{code}</obj:code><obj:shortMessage>ACCEPTED</obj:shortMessage></impl:result>
+  </impl:doRefundResponse>
+ </soapenv:Body>
+</soapenv:Envelope>""".encode()
+
+
 def details_response(code="00000", amount="8000", currency="978", order_ref="a"*32,
                      transaction_id="TXN_123456"):
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -111,6 +124,10 @@ class PaylineVerificationTest(unittest.TestCase):
         self.assertEqual(event.amount_cents, 8000)
         self.assertEqual(event.provider_reference, "TOKEN_FIXTURE_123")
 
+    def test_final_result_preserves_payline_transaction_identifier(self):
+        event = payline.parse_details_response(details_response(), intent(bound=True), "TOKEN_FIXTURE_123")
+        self.assertEqual(event.provider_transaction_id, "TXN_123456")
+
     def test_declined_and_pending_results_remain_distinct(self):
         for code, expected in (("01001", "declined"), ("04012", "declined"), ("02319", "declined"), ("02005", "pending")):
             with self.subTest(code=code):
@@ -147,6 +164,50 @@ class PaylineVerificationTest(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         event = payline.refresh(intent(bound=True), config(), sender=lambda body: details_response())
         self.assertEqual(event.state, "captured")
+
+
+class PaylineRefundFoundationTest(unittest.TestCase):
+    def captured_intent(self):
+        return core.Intent(
+            "a"*32,"payline",8000,STAMP,"TOKEN_FIXTURE_123",state="captured",environment="sandbox"
+        )
+
+    def test_refund_request_uses_direct_payment_contract_and_idempotency_sequence(self):
+        cfg=config()
+        raw=payline.refund_xml(
+            self.captured_intent(),"TXN_123456",3000,cfg,"refund_a_001","Client request",
+        )
+        self.assertNotIn(cfg.access_key.encode(),raw)
+        self.assertNotIn(cfg.merchant_id.encode(),raw)
+        root=ET.fromstring(raw)
+        values=[str(n.text or "") for n in root.iter()]
+        for expected in ("34","TXN_123456","3000","978","421","CPT",
+                         cfg.contract_number,"refund_a_001","Client request"):
+            self.assertIn(expected,values)
+
+    def test_refund_never_exceeds_captured_amount_or_runs_on_uncaptured_intent(self):
+        with self.assertRaisesRegex(core.PaymentError,"^refund_amount_exceeds_capture$"):
+            payline.refund_xml(self.captured_intent(),"TXN_123456",8001,config(),"refund_a_002")
+        with self.assertRaisesRegex(core.PaymentError,"^captured_payment_required$"):
+            payline.refund_xml(intent(bound=True),"TXN_123456",1000,config(),"refund_a_003")
+
+    def test_refund_result_requires_provider_acceptance(self):
+        self.assertEqual(payline.parse_refund_response(refund_response()).result_code,"00000")
+        with self.assertRaisesRegex(core.PaymentError,"^payline_refund_refused$"):
+            payline.parse_refund_response(refund_response("02101"))
+
+    def test_refund_sender_is_injectable_and_direct_endpoint_is_pinned(self):
+        seen=[]
+        result=payline.refund(
+            self.captured_intent(),"TXN_123456",1000,config(),"refund_a_004",
+            sender=lambda body:(seen.append(body),refund_response())[1],
+        )
+        self.assertEqual(result.result_code,"00000")
+        self.assertEqual(len(seen),1)
+        self.assertEqual(
+            config().directpayment_endpoint,
+            "https://homologation.payline.com/V4/services/DirectPaymentAPI",
+        )
 
 
 class PaylineJournalMigrationTest(unittest.TestCase):
@@ -195,6 +256,25 @@ class PaylineJournalMigrationTest(unittest.TestCase):
             with sqlite3.connect(path) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM payment_events").fetchone()[0], 1)
                 self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_payline_verified_event_persists_transaction_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"payments.sqlite3"
+            store=core.SandboxJournal(path)
+            created=store.create(core.Quote("booking-tx","technical",8000,"d"*64),"payline")
+            bound=store.bind_provider(created.payment_id,"TOKEN_FIXTURE_123")
+            event=payline.parse_details_response(
+                details_response(order_ref=created.payment_id,transaction_id="TXN_ABC123"),
+                bound,"TOKEN_FIXTURE_123",
+            )
+            store._apply_verified(event)
+            store._apply_verified(event)
+            tx=store.provider_transaction(created.payment_id)
+            self.assertEqual(tx["provider"],"payline")
+            self.assertEqual(tx["transactionId"],"TXN_ABC123")
+            self.assertEqual(tx["capturedAmountCents"],8000)
+            with sqlite3.connect(path) as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM payment_provider_transactions").fetchone()[0],1)
 
     def test_payline_verified_event_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:

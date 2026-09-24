@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 SANDBOX_WEBPAYMENT_ENDPOINT = "https://homologation.payline.com/V4/services/WebPaymentAPI"
+SANDBOX_DIRECTPAYMENT_ENDPOINT = "https://homologation.payline.com/V4/services/DirectPaymentAPI"
 REQUIRED_FIELDS = ("environment", "merchantId", "accessKey", "contractNumber", "publicOrigin")
 
 
@@ -86,6 +87,10 @@ class PaylineSandboxConfig:
     @property
     def webpayment_endpoint(self) -> str:
         return SANDBOX_WEBPAYMENT_ENDPOINT
+
+    @property
+    def directpayment_endpoint(self) -> str:
+        return SANDBOX_DIRECTPAYMENT_ENDPOINT
 
     def authentication_headers(self) -> dict[str, str]:
         """For the sandbox TLS API transport only. Do not log or send to browsers."""

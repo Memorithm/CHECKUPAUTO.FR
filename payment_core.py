@@ -105,6 +105,7 @@ class VerifiedEvent:
     event_id: str
     state: str
     amount_cents: int
+    provider_transaction_id: str = ""
 
     def __post_init__(self):
         text(self.payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
@@ -114,6 +115,8 @@ class VerifiedEvent:
         if self.state not in allowed.get(self.provider, set()):
             raise PaymentError("event_state_invalid")
         cents(self.amount_cents)
+        if self.provider_transaction_id:
+            text(self.provider_transaction_id, r"[A-Za-z0-9:_-]{1,50}", "provider_transaction_id_invalid")
 
 
 class SandboxJournal:
@@ -163,6 +166,13 @@ class SandboxJournal:
               state TEXT NOT NULL,
               received_at TEXT NOT NULL,
               PRIMARY KEY(provider,event_hash)
+            );
+            CREATE TABLE IF NOT EXISTS payment_provider_transactions(
+              payment_id TEXT PRIMARY KEY REFERENCES payment_intents(payment_id),
+              provider TEXT NOT NULL,
+              transaction_id TEXT NOT NULL UNIQUE,
+              captured_amount_cents INTEGER NOT NULL CHECK(typeof(captured_amount_cents)='integer' AND captured_amount_cents BETWEEN 1 AND 9000),
+              updated_at TEXT NOT NULL
             );
             """)
             sql = str(db.execute(
@@ -245,6 +255,22 @@ class SandboxJournal:
                 (provider, provider_reference),
             ).fetchone())
 
+    def provider_transaction(self, payment_id: str) -> dict:
+        text(payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
+        with self._connect() as db:
+            row=db.execute(
+                "SELECT provider,transaction_id,captured_amount_cents,updated_at FROM payment_provider_transactions WHERE payment_id=?",
+                (payment_id,),
+            ).fetchone()
+        if row is None:
+            raise PaymentError("provider_transaction_not_found")
+        return {
+            "provider":str(row["provider"]),
+            "transactionId":str(row["transaction_id"]),
+            "capturedAmountCents":int(row["captured_amount_cents"]),
+            "updatedAt":str(row["updated_at"]),
+        }
+
     def create(self, quote: Quote, provider: str) -> Intent:
         if not isinstance(quote, Quote) or provider not in {"paypal", "monetico", "payline"}:
             raise PaymentError("quote_or_provider_invalid")
@@ -282,7 +308,7 @@ class SandboxJournal:
     def _apply_verified(self, event: VerifiedEvent) -> Intent:
         if not isinstance(event, VerifiedEvent):
             raise PaymentError("verified_event_required")
-        evidence = digest([event.payment_id, event.provider, event.provider_reference, event.state, event.amount_cents])
+        evidence = digest([event.payment_id, event.provider, event.provider_reference, event.state, event.amount_cents, event.provider_transaction_id])
         event_hash = digest([event.provider, event.event_id])
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -290,6 +316,24 @@ class SandboxJournal:
             current = self._intent(row)
             if (current.provider, current.provider_reference, current.amount_cents) != (event.provider, event.provider_reference, event.amount_cents):
                 raise PaymentError("event_binding_mismatch")
+            if event.provider_transaction_id:
+                existing_tx=db.execute(
+                    "SELECT payment_id,provider,transaction_id,captured_amount_cents FROM payment_provider_transactions WHERE payment_id=? OR transaction_id=?",
+                    (event.payment_id,event.provider_transaction_id),
+                ).fetchall()
+                for tx in existing_tx:
+                    if (
+                        str(tx["payment_id"]) != event.payment_id
+                        or str(tx["provider"]) != event.provider
+                        or str(tx["transaction_id"]) != event.provider_transaction_id
+                        or int(tx["captured_amount_cents"]) != event.amount_cents
+                    ):
+                        raise PaymentError("provider_transaction_conflict")
+                if not existing_tx:
+                    db.execute(
+                        "INSERT INTO payment_provider_transactions(payment_id,provider,transaction_id,captured_amount_cents,updated_at) VALUES(?,?,?,?,?)",
+                        (event.payment_id,event.provider,event.provider_transaction_id,event.amount_cents,stamp()),
+                    )
             previous = db.execute("SELECT evidence_hash FROM payment_events WHERE provider=? AND event_hash=?", (event.provider, event_hash)).fetchone()
             if previous:
                 if previous["evidence_hash"] != evidence:

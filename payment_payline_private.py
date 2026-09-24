@@ -88,6 +88,8 @@ def status() -> dict:
             "credentialsVerified": False,
             "contractBindingVerified": False,
             "transportImplemented": bool(payment_payline.capability()["transportImplemented"]),
+        "refundTransportImplemented": bool(payment_payline.capability().get("refundTransportImplemented")),
+            "refundTransportImplemented": bool(payment_payline.capability().get("refundTransportImplemented")),
             "checkoutBound": bool(payment_payline.capability()["checkoutBound"]),
             "callbacksBound": bool(payment_payline.capability()["callbacksBound"]),
             "livePaymentsEnabled": False,

@@ -92,6 +92,21 @@ Le démarrage est idempotent après une réponse fournisseur confirmée : le mê
 
 Le checkout reste strictement en environnement d'homologation. Une configuration privée Payline absente retourne un échec fermé et n'empoisonne pas l'intention pour une tentative ultérieure après configuration. `livePaymentsEnabled=false` demeure inchangé.
 
+## Fondation remboursement sandbox
+
+La preuve Payline vérifiée conserve désormais l'identifiant de transaction bancaire retourné par `getWebPaymentDetails` dans un registre séparé du jeton de session. Cet identifiant est nécessaire pour les opérations ultérieures de remboursement et n'est jamais accepté depuis le navigateur.
+
+Le transport d'homologation prépare `doRefundRequest` sur le point d'accès `DirectPaymentAPI`, avec :
+
+- `transactionID` issu exclusivement de la preuve Payline vérifiée ;
+- montant entier en centimes, toujours inférieur ou égal au montant capturé ;
+- devise EUR (`978`) ;
+- `payment.action=421` et `payment.mode=CPT` ;
+- `sequenceNumber` obligatoire côté CheckupAuto pour rendre l'intention d'opération idempotente ;
+- aucun PAN, CVV ou identifiant bancaire récupéré par CheckupAuto.
+
+Cette tranche n'expose encore aucune route de remboursement à l'opérateur et ne déclenche aucun remboursement réel. Le transport reste limité à l'homologation et `refundsBound=false` tant que le ledger de remboursement, la réconciliation et le contrôle opérateur MFA ne sont pas terminés.
+
 ## Accès à préparer avec Monext
 
 Les données à obtenir depuis le **compte marchand Payline**, séparément pour les tests, sont :

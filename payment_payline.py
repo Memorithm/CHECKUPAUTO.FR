@@ -4,7 +4,7 @@ Implements only the homologation SOAP WebPayment flow:
 - doWebPayment -> token + hosted redirect URL
 - getWebPaymentDetails -> authenticated final-state reread
 
-No production endpoint, PAN/CVV collection, refund or browser-trusted success path exists here.
+No production endpoint, PAN/CVV collection, browser-trusted success path or public refund route exists here.
 """
 from __future__ import annotations
 
@@ -30,6 +30,15 @@ MAX_RESPONSE_BYTES = 256 * 1024
 ET.register_namespace("soapenv", SOAP_ENV)
 ET.register_namespace("impl", IMPL_NS)
 ET.register_namespace("obj", OBJ_NS)
+
+
+@dataclass(frozen=True)
+class RefundResult:
+    result_code: str
+
+    def __post_init__(self):
+        if not re.fullmatch(r"[0-9]{5}", self.result_code):
+            raise PaymentError("payline_refund_result_invalid")
 
 
 @dataclass(frozen=True)
@@ -131,6 +140,39 @@ def do_web_payment_xml(intent: Intent, config: PaylineSandboxConfig) -> bytes:
     return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 
 
+def refund_xml(intent: Intent, transaction_id: str, amount_cents: int,
+               config: PaylineSandboxConfig, sequence_number: str, comment: str = "") -> bytes:
+    if not isinstance(intent, Intent) or intent.provider != "payline" or intent.environment != "sandbox":
+        raise PaymentError("payline_intent_required")
+    if intent.state != "captured":
+        raise PaymentError("captured_payment_required")
+    if not isinstance(config, PaylineSandboxConfig):
+        raise PaymentError("payline_configuration_required")
+    if not isinstance(transaction_id, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{1,50}", transaction_id):
+        raise PaymentError("payline_transaction_invalid")
+    amount=cents(amount_cents)
+    if amount > intent.amount_cents:
+        raise PaymentError("refund_amount_exceeds_capture")
+    if not isinstance(sequence_number,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,50}",sequence_number):
+        raise PaymentError("payline_refund_sequence_invalid")
+    if not isinstance(comment,str) or len(comment)>255 or any(ord(ch)<32 and ch not in "\t" for ch in comment):
+        raise PaymentError("payline_refund_comment_invalid")
+
+    envelope, req = _soap("doRefundRequest")
+    _sub(req, IMPL_NS, "version", API_VERSION)
+    _sub(req, IMPL_NS, "transactionID", transaction_id)
+    payment = _sub(req, IMPL_NS, "payment")
+    _sub(payment, OBJ_NS, "amount", amount)
+    _sub(payment, OBJ_NS, "currency", EUR_NUMERIC)
+    _sub(payment, OBJ_NS, "action", "421")
+    _sub(payment, OBJ_NS, "mode", "CPT")
+    _sub(payment, OBJ_NS, "contractNumber", config.contract_number)
+    if comment:
+        _sub(req, IMPL_NS, "comment", comment)
+    _sub(req, IMPL_NS, "sequenceNumber", sequence_number)
+    return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
+
+
 def get_details_xml(token: str) -> bytes:
     envelope, req = _soap("getWebPaymentDetailsRequest")
     _sub(req, IMPL_NS, "version", API_VERSION)
@@ -143,7 +185,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise PaymentError("payline_transport_redirect_refused")
 
 
-def _post(config: PaylineSandboxConfig, body: bytes, soap_action: str) -> bytes:
+def _post(config: PaylineSandboxConfig, body: bytes, soap_action: str, *, endpoint: str | None = None) -> bytes:
     if not isinstance(body, (bytes, bytearray)) or not body or len(body) > 128 * 1024:
         raise PaymentError("payline_request_invalid")
     headers = {
@@ -152,7 +194,10 @@ def _post(config: PaylineSandboxConfig, body: bytes, soap_action: str) -> bytes:
         "SOAPAction": soap_action,
         **config.authentication_headers(),
     }
-    request = urllib.request.Request(config.webpayment_endpoint, data=bytes(body), headers=headers, method="POST")
+    target = endpoint or config.webpayment_endpoint
+    if target not in {config.webpayment_endpoint, config.directpayment_endpoint}:
+        raise PaymentError("payline_endpoint_invalid")
+    request = urllib.request.Request(target, data=bytes(body), headers=headers, method="POST")
     opener = urllib.request.build_opener(
         urllib.request.HTTPSHandler(context=ssl.create_default_context()),
         _NoRedirect(),
@@ -258,7 +303,7 @@ def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEv
     if order_ref != intent.payment_id:
         raise PaymentError("payline_order_reference_mismatch")
     transaction_id = re.sub(r"[^A-Za-z0-9:_-]", "", transaction_id)
-    if not transaction_id or len(transaction_id) > 80:
+    if not transaction_id or len(transaction_id) > 50:
         raise PaymentError("payline_transaction_invalid")
 
     if code == "00000":
@@ -277,12 +322,36 @@ def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEv
         "payline:" + transaction_id + ":" + code,
         state,
         intent.amount_cents,
+        transaction_id,
     )
 
 
 def refresh(intent: Intent, config: PaylineSandboxConfig, *, sender=None) -> VerifiedEvent:
     sender = sender or (lambda body: _post(config, body, "getWebPaymentDetails"))
     return parse_details_response(sender(get_details_xml(intent.provider_reference)), intent, intent.provider_reference)
+
+
+def parse_refund_response(xml: bytes) -> RefundResult:
+    root=_parse(xml)
+    result=_first(root,"result","payline_result_missing")
+    code=_child_text(result,"code","payline_result_missing")
+    if code not in {"00000","02500"}:
+        raise PaymentError("payline_refund_refused")
+    return RefundResult(code)
+
+
+def refund(intent: Intent, transaction_id: str, amount_cents: int,
+           config: PaylineSandboxConfig, sequence_number: str,
+           comment: str = "", *, sender=None) -> RefundResult:
+    sender = sender or (
+        lambda body: _post(
+            config, body, "doRefund",
+            endpoint=config.directpayment_endpoint,
+        )
+    )
+    return parse_refund_response(
+        sender(refund_xml(intent, transaction_id, amount_cents, config, sequence_number, comment))
+    )
 
 
 def capability() -> dict:
@@ -297,6 +366,7 @@ def capability() -> dict:
         "panCollectedByCheckupAuto": False,
         "callbacksBound": True,
         "checkoutBound": True,
+        "refundTransportImplemented": True,
         "refundsBound": False,
         "livePaymentsEnabled": False,
     }
