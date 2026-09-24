@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from urllib.parse import urlparse
+import os
 
 import analytics_store
 import admin_mfa
@@ -489,9 +490,10 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             },
         ))
 
+    payment_required = str(os.environ.get("CYBERCHECK_PAYMENT_REQUIRED", "0")).strip().lower() in {"1","true","yes","on"}
     payment, payment_error = _safe("payment", payment_payline_private.status)
     if payment_error:
-        components.append(_failed("payment", "Paiement Payline / Monext", True, payment_error))
+        components.append(_failed("payment", "Paiement Payline / Monext", payment_required, payment_error))
     else:
         configured = bool(payment.get("configured"))
         configuration_valid = bool(payment.get("configurationValid"))
@@ -500,7 +502,10 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
         checkout_bound = bool(payment.get("checkoutBound"))
         callbacks_bound = bool(payment.get("callbacksBound"))
         live_enabled = bool(payment.get("livePaymentsEnabled"))
-        if not configured or not configuration_valid:
+        if not payment_required:
+            payment_state = "ready"
+            payment_detail = "Encaissement en ligne non requis par la configuration de cet environnement"
+        elif not configured or not configuration_valid:
             payment_state = "configuration_required"
             payment_detail = "Configuration privée Payline / Monext à installer hors Git"
         elif not credentials_verified or not contract_verified:
@@ -520,8 +525,9 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             "Paiement Payline / Monext",
             payment_state,
             payment_detail,
-            critical=True,
+            critical=payment_required,
             metrics={
+                "required": payment_required,
                 "environment": payment.get("environment"),
                 "configured": configured,
                 "configurationValid": configuration_valid,
