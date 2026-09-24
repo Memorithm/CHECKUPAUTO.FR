@@ -343,10 +343,37 @@ def _notification_store_receipts(
         )
         if int(mutation.get("remainingActiveRows") or 0):
             raise RuntimeError("suppression NotificationBroker incomplète")
-        # A zero-row/no-binding result means this identity has no provable broker
-        # footprint. Avoid inventing a store receipt for data we did not observe.
-        if int(mutation.get("matchedRows") or 0) == 0 and int(mutation.get("bindingCount") or 0) == 0:
+        # Preserve proof only for a broker footprint we actually observed. For an
+        # erasure replay, an existing binding receipt is itself proof that this
+        # store was observed before the physical unlink completed.
+        binding_count = int(mutation.get("bindingCount") or 0)
+        matched_rows = int(mutation.get("matchedRows") or 0)
+        existing_binding_receipt = None
+        if request_type == "erasure":
+            existing_binding_receipt = db.execute(
+                """SELECT affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+                   FROM privacy_store_receipt
+                   WHERE request_id=? AND store_name='notification_privacy_binding'
+                     AND subject_kind=? AND subject_hash=? AND scope=?""",
+                (request_id, subject_kind, subject_hash, channel),
+            ).fetchone()
+        if matched_rows == 0 and binding_count == 0 and existing_binding_receipt is None:
             continue
+
+        binding_mutation = None
+        if request_type == "erasure" and (
+            binding_count > 0 or existing_binding_receipt is not None
+        ):
+            # Suppress retryable marketing first, then physically remove the
+            # pseudonymous subject->recipient bridge. erase_subject_bindings()
+            # fails closed while a delivery lease is active, so an erasure is
+            # never claimed while an already-started transport still uses it.
+            binding_mutation = notification_privacy.erase_subject_bindings(
+                subject_hash,
+                channel,
+            )
+            if int(binding_mutation.get("remainingActiveRows") or 0):
+                raise RuntimeError("effacement liaison NotificationBroker incomplet")
         if not request_type:
             continue
 
@@ -407,6 +434,69 @@ def _notification_store_receipts(
                 "verifiedAt": str(stored["verified_at"]),
             }
         )
+
+        if binding_mutation is not None:
+            binding_affected = int(binding_mutation.get("affectedRows") or 0)
+            binding_remaining = int(binding_mutation.get("remainingActiveRows") or 0)
+            binding_evidence = {
+                "requestId": request_id,
+                "store": "notification_privacy_binding",
+                "subjectKind": subject_kind,
+                "subjectHash": subject_hash,
+                "scope": channel,
+                "operation": "erase_subject_binding",
+                "observedBindingRows": binding_count,
+                "affectedRows": binding_affected,
+                "remainingActiveRows": binding_remaining,
+                "retainedSentRows": int(mutation.get("retainedSentRows") or 0),
+            }
+            binding_canonical = json.dumps(
+                binding_evidence,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            binding_hash = hashlib.sha256(binding_canonical.encode("utf-8")).hexdigest()
+            db.execute(
+                """INSERT INTO privacy_store_receipt(
+                     request_id,store_name,subject_kind,subject_hash,scope,operation,
+                     affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(request_id,store_name,subject_kind,subject_hash,scope) DO UPDATE SET
+                     remaining_active_rows=excluded.remaining_active_rows,
+                     verified_at=excluded.verified_at""",
+                (
+                    request_id,
+                    "notification_privacy_binding",
+                    subject_kind,
+                    subject_hash,
+                    channel,
+                    "erase_subject_binding",
+                    binding_affected,
+                    binding_remaining,
+                    binding_hash,
+                    stamp,
+                    stamp,
+                ),
+            )
+            stored_binding = db.execute(
+                """SELECT affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+                   FROM privacy_store_receipt
+                   WHERE request_id=? AND store_name='notification_privacy_binding'
+                     AND subject_kind=? AND subject_hash=? AND scope=?""",
+                (request_id, subject_kind, subject_hash, channel),
+            ).fetchone()
+            receipts.append(
+                {
+                    "store": "notification_privacy_binding",
+                    "scope": channel,
+                    "operation": "erase_subject_binding",
+                    "affectedRows": int(stored_binding["affected_rows"]),
+                    "remainingActiveRows": int(stored_binding["remaining_active_rows"]),
+                    "evidenceHash": str(stored_binding["evidence_hash"]),
+                    "createdAt": str(stored_binding["created_at"]),
+                    "verifiedAt": str(stored_binding["verified_at"]),
+                }
+            )
     return receipts
 
 
@@ -588,5 +678,5 @@ def summary(db_path: Path | str | None = None) -> dict:
         "identityProtection": "HMAC-SHA256",
         "privateKeyFile": _KEY_FILE,
         "storeReceiptCount": receipt_total,
-        "storeEvidenceStores": ["marketing_consent", "notification_broker"],
+        "storeEvidenceStores": ["marketing_consent", "notification_broker", "notification_privacy_binding"],
     }
