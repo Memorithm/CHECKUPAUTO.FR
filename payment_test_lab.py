@@ -46,6 +46,15 @@ def _require_enabled() -> None:
         raise PermissionError("payment_test_disabled")
 
 
+def _step(code: str, fn):
+    try:
+        return fn()
+    except PaymentTestError:
+        raise
+    except Exception:
+        raise PaymentTestError(code) from None
+
+
 def _hash(value: str) -> str:
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
@@ -108,10 +117,13 @@ def create_reservation(token: str, service_key: str, date_value: str, time_value
 
     created_appointment=False
     try:
-        appointment=booking_test.create_appointment(token,key,date_value,time_value)
+        appointment=_step(
+            "payment_test_mercure_create_failed",
+            lambda: booking_test.create_appointment(token,key,date_value,time_value),
+        )
         created_appointment=True
 
-        site_booking=booking.create_intent({
+        site_booking=_step("payment_test_booking_intent_failed",lambda: booking.create_intent({
             "service":label,
             "preferredDate":date_value,
             "preferredTime":time_value,
@@ -119,14 +131,14 @@ def create_reservation(token: str, service_key: str, date_value: str, time_value
             "path":"/payment/test",
             "utmSource":"reservation-payment-test",
             "utmCampaign":"hostinger-staging",
-        }, "https://rdv.checkupauto.fr/")
+        }, "https://rdv.checkupauto.fr/"))
         ccid=str(site_booking["token"])
-        cct=booking.browser_token(ccid)
+        cct=_step("payment_test_browser_binding_failed",lambda: booking.browser_token(ccid))
 
-        terms=compliance.published_document("terms")
+        terms=_step("payment_test_terms_lookup_failed",lambda: compliance.published_document("terms"))
         if not terms:
             raise PaymentTestError("payment_test_terms_unavailable")
-        booking.record_terms_acceptance({
+        _step("payment_test_terms_acceptance_failed",lambda: booking.record_terms_acceptance({
             "ccid":ccid,
             "cct":cct,
             "termsVersion":terms.get("version"),
@@ -134,27 +146,27 @@ def create_reservation(token: str, service_key: str, date_value: str, time_value
             "accepted":True,
             "reviewed":True,
             "immediatePerformance":bool(immediate_performance),
-        })
+        }))
 
         external_id=str(appointment["appointmentId"])
-        conversion=booking.apply_conversion({
+        conversion=_step("payment_test_conversion_failed",lambda: booking.apply_conversion({
             "externalId":external_id,
             "status":"confirmed",
             "ccid":ccid,
             "appointmentDate":str(appointment["appointmentAt"]),
             "service":label,
             "amount":float(appointment["price"]),
-        })
+        }))
         if not conversion.get("contractAcceptanceBound"):
             raise PaymentTestError("payment_test_contract_binding_failed")
 
-        payment=checkout.create_sandbox_intent(external_id)
+        payment=_step("payment_test_payment_intent_failed",lambda: checkout.create_sandbox_intent(external_id))
         payment_id=str(payment["paymentId"])
-        store=SandboxJournal(checkout.journal_path())
+        store=_step("payment_test_payment_store_failed",lambda: SandboxJournal(checkout.journal_path()))
         provider_reference="TESTPAY_"+payment_id
-        store.bind_provider(payment_id,provider_reference)
+        _step("payment_test_payment_binding_failed",lambda: store.bind_provider(payment_id,provider_reference))
 
-        init_db()
+        _step("payment_test_ledger_init_failed",init_db)
         now=_now()
         with analytics.connect() as db:
             db.execute("""INSERT INTO payment_test_runs(
