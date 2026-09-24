@@ -106,6 +106,46 @@ function mercureRectificationStateLabel(state){
  if(state==='invalid')return 'INVALIDE';
  return 'NON VÉRIFIÉ'
 }
+function withdrawalBlockerLabel(value){
+ const labels={
+  policy_configuration_required:'Politique à configurer',
+  legal_review_required:'Validation juridique requise',
+  retention_policy_unavailable:'Politique indisponible',
+  policy_disabled:'Politique désactivée',
+  duration_required:'Durée à configurer'
+ };
+ const key=String(value||'');
+ return labels[key]||(key?'Blocage non classé':'Aucun')
+}
+function renderWithdrawalErasureReadiness(){
+ const execution=snapshot?.dataSubjectExecution?.withdrawalEvidenceExecution||{},policy=execution.retentionPolicy||{};
+ const anchor=$('#complianceMessage');if(!anchor)return;
+ let box=$('#complianceWithdrawalErasureReadiness');
+ if(!box){box=document.createElement('div');box.id='complianceWithdrawalErasureReadiness';box.className='integration-box';anchor.insertAdjacentElement('afterend',box)}
+ box.replaceChildren();
+ const executable=execution.erasureExecutable===true;
+ const head=document.createElement('div');head.className='panel-head compact';
+ const intro=document.createElement('div'),title=document.createElement('h3'),hint=document.createElement('p'),status=document.createElement('span');
+ title.textContent='Effacement des preuves de rétractation';
+ hint.className='hint';hint.textContent='Capacité d’exécution réelle, distincte du simple support de l’adaptateur. Aucune justification brute de conservation ni donnée personnelle n’est affichée.';
+ status.className='gsc-status '+(executable?'online':'warning');status.textContent=executable?'EXÉCUTABLE':'BLOQUÉ';
+ intro.append(title,hint);head.append(intro,status);box.append(head);
+ const grid=document.createElement('div');grid.className='mercure-live-grid';box.append(grid);
+ const metric=(label,value,note='')=>{
+  const article=document.createElement('article'),small=document.createElement('small'),strong=document.createElement('strong');
+  small.textContent=label;strong.textContent=value;article.append(small,strong);
+  if(note){const span=document.createElement('span');span.textContent=note;article.append(span)}
+  grid.append(article)
+ };
+ const activeDays=Number.isInteger(policy.activeDays)&&policy.activeDays>=0?String(policy.activeDays)+' j':'—';
+ metric('EFFACEMENT',execution.erasureImplemented===true?'IMPLÉMENTÉ':'NON IMPLÉMENTÉ');
+ metric('POLITIQUE',policy.configured===true?'CONFIGURÉE':'NON CONFIGURÉE');
+ metric('POLITIQUE ACTIVE',policy.enabled===true?'OUI':'NON');
+ metric('VALIDATION JURIDIQUE',policy.legalReviewConfirmed===true?'CONFIRMÉE':'REQUISE');
+ metric('DURÉE ACTIVE',activeDays);
+ metric('COUVERTURE SUJET',execution.subjectCoverageComplete===true?'COMPLÈTE':'PARTIELLE','La liaison reste bornée à la référence sujet effectivement vérifiée.');
+ metric('BLOCAGE',withdrawalBlockerLabel(policy.blocker));
+}
 function renderMercureProviderCoverage(){
  const coverage=snapshot?.mercureProviderCoverage||{},boundary=coverage.boundary||{},appointment=boundary.appointmentInventory||{},vehicle=boundary.vehicleInventory||{};
  const rectification=snapshot?.mercureRectification||{},rectificationEvidenceState=rectification.providerMutationEvidence||{};
@@ -157,6 +197,7 @@ function render(){
   ? ('Opérationnelle · '+String(withdrawal.pendingReceipts||0)+' accusé(s) en attente')
   : 'À relier au contrat';
  renderMercureProviderCoverage();
+ renderWithdrawalErasureReadiness();
  for(const key of ['controllerName','legalForm','capital','registeredAddress','registrationId','vatNumber','publicationDirector','contactEmail','privacyContact','mediatorName','mediatorUrl','mediatorAddress','hostName','hostAddress','hostPhone','approvalAuthority','approvalReference']){
   const el=$('#compliance_'+key);if(el)el.value=settings[key]||'';
  }
