@@ -9,6 +9,7 @@ import data_subject_rights
 import marketing_campaigns
 import marketing_consent
 import mercure_provider_coverage
+import mercure_rectification_boundary
 import processing_risk_review
 import retention_enforcement
 import rights_completion_admin
@@ -166,6 +167,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         "boundary": mercure_provider_coverage.boundary(),
         "capability": mercure_provider_coverage.capability(),
     }
+    mercure_rectification = mercure_rectification_boundary.capability()
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
 
@@ -256,6 +258,19 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["mercureProviderCoverageState"] = str(
         mercure_provider.get("boundary", {}).get("state") or ""
     )
+    # Rectification is surfaced independently from the existing DSAR coverage
+    # boundary. It remains informational here until a provider-backed mutation
+    # primitive is implemented and the rights completion plan can consume that
+    # verified capability without weakening its global fail-closed gate.
+    summary["mercureRectificationState"] = str(
+        mercure_rectification.get("state") or "unverified"
+    )
+    summary["mercureRectificationProviderAttested"] = bool(
+        mercure_rectification.get("providerMutationEvidence", {}).get("attested")
+    )
+    summary["mercureRectificationVerified"] = bool(
+        mercure_rectification.get("completionEligible")
+    )
 
     phase2_blockers = []
     if not summary["rightsCompletionGlobalCoverage"]:
@@ -306,5 +321,6 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         "recent": campaign_runs,
     }
     result["mercureProviderCoverage"] = mercure_provider
+    result["mercureRectification"] = mercure_rectification
     result["retention"] = retention
     return result
