@@ -88,7 +88,14 @@ jobs:
 
           print(f"Deployment gate approved for {sha}")
           PY
+      - name: Checkout approved main commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - name: Deploy current approved main commit
         env:
           DEPLOY_SHA: ${{ inputs.sha }}
         run: sudo -n /usr/local/sbin/cybercheck-deploy "$DEPLOY_SHA"
+      - name: Verify canonical public CyberCheck surface
+        run: python3 scripts/check-public-surface.py https://www.checkupauto.fr/
