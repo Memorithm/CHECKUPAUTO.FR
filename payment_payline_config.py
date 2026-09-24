@@ -1,4 +1,4 @@
-"""Explicit Payline/Monext sandbox configuration; no transport or live payments.
+"""Explicit Payline/Monext sandbox configuration; sandbox transport only, no live payments.
 
 Acquiring-bank TPE/BIN/NLSA/Mastercard references are not API credentials.
 Only the named API fields from the merchant administration centre are accepted.
@@ -88,7 +88,7 @@ class PaylineSandboxConfig:
         return SANDBOX_WEBPAYMENT_ENDPOINT
 
     def authentication_headers(self) -> dict[str, str]:
-        """For a future TLS API transport only. Do not log or send to browsers."""
+        """For the sandbox TLS API transport only. Do not log or send to browsers."""
         encoded = base64.b64encode((self.merchant_id + ":" + self.access_key).encode("ascii"))
         return {"Authorization": "Basic " + encoded.decode("ascii")}
 
@@ -98,7 +98,7 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
     if config is not None and not isinstance(config, PaylineSandboxConfig):
         raise PaylineConfigurationError("payline_configuration_type_invalid")
     blockers = ["provider_authentication_unverified", "contract_binding_unverified",
-                "provider_authentication_unverified", "contract_binding_unverified", "checkout_not_bound"]
+                "checkout_not_bound", "callbacks_not_bound"]
     if config is None:
         blockers.insert(0, "explicit_api_configuration_missing")
     return {
