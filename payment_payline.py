@@ -58,7 +58,7 @@ def _redirect(value: object) -> str:
     if u.scheme != "https" or not u.hostname or u.username or u.password or u.fragment:
         raise PaymentError("payline_redirect_invalid")
     host = u.hostname.lower()
-    allowed = host == "homologation-webpayment.payline.com" or host.endswith(".payline.com")
+    allowed = host in {"homologation-webpayment.payline.com", "homologation-payment.payline.com"}
     if not allowed:
         raise PaymentError("payline_redirect_invalid")
     return value
@@ -183,6 +183,13 @@ def _local(node: ET.Element, name: str) -> list[ET.Element]:
     return [item for item in node.iter() if item.tag.rsplit("}", 1)[-1] == name]
 
 
+def _first(node: ET.Element, name: str, code: str) -> ET.Element:
+    values = _local(node, name)
+    if not values:
+        raise PaymentError(code)
+    return values[0]
+
+
 def _one_text(node: ET.Element, name: str, code: str, *, required: bool = True) -> str:
     values = [str(item.text or "").strip() for item in _local(node, name)]
     values = [value for value in values if value]
@@ -195,9 +202,26 @@ def _one_text(node: ET.Element, name: str, code: str, *, required: bool = True) 
     return values[0]
 
 
+def _child_text(node: ET.Element, name: str, code: str, *, required: bool = True) -> str:
+    values = []
+    for item in list(node):
+        if item.tag.rsplit("}", 1)[-1] == name:
+            value = str(item.text or "").strip()
+            if value:
+                values.append(value)
+    if not values:
+        if required:
+            raise PaymentError(code)
+        return ""
+    if len(set(values)) > 1:
+        raise PaymentError(code)
+    return values[0]
+
+
 def parse_start_response(xml: bytes) -> StartResult:
     root = _parse(xml)
-    code = _one_text(root, "code", "payline_result_missing")
+    result = _first(root, "result", "payline_result_missing")
+    code = _child_text(result, "code", "payline_result_missing")
     if code != "00000":
         raise PaymentError("payline_start_refused")
     token = _one_text(root, "token", "payline_token_missing")
@@ -216,16 +240,19 @@ def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEv
     if intent.provider_reference != _token(token):
         raise PaymentError("payline_token_binding_mismatch")
     root = _parse(xml)
-    code = _one_text(root, "code", "payline_result_missing")
-    amounts = [str(x.text or "").strip() for x in _local(root, "amount") if str(x.text or "").strip()]
-    currencies = [str(x.text or "").strip() for x in _local(root, "currency") if str(x.text or "").strip()]
-    if str(intent.amount_cents) not in amounts or EUR_NUMERIC not in currencies:
+    result = _first(root, "result", "payline_result_missing")
+    code = _child_text(result, "code", "payline_result_missing")
+    payment = _first(root, "payment", "payline_payment_missing")
+    amount = _child_text(payment, "amount", "payline_amount_missing")
+    currency = _child_text(payment, "currency", "payline_currency_missing")
+    if amount != str(intent.amount_cents) or currency != EUR_NUMERIC:
         raise PaymentError("payline_amount_or_currency_mismatch")
-    refs = [str(x.text or "").strip() for x in _local(root, "ref") if str(x.text or "").strip()]
-    order_refs = [str(x.text or "").strip() for x in _local(root, "orderReference") if str(x.text or "").strip()]
-    if intent.payment_id not in refs and intent.payment_id not in order_refs:
+    transaction = _first(root, "transaction", "payline_transaction_missing")
+    transaction_id = _child_text(transaction, "id", "payline_transaction_missing")
+    order = _first(root, "order", "payline_order_missing")
+    order_ref = _child_text(order, "ref", "payline_order_reference_missing")
+    if order_ref != intent.payment_id:
         raise PaymentError("payline_order_reference_mismatch")
-    transaction_id = _one_text(root, "id", "payline_transaction_missing")
     transaction_id = re.sub(r"[^A-Za-z0-9:_-]", "", transaction_id)
     if not transaction_id or len(transaction_id) > 80:
         raise PaymentError("payline_transaction_invalid")
