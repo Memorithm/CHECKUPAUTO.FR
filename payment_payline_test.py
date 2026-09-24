@@ -169,7 +169,7 @@ class PaylineVerificationTest(unittest.TestCase):
 class PaylineRefundFoundationTest(unittest.TestCase):
     def captured_intent(self):
         return core.Intent(
-            "a"*32,"payline",8000,STAMP,"TOKEN_FIXTURE_123","sandbox","EUR","captured"
+            "a"*32,"payline",8000,STAMP,"TOKEN_FIXTURE_123",state="captured",environment="sandbox"
         )
 
     def test_refund_request_uses_direct_payment_contract_and_idempotency_sequence(self):
