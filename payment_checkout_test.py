@@ -109,6 +109,33 @@ class TrustedPaymentQuoteTest(unittest.TestCase):
             checkout.create_sandbox_intent(self.external_id,"paypal")
 
 
+
+    def test_browser_token_resolves_only_matching_authoritative_conversion(self):
+        booking.init_db()
+        ccid="checkout-browser-token"
+        cct=booking.browser_token(ccid)
+        token_key=booking._attribution_key(ccid)
+        with analytics.connect() as db:
+            db.execute("DELETE FROM booking_intents")
+            db.execute("DELETE FROM booking_conversions")
+            db.execute("""INSERT INTO booking_intents(
+              token,attribution_key,created_at,source,campaign,device,path,service,referral_code,preferred_date,preferred_time
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (ccid,token_key,"2026-09-24T18:00:00+00:00","Direct","","desktop","/","Contrôle technique","","2026-10-03","09:00"))
+            db.execute("""INSERT INTO booking_conversions(
+              provider,external_id,status,first_seen_at,updated_at,confirmed_at,appointment_at,
+              amount_cents,service,attribution_token,source,campaign,device,referral_code
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (booking.PROVIDER,self.external_id,"confirmed","2026-09-24T18:00:00+00:00",
+             "2026-09-24T18:00:00+00:00","2026-09-24T18:00:00+00:00","2026-10-03T09:00",
+             8000,"Contrôle technique",token_key,"Direct","","desktop",""))
+        with patch.object(booking.datetime, "datetime", wraps=booking.datetime.datetime) as mocked:
+            mocked.now.return_value=booking.datetime.datetime(2026,9,24,18,5,tzinfo=booking.datetime.timezone.utc)
+            mocked.fromisoformat=booking.datetime.datetime.fromisoformat
+            self.assertEqual(booking.authoritative_external_id_for_browser_token(ccid,cct),self.external_id)
+        with self.assertRaises(PermissionError):
+            booking.authoritative_external_id_for_browser_token(ccid,"bad-token")
+
     def test_payline_browser_start_is_idempotent_after_ready_binding(self):
         with patch.object(booking, "authoritative_external_id_for_browser_token", return_value=self.external_id), \
              patch.object(checkout.payline_private, "load", return_value=object()):
