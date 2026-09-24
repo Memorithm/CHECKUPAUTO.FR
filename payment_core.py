@@ -188,6 +188,11 @@ class SandboxJournal:
                 or "'error'" not in sql
             )
             if needs_rebuild:
+                provider_starts_exists = bool(db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='payment_provider_starts'"
+                ).fetchone())
+                if provider_starts_exists:
+                    db.execute("ALTER TABLE payment_provider_starts RENAME TO payment_provider_starts_legacy")
                 # Rebuild the complete FK family together. SQLite can rewrite FK
                 # targets when a parent table is renamed; rebuilding children
                 # prevents a legacy child from retaining a reference to the
@@ -246,6 +251,22 @@ class SandboxJournal:
                 DROP TABLE payment_provider_transactions_legacy;
                 DROP TABLE payment_intents_legacy;
                 """)
+                if provider_starts_exists:
+                    db.executescript("""
+                    CREATE TABLE payment_provider_starts(
+                      payment_id TEXT PRIMARY KEY REFERENCES payment_intents(payment_id),
+                      provider TEXT NOT NULL CHECK(provider='payline'),
+                      state TEXT NOT NULL CHECK(state IN ('attempting','ready','indeterminate')),
+                      provider_reference TEXT NOT NULL DEFAULT '',
+                      redirect_url TEXT NOT NULL DEFAULT '',
+                      created_at TEXT NOT NULL,
+                      updated_at TEXT NOT NULL
+                    );
+                    INSERT INTO payment_provider_starts
+                      SELECT payment_id,provider,state,provider_reference,redirect_url,created_at,updated_at
+                      FROM payment_provider_starts_legacy;
+                    DROP TABLE payment_provider_starts_legacy;
+                    """)
             violations = db.execute("PRAGMA foreign_key_check").fetchall()
             if violations:
                 raise PaymentError("payment_schema_migration_failed")
