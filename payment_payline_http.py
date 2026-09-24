@@ -153,7 +153,7 @@ def _cancel(handler) -> bool:
 def _notify(handler, query: str) -> bool:
     try:
         notification_type = _single(query, "notificationType", r"[A-Za-z0-9_-]{1,32}", "notification_type_invalid")
-        if notification_type != "webtrs":
+        if notification_type.lower() != "webtrs":
             raise PaymentError("notification_type_invalid")
         token = _single(query, "token", r"[A-Za-z0-9_-]{1,80}", "payline_token_invalid")
         _apply_by_token(token)
