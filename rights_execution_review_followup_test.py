@@ -22,14 +22,13 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
             mock.patch.object(
                 dispatch.data_subject_rights,
                 "execute",
-                return_value={"ok": True, "adapter": "privacy_suppression"},
+                return_value={
+                    "ok": True,
+                    "adapter": "privacy_suppression",
+                    "requestType": "erasure",
+                },
             ) as central,
             mock.patch.object(dispatch.data_subject_rights, "_request_id", return_value="request-1"),
-            mock.patch.object(
-                dispatch.data_subject_rights,
-                "_request",
-                return_value={"request_type": "erasure"},
-            ),
             mock.patch.object(
                 dispatch.review_followup_privacy,
                 "erase_for_mercure_subject",
@@ -53,13 +52,11 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
             mock.patch.object(
                 dispatch.data_subject_rights,
                 "execute",
-                return_value={"ok": True, "adapter": "privacy_suppression"},
-            ),
-            mock.patch.object(dispatch.data_subject_rights, "_request_id", return_value="request-2"),
-            mock.patch.object(
-                dispatch.data_subject_rights,
-                "_request",
-                return_value={"request_type": "objection"},
+                return_value={
+                    "ok": True,
+                    "adapter": "privacy_suppression",
+                    "requestType": "objection",
+                },
             ),
             mock.patch.object(
                 dispatch.review_followup_privacy,
