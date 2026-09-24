@@ -55,10 +55,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/mobile/bootstrap" -o /tmp/mobile-bootstrap.json
-          python3 - <<'PY'
-          import json
-          with open('/tmp/mobile-bootstrap.json', encoding='utf-8') as f:
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/mobile/bootstrap" -o "$body"
+          BODY="$body" python3 - <<'PY'
+          import json, os
+          with open(os.environ['BODY'], encoding='utf-8') as f:
               p=json.load(f)
           assert p.get('schemaVersion') == 1
           reminders=p.get('reminders') or {}
@@ -78,10 +80,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/booking/services" -o /tmp/booking-services.json
-          python3 - <<'PY'
-          import json
-          with open('/tmp/booking-services.json', encoding='utf-8') as f:
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/booking/services" -o "$body"
+          BODY="$body" python3 - <<'PY'
+          import json, os
+          with open(os.environ['BODY'], encoding='utf-8') as f:
               p=json.load(f)
           services={row['key']: row for row in p.get('services') or []}
           assert services['technical']['basePrice'] == 80.0
@@ -95,10 +99,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/site-config" -o /tmp/site-config.json
-          python3 - <<'PY'
-          import json
-          with open('/tmp/site-config.json', encoding='utf-8') as f:
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          curl -fsS --max-time 15 "$STAGING_ORIGIN/api/site-config" -o "$body"
+          BODY="$body" python3 - <<'PY'
+          import json, os
+          with open(os.environ['BODY'], encoding='utf-8') as f:
               p=json.load(f)
           seo=p.get('seo') or {}
           assert seo.get('indexingEnabled') is False
@@ -110,8 +116,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          final="$(curl -fsSL --max-time 20 -o /tmp/legacy-public.html -w '%{url_effective}' "$LEGACY_PUBLIC_ORIGIN/")"
-          test -s /tmp/legacy-public.html
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          final="$(curl -fsSL --max-time 20 -o "$body" -w '%{url_effective}' "$LEGACY_PUBLIC_ORIGIN/")"
+          test -s "$body"
           case "$final" in
             https://www.checkupauto.fr/*|https://checkupauto.fr/*|https://rdv.checkupauto.fr/*) ;;
             *) echo "Unexpected legacy redirect target: $final"; exit 1 ;;
