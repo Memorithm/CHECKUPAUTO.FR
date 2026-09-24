@@ -21,6 +21,25 @@ class PaymentTestLabTest(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 lab.create_session()
 
+    def test_test_terms_are_synthetic_and_only_seeded_when_test_mode_enabled(self):
+        with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"0"},clear=False), \
+             patch.object(lab.compliance,"published_document",return_value=None):
+            with self.assertRaisesRegex(lab.PaymentTestError,"^payment_test_terms_unavailable$"):
+                lab._test_terms()
+
+        with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"1"},clear=False), \
+             patch.object(lab.compliance,"published_document",return_value=None), \
+             patch.object(lab.compliance,"save_document",return_value={
+                 "type":"terms","version":"staging-test-v1","title":"Conditions de test — staging",
+                 "contentHash":"a"*64,
+             }) as save:
+            out=lab._test_terms()
+        self.assertEqual(out["version"],"staging-test-v1")
+        payload=save.call_args.args[0]
+        self.assertEqual(payload["action"],"publish")
+        self.assertIn("ne constitue pas les conditions générales de vente de production",payload["body"])
+        self.assertIn("aucun encaissement bancaire réel",payload["body"])
+
     def test_create_reservation_binds_synthetic_mercure_to_local_payment(self):
         fake_store=MagicMock()
         fake_store.bind_provider.return_value=None
