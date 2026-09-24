@@ -33,7 +33,6 @@ ET.register_namespace("obj", OBJ_NS)
 
 
 @dataclass(frozen=True)
-@dataclass(frozen=True)
 class RefundResult:
     result_code: str
 
@@ -42,6 +41,7 @@ class RefundResult:
             raise PaymentError("payline_refund_result_invalid")
 
 
+@dataclass(frozen=True)
 class StartResult:
     token: str
     redirect_url: str
