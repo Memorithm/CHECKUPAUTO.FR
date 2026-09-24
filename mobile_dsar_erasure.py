@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import data_subject_rights
+import mobile_devices
+import notification_privacy
+import privacy_suppression
 import referral_wallet_lifecycle
 
 
@@ -32,6 +35,50 @@ def _removed_from_receipt(receipt: dict) -> dict:
     }
 
 
+def _push_recipient_key(installation_id: str) -> str:
+    """Return the transient broker recipient key before the mobile row is erased."""
+    mobile_devices.init_db()
+    with mobile_devices.connect() as db:
+        row = db.execute(
+            """SELECT device_token,environment FROM mobile_device
+               WHERE installation_id=? LIMIT 1""",
+            (installation_id,),
+        ).fetchone()
+    if not row:
+        return ""
+    token = str(row["device_token"] or "").strip().lower()
+    environment = str(row["environment"] or "").strip().lower()
+    if not token or environment not in {"sandbox", "production"}:
+        return ""
+    return f"{environment}:{token}"
+
+
+def _erase_notification_privacy(installation_id: str) -> dict:
+    """Stop retryable marketing pushes and remove subject-to-recipient linkage.
+
+    The broker keeps already-sent delivery evidence, but the pseudonymous bridge
+    that links the installation subject to a recipient hash is physically removed.
+    An active transport lease makes this step retryable instead of claiming an
+    erasure while a delivery is still in flight.
+    """
+    subject_hash = privacy_suppression.identity_hash("installation", installation_id)
+    recipient_key = _push_recipient_key(installation_id)
+    suppression = notification_privacy.suppress_retryable_marketing(
+        subject_hash,
+        "push",
+        fallback_recipient_key=recipient_key,
+    )
+    if int(suppression.get("inFlightRows") or 0):
+        raise RuntimeError("effacement NotificationBroker différé: livraison en cours")
+    binding = notification_privacy.erase_subject_bindings(subject_hash, "push")
+    return {
+        "retryableDeliveriesSuppressed": max(0, int(suppression.get("affectedRows") or 0)),
+        "retainedSentDeliveries": max(0, int(suppression.get("retainedSentRows") or 0)),
+        "privacyBindingsRemoved": max(0, int(binding.get("affectedRows") or 0)),
+        "remainingPrivacyBindings": max(0, int(binding.get("remainingActiveRows") or 0)),
+    }
+
+
 def execute(
     request_id: object,
     subject_ref: object,
@@ -51,6 +98,7 @@ def execute(
         raise RuntimeError("adaptateur déjà exécuté pour cette demande")
 
     installation_id = data_subject_rights._mobile_installation(ref)
+    notification_privacy_erasure = _erase_notification_privacy(installation_id)
     recovered = _receipt_after_request(row)
     if recovered:
         removed = _removed_from_receipt(recovered)
@@ -76,6 +124,7 @@ def execute(
         "adapter": ADAPTER,
         "removed": removed,
         "referralWalletOwnershipReleased": ownership_released,
+        "notificationPrivacy": notification_privacy_erasure,
         "mobileErasureEvidenceHash": evidence_hash,
         "erasedAt": erased_at,
         "recoveredFromReceipt": recovered_from_receipt,
@@ -94,6 +143,7 @@ def execute(
         "adapter": ADAPTER,
         "removed": removed,
         "referralWalletOwnershipReleased": ownership_released,
+        "notificationPrivacy": notification_privacy_erasure,
         "mobileErasureEvidenceHash": evidence_hash,
         "recoveredFromReceipt": recovered_from_receipt,
         "executionId": execution_id,

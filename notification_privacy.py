@@ -218,3 +218,66 @@ def suppress_retryable_marketing(
         "retainedSentRows": retained_sent,
         "bindingCount": persisted_binding_count,
     }
+
+
+def erase_subject_bindings(subject_hash: object, channel: object) -> dict:
+    """Physically unlink one privacy subject from broker recipient hashes.
+
+    Delivery rows are intentionally retained: they are operational delivery
+    evidence and already contain only recipient hashes. The subject-to-recipient
+    bridge itself is no longer needed after erasure. An active delivery lease
+    fails closed so the caller cannot claim that linkage was erased while an
+    already-started transport operation is still using the same recipient.
+    """
+    subject = _subject_hash(subject_hash)
+    clean_channel = _channel(channel)
+    category = _MARKETING_CATEGORY[clean_channel]
+    now = _now()
+    init_db()
+    with notification_broker.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        recipients = [
+            str(row["recipient_hash"])
+            for row in db.execute(
+                """SELECT recipient_hash FROM notification_privacy_binding
+                   WHERE subject_hash=? AND channel=?""",
+                (subject, clean_channel),
+            ).fetchall()
+        ]
+        if recipients:
+            placeholders = ",".join("?" for _ in recipients)
+            rows = db.execute(
+                f"""SELECT * FROM notification_delivery
+                    WHERE channel=? AND category=?
+                      AND recipient_hash IN ({placeholders})""",
+                (clean_channel, category, *recipients),
+            ).fetchall()
+            if any(
+                str(row["status"] or "") == "delivering"
+                and _active_delivery_lease(row, now)
+                for row in rows
+            ):
+                raise RuntimeError("effacement liaison NotificationBroker différé: livraison en cours")
+        cursor = db.execute(
+            """DELETE FROM notification_privacy_binding
+               WHERE subject_hash=? AND channel=?""",
+            (subject, clean_channel),
+        )
+        affected = int(cursor.rowcount or 0)
+        remaining = int(
+            db.execute(
+                """SELECT COUNT(*) n FROM notification_privacy_binding
+                   WHERE subject_hash=? AND channel=?""",
+                (subject, clean_channel),
+            ).fetchone()["n"]
+        )
+        if remaining:
+            raise RuntimeError("effacement liaison NotificationBroker incomplet")
+    return {
+        "ok": True,
+        "store": "notification_privacy_binding",
+        "scope": clean_channel,
+        "operation": "erase_subject_binding",
+        "affectedRows": affected,
+        "remainingActiveRows": remaining,
+    }
