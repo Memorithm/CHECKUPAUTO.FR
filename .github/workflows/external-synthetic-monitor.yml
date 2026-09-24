@@ -2,6 +2,16 @@ name: External synthetic monitor
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/external-synthetic-monitor.yml'
+      - '.github/workflows/ios-core-ci.yml'
+      - 'ios/CheckupAutoReminder/**'
+      - 'admin_server.py'
+      - 'mobile_bootstrap.py'
+      - 'site_config_store.py'
+      - 'booking_bridge.py'
   schedule:
     - cron: '*/5 * * * *'
 
