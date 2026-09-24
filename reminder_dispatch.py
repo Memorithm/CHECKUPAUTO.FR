@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -65,6 +66,18 @@ def init_db() -> None:
             db.execute("ALTER TABLE reminder_target ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0")
         db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_due ON reminder_target(due_date)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_quarantined ON reminder_target(quarantined,due_date)")
+        db.execute("""CREATE TABLE IF NOT EXISTS reminder_privacy_erasure_receipt(
+          request_id TEXT NOT NULL,
+          subject_kind TEXT NOT NULL,
+          subject_hash TEXT NOT NULL,
+          affected_rows INTEGER NOT NULL,
+          remaining_rows INTEGER NOT NULL,
+          evidence_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          verified_at TEXT NOT NULL,
+          PRIMARY KEY(request_id,subject_kind,subject_hash)
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_privacy_erasure_request ON reminder_privacy_erasure_receipt(request_id)")
         db.execute("""CREATE TABLE IF NOT EXISTS reminder_meta(
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
@@ -235,6 +248,123 @@ def _all_processing_suppressed(row: dict) -> bool:
     evaluated before any later provider lookup that could itself constitute processing.
     """
     return privacy.any_suppressed(_processing_candidates(row), "all_processing")
+
+
+_PRIVACY_ERASURE_KINDS = {"vehicle", "mercure_account", "mercure_free"}
+
+
+def erase_privacy_targets(
+    request_id: object,
+    subject_kind: object,
+    subject_value: object,
+    subject_hash: object,
+) -> dict:
+    """Delete one erased subject from the ReminderEngine materialized cache.
+
+    ``reminder_target`` is a rebuildable Mercure-derived cache, not contract
+    evidence. The privacy suppression gate prevents later processing/import for
+    the same subject. This function therefore removes matching cache rows and
+    records only a request id plus HMAC subject hash so a cross-database replay
+    can prove the ReminderEngine mutation without retaining the erased id.
+
+    The receipt is cumulative: if a racing/legacy process reintroduces a row
+    before every component observes the suppression tombstone, a replay deletes
+    it again and advances the same minimized receipt instead of trusting stale
+    completion evidence.
+    """
+    rid = str(request_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{32}", rid):
+        raise ValueError("requestId d'effacement invalide")
+    kind = str(subject_kind or "").strip().lower()
+    if kind not in _PRIVACY_ERASURE_KINDS:
+        raise ValueError("identité ReminderEngine non effaçable")
+    digest = str(subject_hash or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("empreinte sujet invalide")
+
+    raw = str(subject_value or "").strip()
+    if kind == "vehicle":
+        raw = _vehicle_id(raw)
+        where = "vehicle_id=?"
+        params = (raw,)
+    else:
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", raw):
+            raise ValueError("identifiant client ReminderEngine invalide")
+        client_kind = "account" if kind == "mercure_account" else "free"
+        where = "client_kind=? AND client_id=?"
+        params = (client_kind, raw)
+
+    init_db()
+    stamp = _now_iso()
+    with connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        # Ask SQLite to overwrite deleted cells where supported. This is a
+        # local hardening measure, not a claim of forensic erasure of backups.
+        db.execute("PRAGMA secure_delete=ON")
+        previous = db.execute(
+            """SELECT affected_rows,remaining_rows,evidence_hash,created_at,verified_at
+               FROM reminder_privacy_erasure_receipt
+               WHERE request_id=? AND subject_kind=? AND subject_hash=?""",
+            (rid, kind, digest),
+        ).fetchone()
+        cursor = db.execute(f"DELETE FROM reminder_target WHERE {where}", params)
+        newly_affected = int(cursor.rowcount or 0)
+        remaining = int(
+            db.execute(
+                f"SELECT COUNT(*) n FROM reminder_target WHERE {where}", params,
+            ).fetchone()["n"]
+        )
+        if remaining:
+            raise RuntimeError("effacement cache ReminderEngine incomplet")
+        previous_affected = int(previous["affected_rows"]) if previous else 0
+        total_affected = previous_affected + newly_affected
+        observed = bool(previous or newly_affected)
+        if observed:
+            evidence = {
+                "requestId": rid,
+                "store": "reminder_target",
+                "subjectKind": kind,
+                "subjectHash": digest,
+                "operation": "erase_cached_target",
+                "affectedRows": total_affected,
+                "remainingActiveRows": remaining,
+            }
+            canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+            evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            created_at = str(previous["created_at"]) if previous else stamp
+            db.execute(
+                """INSERT INTO reminder_privacy_erasure_receipt(
+                     request_id,subject_kind,subject_hash,affected_rows,remaining_rows,
+                     evidence_hash,created_at,verified_at
+                   ) VALUES(?,?,?,?,?,?,?,?)
+                   ON CONFLICT(request_id,subject_kind,subject_hash) DO UPDATE SET
+                     affected_rows=excluded.affected_rows,
+                     remaining_rows=excluded.remaining_rows,
+                     evidence_hash=excluded.evidence_hash,
+                     verified_at=excluded.verified_at""",
+                (rid, kind, digest, total_affected, remaining, evidence_hash, created_at, stamp),
+            )
+            stored = db.execute(
+                """SELECT affected_rows,remaining_rows,evidence_hash,created_at,verified_at
+                   FROM reminder_privacy_erasure_receipt
+                   WHERE request_id=? AND subject_kind=? AND subject_hash=?""",
+                (rid, kind, digest),
+            ).fetchone()
+        else:
+            stored = None
+
+    return {
+        "ok": True,
+        "store": "reminder_target",
+        "scope": kind,
+        "operation": "erase_cached_target",
+        "observed": observed,
+        "affectedRows": int(stored["affected_rows"]) if stored else 0,
+        "remainingActiveRows": int(stored["remaining_rows"]) if stored else 0,
+        "evidenceHash": str(stored["evidence_hash"]) if stored else "",
+        "createdAt": str(stored["created_at"]) if stored else "",
+        "verifiedAt": str(stored["verified_at"]) if stored else stamp,
+    }
 
 
 def mobile_claim_target(vehicle_id: object) -> dict:

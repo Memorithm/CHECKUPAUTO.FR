@@ -500,6 +500,106 @@ def _notification_store_receipts(
     return receipts
 
 
+def _reminder_store_receipts(
+    db,
+    *,
+    request_id: str,
+    subject_kind: str,
+    normalized: str,
+    subject_hash: str,
+    purposes: tuple[str, ...],
+    stamp: str,
+) -> list[dict]:
+    """Erase ReminderEngine cache rows only for an actual all-processing erasure.
+
+    ReminderEngine imports this module for its runtime suppression gate, so the
+    reverse dependency is deliberately lazy. The ReminderEngine store persists
+    its own minimized receipt first; if the compliance transaction then fails,
+    replay reconstructs the compliance receipt from that durable store evidence.
+    """
+    if "all_processing" not in purposes:
+        return []
+    if _rights_request_type(db, request_id) != "erasure":
+        return []
+    if subject_kind not in {"vehicle", "mercure_account", "mercure_free"}:
+        return []
+
+    import reminder_dispatch
+
+    mutation = reminder_dispatch.erase_privacy_targets(
+        request_id,
+        subject_kind,
+        normalized,
+        subject_hash,
+    )
+    if int(mutation.get("remainingActiveRows") or 0):
+        raise RuntimeError("effacement ReminderEngine incomplet")
+    if not bool(mutation.get("observed")):
+        return []
+
+    affected = int(mutation.get("affectedRows") or 0)
+    remaining = int(mutation.get("remainingActiveRows") or 0)
+    store_evidence_hash = str(mutation.get("evidenceHash") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", store_evidence_hash):
+        raise RuntimeError("preuve ReminderEngine invalide")
+    evidence = {
+        "requestId": request_id,
+        "store": "reminder_target",
+        "subjectKind": subject_kind,
+        "subjectHash": subject_hash,
+        "scope": subject_kind,
+        "operation": "erase_cached_target",
+        "affectedRows": affected,
+        "remainingActiveRows": remaining,
+        "storeEvidenceHash": store_evidence_hash,
+    }
+    canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+    evidence_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    db.execute(
+        """INSERT INTO privacy_store_receipt(
+             request_id,store_name,subject_kind,subject_hash,scope,operation,
+             affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+           ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(request_id,store_name,subject_kind,subject_hash,scope) DO UPDATE SET
+             affected_rows=excluded.affected_rows,
+             remaining_active_rows=excluded.remaining_active_rows,
+             evidence_hash=excluded.evidence_hash,
+             verified_at=excluded.verified_at""",
+        (
+            request_id,
+            "reminder_target",
+            subject_kind,
+            subject_hash,
+            subject_kind,
+            "erase_cached_target",
+            affected,
+            remaining,
+            evidence_hash,
+            stamp,
+            stamp,
+        ),
+    )
+    stored = db.execute(
+        """SELECT affected_rows,remaining_active_rows,evidence_hash,created_at,verified_at
+           FROM privacy_store_receipt
+           WHERE request_id=? AND store_name='reminder_target'
+             AND subject_kind=? AND subject_hash=? AND scope=?""",
+        (request_id, subject_kind, subject_hash, subject_kind),
+    ).fetchone()
+    return [
+        {
+            "store": "reminder_target",
+            "scope": subject_kind,
+            "operation": "erase_cached_target",
+            "affectedRows": int(stored["affected_rows"]),
+            "remainingActiveRows": int(stored["remaining_active_rows"]),
+            "evidenceHash": str(stored["evidence_hash"]),
+            "createdAt": str(stored["created_at"]),
+            "verifiedAt": str(stored["verified_at"]),
+        }
+    ]
+
+
 def suppress(
     kind: object,
     value: object,
@@ -542,6 +642,17 @@ def suppress(
         )
         receipts.extend(
             _notification_store_receipts(
+                db,
+                request_id=rid,
+                subject_kind=subject_kind,
+                normalized=normalized,
+                subject_hash=digest,
+                purposes=clean,
+                stamp=stamp,
+            )
+        )
+        receipts.extend(
+            _reminder_store_receipts(
                 db,
                 request_id=rid,
                 subject_kind=subject_kind,
@@ -678,5 +789,5 @@ def summary(db_path: Path | str | None = None) -> dict:
         "identityProtection": "HMAC-SHA256",
         "privateKeyFile": _KEY_FILE,
         "storeReceiptCount": receipt_total,
-        "storeEvidenceStores": ["marketing_consent", "notification_broker", "notification_privacy_binding"],
+        "storeEvidenceStores": ["marketing_consent", "notification_broker", "notification_privacy_binding", "reminder_target"],
     }
