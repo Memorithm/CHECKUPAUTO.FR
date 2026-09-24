@@ -133,7 +133,13 @@ class SandboxJournal:
                 raise PaymentError("private_database_required") from None
         else:
             os.close(fd)
-        with self._connect() as db:
+        self._initialize_schema()
+
+    def _initialize_schema(self) -> None:
+        """Create or migrate the sandbox ledger without reinterpreting history."""
+        with contextlib.closing(sqlite3.connect(self.path, timeout=5)) as db:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=OFF")
             db.executescript("""
             CREATE TABLE IF NOT EXISTS payment_intents(
               payment_id TEXT PRIMARY KEY,
@@ -159,6 +165,56 @@ class SandboxJournal:
               PRIMARY KEY(provider,event_hash)
             );
             """)
+            sql = str(db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='payment_intents'"
+            ).fetchone()["sql"] or "")
+            if "'payline'" not in sql:
+                db.executescript("""
+                ALTER TABLE payment_events RENAME TO payment_events_legacy;
+                DROP INDEX IF EXISTS payment_provider_reference;
+                ALTER TABLE payment_intents RENAME TO payment_intents_legacy;
+
+                CREATE TABLE payment_intents(
+                  payment_id TEXT PRIMARY KEY,
+                  booking_hash TEXT NOT NULL UNIQUE,
+                  quote_hash TEXT NOT NULL,
+                  provider TEXT NOT NULL CHECK(provider IN ('paypal','monetico','payline')),
+                  environment TEXT NOT NULL CHECK(environment='sandbox'),
+                  amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
+                  currency TEXT NOT NULL CHECK(currency='EUR'),
+                  provider_reference TEXT NOT NULL DEFAULT '',
+                  state TEXT NOT NULL CHECK(state IN ('created','pending','declined','authorized','captured')),
+                  created_at TEXT NOT NULL
+                );
+                INSERT INTO payment_intents
+                  SELECT payment_id,booking_hash,quote_hash,provider,environment,amount_cents,
+                         currency,provider_reference,state,created_at
+                  FROM payment_intents_legacy;
+
+                CREATE UNIQUE INDEX payment_provider_reference
+                  ON payment_intents(provider,provider_reference) WHERE provider_reference<>'';
+
+                CREATE TABLE payment_events(
+                  provider TEXT NOT NULL,
+                  event_hash TEXT NOT NULL,
+                  payment_id TEXT NOT NULL REFERENCES payment_intents(payment_id),
+                  evidence_hash TEXT NOT NULL,
+                  state TEXT NOT NULL,
+                  received_at TEXT NOT NULL,
+                  PRIMARY KEY(provider,event_hash)
+                );
+                INSERT INTO payment_events
+                  SELECT provider,event_hash,payment_id,evidence_hash,state,received_at
+                  FROM payment_events_legacy;
+
+                DROP TABLE payment_events_legacy;
+                DROP TABLE payment_intents_legacy;
+                """)
+            violations = db.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise PaymentError("payment_schema_migration_failed")
+            db.commit()
+            db.execute("PRAGMA foreign_keys=ON")
 
     @contextlib.contextmanager
     def _connect(self):
