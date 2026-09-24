@@ -322,3 +322,7 @@ Ainsi, un appel API direct ne peut pas contourner les protections visibles dans 
 ## Fraîcheur GitHub du contrôleur
 
 Le Deployment Center distingue trois preuves différentes : la version exécutée par le contrôleur, la version déployée sur la cible et le dernier commit retourné par la branche GitHub configurée. La fraîcheur GitHub n'est marquée vérifiée qu'après une réponse GitHub valide et une comparaison d'ascendance explicite. Les états sont `current`, `behind`, `ahead`, `diverged` ou `unverified`. Une erreur réseau, un token absent, un SHA invalide ou une comparaison impossible reste `unverified`; aucun baseline local n'est utilisé pour déduire le dernier `main`.
+
+## Préflight autoritaire avant Install / Update
+
+Lorsqu'un contrôleur utilise un checkout Git local **et** qu'une source GitHub authentifiée est configurée, les actions `install` et `update` exigent désormais que le SHA du contrôleur soit exactement `current` par rapport à la branche GitHub configurée. Les états `behind`, `ahead`, `diverged` et `unverified` bloquent l'enqueue du déploiement. Une indisponibilité GitHub échoue donc fermée pour ces mutations lorsque cette source autoritaire est configurée. Le diagnostic de la cible reste lisible et le rollback d'une release distante déjà vérifiée n'est pas bloqué par ce préflight. Sans token GitHub configuré, le comportement historique du checkout local est conservé et aucune fraîcheur distante n'est prétendue.

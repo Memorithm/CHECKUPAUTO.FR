@@ -379,7 +379,9 @@
       source_unavailable: 'Source indisponible'
     };
     $('deploymentUpdateState').textContent = labels[updateState.state] || 'Inconnue';
-    $('deploymentUpdate').disabled = !updateState.updateAvailable || !sourceBuildCapable();
+    const deploymentEligible = updateState.deploymentEligible !== false;
+    $('deploymentUpdate').disabled =
+      !updateState.updateAvailable || !sourceBuildCapable() || !deploymentEligible;
 
     const candidates = $('deploymentRollbackCandidates');
     candidates.replaceChildren();
@@ -391,7 +393,23 @@
     });
 
     const releaseCount = (updateState.releases || []).length;
-    if (updateState.state === 'update_available') {
+    const controllerFreshness = updateState.controllerFreshness || {};
+    const controllerRelation = controllerFreshness.verified
+      ? (controllerFreshness.state || 'unverified')
+      : 'unverified';
+    const blockedByController = controllerFreshness.required && !deploymentEligible;
+    if (blockedByController) {
+      const reason = controllerRelation === 'behind'
+        ? 'le contrôleur est en retard sur GitHub'
+        : controllerRelation === 'ahead'
+          ? 'le contrôleur contient un historique en avance sur GitHub'
+          : controllerRelation === 'diverged'
+            ? 'le contrôleur diverge de GitHub'
+            : 'la fraîcheur GitHub du contrôleur n’est pas vérifiable';
+      $('deploymentUpdateDetail').textContent =
+        'Action de déploiement bloquée : ' + reason + '. ' +
+        'Le diagnostic de la cible reste informatif et le rollback reste disponible.';
+    } else if (updateState.state === 'update_available') {
       $('deploymentUpdateDetail').textContent =
         'Mise à jour disponible : ' + deployed.slice(0, 12) + ' → ' +
         (updateState.desiredSha || '').slice(0, 12) + '. ' +

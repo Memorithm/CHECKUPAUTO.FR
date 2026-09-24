@@ -144,6 +144,41 @@ def _github_freshness(controller_sha: str, latest_sha: str) -> dict:
     return result
 
 
+def _authoritative_source_preflight(source=None) -> dict:
+    current = source or _source_state()
+    result = {
+        "required": False,
+        "deploymentEligible": True,
+        **_github_freshness(current.sha, ""),
+    }
+    if current.mode != "git_checkout" or not github_source.token_configured():
+        return result
+
+    result["required"] = True
+    result["deploymentEligible"] = False
+    try:
+        latest = github_source.latest_sha()
+    except Exception:
+        return result
+
+    freshness = _github_freshness(current.sha, latest)
+    result.update(freshness)
+    result["deploymentEligible"] = bool(
+        freshness.get("verified") and freshness.get("state") == "current"
+    )
+    return result
+
+
+def _require_authoritative_source_current(source) -> dict:
+    preflight = _authoritative_source_preflight(source)
+    if preflight.get("required") and not preflight.get("deploymentEligible"):
+        relation = str(preflight.get("state") or "unverified")
+        raise RuntimeError(
+            "déploiement bloqué: fraîcheur GitHub du contrôleur " + relation
+        )
+    return preflight
+
+
 def status() -> dict:
     source = _source_state()
     return {
@@ -515,7 +550,10 @@ def update_status(name: str) -> dict:
         ROOT,
         timeout=30,
     )
+    preflight = _authoritative_source_preflight(source)
     result["sourceBuildCapable"] = True
+    result["controllerFreshness"] = preflight
+    result["deploymentEligible"] = bool(preflight.get("deploymentEligible", True))
     return result
 
 
@@ -698,6 +736,8 @@ def start_job(
     source = _source_state()
     if action in {"install", "update"} and not source.build_capable:
         raise RuntimeError("source de build indisponible pour install/update")
+    if action in {"install", "update"}:
+        _require_authoritative_source_current(source)
     selected_sha = str(sha or "").strip().lower()
     if action in {"install", "update"} and not selected_sha:
         selected_sha = deployment_source.desired_sha(ROOT)
