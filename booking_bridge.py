@@ -367,6 +367,31 @@ def _appointment_at(value):
     raise ValueError('appointmentDate invalid')
 
 
+def authoritative_external_id_for_browser_token(ccid, cct):
+    ccid=analytics.clean(ccid,120)
+    cct=analytics.clean(cct,128)
+    if not ccid or not verify_browser_token(ccid,cct):
+        raise PermissionError('invalid browser token')
+    with analytics.connect() as db:
+        intent=db.execute(
+            'SELECT created_at,attribution_key FROM booking_intents WHERE token=? LIMIT 1',
+            (ccid,),
+        ).fetchone()
+        if not intent:
+            raise ValueError('unknown attribution token')
+        created=datetime.datetime.fromisoformat(str(intent['created_at']).replace('Z','+00:00'))
+        if datetime.datetime.now(datetime.timezone.utc)-created>datetime.timedelta(hours=BOOKING_BROWSER_TOKEN_TTL_HOURS):
+            raise ValueError('attribution token expired')
+        token_key=str(intent['attribution_key'] or '') or _attribution_key(ccid)
+        row=_authoritative_conversion_for_token(db,token_key)
+    if not row or str(row['status']) not in CONFIRMED:
+        raise ValueError('confirmed booking required')
+    external_id=analytics.clean(row['external_id'],120)
+    if not external_id or external_id.startswith(_BROWSER_SYNTHETIC_PREFIX):
+        raise ValueError('authoritative booking reference required')
+    return external_id
+
+
 def authoritative_payment_basis(external_id):
     external_id=analytics.clean(external_id,120)
     if not external_id or external_id.startswith(_BROWSER_SYNTHETIC_PREFIX):
