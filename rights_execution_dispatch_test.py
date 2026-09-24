@@ -80,6 +80,46 @@ class RightsExecutionDispatchTest(unittest.TestCase):
             )
 
         self.assertEqual(execute.call_args.kwargs["purpose"], "direct_marketing_email")
+        self.assertFalse(execute.call_args.kwargs["resume_completed_erasure"])
+
+    def test_provider_erasure_recovery_requires_missing_local_receipt(self):
+        payload = {
+            "id": "a" * 32,
+            "subjectRef": "account:42",
+            "adapter": "privacy_suppression",
+            "purpose": "all_processing",
+        }
+        with (
+            mock.patch.object(
+                rights_execution_dispatch.review_followup_privacy,
+                "receipt",
+                return_value={"requestId": "a" * 32},
+            ),
+            mock.patch.object(
+                rights_execution_dispatch.booking_conversion_erasure,
+                "receipt",
+                return_value={"requestId": "a" * 32},
+            ),
+        ):
+            self.assertFalse(
+                rights_execution_dispatch._provider_erasure_recovery_needed(payload)
+            )
+
+        with (
+            mock.patch.object(
+                rights_execution_dispatch.review_followup_privacy,
+                "receipt",
+                return_value={"requestId": "a" * 32},
+            ),
+            mock.patch.object(
+                rights_execution_dispatch.booking_conversion_erasure,
+                "receipt",
+                return_value=None,
+            ),
+        ):
+            self.assertTrue(
+                rights_execution_dispatch._provider_erasure_recovery_needed(payload)
+            )
 
     def test_routes_bounded_rectification_with_exact_correction_object(self):
         correction = {
