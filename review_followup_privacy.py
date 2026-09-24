@@ -125,10 +125,12 @@ def erase_appointments(request_id: object, appointment_ids: Iterable[object]) ->
         db.execute("PRAGMA secure_delete=ON")
         db.execute("BEGIN IMMEDIATE")
         previous = db.execute(
-            """SELECT affected_rows,created_at FROM review_followup_privacy_receipt
-               WHERE request_id=?""",
+            """SELECT affected_rows,created_at,appointment_set_hash
+               FROM review_followup_privacy_receipt WHERE request_id=?""",
             (rid,),
         ).fetchone()
+        if previous and str(previous["appointment_set_hash"]) != appointment_set_hash:
+            raise RuntimeError("inventaire Mercure modifié pour le même requestId")
         affected_now = _delete_matching(db, clean) if clean else 0
         remaining = _count_matching(db, clean) if clean else 0
         if remaining:
@@ -152,7 +154,6 @@ def erase_appointments(request_id: object, appointment_ids: Iterable[object]) ->
                  remaining_active_rows,evidence_hash,created_at,verified_at
                ) VALUES(?,?,?,?,?,?,?,?)
                ON CONFLICT(request_id) DO UPDATE SET
-                 appointment_set_hash=excluded.appointment_set_hash,
                  appointment_count=excluded.appointment_count,
                  affected_rows=excluded.affected_rows,
                  remaining_active_rows=excluded.remaining_active_rows,
