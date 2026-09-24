@@ -8,6 +8,7 @@ import time
 from urllib.parse import urlsplit
 
 import rights_completion_admin_route
+import payment_payline_private
 from payment_contract_store import (ContractStore, ContractInvalid, ContractConflict,
                                     MAX_BYTES, parse_json)
 
@@ -78,6 +79,7 @@ def handle(handler, *, secret: str) -> bool:
                 raise ContractInvalid("incomplete_body")
             result = store.update(parse_json(raw))
         result["csrfToken"] = csrf_token(secret, handler.headers)
+        result["runtime"] = payment_payline_private.status()
         handler.send_json(result)
     except ContractConflict:
         return reject("payments_contract_conflict_reload", 409)
