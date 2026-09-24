@@ -100,6 +100,19 @@ class PaymentStateMachineRegressionTest(unittest.TestCase):
             self.store._apply_verified(event)
         self.assertEqual(self.store.get(self.intent.payment_id).state,"created")
 
+    def test_long_valid_payline_session_token_survives_verified_event_boundary(self):
+        token="T"*70
+        quote=core.Quote("mercure:long-token","technical",8000,"b"*64)
+        created=self.store.create(quote,"payline")
+        bound=self.store.bind_provider(created.payment_id,token)
+        event=payline.parse_details_response(
+            details_xml(created.payment_id,"TXN_LONG_TOKEN","00000","ACCEPTED"),
+            bound,
+            token,
+        )
+        self.assertEqual(event.provider_reference,token)
+        self.assertEqual(self.store._apply_verified(event).state,"captured")
+
     def test_malformed_provider_transaction_id_is_rejected_not_sanitized(self):
         with self.assertRaisesRegex(core.PaymentError,"^payline_transaction_invalid$"):
             payline.parse_details_response(
