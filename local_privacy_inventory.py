@@ -9,9 +9,10 @@ reviewed; callers must not infer completeness from the absence of a row here.
 """
 
 import analytics_store
+import booking_conversion_reconciliation
 
 
-INVENTORY_SCOPE = "known-local-privacy-stores-v1"
+INVENTORY_SCOPE = "known-local-privacy-stores-v2"
 
 
 def _row(
@@ -39,9 +40,45 @@ def _row(
     }
 
 
+def _booking_observability(state: object) -> dict:
+    """Normalize only aggregate, non-identifying booking reconciliation evidence."""
+    row = state if isinstance(state, dict) else {}
+    available = row.get("available") is True
+    return {
+        "available": available,
+        "state": str(row.get("state") or ("unavailable" if not available else "")),
+        "unresolvedSyntheticRows": max(0, int(row.get("unresolvedSyntheticRows") or 0)),
+        "syntheticRowsWithoutAttribution": max(
+            0, int(row.get("syntheticRowsWithoutAttribution") or 0)
+        ),
+        "localResidualRows": max(0, int(row.get("localResidualRows") or 0)),
+        "providerIdInferenceUsed": row.get("providerIdInferenceUsed") is True,
+        "providerCoverageProven": row.get("providerCoverageProven") is True,
+    }
+
+
 def snapshot() -> dict:
     analytics = analytics_store.privacy_profile()
     analytics_subject_keyed = bool(analytics.get("subjectKeyed"))
+    booking_observability = _booking_observability(
+        booking_conversion_reconciliation.status()
+    )
+
+    booking_row = _row(
+        "booking_conversions",
+        "booking_conversion_erasure",
+        "provider_appointment_reference_with_minimized_attribution",
+        "partial_wired",
+        subject_erasure_applicable=True,
+        adapter="privacy_suppression",
+        binding_source="mercure_rights.operationalInventory.appointments",
+        prerequisite="mercure_provider_inventory_attested_and_complete",
+        limitation="direct_mercure_subject_ref_and_provider_external_id_only_browser_synthetic_unresolved",
+    )
+    # This evidence is deliberately diagnostic only. Even when every currently
+    # persisted browser placeholder has been reconciled, a zero local residual
+    # count does not prove that Mercure exposed every provider-side appointment.
+    booking_row["observability"] = booking_observability
 
     stores = [
         _row(
@@ -110,17 +147,7 @@ def snapshot() -> dict:
             prerequisite="mercure_provider_inventory_attested_and_complete",
             limitation="direct_mercure_subject_ref_only",
         ),
-        _row(
-            "booking_conversions",
-            "booking_conversion_erasure",
-            "provider_appointment_reference_with_minimized_attribution",
-            "partial_wired",
-            subject_erasure_applicable=True,
-            adapter="privacy_suppression",
-            binding_source="mercure_rights.operationalInventory.appointments",
-            prerequisite="mercure_provider_inventory_attested_and_complete",
-            limitation="direct_mercure_subject_ref_and_provider_external_id_only_browser_synthetic_unresolved",
-        ),
+        booking_row,
     ]
 
     unresolved_states = {"unresolved", "conditional_unwired", "partial_wired"}
@@ -142,8 +169,10 @@ def snapshot() -> dict:
                 analytics.get("obviousSubjectIdentifiersRedacted")
             ),
         },
+        "bookingConversionReconciliation": booking_observability,
         "limitations": [
             "inventory_scope_not_yet_exhaustive",
             "provider_reference_stores_require_attested_subject_appointment_inventory",
+            "local_booking_reconciliation_does_not_prove_provider_coverage",
         ],
     }
