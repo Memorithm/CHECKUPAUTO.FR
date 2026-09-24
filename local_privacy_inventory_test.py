@@ -14,6 +14,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
 
         self.assertFalse(state["inventoryComplete"])
         self.assertFalse(state["knownExecutionCoverageComplete"])
+        self.assertEqual(state["scope"], "known-local-privacy-stores-v2")
         self.assertEqual(
             set(state["unresolvedStores"]),
             {"review_followup", "booking_conversions"},
@@ -42,6 +43,65 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
             "browser_synthetic_unresolved",
             rows["booking_conversions"]["limitation"],
         )
+        self.assertEqual(
+            rows["booking_conversions"]["observability"],
+            state["bookingConversionReconciliation"],
+        )
+
+    def test_zero_local_booking_residuals_do_not_close_provider_backed_store(self):
+        observed = {
+            "available": True,
+            "state": "clear",
+            "unresolvedSyntheticRows": 0,
+            "syntheticRowsWithoutAttribution": 0,
+            "localResidualRows": 0,
+            "providerIdInferenceUsed": False,
+            "providerCoverageProven": False,
+        }
+        with mock.patch.object(
+            inventory.booking_conversion_reconciliation,
+            "status",
+            return_value=observed,
+        ):
+            state = inventory.snapshot()
+
+        row = self.by_store(state)["booking_conversions"]
+        self.assertEqual(row["observability"]["state"], "clear")
+        self.assertEqual(row["observability"]["localResidualRows"], 0)
+        self.assertFalse(row["observability"]["providerCoverageProven"])
+        self.assertEqual(row["executionState"], "partial_wired")
+        self.assertIn("booking_conversions", state["unresolvedStores"])
+        self.assertFalse(state["knownExecutionCoverageComplete"])
+        self.assertIn(
+            "local_booking_reconciliation_does_not_prove_provider_coverage",
+            state["limitations"],
+        )
+
+    def test_residual_booking_counts_are_aggregate_only_and_remain_partial(self):
+        observed = {
+            "available": True,
+            "state": "residual",
+            "unresolvedSyntheticRows": 7,
+            "syntheticRowsWithoutAttribution": 2,
+            "localResidualRows": 9,
+            "providerIdInferenceUsed": False,
+            "providerCoverageProven": False,
+        }
+        with mock.patch.object(
+            inventory.booking_conversion_reconciliation,
+            "status",
+            return_value=observed,
+        ):
+            state = inventory.snapshot()
+
+        booking = state["bookingConversionReconciliation"]
+        self.assertEqual(booking["unresolvedSyntheticRows"], 7)
+        self.assertEqual(booking["syntheticRowsWithoutAttribution"], 2)
+        self.assertEqual(booking["localResidualRows"], 9)
+        self.assertFalse(booking["providerIdInferenceUsed"])
+        self.assertFalse(booking["providerCoverageProven"])
+        self.assertNotIn("externalId", repr(booking))
+        self.assertNotIn("attributionToken", repr(booking))
 
     def test_analytics_is_not_given_an_invented_subject_erasure_path(self):
         state = inventory.snapshot()
