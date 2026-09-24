@@ -115,13 +115,27 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         self.assertEqual(handler.response["status"], 400)
         self.assertEqual(self.store.get(self.intent.payment_id).state, "created")
 
-    def test_cancel_redirect_never_mutates_payment_state(self):
+    def test_cancel_redirect_is_only_a_trigger_for_authenticated_provider_reread(self):
         handler = Handler("/payment/payline/cancel?paymentId=" + self.intent.payment_id + "&status=success")
-        with patch.object(routes.payline, "refresh", side_effect=AssertionError("cancel must not call provider")):
+        event=core.VerifiedEvent(
+            self.intent.payment_id,"payline",self.intent.provider_reference,
+            "payline:cancel:fixture","cancelled",8000,"",
+        )
+        with patch.object(private_config,"load",return_value=object()), \
+             patch.object(routes.payline, "refresh", return_value=event) as refresh:
             self.assertTrue(routes.handle(handler))
         self.assertEqual(handler.response["status"], 200)
-        self.assertEqual(self.store.get(self.intent.payment_id).state, "created")
-        self.assertIn(b"interrompu", handler.response["data"])
+        self.assertEqual(self.store.get(self.intent.payment_id).state, "cancelled")
+        self.assertIn(b"Paiement annul", handler.response["data"])
+        refresh.assert_called_once()
+
+    def test_cancel_redirect_cannot_forge_success(self):
+        handler = Handler("/payment/payline/cancel?paymentId=" + self.intent.payment_id + "&status=captured")
+        with patch.object(private_config,"load",return_value=object()), \
+             patch.object(routes.payline,"refresh",side_effect=core.PaymentError("payline_result_state_unknown")):
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],400)
+        self.assertEqual(self.store.get(self.intent.payment_id).state,"created")
 
     def test_notification_token_is_only_a_trigger_for_authenticated_reread(self):
         handler = Handler("/api/payments/payline/notify?notificationType=webtrs&token=TOKEN_FIXTURE_123&status=captured&amount=1")
