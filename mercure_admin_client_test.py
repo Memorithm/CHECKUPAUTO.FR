@@ -69,10 +69,10 @@ class MercureSchemaTest(unittest.TestCase):
     def test_synthetic_creation_verification_failure_best_effort_removes_created_slot(self, service, events, session):
         service.return_value={"duration":75,"id":"11"}
         browser=Mock()
-        created=Mock(status_code=200)
+        created=Mock(status_code=200,text="")
         created.raise_for_status.return_value=None
         created.json.return_value={"id":"RDV-TEST-987"}
-        removed=Mock(status_code=200)
+        removed=Mock(status_code=200,text="")
         browser.post.side_effect=[created,removed]
         session.return_value=browser
         events.side_effect=RuntimeError("calendar temporarily unavailable")
@@ -91,10 +91,10 @@ class MercureSchemaTest(unittest.TestCase):
     def test_synthetic_creation_missing_calendar_event_also_removes_created_slot(self, service, events, session):
         service.return_value={"duration":75,"id":"11"}
         browser=Mock()
-        created=Mock(status_code=200)
+        created=Mock(status_code=200,text="")
         created.raise_for_status.return_value=None
         created.json.return_value={"id":"RDV-TEST-654"}
-        removed=Mock(status_code=200)
+        removed=Mock(status_code=200,text="")
         browser.post.side_effect=[created,removed]
         session.return_value=browser
         events.return_value=[]
