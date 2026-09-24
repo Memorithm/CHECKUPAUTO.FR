@@ -126,6 +126,33 @@ def start_payline_for_browser(ccid: str, cct: str, *, starter=None) -> dict:
               WHERE payment_id=? AND state='attempting'""",
               (result.token,result.redirect_url,dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),intent.payment_id))
             db.commit()
+        except PaymentError as exc:
+            if str(exc) == "payline_start_refused":
+                # A provider-level refusal is definitive: no hosted-payment
+                # session was created, so keeping an "indeterminate" lock would
+                # incorrectly prevent a corrected retry. Remove only this
+                # pre-session attempt marker; the server-authoritative payment
+                # intent remains unchanged.
+                try:
+                    db.execute("BEGIN IMMEDIATE")
+                    db.execute(
+                        "DELETE FROM payment_provider_starts WHERE payment_id=? AND state='attempting'",
+                        (intent.payment_id,),
+                    )
+                    db.commit()
+                except Exception:
+                    pass
+                raise
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("""UPDATE payment_provider_starts
+                  SET state='indeterminate',updated_at=?
+                  WHERE payment_id=? AND state='attempting'""",
+                  (dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),intent.payment_id))
+                db.commit()
+            except Exception:
+                pass
+            raise
         except Exception:
             try:
                 db.execute("BEGIN IMMEDIATE")
