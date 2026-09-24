@@ -109,6 +109,83 @@ function renderRuntimeProvenance(runtime) {
   if (matchEl) matchEl.textContent = baselineMatch;
 }
 
+function readinessPublicProbeLabel(state) {
+  const labels = {
+    'verified': 'VÉRIFIÉE',
+    'deferred': 'DIFFÉRÉE',
+    'redirected': 'REDIRECTION',
+    'marker_not_found': 'MARQUEUR ABSENT',
+    'unavailable': 'INDISPONIBLE',
+    'invalid_marker': 'MARQUEUR INVALIDE',
+    'surface_mismatch': 'SURFACE INATTENDUE',
+    'invalid_content_type': 'CONTENU INVALIDE',
+    'response_too_large': 'RÉPONSE TROP GRANDE',
+    'unexpected_status': 'STATUT INATTENDU',
+    'http_error': 'ERREUR HTTP',
+    'canonical_url_invalid': 'URL CANONIQUE INVALIDE',
+    'probe_error': 'ERREUR DE SONDE',
+    'invalid_probe_result': 'RÉSULTAT INVALIDE',
+  };
+  return labels[state] || 'NON VÉRIFIÉ';
+}
+
+function ensurePublicSurfaceProvenancePanel() {
+  const section = readinessEl('readiness');
+  if (!section) return null;
+  const existing = readinessEl('readinessPublicSurfaceProvenance');
+  if (existing) return existing;
+
+  const panel = document.createElement('div');
+  panel.id = 'readinessPublicSurfaceProvenance';
+  panel.className = 'integration-box';
+
+  const heading = document.createElement('div');
+  heading.className = 'panel-head compact';
+  const copy = document.createElement('div');
+  const title = document.createElement('h3');
+  title.textContent = 'Preuve de surface publique CyberCheck';
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = 'La publication reste bloquée tant que la surface réellement servie par www.checkupauto.fr n’est pas prouvée par le marqueur CyberCheck. La sonde est volontairement différée tant que l’indexation publique est désactivée.';
+  copy.append(title, hint);
+  heading.appendChild(copy);
+
+  const grid = document.createElement('div');
+  grid.className = 'metric-grid';
+  grid.append(
+    readinessRuntimeCard('URL CANONIQUE', 'readinessPublicCanonical'),
+    readinessRuntimeCard('ACTIVATION PUBLIQUE', 'readinessPublicActivation'),
+    readinessRuntimeCard('SONDE DE SURFACE', 'readinessPublicProbe'),
+    readinessRuntimeCard('PREUVE DE SURFACE', 'readinessPublicVerified'),
+  );
+  panel.append(heading, grid);
+
+  const table = section.querySelector('.table-scroll');
+  if (table) table.before(panel);
+  else section.appendChild(panel);
+  return panel;
+}
+
+function renderPublicSurfaceProvenance(items) {
+  ensurePublicSurfaceProvenancePanel();
+  const components = Array.isArray(items) ? items : [];
+  const component = components.find(item => item && item.id === 'public_site') || {};
+  const metrics = component.metrics && typeof component.metrics === 'object' ? component.metrics : {};
+  const canonical = metrics.canonicalValid === true ? 'VALIDE' : 'NON VÉRIFIÉE';
+  const activation = metrics.activationRequested === true ? 'DEMANDÉE' : 'DÉSACTIVÉE';
+  const probe = readinessPublicProbeLabel(metrics.publicSurfaceProbeState);
+  const verified = metrics.publicSurfaceVerified === true ? 'VÉRIFIÉE' : 'NON VÉRIFIÉE';
+
+  const canonicalEl = readinessEl('readinessPublicCanonical');
+  const activationEl = readinessEl('readinessPublicActivation');
+  const probeEl = readinessEl('readinessPublicProbe');
+  const verifiedEl = readinessEl('readinessPublicVerified');
+  if (canonicalEl) canonicalEl.textContent = canonical;
+  if (activationEl) activationEl.textContent = activation;
+  if (probeEl) probeEl.textContent = probe;
+  if (verifiedEl) verifiedEl.textContent = verified;
+}
+
 function renderReadinessComponents(items) {
   const body = readinessEl('readinessComponents');
   if (!body) return;
@@ -142,6 +219,7 @@ async function loadProductionReadiness() {
     const counts = data.counts || {};
     const gate = data.activationGate || {};
     const activationAllowed = gate.allowed === true;
+    const components = Array.isArray(data.components) ? data.components : [];
     readinessEl('readinessLaunch').textContent = activationAllowed ? 'PRÊT' : 'BLOQUÉ';
     const gateReason = readinessEl('readinessGateReason');
     if (gateReason) {
@@ -155,7 +233,8 @@ async function loadProductionReadiness() {
     readinessEl('readinessExternal').textContent = counts.blocked_external || 0;
     readinessEl('readinessDegraded').textContent = counts.degraded || 0;
     renderRuntimeProvenance(data.runtime);
-    renderReadinessComponents(Array.isArray(data.components) ? data.components : []);
+    renderPublicSurfaceProvenance(components);
+    renderReadinessComponents(components);
     if (badge) {
       badge.textContent = readinessLabel(data.state);
       badge.className = data.state === 'ready' ? 'gsc-status online' : data.state === 'degraded' ? 'gsc-status offline' : 'gsc-status warning';
@@ -166,6 +245,7 @@ async function loadProductionReadiness() {
       badge.className = 'gsc-status offline';
     }
     renderRuntimeProvenance({});
+    renderPublicSurfaceProvenance([]);
     renderReadinessComponents([]);
   }
 }
