@@ -6,18 +6,23 @@ Payline over authenticated TLS. Browser query strings never mutate payment state
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
+import secrets
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import payment_payline as payline
+import payment_checkout as checkout
 import payment_payline_private as private_config
 from payment_core import PaymentError, SandboxJournal
 
 RETURN_ROUTE = "/payment/payline/return"
 CANCEL_ROUTE = "/payment/payline/cancel"
 NOTIFY_ROUTE = "/api/payments/payline/notify"
+START_ROUTE = "/api/payments/payline/start"
+CHECKOUT_ROUTE = "/payment/payline/checkout"
 
 
 def journal_path() -> Path:
@@ -159,10 +164,96 @@ def _notify(handler, query: str) -> bool:
     return True
 
 
+def _checkout_page(handler) -> bool:
+    nonce=secrets.token_urlsafe(18)
+    handler._csp_nonce=nonce
+    nonce_attr=html.escape(nonce,quote=True)
+    start_route=json.dumps(START_ROUTE)
+    document=f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Paiement sécurisé | Checkup Auto</title>
+<style>
+body{{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f6f1;color:#17372b}}
+main{{max-width:760px;margin:auto;padding:64px 22px}}.card{{background:#fff;border:1px solid #dbe1d8;border-radius:24px;padding:32px}}
+.eyebrow{{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#66776e}}h1{{font-size:clamp(34px,7vw,60px);letter-spacing:-.045em;margin:.3em 0}}
+p{{line-height:1.65;color:#40584d}}button{{border:0;border-radius:999px;padding:15px 22px;background:#17372b;color:white;font-weight:700;cursor:pointer}}
+button:disabled{{opacity:.45;cursor:wait}}a{{color:#1f5845}}.status{{margin-top:18px;padding:14px 16px;border-radius:14px;background:#f0f3ef}}
+.secure{{display:flex;gap:10px;align-items:center;font-size:13px;color:#66776e;margin-top:20px}}
+</style></head><body><main><a href="/">← Checkup Auto</a><div class="card">
+<div class="eyebrow">CHECKUP AUTO · PAIEMENT</div><h1>Finaliser le paiement.</h1>
+<p>Le montant et la prestation sont relus côté serveur depuis votre réservation confirmée. Les données de carte sont saisies uniquement sur la page bancaire Payline / Monext.</p>
+<button id="pay" type="button">Continuer vers le paiement sécurisé</button>
+<div id="status" class="status" role="status" aria-live="polite">Vérification de votre réservation…</div>
+<div class="secure">🔒 Aucun numéro de carte ni cryptogramme n’est traité par Checkup Auto.</div>
+</div></main>
+<script nonce="{nonce_attr}">
+(()=>{{'use strict';
+const button=document.getElementById('pay'),status=document.getElementById('status');
+const params=new URLSearchParams(location.hash.slice(1)),ccid=params.get('ccid')||'',cct=params.get('cct')||'';
+history.replaceState(null,'',location.pathname);
+if(!ccid||!cct){{button.disabled=true;status.textContent='Lien de paiement incomplet. Revenez à votre réservation.';return;}}
+status.textContent='Réservation identifiée. Le paiement ne démarre qu’après votre clic.';
+button.addEventListener('click',async()=>{{
+ button.disabled=true;status.textContent='Préparation du paiement sécurisé…';
+ try{{
+  const r=await fetch({start_route},{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid,cct}})}});
+  const data=await r.json().catch(()=>({{}}));
+  if(r.ok&&data.ok&&typeof data.redirectUrl==='string'&&data.redirectUrl.startsWith('https://')){{location.assign(data.redirectUrl);return;}}
+  if(data.error==='authoritative_booking_required')status.textContent='La réservation est confirmée côté navigateur mais son rapprochement Mercure est encore en cours. Réessayez dans quelques instants.';
+  else if(data.error==='payment_provider_not_configured')status.textContent='Le paiement bancaire est en cours de configuration. Votre réservation reste enregistrée et aucun débit n’a été tenté.';
+  else if(data.error==='payment_start_reconciliation_required')status.textContent='Une tentative précédente doit être vérifiée avant de relancer un paiement. Aucun nouvel encaissement automatique ne sera tenté.';
+  else status.textContent='Le paiement ne peut pas être préparé pour le moment. Aucun débit n’a été tenté.';
+ }}catch(_e){{status.textContent='Connexion momentanément indisponible. Aucun débit n’a été tenté.';}}
+ finally{{button.disabled=false;}}
+}});
+}})();
+</script></body></html>""".encode("utf-8")
+    handler.send_bytes(
+        document,
+        "text/html; charset=utf-8",
+        200,
+        "no-store",
+        {"X-Robots-Tag":"noindex, nofollow, noarchive"},
+    )
+    return True
+
+
+def _start(handler) -> bool:
+    if not handler._admin_origin_ok() or handler.headers.get("Sec-Fetch-Site","")=="cross-site":
+        handler.send_json({"ok":False,"error":"payment_origin_not_allowed"},403)
+        return True
+    if handler.headers.get("Content-Type","").split(";",1)[0].strip().lower()!="application/json":
+        handler.send_json({"ok":False,"error":"payment_content_type_invalid"},415)
+        return True
+    try:
+        payload=handler._read_json()
+        if not isinstance(payload,dict) or set(payload)!={"ccid","cct"}:
+            raise PaymentError("payment_start_payload_invalid")
+        result=checkout.start_payline_for_browser(payload.get("ccid"),payload.get("cct"))
+    except private_config.PaylinePrivateConfigurationError:
+        handler.send_json({"ok":False,"error":"payment_provider_not_configured"},503,{"Retry-After":"60"})
+        return True
+    except PaymentError as exc:
+        code=str(exc)
+        status=409 if code=="payment_start_reconciliation_required" else 400
+        handler.send_json({"ok":False,"error":code},status)
+        return True
+    except Exception:
+        handler.send_json({"ok":False,"error":"payment_start_unavailable"},503,{"Retry-After":"30"})
+        return True
+    handler.send_json({"ok":True,**result},201 if not result.get("reused") else 200)
+    return True
+
+
 def handle(handler) -> bool:
+    parsed = urlsplit(handler.path)
+    if getattr(handler, "command", "") == "POST" and parsed.path == START_ROUTE:
+        return _start(handler)
     if getattr(handler, "command", "") != "GET":
         return False
-    parsed = urlsplit(handler.path)
+    if parsed.path == CHECKOUT_ROUTE:
+        return _checkout_page(handler)
     if parsed.path == RETURN_ROUTE:
         return _browser_result(handler, parsed.query)
     if parsed.path == CANCEL_ROUTE:

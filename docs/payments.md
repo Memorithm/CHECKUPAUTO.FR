@@ -84,6 +84,14 @@ La création exige également une preuve finale d'acceptation des CGV associée 
 
 Cette tranche crée seulement une intention interne sandbox et ne contacte pas Payline. Les portes `providerStartBound`, `publicStartRouteBound` et `livePaymentsEnabled` restent donc fermées. Cette séparation évite qu'un prix, un service ou une acceptation de CGV envoyés par le navigateur deviennent une autorité de paiement.
 
+## Démarrage checkout sandbox raccordé le 24 septembre 2026
+
+Le parcours serveur comprend désormais `POST /api/payments/payline/start`. Cette route n'accepte **ni montant, ni prestation, ni référence Mercure brute**. Le navigateur fournit uniquement son couple `ccid` / `cct` déjà signé par CheckupAuto ; le serveur retrouve la conversion Mercure autoritaire, relit le prix et la preuve de CGV, crée l'intention interne puis appelle `doWebPayment`.
+
+Le démarrage est idempotent après une réponse fournisseur confirmée : le même rendez-vous restitue la même URL hébergée Payline sans créer un nouvel appel. Si l'appel réseau est ambigu (timeout ou rupture après envoi), l'intention passe dans un état de démarrage `indeterminate` et **aucune relance automatique vers Payline n'est effectuée**. Une réconciliation explicite est alors requise, afin d'éviter deux sessions bancaires concurrentes.
+
+Le checkout reste strictement en environnement d'homologation. Une configuration privée Payline absente retourne un échec fermé et n'empoisonne pas l'intention pour une tentative ultérieure après configuration. `livePaymentsEnabled=false` demeure inchangé.
+
 ## Accès à préparer avec Monext
 
 Les données à obtenir depuis le **compte marchand Payline**, séparément pour les tests, sont :

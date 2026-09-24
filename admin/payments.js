@@ -1,6 +1,6 @@
 'use strict';
 (() => {
- const $=s=>document.querySelector(s), route='/api/admin/payments/contract';
+ const $=s=>document.querySelector(s), route='/api/admin/payments/contract', activityRoute='/api/admin/payments/activity';
  let snapshot=null, dirty=false, busy=false;
  const message=(text,error=false)=>{$('#paymentsMessage').textContent=text;$('#paymentsMessage').classList.toggle('error',error);};
  const setBusy=value=>{busy=value;$('#paymentsEditor').disabled=value||!snapshot;};
@@ -56,9 +56,28 @@
   if(!response.ok)throw new Error(response.status===400?'Fiche refusée : vérifier les champs et leurs formats. Aucun changement enregistré.':'Configuration indisponible. Aucun succès d’enregistrement confirmé.');
   const data=await response.json();if(!data.ok||data.provider!=='payline_monext'||!Array.isArray(data.schema)||!data.runtime)throw new Error('Réponse de configuration invalide.');return data;
  }
+ async function loadActivity(){
+  const response=await fetch(activityRoute,{cache:'no-store',credentials:'same-origin'});
+  if(response.status===401||response.status===403)throw new Error('Authentification requise pour l’activité des paiements.');
+  if(!response.ok)throw new Error('Activité des paiements indisponible.');
+  const data=await response.json();
+  if(!data.ok||!data.summary||!Array.isArray(data.transactions))throw new Error('Réponse activité paiements invalide.');
+  const summary=data.summary,root=$('#paymentsActivitySummary');root.replaceChildren();
+  const values=[['Intentions',summary.total],['Capturés',summary.captured],['En attente',summary.pending],['Refusés',summary.declined],['Démarrages à réconcilier',summary.indeterminateStarts]];
+  for(const [label,value] of values){const p=document.createElement('p'),strong=document.createElement('strong');strong.textContent=label+' : ';p.append(strong,document.createTextNode(String(value)));root.append(p);}
+  const body=$('#paymentsActivity');body.replaceChildren();
+  for(const row of data.transactions){
+   const tr=document.createElement('tr');
+   const stateLabels={created:'Créé',pending:'En attente',declined:'Refusé',authorized:'Autorisé',captured:'Capturé'};
+   const startLabels={ready:'Prêt',attempting:'Démarrage',indeterminate:'À réconcilier','':'—'};
+   const values=[row.createdAt,row.paymentId.slice(0,12)+'…',(row.amountCents/100).toFixed(2)+' '+row.currency,stateLabels[row.state]||row.state,startLabels[row.startState]||row.startState];
+   for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}body.append(tr);
+  }
+  if(!data.transactions.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='Aucune intention de paiement enregistrée.';tr.append(td);body.append(tr);}
+ }
  async function reload(){
   if(busy)return;if(dirty&&!confirm('Abandonner les modifications non enregistrées et recharger ?'))return;
-  setBusy(true);try{show(await request());$('#paymentsAuth').hidden=true;message('Fiche chargée — version '+snapshot.revision+'. Paiements réels désactivés.');}catch(e){message(e.message,true);}finally{setBusy(false);}
+  setBusy(true);try{show(await request());await loadActivity();$('#paymentsAuth').hidden=true;message('Fiche chargée — version '+snapshot.revision+'. Paiements réels désactivés.');}catch(e){message(e.message,true);}finally{setBusy(false);}
  }
  $('#paymentsForm').addEventListener('submit',async event=>{
   event.preventDefault();if(busy||!snapshot)return;

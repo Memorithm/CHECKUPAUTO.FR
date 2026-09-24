@@ -1,3 +1,5 @@
+import io
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -10,16 +12,35 @@ import payment_payline_private as private_config
 
 
 class Handler:
-    command = "GET"
-    def __init__(self, path):
+    def __init__(self, path, *, command="GET", payload=None, origin_ok=True, sec_fetch_site="same-origin"):
         self.path = path
+        self.command = command
         self.response = None
+        self._origin_ok = origin_ok
+        raw = b"" if payload is None else json.dumps(payload).encode("utf-8")
+        self.rfile = io.BytesIO(raw)
+        self.headers = {
+            "Content-Type": "application/json",
+            "Content-Length": str(len(raw)),
+            "Sec-Fetch-Site": sec_fetch_site,
+        }
+    def _admin_origin_ok(self):
+        return self._origin_ok
+    def _read_json(self):
+        length=int(self.headers.get("Content-Length","0"))
+        return json.loads(self.rfile.read(length))
     def send_bytes(self, data, ctype, status=200, cache="no-store", headers=None):
         self.response = {
             "data": data,
             "ctype": ctype,
             "status": status,
             "cache": cache,
+            "headers": headers or {},
+        }
+    def send_json(self, data, status=200, headers=None):
+        self.response = {
+            "json": data,
+            "status": status,
             "headers": headers or {},
         }
 
@@ -96,6 +117,82 @@ class PaylineHttpRoutesTest(unittest.TestCase):
             self.assertTrue(routes.handle(handler))
         self.assertEqual(handler.response["status"], 503)
         self.assertEqual(self.store.get(self.intent.payment_id).state, "created")
+
+
+
+    def test_checkout_page_is_first_party_noindex_and_contains_no_payment_secret(self):
+        handler=Handler(routes.CHECKOUT_ROUTE)
+        self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],200)
+        body=handler.response["data"]
+        self.assertIn(b"Paiement s",body)
+        self.assertIn(b"Payline / Monext",body)
+        self.assertIn(b"location.hash",body)
+        self.assertNotIn(b"merchantId",body)
+        self.assertNotIn(b"accessKey",body)
+        self.assertNotIn(b"contractNumber",body)
+        self.assertIn("noindex",handler.response["headers"]["X-Robots-Tag"])
+
+    def test_public_start_route_accepts_only_server_bound_browser_identity(self):
+        handler=Handler(
+            routes.START_ROUTE,
+            command="POST",
+            payload={"ccid":"ccid-fixture","cct":"cct-fixture"},
+        )
+        result={
+            "paymentId":"a"*32,
+            "provider":"payline",
+            "environment":"sandbox",
+            "state":"created",
+            "amountCents":8000,
+            "currency":"EUR",
+            "redirectUrl":"https://homologation-webpayment.payline.com/webpayment/?token=TOKEN_FIXTURE_123",
+            "reused":False,
+        }
+        with patch.object(routes.checkout,"start_payline_for_browser",return_value=result) as start:
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],201)
+        self.assertTrue(handler.response["json"]["ok"])
+        self.assertNotIn("merchantId",json.dumps(handler.response["json"]))
+        start.assert_called_once_with("ccid-fixture","cct-fixture")
+
+    def test_public_start_route_rejects_cross_site_and_browser_amount(self):
+        cross=Handler(
+            routes.START_ROUTE,
+            command="POST",
+            payload={"ccid":"ccid-fixture","cct":"cct-fixture"},
+            sec_fetch_site="cross-site",
+        )
+        with patch.object(routes.checkout,"start_payline_for_browser") as start:
+            self.assertTrue(routes.handle(cross))
+        self.assertEqual(cross.response["status"],403)
+        start.assert_not_called()
+
+        forged=Handler(
+            routes.START_ROUTE,
+            command="POST",
+            payload={"ccid":"ccid-fixture","cct":"cct-fixture","amountCents":1},
+        )
+        with patch.object(routes.checkout,"start_payline_for_browser") as start:
+            self.assertTrue(routes.handle(forged))
+        self.assertEqual(forged.response["status"],400)
+        self.assertEqual(forged.response["json"]["error"],"payment_start_payload_invalid")
+        start.assert_not_called()
+
+    def test_public_start_route_fails_closed_without_provider_configuration(self):
+        handler=Handler(
+            routes.START_ROUTE,
+            command="POST",
+            payload={"ccid":"ccid-fixture","cct":"cct-fixture"},
+        )
+        with patch.object(
+            routes.checkout,
+            "start_payline_for_browser",
+            side_effect=private_config.PaylinePrivateConfigurationError("payline_private_missing"),
+        ):
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],503)
+        self.assertEqual(handler.response["json"]["error"],"payment_provider_not_configured")
 
     def test_non_payline_routes_are_ignored(self):
         handler = Handler("/api/mobile/bootstrap")

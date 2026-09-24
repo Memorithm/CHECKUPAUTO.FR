@@ -31,14 +31,14 @@ class PaymentContractRoutesTest(unittest.TestCase):
                     finally:
                         httpd.shutdown(); httpd.server_close(); thread.join(timeout=5)
 
-    def request(self, address, authorization='', payload=None, token=''):
+    def request(self, address, authorization='', payload=None, token='', path='/api/admin/payments/contract'):
         connection = http.client.HTTPConnection(*address, timeout=5)
         headers = {'Content-Type': 'application/json', 'Origin': 'http://' + address[0] + ':' + str(address[1])}
         if authorization: headers['Authorization'] = authorization
         if token: headers['X-CheckupAuto-Payments-CSRF'] = token
         body = None if payload is None else json.dumps(payload).encode()
         try:
-            connection.request('GET' if payload is None else 'POST', '/api/admin/payments/contract', body, headers)
+            connection.request('GET' if payload is None else 'POST', path, body, headers)
             response = connection.getresponse(); raw = response.read()
             return response.status, dict(response.getheaders()), json.loads(raw) if raw.startswith(b'{') else raw
         finally:
@@ -79,14 +79,29 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertEqual(runtime["provider"], "payline")
             self.assertTrue(runtime["transportImplemented"])
             self.assertFalse(runtime["livePaymentsEnabled"])
-            self.assertFalse(runtime["checkoutBound"])
+            self.assertTrue(runtime["checkoutBound"])
             self.assertTrue(runtime["checkoutBasis"]["authoritativeBookingBound"])
             self.assertTrue(runtime["checkoutBasis"]["serverAuthoritativePrice"])
             self.assertTrue(runtime["checkoutBasis"]["contractAcceptanceBound"])
-            self.assertFalse(runtime["checkoutBasis"]["publicStartRouteBound"])
+            self.assertTrue(runtime["checkoutBasis"]["publicStartRouteBound"])
             self.assertNotIn("merchantId", repr(runtime))
             self.assertNotIn("accessKey", repr(runtime))
             self.assertNotIn("contractNumber", repr(runtime))
+
+
+    def test_activity_route_is_authenticated_minimized_and_empty_by_default(self):
+        with self.server() as (address, authorization, private):
+            status, _, body = self.request(
+                address,
+                authorization,
+                path='/api/admin/payments/activity',
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(body['ok'])
+            self.assertEqual(body['summary']['total'], 0)
+            self.assertEqual(body['transactions'], [])
+            self.assertNotIn('booking_reference', repr(body))
+            self.assertNotIn('provider_reference', repr(body))
 
     def test_http_validation_never_returns_submitted_secret(self):
         with self.server() as (address, authorization, private):

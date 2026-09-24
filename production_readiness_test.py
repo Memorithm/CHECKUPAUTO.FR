@@ -100,6 +100,39 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertEqual(result["counts"]["ready"], len(result["components"]))
         self.assertTrue(all(item["remediation"] is None for item in result["components"]))
 
+    def test_payment_is_visible_but_not_blocking_when_not_required(self):
+        with mock.patch.dict(readiness.os.environ, {"CYBERCHECK_PAYMENT_REQUIRED":"0"}, clear=False):
+            result = self._run_with(healthy_patches())
+        payment = next(item for item in result["components"] if item["id"] == "payment")
+        self.assertEqual(payment["state"], "ready")
+        self.assertFalse(payment["critical"])
+        self.assertFalse(payment["metrics"]["required"])
+        self.assertTrue(result["launchReady"])
+
+    def test_required_payment_blocks_activation_until_monext_is_verified_live(self):
+        patches = healthy_patches()
+        patches.append(mock.patch.object(readiness.payment_payline_private, "status", return_value={
+            "provider":"payline",
+            "environment":"sandbox",
+            "configured":True,
+            "configurationValid":True,
+            "credentialsVerified":False,
+            "contractBindingVerified":False,
+            "transportImplemented":True,
+            "checkoutBound":True,
+            "callbacksBound":True,
+            "livePaymentsEnabled":False,
+            "blockingReasons":["payline_credentials_unverified"],
+        }))
+        with mock.patch.dict(readiness.os.environ, {"CYBERCHECK_PAYMENT_REQUIRED":"1"}, clear=False):
+            result = self._run_with(patches)
+        payment = next(item for item in result["components"] if item["id"] == "payment")
+        self.assertEqual(payment["state"], "blocked_external")
+        self.assertTrue(payment["critical"])
+        self.assertIn("payment", result["criticalBlockers"])
+        self.assertFalse(result["launchReady"])
+        self.assertEqual(payment["remediation"]["code"], "complete_payline_activation")
+
     def test_runtime_git_provenance_is_exposed_without_paths_or_secrets(self):
         patches = healthy_patches()
         runtime_sha = "a" * 40
