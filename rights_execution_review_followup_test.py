@@ -34,11 +34,17 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
                 "erase_for_mercure_subject",
                 return_value=review_result,
             ) as review,
+            mock.patch.object(
+                dispatch.booking_conversion_erasure,
+                "erase_for_mercure_subject",
+                return_value={"executed": True},
+            ) as booking,
         ):
             result = dispatch.execute(payload, "compliance.sqlite3")
 
         central.assert_called_once()
         review.assert_called_once_with("request-1", "account:42")
+        booking.assert_called_once_with("request-1", "account:42")
         self.assertEqual(result["reviewFollowupErasure"], review_result)
 
     def test_non_erasure_privacy_suppression_does_not_delete_review_followup(self):
@@ -62,10 +68,15 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
                 dispatch.review_followup_privacy,
                 "erase_for_mercure_subject",
             ) as review,
+            mock.patch.object(
+                dispatch.booking_conversion_erasure,
+                "erase_for_mercure_subject",
+            ) as booking,
         ):
             result = dispatch.execute(payload, "compliance.sqlite3")
 
         review.assert_not_called()
+        booking.assert_not_called()
         self.assertNotIn("reviewFollowupErasure", result)
 
 
