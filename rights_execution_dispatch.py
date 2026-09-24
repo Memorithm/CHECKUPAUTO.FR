@@ -71,17 +71,17 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             purpose=str(body.get("purpose") or ""),
             db_path=db_path,
         )
-        if adapter == "privacy_suppression":
+        if adapter == "privacy_suppression" and str(result.get("requestType") or "") == "erasure":
+            # The central adapter has already reverified the request/subject pair.
+            # Reuse that verified result rather than performing a second request
+            # lookup, which also keeps generic dispatcher tests independent from
+            # compliance-store fixtures.
             rid = data_subject_rights._request_id(body.get("id"))
-            request = data_subject_rights._request(rid, db_path)
-            if str(request["request_type"]) == "erasure":
-                result = dict(result)
-                result["reviewFollowupErasure"] = (
-                    review_followup_privacy.erase_for_mercure_subject(
-                        rid,
-                        body.get("subjectRef"),
-                    )
-                )
+            result = dict(result)
+            result["reviewFollowupErasure"] = review_followup_privacy.erase_for_mercure_subject(
+                rid,
+                body.get("subjectRef"),
+            )
         return result
 
     if adapter == rights_rectification.ADAPTER:
