@@ -7,7 +7,8 @@ import compliance_admin
 
 class CompliancePhase2GateTest(unittest.TestCase):
     def snapshot(self, *, global_coverage=True, mercure_attested=True,
-                 marketing_consent_bound=True, marketing_campaigns_bound=True):
+                 marketing_consent_bound=True, marketing_campaigns_bound=True,
+                 local_inventory_complete=True):
         base = {
             "summary": {
                 "identityComplete": True,
@@ -18,6 +19,16 @@ class CompliancePhase2GateTest(unittest.TestCase):
                 "overdueIncidentNotifications": 0,
             },
             "rightsRequests": [],
+        }
+        local_inventory = {
+            "scope": "test",
+            "inventoryComplete": local_inventory_complete,
+            "knownExecutionCoverageComplete": local_inventory_complete,
+            "knownStoreCount": 1,
+            "unresolvedStoreCount": 0 if local_inventory_complete else 1,
+            "unresolvedStores": [] if local_inventory_complete else ["test_store"],
+            "stores": [],
+            "limitations": [],
         }
         patches = [
             mock.patch.object(compliance_admin.compliance_store, "admin_snapshot", return_value=base),
@@ -82,6 +93,11 @@ class CompliancePhase2GateTest(unittest.TestCase):
             ),
             mock.patch.object(compliance_admin.mercure_provider_coverage, "capability", return_value={}),
             mock.patch.object(compliance_admin.data_subject_rights, "audit_rows", return_value=[]),
+            mock.patch.object(
+                compliance_admin.local_privacy_inventory,
+                "snapshot",
+                return_value=local_inventory,
+            ),
         ]
         with contextlib.ExitStack() as stack:
             for patcher in patches:
@@ -117,6 +133,17 @@ class CompliancePhase2GateTest(unittest.TestCase):
         self.assertFalse(state["summary"]["phase2CoverageReady"])
         self.assertIn("marketing_consent_unbound", state["summary"]["phase2Blockers"])
         self.assertIn("marketing_campaign_execution_unbound", state["summary"]["phase2Blockers"])
+        self.assertFalse(state["summary"]["readyForPublicContracting"])
+
+    def test_incomplete_local_privacy_inventory_blocks_public_contracting(self):
+        state = self.snapshot(local_inventory_complete=False)
+        self.assertFalse(state["summary"]["phase2CoverageReady"])
+        self.assertFalse(state["summary"]["localPrivacyInventoryComplete"])
+        self.assertEqual(state["summary"]["localPrivacyUnresolvedStoreCount"], 1)
+        self.assertIn(
+            "local_privacy_store_inventory_incomplete",
+            state["summary"]["phase2Blockers"],
+        )
         self.assertFalse(state["summary"]["readyForPublicContracting"])
 
 
