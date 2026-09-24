@@ -102,8 +102,7 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
     """A local syntax report, never an online authentication/readiness claim."""
     if config is not None and not isinstance(config, PaylineSandboxConfig):
         raise PaylineConfigurationError("payline_configuration_type_invalid")
-    blockers = ["provider_authentication_unverified", "contract_binding_unverified",
-                "checkout_not_bound"]
+    blockers = ["provider_authentication_unverified", "contract_binding_unverified"]
     if config is None:
         blockers.insert(0, "explicit_api_configuration_missing")
     return {
@@ -112,7 +111,7 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
         "configurationSyntaxValid": config is not None,
         "requiredFields": list(REQUIRED_FIELDS),
         "credentialsVerified": False, "contractBindingVerified": False,
-        "transportImplemented": True, "checkoutBound": False,
+        "transportImplemented": True, "checkoutBound": True,
         "httpCallbacksBound": True, "livePaymentsEnabled": False,
         "ready": False, "blockingReasons": blockers,
     }
