@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import booking_conversion_erasure
 import contract_subject_rights
 import data_subject_rights
 import mobile_dsar_erasure
@@ -34,10 +35,11 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
     uses a dedicated crash-recoverable boundary so the mobile receipt is durable
     before the separate compliance audit write.
 
-    Review follow-up is keyed only by provider appointment ids. After the central
-    privacy-suppression adapter has verified the rights request, an erasure may
-    therefore remove those local rows only when Mercure independently proves a
-    complete appointment inventory for the submitted provider subject reference.
+    Review follow-up and booking conversions are keyed only by provider
+    appointment ids. After the central privacy-suppression adapter has verified
+    the rights request, an erasure may therefore remove those local rows only
+    when Mercure independently proves a complete appointment inventory for the
+    submitted provider subject reference.
     """
     body = _payload(payload)
     adapter = str(body.get("adapter") or "").strip()
@@ -74,11 +76,15 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
         if adapter == "privacy_suppression" and str(result.get("requestType") or "") == "erasure":
             # The central adapter has already reverified the request/subject pair.
             # Reuse that verified result rather than performing a second request
-            # lookup, which also keeps generic dispatcher tests independent from
-            # compliance-store fixtures.
+            # lookup. Each provider-reference adapter remains independently
+            # fail-closed when the Mercure inventory is incomplete.
             rid = data_subject_rights._request_id(body.get("id"))
             result = dict(result)
             result["reviewFollowupErasure"] = review_followup_privacy.erase_for_mercure_subject(
+                rid,
+                body.get("subjectRef"),
+            )
+            result["bookingConversionErasure"] = booking_conversion_erasure.erase_for_mercure_subject(
                 rid,
                 body.get("subjectRef"),
             )
