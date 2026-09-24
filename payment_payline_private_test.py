@@ -29,6 +29,8 @@ class PaylinePrivateConfigurationTest(unittest.TestCase):
             self.assertFalse(status["configured"])
             self.assertFalse(status["ready"])
             self.assertTrue(status["transportImplemented"])
+            self.assertTrue(status["refundTransportImplemented"])
+            self.assertTrue(status["checkoutBound"])
             self.assertFalse(status["livePaymentsEnabled"])
             self.assertEqual(status["configurationState"],"missing")
 
@@ -43,6 +45,7 @@ class PaylinePrivateConfigurationTest(unittest.TestCase):
             self.assertTrue(status["configurationValid"])
             self.assertFalse(status["credentialsVerified"])
             self.assertTrue(status["checkoutBound"])
+            self.assertTrue(status["refundTransportImplemented"])
             self.assertNotIn("synthetic-private-key", repr(status))
             self.assertNotIn("00000012345678", repr(status))
             self.assertNotIn("TEST_CONTRACT_01", repr(status))
