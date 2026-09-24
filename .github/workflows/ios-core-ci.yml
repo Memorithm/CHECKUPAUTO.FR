@@ -160,6 +160,17 @@ jobs:
           remote_dir="$(cat .ios-remote-dir)"
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "cd '$remote_dir/ios/CheckupAutoReminder' && swift package resolve && swift test --parallel"
+      - name: Verify live staging API with the iOS client contract
+        run: |
+          set -euo pipefail
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
+          remote_dir="$(cat .ios-remote-dir)"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; cd '$remote_dir/ios/CheckupAutoReminder'; swiftc -D DEBUG Sources/MobileAPI.swift Sources/MobileBootstrap.swift Monitoring/LiveStagingBootstrapSmoke.swift -o '$remote_dir/live-staging-bootstrap'; CHECKUPAUTO_API_BASE_URL='https://stage.179.198.210.187.sslip.io' '$remote_dir/live-staging-bootstrap'"
+
       - name: Generate Xcode project and run iOS simulator tests
         run: |
           set -euo pipefail
