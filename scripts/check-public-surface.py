@@ -14,9 +14,17 @@ import public_surface_provenance
 
 def main(argv: list[str]) -> int:
     canonical_url = argv[1] if len(argv) > 1 else "https://www.checkupauto.fr/"
-    result = public_surface_provenance.probe(canonical_url)
+    surface = public_surface_provenance.probe(canonical_url)
+    result = {"surface": surface}
+    ok = surface.get("ok") is True
+
+    if len(argv) > 2:
+        deployment = public_surface_provenance.probe_deployment(canonical_url, argv[2])
+        result["deployment"] = deployment
+        ok = ok and deployment.get("ok") is True
+
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-    return 0 if result.get("ok") is True else 2
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":
