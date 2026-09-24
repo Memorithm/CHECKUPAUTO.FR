@@ -296,7 +296,7 @@ def capability() -> dict:
         "hostedPaymentPage": True,
         "panCollectedByCheckupAuto": False,
         "callbacksBound": True,
-        "checkoutBound": False,
+        "checkoutBound": True,
         "refundsBound": False,
         "livePaymentsEnabled": False,
     }
