@@ -56,6 +56,12 @@ Le parseur XML refuse les réponses surdimensionnées, DTD/ENTITY et ambiguïté
 
 Ce transport ne signifie toujours pas que le compte marchand est authentifié ou que le contrat est actif. `checkoutBound=false`, `httpCallbacksBound=false`, `refundsBound=false` et `livePaymentsEnabled=false` restent fermés tant que nous n'avons pas les paramètres de l'environnement d'homologation, la recette fournisseur et la liaison sûre à la réservation.
 
+### Configuration privée du connecteur
+
+`payment_payline_private.py` charge maintenant la configuration sandbox exclusivement depuis un fichier privé hors du dépôt, par défaut `CYBERCHECK_PRIVATE_DIR/payments/payline-sandbox.json` ou via `CYBERCHECK_PAYLINE_CONFIG_PATH`. Le fichier doit appartenir à l'utilisateur du service, être régulier, non symbolique et sans droits groupe/autres. Le serveur ne crée ni ne modifie ce secret.
+
+Le back-office Paiements reçoit uniquement un état minimisé : configuration présente/valide, transport disponible et portes opérationnelles. Aucun `merchantId`, `accessKey`, `contractNumber` ou origine privée n'est renvoyé au navigateur. Tant que l'authentification réelle auprès de Monext et le rattachement du contrat n'ont pas été vérifiés, les indicateurs correspondants restent faux.
+
 ## Accès à préparer avec Monext
 
 Les données à obtenir depuis le **compte marchand Payline**, séparément pour les tests, sont :
