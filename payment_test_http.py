@@ -112,7 +112,7 @@ def _provider_page(handler) -> bool:
 <style>body{{font-family:system-ui;margin:0;background:#f4f5f0;color:#17372b}}main{{max-width:720px;margin:auto;padding:64px 22px}}.card{{background:#fff;border:1px solid #dce2da;border-radius:24px;padding:30px}}button{{font:inherit;border:0;border-radius:999px;padding:14px 20px;margin:5px;background:#17372b;color:#fff;font-weight:750}}button.secondary{{background:#dfe8e1;color:#17372b}}button.danger{{background:#8d2f27}}.status{{margin-top:18px;padding:14px;background:#eef3ef;border-radius:14px;line-height:1.5}}</style></head>
 <body><main><div class="card"><small>SIMULATEUR PAYLINE · AUCUN DÉBIT</small><h1>Choisir le résultat bancaire de test</h1>
 <p>Cette page simule uniquement le résultat d’homologation. Aucune donnée de carte n’est demandée.</p>
-<p><button data-outcome="captured">Paiement accepté</button><button class="danger" data-outcome="declined">Paiement refusé</button><button class="secondary" data-outcome="pending">Paiement en attente</button></p>
+<p><button data-outcome="captured">Paiement accepté</button><button class="danger" data-outcome="declined">Paiement refusé</button><button class="secondary" data-outcome="pending">Paiement en attente</button><button class="secondary" data-outcome="cancelled">Paiement annulé</button><button class="secondary" data-outcome="error">Erreur technique Payline</button></p>
 <div id="status" class="status">Lecture de la session…</div><p><button id="cleanup" class="secondary" type="button">Supprimer le rendez-vous test Mercure</button></p>
 <p><a href="/payment/test">Nouveau test</a></p></div></main>
 <script nonce="{n}">
