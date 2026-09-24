@@ -89,6 +89,14 @@ class AdminDeploymentUITest(unittest.TestCase):
         self.assertNotIn("Source accessible · dernier SHA", script)
         self.assertIn("fraîcheur du contrôleur évaluée", script)
 
+    def test_update_ui_honors_authoritative_controller_gate(self):
+        script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
+        self.assertIn("updateState.deploymentEligible !== false", script)
+        self.assertIn("controllerFreshness.required", script)
+        self.assertIn("Action de déploiement bloquée", script)
+        self.assertIn("rollback reste disponible", script)
+        self.assertIn("deploymentUpdateDetail').textContent", script)
+
     def test_update_source_ui_is_write_only(self):
         html = (ROOT / "admin" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
@@ -105,10 +113,8 @@ class AdminDeploymentUITest(unittest.TestCase):
     def test_packaged_source_ui_disables_install_and_update(self):
         script = (ROOT / "admin" / "deployment.js").read_text(encoding="utf-8")
         self.assertIn("$('deploymentInstall').disabled = !sourceBuildCapable()", script)
-        self.assertIn(
-            "$('deploymentUpdate').disabled = !updateState.updateAvailable || !sourceBuildCapable()",
-            script,
-        )
+        self.assertIn("!updateState.updateAvailable || !sourceBuildCapable() || !deploymentEligible", script)
+        self.assertIn("updateState.deploymentEligible !== false", script)
         self.assertIn("Source Git de build indisponible", script)
 
     def test_security_ci_checks_deployment_javascript(self):

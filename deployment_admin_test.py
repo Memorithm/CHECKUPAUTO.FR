@@ -317,6 +317,82 @@ class DeploymentAdminTest(unittest.TestCase):
         self.assertEqual(result["state"], "unverified")
         self.assertEqual(result["controllerSha"], "")
 
+    @mock.patch.object(admin.github_source, "token_configured", return_value=False)
+    @mock.patch.object(admin.github_source, "latest_sha")
+    def test_authoritative_preflight_is_optional_without_configured_github_token(self, latest, _token):
+        current = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        result = admin._authoritative_source_preflight(current)
+        self.assertFalse(result["required"])
+        self.assertTrue(result["deploymentEligible"])
+        self.assertEqual(result["state"], "unverified")
+        latest.assert_not_called()
+
+    @mock.patch.object(admin.github_source, "token_configured", return_value=True)
+    @mock.patch.object(admin.github_source, "latest_sha", return_value=SHA)
+    def test_authoritative_preflight_allows_current_controller(self, _latest, _token):
+        current = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        result = admin._authoritative_source_preflight(current)
+        self.assertTrue(result["required"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["state"], "current")
+        self.assertTrue(result["deploymentEligible"])
+
+    @mock.patch.object(admin.github_source, "token_configured", return_value=True)
+    @mock.patch.object(admin.github_source, "latest_sha", return_value="b" * 40)
+    @mock.patch.object(admin.github_source, "is_ancestor", return_value=True)
+    def test_authoritative_preflight_blocks_controller_behind_github(self, _ancestor, _latest, _token):
+        current = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        result = admin._authoritative_source_preflight(current)
+        self.assertTrue(result["required"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["state"], "behind")
+        self.assertFalse(result["deploymentEligible"])
+
+    @mock.patch.object(admin.github_source, "token_configured", return_value=True)
+    @mock.patch.object(admin.github_source, "latest_sha", side_effect=RuntimeError("network"))
+    def test_authoritative_preflight_fails_closed_when_github_is_unavailable(self, _latest, _token):
+        current = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        result = admin._authoritative_source_preflight(current)
+        self.assertTrue(result["required"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["state"], "unverified")
+        self.assertFalse(result["deploymentEligible"])
+
+    @mock.patch.object(admin.github_source, "token_configured", return_value=True)
+    @mock.patch.object(admin.github_source, "latest_sha", return_value="b" * 40)
+    @mock.patch.object(admin.github_source, "is_ancestor", return_value=True)
+    @mock.patch.object(admin.executor, "execute_deployment")
+    @mock.patch.object(admin, "_source_state")
+    def test_start_job_blocks_stale_git_checkout_before_enqueue(self, source_state, execute, _ancestor, _latest, _token):
+        admin.save_target(self.payload())
+        source_state.return_value = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        with self.assertRaisesRegex(RuntimeError, "fraîcheur GitHub.*behind"):
+            admin.start_job("production", "update")
+        execute.assert_not_called()
+
+    @mock.patch.object(admin.github_source, "token_configured", return_value=True)
+    @mock.patch.object(admin.github_source, "latest_sha", return_value=SHA)
+    @mock.patch.object(admin.executor, "execute_deployment")
+    @mock.patch.object(admin, "_source_state")
+    def test_start_job_rejects_explicit_older_sha_when_github_is_authoritative(self, source_state, execute, _latest, _token):
+        admin.save_target(self.payload())
+        source_state.return_value = source.DeploymentSourceState(
+            mode="git_checkout", sha=SHA, build_capable=True, reason="test"
+        )
+        with self.assertRaisesRegex(RuntimeError, "SHA demandé.*GitHub vérifié"):
+            admin.start_job("production", "install", sha="b" * 40)
+        execute.assert_not_called()
+
     @mock.patch.object(admin.executor, "execute_deployment")
     @mock.patch.object(admin, "_source_state")
     def test_start_job_is_async_and_persists_sanitized_result(self, source_state, execute):
