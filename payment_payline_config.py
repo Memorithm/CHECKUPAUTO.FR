@@ -65,7 +65,7 @@ class PaylineSandboxConfig:
         # These are bounded project input policies, not proof of valid accounts.
         _value(self.merchant_id, r"[0-9]{1,32}", "payline_merchant_id_invalid")
         _value(self.access_key, r"[\x21-\x7e]{1,256}", "payline_access_key_invalid")
-        _value(self.contract_number, r"[A-Za-z0-9_-]{1,50}", "payline_contract_number_invalid")
+        _value(self.contract_number, r"[A-Za-z0-9_-]{1,20}", "payline_contract_number_invalid")
         _origin(self.public_origin)
 
     @classmethod
