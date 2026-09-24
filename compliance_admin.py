@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import booking_conversion_reconciliation
 import compliance_operations
 import compliance_register_attestation
 import compliance_store
@@ -169,6 +170,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
         "capability": mercure_provider_coverage.capability(),
     }
     mercure_rectification = mercure_rectification_boundary.capability()
+    booking_reconciliation = booking_conversion_reconciliation.status()
     local_privacy = local_privacy_inventory.snapshot()
     operations_summary = dict(operations.get("summary") or {})
     blockers = list(operations_summary.get("blockers") or [])
@@ -273,6 +275,18 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     summary["mercureRectificationVerified"] = bool(
         mercure_rectification.get("completionEligible")
     )
+    # Historical browser placeholders are an attribution/observability concern,
+    # not evidence of Mercure provider completeness. Expose local residuals but
+    # never use a zero count to assert that provider coverage has been proven.
+    summary["bookingSyntheticObservabilityAvailable"] = bool(
+        booking_reconciliation.get("available")
+    )
+    summary["bookingSyntheticResidualRows"] = int(
+        booking_reconciliation.get("localResidualRows") or 0
+    )
+    summary["bookingSyntheticRowsWithoutAttribution"] = int(
+        booking_reconciliation.get("syntheticRowsWithoutAttribution") or 0
+    )
     summary["localPrivacyInventoryComplete"] = bool(local_privacy.get("inventoryComplete"))
     summary["localPrivacyKnownExecutionCoverageComplete"] = bool(
         local_privacy.get("knownExecutionCoverageComplete")
@@ -336,6 +350,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     }
     result["mercureProviderCoverage"] = mercure_provider
     result["mercureRectification"] = mercure_rectification
+    result["bookingConversionReconciliation"] = booking_reconciliation
     result["localPrivacyStoreInventory"] = local_privacy
     result["retention"] = retention
     return result
