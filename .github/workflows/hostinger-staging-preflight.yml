@@ -1,0 +1,42 @@
+name: Hostinger staging preflight
+
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'admin_server.py'
+      - 'admin_server_runtime_test.py'
+      - 'deploy/hostinger/**'
+      - '.github/workflows/hostinger-staging-*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, Linux, ARM64, remoteops, thor]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Python syntax and runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q admin_server.py deploy
+          python3 -m venv "$RUNNER_TEMP/checkupauto-preflight"
+          "$RUNNER_TEMP/checkupauto-preflight/bin/pip" install --disable-pip-version-check --quiet -r requirements.txt
+          "$RUNNER_TEMP/checkupauto-preflight/bin/python" -m unittest -v admin_server_runtime_test.py
+      - name: Validate Docker compose model
+        shell: bash
+        env:
+          CHECKUPAUTO_STAGING_HOST: stage.179.198.210.187.sslip.io
+          CHECKUPAUTO_IMAGE_TAG: preflight
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/hostinger/docker-compose.yml config >/tmp/checkupauto-hostinger-compose.yml
+          grep -q 'checkupauto-staging-web' /tmp/checkupauto-hostinger-compose.yml
+          grep -q 'stage.179.198.210.187.sslip.io' /tmp/checkupauto-hostinger-compose.yml
+          echo "HOSTINGER_STAGING_PREFLIGHT_OK"

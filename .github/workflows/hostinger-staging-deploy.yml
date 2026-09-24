@@ -1,0 +1,59 @@
+name: Hostinger staging deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'admin_server.py'
+      - 'deploy/hostinger/**'
+      - '.github/workflows/hostinger-staging-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-hostinger-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'Memorithm/CHECKUPAUTO.FR'
+    runs-on: [self-hosted, Linux, ARM64, remoteops, thor]
+    timeout-minutes: 20
+    env:
+      HOSTINGER_HOST: 179.198.210.187
+      HOSTINGER_STAGING_HOST: stage.179.198.210.187.sslip.io
+      HOSTINGER_KEY: /srv/remoteops/keys/checkupauto-hostinger-kvm4-ed25519
+      HOSTINGER_KNOWN_HOSTS: /srv/remoteops/keys/checkupauto-hostinger-kvm4_known_hosts
+    steps:
+      - name: Checkout approved source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify RemoteOps SSH material
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n test -f "$HOSTINGER_KEY"
+          sudo -n test -f "$HOSTINGER_KNOWN_HOSTS"
+          sudo -n ssh-keygen -y -f "$HOSTINGER_KEY" >/dev/null
+          echo "HOSTINGER_REMOTEOPS_MATERIAL_OK"
+
+      - name: Upload immutable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="/srv/checkupauto/staging/releases/$GITHUB_SHA"
+          tar             --exclude=.git             --exclude=.venv             --exclude='__pycache__'             -czf - .           | sudo -n ssh               -i "$HOSTINGER_KEY"               -o BatchMode=yes               -o IdentitiesOnly=yes               -o StrictHostKeyChecking=yes               -o UserKnownHostsFile="$HOSTINGER_KNOWN_HOSTS"               "root@$HOSTINGER_HOST"               "set -euo pipefail; release='$release'; case \"\$release\" in /srv/checkupauto/staging/releases/*) ;; *) exit 90;; esac; rm -rf \"\$release\"; mkdir -p \"\$release\"; tar -xzf - -C \"\$release\""
+          echo "HOSTINGER_RELEASE_UPLOADED=$GITHUB_SHA"
+
+      - name: Deploy and verify staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="/srv/checkupauto/staging/releases/$GITHUB_SHA"
+          sudo -n ssh             -i "$HOSTINGER_KEY"             -o BatchMode=yes             -o IdentitiesOnly=yes             -o StrictHostKeyChecking=yes             -o UserKnownHostsFile="$HOSTINGER_KNOWN_HOSTS"             "root@$HOSTINGER_HOST"             "CHECKUPAUTO_STAGING_HOST='$HOSTINGER_STAGING_HOST' bash '$release/deploy/hostinger/deploy-staging.sh' '$release'"

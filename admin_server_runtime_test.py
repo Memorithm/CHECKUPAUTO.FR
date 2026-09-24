@@ -139,5 +139,30 @@ class AdminServerRuntimeTest(unittest.TestCase):
         self.assertEqual(modules["security_alerts"].start.call_count, 1)
 
 
+    def test_server_bind_address_defaults_to_loopback(self):
+        tmp, ns = self.load_server()
+        self.addCleanup(tmp.cleanup)
+        host, port = ns["server_bind_address"]({})
+        self.assertEqual((host, port), ("127.0.0.1", 8765))
+
+    def test_server_bind_address_allows_container_binding(self):
+        tmp, ns = self.load_server()
+        self.addCleanup(tmp.cleanup)
+        host, port = ns["server_bind_address"]({
+            "CYBERCHECK_BIND_HOST": "0.0.0.0",
+            "CYBERCHECK_BIND_PORT": "9876",
+        })
+        self.assertEqual((host, port), ("0.0.0.0", 9876))
+
+    def test_server_bind_address_rejects_unexpected_values(self):
+        tmp, ns = self.load_server()
+        self.addCleanup(tmp.cleanup)
+        with self.assertRaises(ValueError):
+            ns["server_bind_address"]({"CYBERCHECK_BIND_HOST": "example.com"})
+        with self.assertRaises(ValueError):
+            ns["server_bind_address"]({"CYBERCHECK_BIND_PORT": "70000"})
+
+
+
 if __name__ == "__main__":
     unittest.main()
