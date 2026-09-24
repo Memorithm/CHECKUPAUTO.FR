@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import data_subject_rights
+import mercure_rectification_boundary
 import referral_wallet_rights
 import rights_rectification
 import rights_subject_bindings
@@ -34,9 +35,11 @@ def capability(db_path: Path | str | None = None) -> dict:
     ``data_subject_rights`` owns the central multi-store execution capability,
     ``rights_subject_bindings`` owns Mercure/contract proof provenance,
     ``rights_rectification`` exposes the deliberately bounded local correction
-    path, and ``referral_wallet_rights`` exposes only the wallet access/portability
-    path after explicit mobile ownership proof. No partial adapter is allowed to
-    flip the global ``bound`` flag.
+    path, ``mercure_rectification_boundary`` records whether an authoritative
+    provider mutation primitive has actually been verified, and
+    ``referral_wallet_rights`` exposes only the wallet access/portability path
+    after explicit mobile ownership proof. No partial adapter is allowed to flip
+    the global ``bound`` flag.
     """
     result = dict(data_subject_rights.capability(db_path))
     recent = rights_subject_bindings.rows(db_path, limit=500)
@@ -51,6 +54,7 @@ def capability(db_path: Path | str | None = None) -> dict:
 
     rectification = rights_rectification.capability()
     result["rectificationExecution"] = rectification
+    result["mercureRectification"] = mercure_rectification_boundary.capability()
     if rectification.get("partial"):
         adapter = str(rectification.get("adapter") or "").strip()
         request_type = str(rectification.get("requestType") or "").strip()
