@@ -29,6 +29,7 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
             "affectedRows": 1,
         }
         with (
+            mock.patch.object(dispatch, "_provider_erasure_recovery_needed", return_value=True),
             mock.patch.object(
                 dispatch.data_subject_rights,
                 "execute",
@@ -39,11 +40,23 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
                 },
             ) as central,
             mock.patch.object(dispatch.data_subject_rights, "_request_id", return_value="a" * 32),
+            mock.patch.object(dispatch.review_followup_privacy, "receipt", return_value=None),
+            mock.patch.object(dispatch.booking_conversion_erasure, "receipt", return_value=None),
+            mock.patch.object(dispatch.provider_erasure_completion, "status", return_value=None),
+            mock.patch.object(dispatch.provider_erasure_plan, "load", return_value=None),
             mock.patch.object(
                 dispatch.mercure_rights,
                 "contact_snapshot",
                 return_value=self.complete_snapshot("apt-subject"),
             ) as snapshot,
+            mock.patch.object(
+                dispatch.provider_erasure_plan,
+                "stage",
+                return_value={
+                    "appointmentIds": ("apt-subject",),
+                    "appointmentSetHash": "a" * 64,
+                },
+            ),
             mock.patch.object(
                 dispatch.review_followup_privacy,
                 "erase_appointments",
@@ -54,6 +67,12 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
                 "erase_appointments",
                 return_value={"store": "booking_conversions"},
             ) as booking,
+            mock.patch.object(
+                dispatch.provider_erasure_completion,
+                "record",
+                return_value={"appointmentSetHash": "a" * 64},
+            ),
+            mock.patch.object(dispatch.provider_erasure_plan, "clear", return_value=True),
         ):
             result = dispatch.execute(payload, "compliance.sqlite3")
 
@@ -73,6 +92,7 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
             "purpose": "direct_marketing",
         }
         with (
+            mock.patch.object(dispatch, "_provider_erasure_recovery_needed", return_value=False),
             mock.patch.object(
                 dispatch.data_subject_rights,
                 "execute",
