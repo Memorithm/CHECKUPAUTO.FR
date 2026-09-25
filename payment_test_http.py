@@ -186,6 +186,12 @@ def handle(handler) -> bool:
     command=getattr(handler,"command","")
     if command=="GET" and path==DEMO_ROUTE:
         return _demo_page(handler)
+    if command=="GET" and path==DEMO_STATUS_ROUTE:
+        if not lab.enabled():
+            handler.send_json({"ok":False,"error":"not_found"},404)
+            return True
+        handler.send_json(lab.demo_status())
+        return True
     if command=="GET" and path==PAGE_ROUTE:
         return _page(handler)
     if command=="GET" and path==PROVIDER_ROUTE:
