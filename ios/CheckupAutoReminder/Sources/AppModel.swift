@@ -106,6 +106,19 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func delete(vehicleID: UUID) {
+        guard let index = vehicles.firstIndex(where: { $0.id == vehicleID }) else { return }
+        let removed = vehicles.remove(at: index)
+        persist()
+        Task {
+            await scheduler.remove(
+                removed,
+                leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+            )
+            await syncRemoteDeadlines()
+        }
+    }
+
     func consumeMobileClaim(url: URL) {
         Task {
             do {
@@ -215,6 +228,30 @@ final class AppModel: ObservableObject {
 
     var bookingURL: URL {
         URL(string: mobileConfig.booking.url) ?? URL(string: "https://rdv.checkupauto.fr/")!
+    }
+
+    var accountURL: URL {
+        URL(string: mobileConfig.account?.url ?? MobileBootstrap.fallback.account?.url ?? "https://www.checkupauto.fr/compte")
+            ?? URL(string: "https://www.checkupauto.fr/compte")!
+    }
+
+    var reportScanURL: URL {
+        URL(string: mobileConfig.account?.reportScanUrl ?? MobileBootstrap.fallback.account?.reportScanUrl ?? "https://www.checkupauto.fr/compte#ct-report")
+            ?? URL(string: "https://www.checkupauto.fr/compte#ct-report")!
+    }
+
+    var nextControlDueDate: Date? {
+        let local = vehicles.map(\.controlDueDate)
+        let authoritative = authoritativeVehicles.compactMap(\.dueDateValue)
+        return (local + authoritative).min()
+    }
+
+    var totalReferralBalanceCents: Int {
+        referralWallets.reduce(0) { $0 + $1.balanceCents }
+    }
+
+    var totalPendingReferralCents: Int {
+        referralWallets.reduce(0) { $0 + $1.pendingCents }
     }
 
     private func refreshMobileConfig() async {
