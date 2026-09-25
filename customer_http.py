@@ -6,9 +6,10 @@ import json
 import re
 import secrets
 from http.cookies import SimpleCookie
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import customer_accounts
+import customer_ct_reports
 import customer_oidc
 
 ACCOUNT_ROUTE="/compte"
@@ -16,6 +17,8 @@ PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
 LOGOUT_ROUTE="/api/customer/logout"
+REPORTS_ROUTE="/api/customer/reports"
+REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 COOKIE_NAME="checkupauto_customer"
 
 
@@ -136,12 +139,16 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
 .report{{border:1px dashed #aebbb2;background:#fafbf8;padding:18px;margin-top:16px}}.profile{{margin-top:14px;background:#fff;border:1px solid var(--line);padding:24px}}
 form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input,select{{padding:12px;border:1px solid var(--line);background:#fbfcfa;font:inherit}}
 .actions{{grid-column:1/-1;display:flex;align-items:center;gap:14px}}button.primary{{border:0;background:var(--green);color:#fff;padding:13px 18px;font-weight:700;cursor:pointer}}#profileStatus{{font-size:11px;color:var(--muted)}}
+.report-controls{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}}.report-controls input{{max-width:100%;padding:8px}}
+.report-list{{display:grid;gap:8px;margin-top:14px}}.report-item{{border:1px solid var(--line);background:#fff;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center}}
+.report-item button,.report-actions button{{border:1px solid var(--line);background:#fff;padding:9px 11px;cursor:pointer;color:var(--ink)}}.report-analysis{{margin-top:14px;border-top:1px solid var(--line);padding-top:14px}}
+.report-analysis h3{{font:400 22px Georgia,serif;margin:12px 0 6px}}.report-analysis ul{{padding-left:18px;color:var(--muted)}}.report-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.report-status{{font-size:11px;color:var(--muted);margin-top:8px}}
 @media(max-width:900px){{.grid{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}
 </style></head><body><main class="shell">
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
-<section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report"><strong>Rapport de contrôle technique</strong><p>Le dépôt et l’analyse automatique du rapport arrivent dans la prochaine tranche.</p></div></section>
+<section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
 <section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
@@ -154,9 +161,15 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="actions"><button class="primary" type="submit">Enregistrer</button><span id="profileStatus"></span></div>
 </form></section>
 </main><script nonce="{html.escape(nonce,quote=True)}">
-(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret');
+(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
 document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+const el=(tag,text='')=>{{const node=document.createElement(tag);if(text)node.textContent=text;return node;}};
+const renderReports=rows=>{{reportList.replaceChildren();for(const row of rows){{const item=el('div');item.className='report-item';const copy=el('div');copy.append(el('strong',row.controlDate||'Rapport CT'));copy.append(el('div',(row.registration||'Véhicule non identifié')+' · '+String(row.defectCount||0)+' défaut(s)'));const open=el('button','Ouvrir');open.type='button';open.addEventListener('click',()=>showReport(row.reportId));item.append(copy,open);reportList.append(item);}}if(!rows.length)reportList.append(el('div','Aucun rapport analysé.'));}};
+const loadReports=async()=>{{try{{const r=await fetch('{REPORTS_ROUTE}',{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.ok)throw new Error();renderReports(d.reports||[]);}}catch(_e){{reportStatus.textContent='Historique des rapports indisponible.';}}}};
+const showReport=async id=>{{reportStatus.textContent='Lecture du rapport…';try{{const r=await fetch('{REPORTS_ROUTE}/'+encodeURIComponent(id),{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.reportId)throw new Error();reportAnalysis.replaceChildren();reportAnalysis.hidden=false;reportAnalysis.append(el('h3','Analyse du contrôle technique'));reportAnalysis.append(el('p',(d.result||'Résultat non détecté')+' · '+String(d.defectCount||0)+' défaut(s) structuré(s)'));const list=el('ul');for(const finding of (d.advice||[])){{const li=el('li');const title=el('strong',finding.title||'Point à surveiller');li.append(title,document.createTextNode(' — '+(finding.prevention||'')));list.append(li);}}reportAnalysis.append(list);const actions=el('div');actions.className='report-actions';const download=el('a','Télécharger le Markdown');download.href='{REPORTS_ROUTE}/'+encodeURIComponent(id)+'?format=md';download.className='primary';const remove=el('button','Supprimer');remove.type='button';remove.addEventListener('click',async()=>{{if(!confirm('Supprimer ce rapport de votre espace client ?'))return;const rr=await fetch('{REPORT_DELETE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{reportId:id}})}});if(rr.ok){{reportAnalysis.hidden=true;await loadReports();}}}});actions.append(download,remove);reportAnalysis.append(actions);reportStatus.textContent='Analyse prête.';}}catch(_e){{reportStatus.textContent='Lecture du rapport impossible.';}}}};
+reportUpload.addEventListener('click',async()=>{{const file=reportInput.files[0];if(!file){{reportStatus.textContent='Sélectionnez une photo ou un PDF.';return;}}const type=file.type||({{pdf:'application/pdf',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png'}}[file.name.split('.').pop().toLowerCase()]||'');if(!['application/pdf','image/jpeg','image/png'].includes(type)){{reportStatus.textContent='Format accepté : PDF, JPEG ou PNG.';return;}}reportUpload.disabled=true;reportStatus.textContent='Extraction et analyse du rapport…';try{{const r=await fetch('{REPORTS_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':type,'X-CheckupAuto-Customer-CSRF':csrf,'X-CheckupAuto-Filename':encodeURIComponent(file.name)}},body:file}});const d=await r.json();if(!r.ok||!d.reportId)throw new Error(d.error||'upload_failed');reportInput.value='';await loadReports();await showReport(d.reportId);}}catch(_e){{reportStatus.textContent='Analyse impossible. Vérifiez la lisibilité du document.';}}finally{{reportUpload.disabled=false;}}}});
+loadReports();
 document.getElementById('logout').addEventListener('click',async()=>{{await fetch('{LOGOUT_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:'{{}}'}});location.assign('{ACCOUNT_ROUTE}');}});
 }})();</script></body></html>""".encode("utf-8")
 
@@ -223,6 +236,90 @@ def handle(handler) -> bool:
         except Exception:
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez."),"text/html; charset=utf-8",400,"no-store")
         return True
+
+    report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)
+    if path in {REPORTS_ROUTE,REPORT_DELETE_ROUTE} or report_match:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        account_id=account["accountId"]
+
+        if command=="GET" and path==REPORTS_ROUTE:
+            handler.send_json({"ok":True,"reports":customer_ct_reports.list_reports(account_id)})
+            return True
+
+        if command=="GET" and report_match:
+            try:
+                report=customer_ct_reports.get_report(account_id,report_match.group(1))
+                query=parse_qs(parsed.query,keep_blank_values=True)
+                if query and set(query)!={"format"}:
+                    raise customer_ct_reports.CTReportError("ct_report_query_invalid")
+                format_value=(query.get("format") or [""])[0]
+                if format_value:
+                    if format_value!="md":
+                        raise customer_ct_reports.CTReportError("ct_report_format_invalid")
+                    handler.send_bytes(
+                        report["markdown"].encode("utf-8"),
+                        "text/markdown; charset=utf-8",
+                        200,
+                        "no-store",
+                        {"Content-Disposition":f'attachment; filename="rapport-{report["reportId"]}.md"'},
+                    )
+                else:
+                    handler.send_json(report)
+            except customer_ct_reports.CTReportError:
+                handler.send_json({"ok":False,"error":"ct_report_not_found"},404)
+            return True
+
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+
+        if path==REPORT_DELETE_ROUTE:
+            try:
+                payload=_json_body(handler)
+                if set(payload)!={"reportId"}:
+                    raise ValueError
+                removed=customer_ct_reports.delete_report(account_id,payload.get("reportId"))
+                handler.send_json({"ok":True,"removed":removed})
+            except Exception:
+                handler.send_json({"ok":False,"error":"ct_report_delete_invalid"},400)
+            return True
+
+        if path==REPORTS_ROUTE:
+            if handler.headers.get("Transfer-Encoding"):
+                handler.send_json({"ok":False,"error":"ct_report_transfer_encoding_invalid"},400)
+                return True
+            try:
+                length=int(handler.headers.get("Content-Length",""))
+            except (TypeError,ValueError):
+                length=0
+            if not 1<=length<=customer_ct_reports.MAX_UPLOAD_BYTES:
+                handler.send_json({"ok":False,"error":"ct_report_size_invalid"},413)
+                return True
+            content_type=handler.headers.get("Content-Type","")
+            filename=unquote(str(handler.headers.get("X-CheckupAuto-Filename") or "rapport"))
+            raw=handler.rfile.read(length)
+            if len(raw)!=length:
+                handler.send_json({"ok":False,"error":"ct_report_upload_incomplete"},400)
+                return True
+            try:
+                created=customer_ct_reports.ingest(account_id,filename,content_type,raw)
+                handler.send_json(created,201)
+            except customer_ct_reports.CTReportError as exc:
+                code=str(exc)
+                status=503 if code=="ct_extraction_unavailable" else (422 if code in {"ct_extraction_failed","ct_extraction_empty"} else 400)
+                handler.send_json({"ok":False,"error":code},status)
+            except Exception:
+                handler.send_json({"ok":False,"error":"ct_report_processing_unavailable"},503)
+            return True
 
     if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE}:
         token,account=_account(handler)

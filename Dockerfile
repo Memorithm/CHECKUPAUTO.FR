@@ -15,6 +15,14 @@ RUN groupadd --gid 10001 cybercheck \
 
 WORKDIR /app
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      poppler-utils \
+      tesseract-ocr \
+      tesseract-ocr-eng \
+      tesseract-ocr-fra \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
