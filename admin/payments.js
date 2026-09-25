@@ -1,8 +1,9 @@
 'use strict';
 (() => {
- const $=s=>document.querySelector(s), route='/api/admin/payments/contract', activityRoute='/api/admin/payments/activity';
- let snapshot=null, dirty=false, busy=false;
+ const $=s=>document.querySelector(s), route='/api/admin/payments/contract', activityRoute='/api/admin/payments/activity', sandboxConfigRoute='/api/admin/payments/payline-sandbox';
+ let snapshot=null, dirty=false, busy=false, sandboxCsrf='';
  const message=(text,error=false)=>{$('#paymentsMessage').textContent=text;$('#paymentsMessage').classList.toggle('error',error);};
+ const sandboxMessage=(text,error=false)=>{$('#paylineSandboxMessage').textContent=text;$('#paylineSandboxMessage').classList.toggle('error',error);};
  const setBusy=value=>{busy=value;$('#paymentsEditor').disabled=value||!snapshot;};
  function runtime(data){
   const root=$('#paymentsRuntime');root.replaceChildren();
@@ -75,10 +76,39 @@
   }
   if(!data.transactions.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='Aucune intention de paiement enregistrée.';tr.append(td);body.append(tr);}
  }
+ async function loadSandboxConfig(){
+  const response=await fetch(sandboxConfigRoute,{cache:'no-store',credentials:'same-origin'});
+  if(response.status===401||response.status===403)throw new Error('Authentification ou double authentification requise pour la configuration Payline sandbox.');
+  if(!response.ok)throw new Error('État de la configuration Payline sandbox indisponible.');
+  const data=await response.json();
+  if(!data.ok||!data.status||typeof data.csrfToken!=='string')throw new Error('Réponse de configuration Payline sandbox invalide.');
+  sandboxCsrf=data.csrfToken;
+  sandboxMessage(data.status.configured&&data.status.configurationValid?'Configuration API sandbox présente. La clé reste uniquement sur le serveur.':'Configuration API sandbox absente. Saisissez les identifiants d’homologation ci-dessus.');
+  return data;
+ }
+ async function saveSandboxConfig(event){
+  event.preventDefault();
+  const merchantId=$('#paylineMerchantId').value.trim(),accessKey=$('#paylineAccessKey').value,contractNumber=$('#paylineContractNumber').value.trim();
+  if(!merchantId||!accessKey||!contractNumber){sandboxMessage('Merchant ID, Access Key et Contract Number sont obligatoires.',true);return;}
+  if(!sandboxCsrf){sandboxMessage('Jeton de sécurité indisponible. Rechargez la page.',true);return;}
+  const button=$('#paylineSandboxSave');button.disabled=true;sandboxMessage('Enregistrement de la configuration sandbox dans le volume privé…');
+  try{
+   const response=await fetch(sandboxConfigRoute,{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CheckupAuto-Payments-CSRF':sandboxCsrf},body:JSON.stringify({merchantId,accessKey,contractNumber})});
+   const data=await response.json().catch(()=>({}));
+   if(response.status===401||response.status===403)throw new Error('Connexion ou double authentification à renouveler.');
+   if(!response.ok||!data.ok||!data.status?.configured)throw new Error(response.status===400?'Configuration sandbox refusée : vérifiez les identifiants et leur format.':'Configuration sandbox non enregistrée.');
+   sandboxCsrf=data.csrfToken||sandboxCsrf;
+   $('#paylineMerchantId').value='';$('#paylineAccessKey').value='';$('#paylineContractNumber').value='';
+   if(snapshot){snapshot.runtime={...(snapshot.runtime||{}),...data.status};runtime(snapshot);}
+   sandboxMessage('Configuration sandbox enregistrée. Les valeurs sensibles ont été effacées du formulaire et ne sont pas relues.');
+  }catch(e){sandboxMessage(e.message||'Configuration sandbox indisponible.',true);}
+  finally{button.disabled=false;}
+ }
  async function reload(){
   if(busy)return;if(dirty&&!confirm('Abandonner les modifications non enregistrées et recharger ?'))return;
-  setBusy(true);try{show(await request());await loadActivity();$('#paymentsAuth').hidden=true;message('Fiche chargée — version '+snapshot.revision+'. Paiements réels désactivés.');}catch(e){message(e.message,true);}finally{setBusy(false);}
+  setBusy(true);try{show(await request());await loadActivity();await loadSandboxConfig();$('#paymentsAuth').hidden=true;message('Fiche chargée — version '+snapshot.revision+'. Paiements réels désactivés.');}catch(e){message(e.message,true);}finally{setBusy(false);}
  }
+ $('#paylineSandboxForm').addEventListener('submit',saveSandboxConfig);
  $('#paymentsForm').addEventListener('submit',async event=>{
   event.preventDefault();if(busy||!snapshot)return;
   const fields={};$('#paymentsFields').querySelectorAll('input[name]').forEach(input=>{fields[input.name]=input.value;});
