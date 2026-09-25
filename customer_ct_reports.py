@@ -24,6 +24,7 @@ import ct_advisor
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 120_000
+MAX_PDF_PAGES = 8
 ALLOWED_TYPES = {
     "application/pdf": ".pdf",
     "image/jpeg": ".jpg",
@@ -167,6 +168,27 @@ def _run(args: list[str], *, timeout: int) -> bytes:
     if result.returncode != 0:
         raise CTReportError("ct_extraction_failed")
     return result.stdout
+
+
+def _magic_valid(content_type: str, raw: bytes) -> bool:
+    if content_type == "application/pdf":
+        return raw.startswith(b"%PDF-")
+    if content_type == "image/jpeg":
+        return len(raw) >= 3 and raw[:3] == bytes((0xFF, 0xD8, 0xFF))
+    if content_type == "image/png":
+        return raw.startswith(bytes((0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)))
+    return False
+
+
+def _pdf_pages(path: Path) -> int:
+    info = _run(["pdfinfo", str(path)], timeout=12).decode("utf-8", errors="replace")
+    match = re.search(r"^Pages:\s+(\d+)\s*$", info, flags=re.MULTILINE)
+    if not match:
+        raise CTReportError("ct_report_pdf_invalid")
+    pages = int(match.group(1))
+    if not 1 <= pages <= MAX_PDF_PAGES:
+        raise CTReportError("ct_report_pages_invalid")
+    return pages
 
 
 def _ocr_image(path: Path) -> str:
