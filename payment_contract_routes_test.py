@@ -112,6 +112,70 @@ class PaymentContractRoutesTest(unittest.TestCase):
             )
             self.assertEqual(status, 404)
 
+    def test_payline_sandbox_credentials_route_is_mfa_csrf_bound_and_secret_free(self):
+        with self.server() as (address, authorization, private):
+            route = importlib.import_module("payment_contract_http")
+            status_payload = {
+                "provider": "payline",
+                "environment": "sandbox",
+                "configured": False,
+                "configurationValid": False,
+                "checkoutBound": True,
+                "callbacksBound": True,
+                "livePaymentsEnabled": False,
+                "blockingReasons": ["explicit_api_configuration_missing"],
+            }
+            with patch.object(route.payment_payline_private, "status", return_value=status_payload):
+                status, _, body = self.request(
+                    address,
+                    authorization,
+                    path="/api/admin/payments/payline-sandbox",
+                )
+            self.assertEqual(status, 200)
+            self.assertFalse(body["status"]["configured"])
+            self.assertRegex(body["csrfToken"], r"^[0-9a-f]{64}$")
+
+            payload = {
+                "merchantId": "00000012345678",
+                "accessKey": "synthetic-private-key",
+                "contractNumber": "TEST_CONTRACT_01",
+            }
+            self.assertEqual(
+                self.request(
+                    address,
+                    authorization,
+                    payload,
+                    path="/api/admin/payments/payline-sandbox",
+                )[0],
+                403,
+            )
+            saved_status = {
+                "provider": "payline",
+                "environment": "sandbox",
+                "configured": True,
+                "configurationValid": True,
+                "checkoutBound": True,
+                "callbacksBound": True,
+                "livePaymentsEnabled": False,
+            }
+            with patch.object(route.payment_payline_admin, "save", return_value=saved_status) as save:
+                status, _, result = self.request(
+                    address,
+                    authorization,
+                    payload,
+                    body["csrfToken"],
+                    path="/api/admin/payments/payline-sandbox",
+                )
+            self.assertEqual(status, 201)
+            self.assertTrue(result["status"]["configured"])
+            self.assertFalse(result["status"]["livePaymentsEnabled"])
+            self.assertNotIn("synthetic-private-key", repr(result))
+            self.assertNotIn("00000012345678", repr(result))
+            self.assertNotIn("TEST_CONTRACT_01", repr(result))
+            save.assert_called_once()
+            self.assertEqual(save.call_args.args[0], payload)
+            self.assertTrue(save.call_args.args[1].startswith("https://"))
+
     def test_http_validation_never_returns_submitted_secret(self):
         with self.server() as (address, authorization, private):
             data = self.request(address, authorization)[2]
