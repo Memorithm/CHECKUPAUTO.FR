@@ -66,16 +66,44 @@ def _page(title: str, message: str, state: str) -> bytes:
     safe_title = html.escape(title)
     safe_message = html.escape(message)
     safe_state = html.escape(state)
-    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    document = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
-<title>{safe_title} | Checkup Auto</title>
-<style>body{{font-family:system-ui;margin:0;background:#f6f7f3;color:#17372b}}main{{max-width:720px;margin:auto;padding:72px 24px}}
-a{{color:#1f5845}}.card{{background:#fff;border:1px solid #dbe1d8;border-radius:18px;padding:32px}}
-small{{letter-spacing:.12em;text-transform:uppercase;color:#66776e}}h1{{font-size:clamp(34px,7vw,64px);letter-spacing:-.04em}}
-p{{line-height:1.65;color:#40584d}}</style></head>
-<body><main><a href="/">← Checkup Auto</a><div class="card"><small>PAIEMENT · {safe_state}</small>
-<h1>{safe_title}</h1><p>{safe_message}</p></div></main></body></html>""".encode("utf-8")
+<title>__TITLE__ | Checkup Auto</title>
+<style>
+:root{--paper:#f5f6f1;--ink:#17372b;--muted:#66776e;--line:#d8dfd8;--green:#1f5443;--soft:#edf1eb;--white:#fff}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(135deg,#fafbf8 0%,var(--paper) 58%,#eef2ec 100%);color:var(--ink);font-family:Arial,Helvetica,sans-serif}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(31,84,67,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(31,84,67,.035) 1px,transparent 1px);background-size:52px 52px;mask-image:linear-gradient(to bottom,black,transparent 78%)}
+a{color:inherit;text-decoration:none}.shell{width:min(980px,calc(100% - 32px));margin:0 auto;padding:30px 0 54px}.top{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 2px 26px}
+.brand{display:flex;align-items:center;gap:12px;font-weight:700;letter-spacing:-.035em}.mark{width:38px;height:38px;border:1px solid #9db2a6;border-radius:50%;display:grid;place-items:center}.back{font-size:12px;color:var(--muted)}
+.panel{position:relative;overflow:hidden;background:rgba(255,255,255,.94);border:1px solid var(--line);box-shadow:0 30px 80px rgba(24,55,43,.08);border-radius:28px;padding:clamp(28px,6vw,58px)}
+.panel:after{content:"";position:absolute;width:300px;height:300px;border:1px solid rgba(31,84,67,.08);border-radius:50%;right:-130px;top:-155px}
+.eyebrow{font:11px Consolas,monospace;letter-spacing:.14em;color:var(--green);text-transform:uppercase}.state{display:inline-flex;margin-top:22px;padding:8px 11px;border:1px solid #c8d6ce;background:var(--soft);font:700 10px Consolas,monospace;letter-spacing:.1em}
+h1{font-family:Georgia,'Times New Roman',serif;font-size:clamp(40px,7vw,70px);line-height:.98;letter-spacing:-.045em;font-weight:400;margin:20px 0 18px;max-width:760px}
+.lead{max-width:680px;font-size:15px;line-height:1.75;color:#4c6257;margin:0}.proofs{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:34px}
+.proof{background:#fbfcfa;padding:18px}.proof small{display:block;font:9px Consolas,monospace;letter-spacing:.09em;color:#748178;margin-bottom:7px}.proof strong{font-size:13px;font-weight:600}
+.actions{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:32px}.primary{display:inline-flex;align-items:center;gap:14px;background:var(--green);color:#fff;padding:15px 19px;font-size:12px}.help{font-size:11px;color:var(--muted)}
+@media(max-width:680px){.shell{width:min(100% - 22px,980px);padding-top:18px}.top{padding-bottom:18px}.panel{border-radius:20px;padding:26px 22px}.proofs{grid-template-columns:1fr}.back{font-size:10px}}
+</style></head><body><main class="shell">
+<div class="top"><a class="brand" href="/"><span class="mark">✓</span><span>CHECKUP AUTO</span></a><a class="back" href="/">Retour au site</a></div>
+<section class="panel" aria-labelledby="paymentResultTitle">
+<div class="eyebrow">Paiement sécurisé · vérification prestataire</div>
+<div class="state">__STATE__</div>
+<h1 id="paymentResultTitle">__TITLE__</h1>
+<p class="lead">__MESSAGE__</p>
+<div class="proofs" aria-label="Garanties de vérification">
+<div class="proof"><small>01 / SOURCE</small><strong>Résultat relu côté serveur</strong></div>
+<div class="proof"><small>02 / CARTE</small><strong>Aucune donnée bancaire stockée ici</strong></div>
+<div class="proof"><small>03 / ÉTAT</small><strong>Aucun succès sans preuve Payline</strong></div>
+</div>
+<div class="actions"><a class="primary" href="/">Revenir à Checkup Auto →</a><span class="help">Votre réservation reste protégée pendant la vérification.</span></div>
+</section></main></body></html>"""
+    return (
+        document.replace("__TITLE__", safe_title)
+        .replace("__MESSAGE__", safe_message)
+        .replace("__STATE__", safe_state)
+        .encode("utf-8")
+    )
 
 
 def _browser_result(handler, query: str) -> bool:
@@ -168,56 +196,100 @@ def _notify(handler, query: str) -> bool:
 
 
 def _checkout_page(handler) -> bool:
-    nonce=secrets.token_urlsafe(18)
-    handler._csp_nonce=nonce
-    nonce_attr=html.escape(nonce,quote=True)
-    start_route=json.dumps(START_ROUTE)
-    document=f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    nonce = secrets.token_urlsafe(18)
+    handler._csp_nonce = nonce
+    nonce_attr = html.escape(nonce, quote=True)
+    start_route = json.dumps(START_ROUTE)
+    document = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>Paiement sécurisé | Checkup Auto</title>
 <style>
-body{{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f6f1;color:#17372b}}
-main{{max-width:760px;margin:auto;padding:64px 22px}}.card{{background:#fff;border:1px solid #dbe1d8;border-radius:24px;padding:32px}}
-.eyebrow{{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#66776e}}h1{{font-size:clamp(34px,7vw,60px);letter-spacing:-.045em;margin:.3em 0}}
-p{{line-height:1.65;color:#40584d}}button{{border:0;border-radius:999px;padding:15px 22px;background:#17372b;color:white;font-weight:700;cursor:pointer}}
-button:disabled{{opacity:.45;cursor:wait}}a{{color:#1f5845}}.status{{margin-top:18px;padding:14px 16px;border-radius:14px;background:#f0f3ef}}
-.secure{{display:flex;gap:10px;align-items:center;font-size:13px;color:#66776e;margin-top:20px}}
-</style></head><body><main><a href="/">← Checkup Auto</a><div class="card">
-<div class="eyebrow">CHECKUP AUTO · PAIEMENT</div><h1>Finaliser le paiement.</h1>
-<p>Le montant et la prestation sont relus côté serveur depuis votre réservation confirmée. Les données de carte sont saisies uniquement sur la page bancaire Payline / Monext.</p>
-<button id="pay" type="button">Continuer vers le paiement sécurisé</button>
-<div id="status" class="status" role="status" aria-live="polite">Vérification de votre réservation…</div>
-<div class="secure">🔒 Aucun numéro de carte ni cryptogramme n’est traité par Checkup Auto.</div>
-</div></main>
-<script nonce="{nonce_attr}">
-(()=>{{'use strict';
+:root{--paper:#f5f6f1;--ink:#17372b;--muted:#69786f;--line:#d9e0d9;--green:#1f5443;--soft:#edf1eb;--white:#fff}
+*{box-sizing:border-box}html{background:var(--paper)}body{margin:0;min-height:100vh;background:radial-gradient(circle at 78% 18%,rgba(171,193,180,.22),transparent 31%),linear-gradient(135deg,#fbfcf9 0%,var(--paper) 60%,#edf1eb 100%);color:var(--ink);font-family:Arial,Helvetica,sans-serif}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(31,84,67,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(31,84,67,.035) 1px,transparent 1px);background-size:54px 54px;mask-image:linear-gradient(to bottom,black,transparent 82%)}
+a{color:inherit;text-decoration:none}.shell{width:min(1180px,calc(100% - 34px));margin:0 auto;padding:26px 0 48px}.top{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:0 2px 24px}
+.brand{display:flex;align-items:center;gap:12px;font-weight:700;letter-spacing:-.035em}.mark{width:40px;height:40px;border:1px solid #99afa2;border-radius:50%;display:grid;place-items:center;font-size:19px}.back{font-size:11px;color:var(--muted)}
+.progress{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);background:rgba(255,255,255,.62);margin-bottom:14px}.step{padding:13px 16px;display:flex;gap:10px;align-items:center;border-right:1px solid var(--line);font-size:11px;color:#7a867f}.step:last-child{border-right:0}.step b{font:10px Consolas,monospace}.step.done,.step.current{color:var(--ink)}.step.current{background:#fff}.step.done b{color:var(--green)}
+.card{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,.65fr);background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:30px;box-shadow:0 32px 90px rgba(23,55,43,.09)}
+.content{padding:clamp(30px,5vw,60px)}.side{position:relative;padding:clamp(28px,4vw,44px);background:linear-gradient(150deg,#eef3ed 0%,#e2eae4 100%);border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:space-between;min-height:510px}
+.side:before,.side:after{content:"";position:absolute;border:1px solid rgba(31,84,67,.12);border-radius:50%}.side:before{width:360px;height:360px;right:-210px;top:-110px}.side:after{width:210px;height:210px;left:-110px;bottom:-95px}
+.eyebrow{font:10px Consolas,monospace;letter-spacing:.15em;color:var(--green);text-transform:uppercase}.stage{display:inline-flex;margin-top:22px;padding:7px 10px;border:1px solid #c7d5cd;background:#f4f7f3;font:700 9px Consolas,monospace;letter-spacing:.1em}
+h1{font-family:Georgia,'Times New Roman',serif;font-size:clamp(44px,6vw,76px);line-height:.96;letter-spacing:-.05em;font-weight:400;margin:20px 0 22px;max-width:720px}.lead{font-size:15px;line-height:1.75;color:#4d6258;max-width:660px;margin:0}
+.notice{margin-top:26px;padding:16px 18px;background:#f4f7f3;border-left:3px solid var(--green);font-size:12px;line-height:1.55;color:#4f6258}.actions{margin-top:28px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+button{appearance:none;border:0;border-radius:0;background:var(--green);color:white;padding:17px 22px;font:700 12px Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 12px 28px rgba(31,84,67,.16);transition:transform .18s ease,box-shadow .18s ease,opacity .18s ease}
+button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 15px 34px rgba(31,84,67,.22)}button:focus-visible{outline:3px solid rgba(31,84,67,.28);outline-offset:4px}button:disabled{opacity:.48;cursor:wait;box-shadow:none}
+.micro{font-size:10px;color:#7b8780;line-height:1.55;max-width:260px}.status{margin-top:18px;min-height:49px;padding:14px 16px;border:1px solid #dce3dc;background:#fafbf9;font-size:12px;line-height:1.55;color:#52645b}
+.status[data-state="ready"]{border-color:#b8ccbf;background:#f1f6f2}.status[data-state="busy"]{border-color:#c6d2cb;background:#f4f7f4}.status[data-state="error"]{border-color:#d7b5ae;background:#fff7f5;color:#76483e}
+.side-copy{position:relative;z-index:1}.side small{font:9px Consolas,monospace;letter-spacing:.13em;color:#6f7f75}.side h2{font:400 29px/1.08 Georgia,'Times New Roman',serif;margin:16px 0}.side p{font-size:12px;line-height:1.65;color:#5c6d63;margin:0}
+.proofs{position:relative;z-index:1;display:grid;gap:10px;margin-top:36px}.proof{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;padding-top:12px;border-top:1px solid rgba(31,84,67,.15)}.proof b{font:10px Consolas,monospace;color:var(--green)}.proof span{font-size:11px;line-height:1.45}
+.secure{position:relative;z-index:1;margin-top:30px;padding:13px 0 0;border-top:1px solid rgba(31,84,67,.15);font-size:10px;line-height:1.55;color:#607168}
+@media(max-width:850px){.card{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line);min-height:0}.progress{grid-template-columns:1fr}.step{border-right:0;border-bottom:1px solid var(--line)}.step:last-child{border-bottom:0}}
+@media(max-width:560px){.shell{width:min(100% - 20px,1180px);padding-top:15px}.top{padding-bottom:16px}.brand{font-size:14px}.mark{width:35px;height:35px}.back{font-size:10px}.content{padding:27px 21px}.side{padding:25px 21px}.card{border-radius:20px}.actions{align-items:stretch;flex-direction:column}.actions button{width:100%}.micro{max-width:none}}
+@media(prefers-reduced-motion:reduce){button{transition:none}button:hover:not(:disabled){transform:none}}
+</style></head><body><main class="shell">
+<div class="top"><a class="brand" href="/"><span class="mark">✓</span><span>CHECKUP AUTO</span></a><a class="back" href="/">← Revenir à la réservation</a></div>
+<div class="progress" aria-label="Progression du paiement">
+<div class="step done"><b>01</b><span>Réservation confirmée</span></div>
+<div class="step current" aria-current="step"><b>02</b><span>Paiement sécurisé</span></div>
+<div class="step"><b>03</b><span>Confirmation</span></div>
+</div>
+<section class="card" aria-labelledby="checkoutTitle">
+<div class="content">
+<div class="eyebrow">Checkup Auto · paiement bancaire</div>
+<div class="stage">ÉTAPE 2 SUR 3</div>
+<h1 id="checkoutTitle">Finaliser votre paiement.</h1>
+<p class="lead">Votre réservation a été identifiée. Le montant, la prestation et l’acceptation des conditions de vente sont relus côté serveur avant toute demande adressée à Payline / Monext.</p>
+<div class="notice">Vous allez quitter momentanément Checkup Auto pour la page bancaire sécurisée. Les données de carte sont saisies uniquement chez le prestataire de paiement.</div>
+<div class="actions">
+<button id="pay" type="button">Continuer vers Payline / Monext →</button>
+<span class="micro">Aucun débit ne démarre avant votre clic. Une tentative incertaine n’est jamais relancée automatiquement.</span>
+</div>
+<div id="status" class="status" data-state="busy" role="status" aria-live="polite">Vérification de votre réservation…</div>
+</div>
+<aside class="side" aria-label="Garanties du paiement">
+<div class="side-copy"><small>PAIEMENT / CONTRÔLE TECHNIQUE</small><h2>Une transaction séparée de vos données bancaires.</h2><p>Checkup Auto orchestre la réservation et vérifie le résultat. La saisie de carte reste sur l’infrastructure Payline / Monext.</p></div>
+<div class="proofs">
+<div class="proof"><b>01</b><span>Montant vérifié côté serveur depuis la réservation Mercure.</span></div>
+<div class="proof"><b>02</b><span>Numéro de carte et cryptogramme non traités par Checkup Auto.</span></div>
+<div class="proof"><b>03</b><span>Résultat bancaire revalidé auprès de Payline avant confirmation.</span></div>
+</div>
+<div class="secure">Connexion HTTPS · page bancaire hébergée · résultat vérifié côté serveur</div>
+</aside>
+</section></main>
+<script nonce="__NONCE__">
+(()=>{'use strict';
 const button=document.getElementById('pay'),status=document.getElementById('status');
+const setStatus=(text,state)=>{status.textContent=text;status.dataset.state=state;};
 const params=new URLSearchParams(location.hash.slice(1)),ccid=params.get('ccid')||'',cct=params.get('cct')||'';
 history.replaceState(null,'',location.pathname);
-if(!ccid||!cct){{button.disabled=true;status.textContent='Lien de paiement incomplet. Revenez à votre réservation.';return;}}
-status.textContent='Réservation identifiée. Le paiement ne démarre qu’après votre clic.';
-button.addEventListener('click',async()=>{{
- button.disabled=true;status.textContent='Préparation du paiement sécurisé…';
- try{{
-  const r=await fetch({start_route},{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid,cct}})}});
-  const data=await r.json().catch(()=>({{}}));
-  if(r.ok&&data.ok&&typeof data.redirectUrl==='string'&&data.redirectUrl.startsWith('https://')){{location.assign(data.redirectUrl);return;}}
-  if(data.error==='authoritative_booking_required')status.textContent='La réservation est confirmée côté navigateur mais son rapprochement Mercure est encore en cours. Réessayez dans quelques instants.';
-  else if(data.error==='payment_provider_not_configured')status.textContent='Le paiement bancaire est en cours de configuration. Votre réservation reste enregistrée et aucun débit n’a été tenté.';
-  else if(data.error==='payment_start_reconciliation_required')status.textContent='Une tentative précédente doit être vérifiée avant de relancer un paiement. Aucun nouvel encaissement automatique ne sera tenté.';
-  else status.textContent='Le paiement ne peut pas être préparé pour le moment. Aucun débit n’a été tenté.';
- }}catch(_e){{status.textContent='Connexion momentanément indisponible. Aucun débit n’a été tenté.';}}
- finally{{button.disabled=false;}}
-}});
-}})();
-</script></body></html>""".encode("utf-8")
+if(!ccid||!cct){button.disabled=true;setStatus('Lien de paiement incomplet. Revenez à votre réservation pour générer un nouveau lien.','error');return;}
+setStatus('Réservation identifiée. Le paiement ne démarre qu’après votre clic.','ready');
+button.addEventListener('click',async()=>{
+ button.disabled=true;setStatus('Préparation de la session bancaire sécurisée…','busy');
+ try{
+  const r=await fetch(__START_ROUTE__,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({ccid,cct})});
+  const data=await r.json().catch(()=>({}));
+  if(r.ok&&data.ok&&typeof data.redirectUrl==='string'&&data.redirectUrl.startsWith('https://')){setStatus('Session sécurisée prête. Redirection vers Payline / Monext…','ready');location.assign(data.redirectUrl);return;}
+  if(data.error==='authoritative_booking_required')setStatus('La réservation est confirmée dans votre navigateur mais son rapprochement Mercure est encore en cours. Réessayez dans quelques instants.','error');
+  else if(data.error==='payment_provider_not_configured')setStatus('Le paiement bancaire est en cours de configuration. Votre réservation reste enregistrée et aucun débit n’a été tenté.','error');
+  else if(data.error==='payment_start_reconciliation_required')setStatus('Une tentative précédente doit être vérifiée avant de relancer un paiement. Aucun nouvel encaissement automatique ne sera tenté.','error');
+  else setStatus('Le paiement ne peut pas être préparé pour le moment. Aucun débit n’a été tenté.','error');
+ }catch(_e){setStatus('Connexion momentanément indisponible. Aucun débit n’a été tenté.','error');}
+ finally{button.disabled=false;}
+});
+})();
+</script></body></html>"""
+    document = (
+        document.replace("__NONCE__", nonce_attr)
+        .replace("__START_ROUTE__", start_route)
+    ).encode("utf-8")
     handler.send_bytes(
         document,
         "text/html; charset=utf-8",
         200,
         "no-store",
-        {"X-Robots-Tag":"noindex, nofollow, noarchive"},
+        {"X-Robots-Tag": "noindex, nofollow, noarchive"},
     )
     return True
 
