@@ -195,6 +195,10 @@ def record(
                 raise RuntimeError("preuve provider déjà liée à un autre comptage")
             previous_source = str(previous["subject_source"] or "")
             previous_subject_hash = str(previous["provider_subject_hash"] or "")
+            if previous_source and not provenance_source:
+                raise RuntimeError("provenance provider requise pour la reprise")
+            if previous_subject_hash and not provider_subject_hash:
+                raise RuntimeError("sujet provider requis pour la reprise")
             if previous_source and provenance_source and previous_source != provenance_source:
                 raise RuntimeError("preuve provider déjà liée à une autre provenance")
             if (
