@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive"><title>Comptes clients — CheckupAuto Administration</title>
+<link rel="stylesheet" href="/admin/admin.css"><link rel="stylesheet" href="/admin/customers.css"></head>
+<body><div class="shell"><aside><div class="logo"><span>✓</span><div>CyberCheck<small>ADMINISTRATION</small></div></div>
+<nav><a href="/admin/">Retour au back-office</a><a class="active" href="/admin/customers.html" aria-current="page">Comptes clients</a><a href="/admin/payments.html">Paiements</a></nav>
+<a class="preview" href="/compte" target="_blank" rel="noopener">Voir l’espace client ↗</a></aside>
+<main><header><div><p class="eyebrow">CLIENTS / IDENTITÉ FÉDÉRÉE</p><h1>Connexions clients</h1>
+<p>Configurer Google, Apple et Microsoft / Hotmail pour l’espace client Checkup Auto.</p></div></header>
+
+<div class="panel" role="note"><strong>Secrets privés uniquement.</strong>
+<p class="hint">Les Client Secrets sont transmis une seule fois au serveur puis stockés dans le volume privé. Ils ne sont jamais réaffichés. La suppression d’un connecteur ne supprime aucun compte client existant.</p></div>
+
+<p id="oidcMessage" class="hint" role="status" aria-live="polite">Chargement des connecteurs…</p>
+<p id="oidcAuth" hidden><a href="/admin/">Ouvrir le back-office pour renouveler l’authentification et la double authentification.</a></p>
+
+<section class="panel"><div class="panel-head"><div><p class="eyebrow">OPENID CONNECT</p><h2>Fournisseurs</h2>
+<p class="hint">Le callback doit être déclaré exactement chez chaque fournisseur. Les URL affichées ici sont calculées côté serveur à partir du domaine courant.</p></div>
+<button id="oidcReload" class="secondary" type="button">Actualiser</button></div>
+<div id="oidcProviders" class="oidc-grid" aria-live="polite"></div></section>
+</main></div><script src="/admin/customers.js"></script></body></html>
