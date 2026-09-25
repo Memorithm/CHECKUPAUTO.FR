@@ -106,8 +106,8 @@ button.secondary{{background:#e8eee9;color:#17372b}}button:disabled{{opacity:.5;
 .slot{{background:#eef3ef;color:#17372b}}.slot.active{{background:#17372b;color:#fff}}.status{{padding:14px 16px;background:#eef3ef;border-radius:14px;line-height:1.5}}
 .warn{{background:#fff3d7;color:#664b00}}small{{color:#66776e}}@media(max-width:680px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body><main><a href="/">← Checkup Auto</a>
-<div class="card"><small>STAGING · AUCUN DÉBIT BANCAIRE</small><h1>Test réservation + paiement</h1>
-<p>Ce parcours crée un vrai rendez-vous <strong>synthétique</strong> dans Mercure puis exerce le domaine de paiement CheckupAuto avec un résultat Payline simulé. Aucune banque n’est appelée.</p></div>
+<div class="card"><small>STAGING · PAIEMENT SANDBOX UNIQUEMENT</small><h1>Test réservation + paiement</h1>
+<p>Ce parcours crée un vrai rendez-vous <strong>synthétique</strong> dans Mercure. Vous pouvez ensuite utiliser soit le simulateur intégral CheckupAuto, soit le vrai checkout Payline / Monext d’homologation lorsque la configuration API sandbox est installée.</p></div>
 <div class="card">
 <div class="grid">
 <label>Prestation<select id="service"><option value="technical">Contrôle technique · 80 €</option><option value="fitted">Véhicule aménagé · 90 €</option></select></label>
@@ -117,19 +117,23 @@ button.secondary{{background:#e8eee9;color:#17372b}}button:disabled{{opacity:.5;
 <div id="slots" class="slots"></div>
 <label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv" target="_blank" rel="noopener">CGV</a> pour ce test.</label>
 <label><input id="immediate" type="checkbox"> J’accepte l’exécution immédiate dans le cadre de ce test de parcours.</label>
-<p><button id="create" type="button" disabled>Créer le rendez-vous test et préparer le paiement</button></p>
+<p><button id="create" type="button" disabled>Simuler le paiement de bout en bout</button> <button id="realPayline" type="button" class="secondary" disabled>Ouvrir Payline homologation réelle</button></p>
+<div id="paylineState" class="status warn">Lecture de la configuration Payline sandbox…</div>
 <div id="status" class="status">Initialisation de la session de test…</div>
+<p><button id="cleanupPrevious" type="button" class="secondary" hidden>Supprimer le rendez-vous test précédent</button></p>
 </div>
 </main><script nonce="{n}">
 (()=>{{'use strict';
 const $=id=>document.getElementById(id),service=$('service'),date=$('date'),slots=$('slots'),status=$('status'),
- load=$('load'),create=$('create'),terms=$('terms'),immediate=$('immediate');
-let token='',selected='';
+ load=$('load'),create=$('create'),realPayline=$('realPayline'),terms=$('terms'),immediate=$('immediate'),
+ paylineState=$('paylineState'),cleanupPrevious=$('cleanupPrevious');
+let token='',selected='',paylineReady=false;
 const tomorrow=new Date(Date.now()+86400000);date.value=tomorrow.toISOString().slice(0,10);
 const post=async(url,payload)=>{{const r=await fetch(url,{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}});const d=await r.json().catch(()=>({{}}));if(!r.ok)throw new Error(d.error||'request_failed');return d;}};
-const refreshCreate=()=>{{create.disabled=!(token&&selected&&terms.checked&&immediate.checked)}};
+const refreshCreate=()=>{{const ready=!!(token&&selected&&terms.checked&&immediate.checked);create.disabled=!ready;realPayline.disabled=!(ready&&paylineReady)}};
 terms.addEventListener('change',refreshCreate);immediate.addEventListener('change',refreshCreate);
-(async()=>{{try{{const d=await post('{SESSION_ROUTE}',{{}});token=d.token;status.textContent='Session prête. Choisissez une date et un créneau.';}}catch(e){{status.textContent='Impossible de créer la session test : '+e.message;}}}})();
+(async()=>{{try{{const d=await post('{SESSION_ROUTE}',{{}});token=d.token;paylineReady=!!(d.paylineSandbox?.configured&&d.paylineSandbox?.configurationValid);paylineState.textContent=paylineReady?'Payline sandbox configuré : le parcours d’homologation réel est disponible.':'Payline sandbox non configuré : le simulateur reste disponible. Le vrai doWebPayment sera activé automatiquement après installation des identifiants de test.';paylineState.classList.toggle('warn',!paylineReady);status.textContent='Session prête. Choisissez une date et un créneau.';refreshCreate();}}catch(e){{status.textContent='Impossible de créer la session test : '+e.message;}}}})();
+const previous=sessionStorage.getItem('checkupautoPaymentTestToken')||'';if(previous){{cleanupPrevious.hidden=false;cleanupPrevious.addEventListener('click',async()=>{{cleanupPrevious.disabled=true;try{{await post('{REMOVE_ROUTE}',{{token:previous}});sessionStorage.removeItem('checkupautoPaymentTestToken');cleanupPrevious.hidden=true;status.textContent='Rendez-vous test précédent supprimé de Mercure.';}}catch(e){{status.textContent='Nettoyage précédent impossible : '+e.message;cleanupPrevious.disabled=false;}}}});}}
 load.addEventListener('click',async()=>{{selected='';refreshCreate();slots.replaceChildren();status.textContent='Lecture des disponibilités Mercure…';
  try{{const r=await fetch('/api/booking/availability?service='+encodeURIComponent(service.value)+'&date='+encodeURIComponent(date.value),{{cache:'no-store'}});const d=await r.json();if(!r.ok)throw new Error(d.error||'availability_failed');
  let found=0;for(const day of (d.days||[])){{for(const slot of (day.slots||[])){{const b=document.createElement('button');b.type='button';b.className='slot';b.textContent=String(day.date)+' · '+String(slot.time)+' · '+String(slot.price||'')+' €';b.addEventListener('click',()=>{{date.value=String(day.date);selected=String(slot.time);for(const x of slots.querySelectorAll('.slot'))x.classList.remove('active');b.classList.add('active');status.textContent='Créneau sélectionné : '+day.date+' à '+selected;refreshCreate();}});slots.append(b);found++;}}}}
@@ -140,6 +144,11 @@ create.addEventListener('click',async()=>{{create.disabled=true;status.textConte
  sessionStorage.setItem('checkupautoPaymentTestToken',token);
  status.textContent='Rendez-vous créé. Ouverture du simulateur de paiement…';location.assign(d.providerUrl);
  }}catch(e){{status.textContent='Échec du test : '+e.message;refreshCreate();}}}});
+realPayline.addEventListener('click',async()=>{{realPayline.disabled=true;status.textContent='Préparation du rendez-vous Mercure et du checkout Payline homologation…';
+ try{{const d=await post('{PREPARE_PAYLINE_ROUTE}',{{token,service:service.value,date:date.value,time:selected,acceptTerms:true,immediatePerformance:true}});
+ sessionStorage.setItem('checkupautoPaymentTestToken',token);
+ status.textContent='Réservation prête. Ouverture du checkout Checkup Auto…';location.assign(d.checkoutUrl);
+ }}catch(e){{status.textContent='Homologation Payline indisponible : '+e.message;refreshCreate();}}}});
 }})();
 </script></body></html>""".encode("utf-8")
     handler.send_bytes(body,"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
@@ -187,6 +196,12 @@ def handle(handler) -> bool:
         return _json(handler,lambda payload: lab.create_session(),created=True)
     if command=="POST" and path==CREATE_ROUTE:
         return _json(handler,lambda p: lab.create_reservation(
+            p.get("token"),p.get("service"),p.get("date"),p.get("time"),
+            accept_terms=p.get("acceptTerms") is True,
+            immediate_performance=p.get("immediatePerformance") is True,
+        ),created=True)
+    if command=="POST" and path==PREPARE_PAYLINE_ROUTE:
+        return _json(handler,lambda p: lab.prepare_payline_checkout(
             p.get("token"),p.get("service"),p.get("date"),p.get("time"),
             accept_terms=p.get("acceptTerms") is True,
             immediate_performance=p.get("immediatePerformance") is True,
