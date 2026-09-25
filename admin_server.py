@@ -278,7 +278,6 @@ class Handler(SimpleHTTPRequestHandler):
  def do_GET(self):
   if not self._guard(): return
   if customer_http.handle(self): return
-  if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=PASSWORD): return
@@ -564,6 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
   return {key:(values[0] if values else '') for key,values in parsed.items()}
  def do_POST(self):
   if not self._guard(): return
+  if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=PASSWORD): return
