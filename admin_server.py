@@ -39,6 +39,7 @@ import compliance_store as compliance
 import compliance_admin as compliance_admin
 import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
+import contact_request as contact_request
 import payment_contract_http
 import payment_payline_http
 import payment_test_http
@@ -233,7 +234,7 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/app','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation'}
+  dynamic={'/','/index.html','/app','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation','/contact'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
@@ -498,6 +499,8 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_bytes(mobile_claim_delivery.association_document(load_config()),'application/json',cache='public, max-age=3600')
    except Exception:
     return self.send_json({'error':'association_not_ready'},503)
+  if path=='/contact':
+   return self.send_bytes(contact_request.render_form(),'text/html; charset=utf-8',cache='no-store')
   if path=='/api/compliance/cookies':
    try: return self.send_json(compliance.cookie_policy())
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
@@ -562,6 +565,15 @@ class Handler(SimpleHTTPRequestHandler):
   if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=PASSWORD): return
   path=urlparse(self.path).path
+  if path=='/contact':
+   try:
+    if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
+    result=contact_request.submit(self._read_form())
+    return self.send_bytes(contact_request.render_confirmation(result),'text/html; charset=utf-8',201,'no-store')
+   except ValueError:
+    return self.send_bytes(b'Demande de contact invalide','text/plain; charset=utf-8',400,'no-store')
+   except Exception:
+    return self.send_bytes(b'Service de contact temporairement indisponible','text/plain; charset=utf-8',503,'no-store')
   if path=='/retractation':
    try:
     if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')

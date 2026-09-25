@@ -84,9 +84,6 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertTrue(runtime["checkoutBasis"]["serverAuthoritativePrice"])
             self.assertTrue(runtime["checkoutBasis"]["contractAcceptanceBound"])
             self.assertTrue(runtime["checkoutBasis"]["publicStartRouteBound"])
-            self.assertTrue(runtime["refundBasis"]["operatorRefundLedger"])
-            self.assertTrue(runtime["refundBasis"]["ambiguousRefundRetryBlocked"])
-            self.assertFalse(runtime["refundBasis"]["liveRefundsEnabled"])
             self.assertNotIn("merchantId", repr(runtime))
             self.assertNotIn("accessKey", repr(runtime))
             self.assertNotIn("contractNumber", repr(runtime))
@@ -106,64 +103,14 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertNotIn('booking_reference', repr(body))
             self.assertNotIn('provider_reference', repr(body))
 
-
-    def test_refund_route_requires_csrf_and_exposes_no_provider_transaction(self):
-        with self.server() as (address, authorization, private):
-            contract = self.request(address, authorization)[2]
-            payload = {
-                "requestId": "a" * 32,
-                "paymentId": "b" * 32,
-                "amountCents": 1000,
-                "reason": "customer_request",
-            }
-            self.assertEqual(
-                self.request(address, authorization, payload, path="/api/admin/payments/refunds")[0],
-                403,
-            )
-            route = importlib.import_module("payment_contract_http")
-            completed = {
-                "requestId": payload["requestId"],
-                "paymentId": payload["paymentId"],
-                "provider": "payline",
-                "environment": "sandbox",
-                "amountCents": 1000,
-                "currency": "EUR",
-                "reason": "customer_request",
-                "state": "completed",
-                "evidenceHash": "e" * 64,
-                "createdAt": "2026-09-25T00:00:00+00:00",
-                "updatedAt": "2026-09-25T00:00:01+00:00",
-                "reused": False,
-            }
-            with patch.object(route.payment_refund, "execute", return_value=completed) as execute:
-                status, _, body = self.request(
-                    address,
-                    authorization,
-                    payload,
-                    contract["csrfToken"],
-                    path="/api/admin/payments/refunds",
-                )
-            self.assertEqual(status, 201)
-            self.assertTrue(body["ok"])
-            self.assertEqual(body["state"], "completed")
-            self.assertFalse(body["capability"]["liveRefundsEnabled"])
-            self.assertNotIn("transactionId", repr(body))
-            execute.assert_called_once_with("a" * 32, "b" * 32, 1000, "customer_request")
-
-    def test_refund_activity_route_is_authenticated_minimized_and_sandbox_only(self):
+    def test_refund_admin_route_is_not_exposed(self):
         with self.server() as (address, authorization, private):
             status, _, body = self.request(
                 address,
                 authorization,
                 path="/api/admin/payments/refunds",
             )
-            self.assertEqual(status, 200)
-            self.assertTrue(body["ok"])
-            self.assertEqual(body["summary"]["total"], 0)
-            self.assertEqual(body["refunds"], [])
-            self.assertTrue(body["capability"]["operatorRefundLedger"])
-            self.assertFalse(body["capability"]["liveRefundsEnabled"])
-            self.assertRegex(body["csrfToken"], r"^[0-9a-f]{64}$")
+            self.assertEqual(status, 404)
 
     def test_http_validation_never_returns_submitted_secret(self):
         with self.server() as (address, authorization, private):

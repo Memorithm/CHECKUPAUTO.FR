@@ -92,20 +92,13 @@ Le démarrage est idempotent après une réponse fournisseur confirmée : le mê
 
 Le checkout reste strictement en environnement d'homologation. Une configuration privée Payline absente retourne un échec fermé et n'empoisonne pas l'intention pour une tentative ultérieure après configuration. `livePaymentsEnabled=false` demeure inchangé.
 
-## Fondation remboursement sandbox
+## Procédure de demande concernant un remboursement
 
-La preuve Payline vérifiée conserve désormais l'identifiant de transaction bancaire retourné par `getWebPaymentDetails` dans un registre séparé du jeton de session. Cet identifiant est nécessaire pour les opérations ultérieures de remboursement et n'est jamais accepté depuis le navigateur.
+Checkup Auto ne propose **aucun remboursement automatique** depuis le site, le checkout ou le back-office. Aucune route opérateur ne doit pouvoir appeler `doRefundRequest` et aucun bouton de remboursement n'est exposé.
 
-Le transport d'homologation prépare `doRefundRequest` sur le point d'accès `DirectPaymentAPI`, avec :
+Une demande concernant un remboursement passe exclusivement par le formulaire public `/contact`. Elle crée une demande de contact destinée à un traitement manuel séparé. La soumission du formulaire ne modifie jamais un paiement, n'appelle jamais Payline / Monext et ne vaut pas confirmation d'un remboursement.
 
-- `transactionID` issu exclusivement de la preuve Payline vérifiée ;
-- montant entier en centimes, toujours inférieur ou égal au montant capturé ;
-- devise EUR (`978`) ;
-- `payment.action=421` et `payment.mode=CPT` ;
-- `sequenceNumber` obligatoire côté CheckupAuto pour rendre l'intention d'opération idempotente ;
-- aucun PAN, CVV ou identifiant bancaire récupéré par CheckupAuto.
-
-Cette tranche n'expose encore aucune route de remboursement à l'opérateur et ne déclenche aucun remboursement réel. Le transport reste limité à l'homologation et `refundsBound=false` tant que le ledger de remboursement, la réconciliation et le contrôle opérateur MFA ne sont pas terminés.
+Le transport Payline d'homologation préparé dans le code bas niveau reste non raccordé au produit : `refundsBound=false`. Il ne doit pas être considéré comme une fonctionnalité disponible ni être exposé sans décision produit explicite ultérieure.
 
 ## Accès à préparer avec Monext
 
@@ -154,12 +147,12 @@ Une autorisation n'est pas une capture ; une capture n'est pas une preuve de rè
 
 ## Feuille de route et critères de sortie
 
-1. **Compte Payline et contrat.** Confirmer accès, environnement, identifiant API, rattachement du contrat et droits autorisation/capture/remboursement. Ne pas utiliser la fiche comme credential.
+1. **Compte Payline et contrat.** Confirmer accès, environnement, identifiant API, rattachement du contrat et droits d'encaissement. Ne pas utiliser la fiche comme credential.
 2. **Transport Payline sandbox.** Implémenter le protocole documenté, bornes des corps/temps, TLS, erreurs minimisées, contrôle des redirections et lecture authentifiée des résultats. Ajouter le fournisseur au journal avec migration testée sans altérer les données PayPal/Monetico existantes.
 3. **Liaison Mercure/prix/CGV.** Prouver le devis, la remise, le créneau et l'acceptation, couvrir expiration et échec de réservation. Définir les compensations avant toute offre publique d'encaissement.
 4. **Reprises persistantes et routes sandbox.** Traiter les pannes entre appel réseau et écriture locale, doubles clics, notifications répétées/retardées/perdues. Pour PayPal, ne pas supposer que PayPal-Request-ID offre une idempotence illimitée. Sessions, CSRF, droits d'accès, limites de débit et boîte de réception durable doivent précéder l'exposition.
-5. **Annulations et rapprochement.** Implémenter remboursements complets/partiels bornés par le réellement capturé, réversions, litiges et contrôle périodique. Les accusés de réception seuls ne sont pas des récepteurs HTTP achevés.
-6. **Back-office Paiements.** Séparer configuration test/production, ne jamais renvoyer un secret, afficher transactions et anomalies minimisées, soumettre les remboursements aux droits/MFA et à l'audit ; intégrer export comptable et conservation/droits RGPD.
+5. **Annulations et rapprochement.** Gérer les annulations, réversions, litiges et le rapprochement périodique sans exposer d'opération de remboursement. Toute demande client concernant un remboursement reste une procédure de contact manuelle distincte.
+6. **Back-office Paiements.** Séparer configuration test/production, ne jamais renvoyer un secret, afficher transactions et anomalies minimisées ; ne pas exposer de commande de remboursement ; intégrer export comptable et conservation/droits RGPD.
 7. **Recette puis production distincte.** Effectuer des échanges authentifiés de test avec les comptes dédiés, rapprocher le résultat du centre d'administration, tester interruption et restauration, puis obtenir la validation du commerçant avant le réel. Aucun test simulé ne remplace cette recette.
 
 Aucun de ces éléments ne modifie le T430, OwnCloud, la démonstration, ses tunnels ou les blocages de contractualisation publique existants.
