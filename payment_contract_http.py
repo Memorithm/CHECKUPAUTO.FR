@@ -1,4 +1,4 @@
-"""Authenticated acquiring-sheet editor; never exposes a payment operation."""
+"""Authenticated payment administration; sandbox refund operations only, never live."""
 from __future__ import annotations
 
 import hashlib
@@ -158,6 +158,7 @@ def handle(handler, *, secret: str) -> bool:
         result["csrfToken"] = csrf_token(secret, handler.headers)
         result["runtime"] = payment_payline_private.status()
         result["runtime"]["checkoutBasis"] = payment_checkout.capability()
+        result["runtime"]["refundBasis"] = payment_refund.capability()
         handler.send_json(result)
     except ContractConflict:
         return reject("payments_contract_conflict_reload", 409)
