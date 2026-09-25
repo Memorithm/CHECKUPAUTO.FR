@@ -281,3 +281,23 @@ def clear(
         return False
     _fsync_dir(_root())
     return True
+
+def pending_request_ids(limit: int = 500) -> list[str]:
+    """List only request ids for encrypted plans; never decrypt plan contents."""
+    if isinstance(limit, bool):
+        raise ValueError("limite de plans invalide")
+    try:
+        bounded = int(limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limite de plans invalide") from exc
+    if bounded < 1 or bounded > 1000:
+        raise ValueError("limite de plans invalide")
+    root = _root()
+    if not root.is_dir():
+        return []
+    request_ids = sorted(
+        path.stem
+        for path in root.glob("*.enc")
+        if _REQUEST_RE.fullmatch(path.stem)
+    )
+    return request_ids[:bounded]
