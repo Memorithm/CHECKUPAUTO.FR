@@ -8,10 +8,13 @@ from urllib.parse import urlsplit
 
 import payment_test_lab as lab
 
+DEMO_ROUTE="/demo"
 PAGE_ROUTE="/payment/test"
 PROVIDER_ROUTE="/payment/test/provider"
+DEMO_STATUS_ROUTE="/api/payment-test/demo-status"
 SESSION_ROUTE="/api/payment-test/session"
 CREATE_ROUTE="/api/payment-test/create"
+PREPARE_PAYLINE_ROUTE="/api/payment-test/prepare-payline"
 RESULT_ROUTE="/api/payment-test/result"
 STATUS_ROUTE="/api/payment-test/status"
 REMOVE_ROUTE="/api/payment-test/remove"
@@ -39,6 +42,47 @@ def _json(handler, fn, *, created=False):
         code=str(exc)
         safe=code if code.startswith("payment_test_") else "payment_test_request_invalid"
         handler.send_json({"ok":False,"error":safe},400)
+    return True
+
+
+
+def _demo_page(handler) -> bool:
+    if not lab.enabled():
+        handler.send_json({"error":"not_found"},404)
+        return True
+    status=lab.demo_status()
+    payline=status["payment"]["paylineSandbox"]
+    configured=bool(payline.get("configured") and payline.get("configurationValid"))
+    badge="PRÊT POUR HOMOLOGATION" if configured else "CONFIG API SANDBOX À INSTALLER"
+    badge_class="ready" if configured else "blocked"
+    blockers=", ".join(payline.get("blockingReasons") or []) or "aucun"
+    body=f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Démo complète | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#69776f;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
+*{{box-sizing:border-box}}body{{margin:0;background:linear-gradient(145deg,#fbfcf9,var(--paper));color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
+main{{width:min(1120px,calc(100% - 32px));margin:auto;padding:38px 0 70px}}a{{color:inherit;text-decoration:none}}
+.hero{{padding:42px;background:#fff;border:1px solid var(--line);box-shadow:0 26px 70px rgba(31,84,67,.07)}}.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}
+h1{{font:400 clamp(46px,7vw,76px)/.98 Georgia,serif;letter-spacing:-.045em;margin:14px 0}}p{{line-height:1.7;color:var(--muted)}}
+.status{{display:inline-flex;padding:8px 10px;font:700 9px Consolas,monospace;letter-spacing:.08em;border:1px solid;margin-top:8px}}.ready{{background:#eaf3ec;border-color:#abc7b2;color:#174b32}}.blocked{{background:#fff1dd;border-color:#e0c18e;color:#754d0a}}
+.grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}}.card{{background:#fff;border:1px solid var(--line);padding:24px;min-height:220px;display:flex;flex-direction:column}}
+.card small{{font:9px Consolas,monospace;letter-spacing:.1em;color:#718077}}.card h2{{font:400 27px/1.08 Georgia,serif;margin:12px 0}}.card p{{font-size:12px;margin:0 0 20px}}.card a{{margin-top:auto;background:var(--green);color:#fff;padding:12px 14px;font-size:11px;display:inline-block;align-self:flex-start}}
+.meta{{margin-top:18px;padding:18px;background:var(--soft);border:1px solid var(--line);font:11px/1.7 Consolas,monospace;overflow-wrap:anywhere}}
+@media(max-width:820px){{.grid{{grid-template-columns:1fr}}.hero{{padding:28px}}}}
+</style></head><body><main>
+<section class="hero"><div class="eyebrow">STAGING · DÉMO QUASI-RÉELLE</div><h1>Checkup Auto, de bout en bout.</h1>
+<p>Cette surface regroupe le site, la réservation Mercure, le paiement sandbox et les principaux contrats backend. Aucun DNS de production n’est modifié et aucun paiement live n’est activé.</p>
+<span class="status {badge_class}">{html.escape(badge)}</span></section>
+<div class="grid">
+<article class="card"><small>01 / SITE COMPLET</small><h2>Parcours client</h2><p>Accueil, véhicule, tarifs, disponibilités Mercure, CGV, application et contact.</p><a href="/">Ouvrir le site →</a></article>
+<article class="card"><small>02 / PAIEMENT</small><h2>Réservation + Payline</h2><p>Choisissez entre le simulateur intégral et le vrai checkout Payline d’homologation lorsqu’il est configuré.</p><a href="/payment/test">Ouvrir la démo paiement →</a></article>
+<article class="card"><small>03 / BACKEND</small><h2>Contrats actifs</h2><p>Mercure, disponibilité, mobile bootstrap, checkout serveur et formulaire de contact sans remboursement automatique.</p><a href="/api/payment-test/demo-status">Voir le statut JSON →</a></article>
+</div>
+<div class="meta">Payline sandbox configuré={str(bool(payline.get("configured"))).lower()} · configuration valide={str(bool(payline.get("configurationValid"))).lower()} · checkoutBound={str(bool(payline.get("checkoutBound"))).lower()} · callbacksBound={str(bool(payline.get("callbacksBound"))).lower()} · livePaymentsEnabled=false · blockers={html.escape(blockers)}</div>
+</main></body></html>""".encode("utf-8")
+    handler.send_bytes(body,"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
     return True
 
 
@@ -131,10 +175,14 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+    if command=="GET" and path==DEMO_ROUTE:
+        return _demo_page(handler)
     if command=="GET" and path==PAGE_ROUTE:
         return _page(handler)
     if command=="GET" and path==PROVIDER_ROUTE:
         return _provider_page(handler)
+    if command=="POST" and path==DEMO_STATUS_ROUTE:
+        return _json(handler,lambda payload: lab.demo_status())
     if command=="POST" and path==SESSION_ROUTE:
         return _json(handler,lambda payload: lab.create_session(),created=True)
     if command=="POST" and path==CREATE_ROUTE:
