@@ -1,0 +1,275 @@
+"""Public customer dashboard and federated-login HTTP surface."""
+from __future__ import annotations
+
+import html
+import json
+import re
+from http.cookies import SimpleCookie
+from urllib.parse import parse_qs, urlsplit
+
+import customer_accounts
+import customer_oidc
+
+ACCOUNT_ROUTE="/compte"
+PROVIDERS_ROUTE="/api/customer/providers"
+ME_ROUTE="/api/customer/me"
+PROFILE_ROUTE="/api/customer/profile"
+LOGOUT_ROUTE="/api/customer/logout"
+COOKIE_NAME="checkupauto_customer"
+
+
+def _cookie(handler) -> str:
+    raw=str(handler.headers.get("Cookie") or "")
+    jar=SimpleCookie()
+    try:
+        jar.load(raw)
+    except Exception:
+        return ""
+    morsel=jar.get(COOKIE_NAME)
+    return str(morsel.value) if morsel else ""
+
+
+def _account(handler):
+    token=_cookie(handler)
+    if not token:
+        return "",None
+    try:
+        account_id=customer_accounts.authenticate_session(token)
+        return token,customer_accounts.profile(account_id)
+    except Exception:
+        return "",None
+
+
+def _send_cookie_redirect(handler, location: str, session: dict):
+    token=str(session["token"])
+    max_age=int(session["maxAge"])
+    handler.send_response(303)
+    handler.send_header("Location",location)
+    handler.send_header("Cache-Control","no-store")
+    handler.send_header(
+        "Set-Cookie",
+        f"{COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax",
+    )
+    handler.send_header("Content-Length","0")
+    handler.end_headers()
+
+
+def _clear_cookie(handler, location="/compte"):
+    handler.send_response(303)
+    handler.send_header("Location",location)
+    handler.send_header("Cache-Control","no-store")
+    handler.send_header(
+        "Set-Cookie",
+        f"{COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    )
+    handler.send_header("Content-Length","0")
+    handler.end_headers()
+
+
+def _providers_html() -> str:
+    rows=[]
+    for provider in customer_oidc.provider_status():
+        if provider["configured"]:
+            rows.append(
+                f'<a class="sso" href="/auth/customer/{html.escape(provider["id"])}">'
+                f'Continuer avec {html.escape(provider["label"])}</a>'
+            )
+        else:
+            rows.append(
+                f'<span class="sso disabled">{html.escape(provider["label"])} · bientôt disponible</span>'
+            )
+    return "".join(rows)
+
+
+def _login_page(message: str="") -> bytes:
+    note=f'<p class="error">{html.escape(message)}</p>' if message else ""
+    providers=_providers_html()
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Mon compte | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6f7b72;--line:#d9dfd3;--green:#1f5443}}
+*{{box-sizing:border-box}}body{{margin:0;background:linear-gradient(140deg,#fbfcf9,var(--paper));color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
+main{{width:min(940px,calc(100% - 32px));margin:auto;padding:38px 0 70px}}a{{color:inherit;text-decoration:none}}
+.top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}}.brand{{font-weight:750;letter-spacing:-.03em}}
+.card{{background:#fff;border:1px solid var(--line);padding:clamp(28px,6vw,58px);box-shadow:0 28px 80px rgba(31,84,67,.08)}}
+.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(46px,7vw,76px)/.98 Georgia,serif;letter-spacing:-.05em;margin:16px 0 20px}}
+p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:30px}}
+.sso{{border:1px solid var(--line);padding:15px 17px;background:#fbfcfa;font-weight:700;text-align:center}}.sso:hover{{border-color:#9ab1a2}}
+.sso.disabled{{opacity:.48}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}
+@media(max-width:720px){{.providers{{grid-template-columns:1fr}}}}
+</style></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a href="/">Retour au site</a></div>
+<section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>Votre véhicule, dans la durée.</h1>
+<p>Retrouvez vos échéances, votre fidélité et bientôt l’analyse de vos rapports de contrôle technique dans un seul espace.</p>
+{note}<div class="providers">{providers}</div>
+<div class="trust">Connexion fédérée uniquement · aucun mot de passe CheckupAuto à mémoriser · session sécurisée et limitée dans le temps.</div>
+</section></main></body></html>""".encode("utf-8")
+
+
+def _dashboard_page(token: str, account: dict) -> bytes:
+    csrf=customer_accounts.csrf_token(token)
+    kind=str(account["kind"])
+    pro=kind=="professional"
+    display=html.escape(str(account["displayName"]))
+    email=html.escape(str(account["email"]))
+    company=html.escape(str(account["companyName"]))
+    siret=html.escape(str(account["siret"]))
+    loyalty=account["loyalty"]
+    providers=" · ".join(html.escape(str(p).title()) for p in account["providers"]) or "—"
+    balance=f'{int(loyalty["balanceCents"])/100:.2f} €'
+    pending=f'{int(loyalty["pendingCents"])/100:.2f} €'
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive">
+<title>Tableau de bord | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6d796f;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}a{{color:inherit;text-decoration:none}}
+.shell{{width:min(1240px,calc(100% - 32px));margin:auto;padding:28px 0 64px}}.top{{display:flex;justify-content:space-between;align-items:center;padding:10px 0 24px}}
+.brand{{font-weight:750;letter-spacing:-.04em}}.logout{{border:0;background:none;color:var(--muted);cursor:pointer}}
+.hero{{background:#fff;border:1px solid var(--line);padding:clamp(28px,5vw,52px);display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end}}
+.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(42px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.045em;margin:14px 0 8px}}p{{color:var(--muted);line-height:1.6}}
+.badge{{padding:9px 12px;border:1px solid #a9bcaf;background:var(--soft);font:700 9px Consolas,monospace;letter-spacing:.1em}}
+.grid{{display:grid;grid-template-columns:1.2fr .8fr .8fr;gap:14px;margin-top:14px}}.panel{{background:#fff;border:1px solid var(--line);padding:24px;min-height:210px}}
+.panel h2{{font:400 28px Georgia,serif;margin:8px 0 18px}}.metric{{font:400 44px Georgia,serif;letter-spacing:-.04em}}.sub{{font-size:11px;color:var(--muted)}}
+.report{{border:1px dashed #aebbb2;background:#fafbf8;padding:18px;margin-top:16px}}.profile{{margin-top:14px;background:#fff;border:1px solid var(--line);padding:24px}}
+form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input,select{{padding:12px;border:1px solid var(--line);background:#fbfcfa;font:inherit}}
+.actions{{grid-column:1/-1;display:flex;align-items:center;gap:14px}}button.primary{{border:0;background:var(--green);color:#fff;padding:13px 18px;font-weight:700;cursor:pointer}}#profileStatus{{font-size:11px;color:var(--muted)}}
+@media(max-width:900px){{.grid{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}
+</style></head><body><main class="shell">
+<div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
+<section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
+<div class="grid">
+<section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report"><strong>Rapport de contrôle technique</strong><p>Le dépôt et l’analyse automatique du rapport arrivent dans la prochaine tranche.</p></div></section>
+<section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p></section>
+<section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
+</div>
+<section class="profile"><div class="eyebrow">PROFIL</div><h2>Particulier ou professionnel</h2>
+<form id="profileForm">
+<label>Nom affiché<input id="displayName" value="{display}" maxlength="120" required></label>
+<label>Statut<select id="kind"><option value="individual"{" selected" if not pro else ""}>Particulier</option><option value="professional"{" selected" if pro else ""}>Professionnel</option></select></label>
+<label>Raison sociale<input id="companyName" value="{company}" maxlength="160"></label>
+<label>SIRET<input id="siret" value="{siret}" inputmode="numeric" maxlength="14"></label>
+<div class="actions"><button class="primary" type="submit">Enregistrer</button><span id="profileStatus"></span></div>
+</form></section>
+</main><script>
+(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret');
+const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
+document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+document.getElementById('logout').addEventListener('click',async()=>{{await fetch('{LOGOUT_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:'{{}}'}});location.assign('{ACCOUNT_ROUTE}');}});
+}})();</script></body></html>""".encode("utf-8")
+
+
+def _same_origin(handler) -> bool:
+    if handler.headers.get("Sec-Fetch-Site","")=="cross-site":
+        return False
+    return bool(handler._admin_origin_ok())
+
+
+def _json_body(handler) -> dict:
+    if handler.headers.get("Content-Type","").split(";",1)[0].strip().lower()!="application/json":
+        raise ValueError("customer_content_type_invalid")
+    payload=handler._read_json()
+    if not isinstance(payload,dict):
+        raise ValueError("customer_payload_invalid")
+    return payload
+
+
+def handle(handler) -> bool:
+    parsed=urlsplit(handler.path)
+    path=parsed.path
+    command=getattr(handler,"command","")
+
+    if command=="GET" and path==ACCOUNT_ROUTE:
+        token,account=_account(handler)
+        if not account:
+            handler.send_bytes(_login_page(),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+            return True
+        handler.send_bytes(_dashboard_page(token,account),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+        return True
+
+    if command=="GET" and path==PROVIDERS_ROUTE:
+        handler.send_json({"ok":True,"providers":customer_oidc.provider_status()})
+        return True
+
+    if command=="GET" and re.fullmatch(r"/auth/customer/(google|apple|microsoft)",path):
+        provider=path.rsplit("/",1)[-1]
+        try:
+            target=customer_oidc.begin(provider,handler._request_origin())
+            handler.send_redirect(target,302)
+        except customer_oidc.CustomerOIDCError:
+            handler.send_bytes(_login_page("Ce fournisseur de connexion n’est pas encore configuré."),"text/html; charset=utf-8",503,"no-store")
+        return True
+
+    callback=re.fullmatch(r"/auth/customer/(google|apple|microsoft)/callback",path)
+    if callback and command in {"GET","POST"}:
+        provider=callback.group(1)
+        try:
+            if command=="POST":
+                form=handler._read_form()
+                params={k:[v] for k,v in form.items()}
+            else:
+                params=parse_qs(parsed.query,keep_blank_values=True)
+            error=(params.get("error") or [""])[0]
+            if error:
+                raise customer_oidc.CustomerOIDCError("customer_oidc_provider_error")
+            state=(params.get("state") or [""])[0]
+            code=(params.get("code") or [""])[0]
+            result=customer_oidc.complete(provider,state,code)
+            _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"])
+        except Exception:
+            handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez."),"text/html; charset=utf-8",400,"no-store")
+        return True
+
+    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE}:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+
+        if path==ME_ROUTE:
+            if command!="GET":
+                handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            else:
+                view=dict(account)
+                view["csrfToken"]=customer_accounts.csrf_token(token)
+                handler.send_json(view)
+            return True
+
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+
+        if path==LOGOUT_ROUTE:
+            try:
+                _json_body(handler)
+            except ValueError:
+                handler.send_json({"ok":False,"error":"customer_payload_invalid"},400)
+                return True
+            customer_accounts.close_session(token)
+            handler.send_json({"ok":True})
+            return True
+
+        try:
+            payload=_json_body(handler)
+            if set(payload)!={"kind","displayName","companyName","siret"}:
+                raise ValueError
+            updated=customer_accounts.update_profile(
+                account["accountId"],
+                kind=payload.get("kind"),
+                display_name=payload.get("displayName"),
+                company_name=payload.get("companyName"),
+                siret=payload.get("siret"),
+            )
+            handler.send_json(updated)
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_profile_invalid"},400)
+        return True
+
+    return False
