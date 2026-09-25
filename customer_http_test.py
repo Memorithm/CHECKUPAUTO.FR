@@ -150,6 +150,36 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(bad))
         self.assertEqual(bad.response["status"],403)
 
+    def test_loyalty_ios_claim_requires_session_csrf_and_uses_current_account(self):
+        h=Handler("/api/customer/loyalty/ios-claim","POST",{},headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"c"*64,
+        })
+        result={
+            "ok":True,"claimType":"referral_wallet",
+            "claimUrl":"https://stage.example/app/claim#token=rw_test",
+            "qrDataUrl":"data:image/svg+xml;base64,AAAA",
+            "expiresAt":"later","singleUse":True,"rawTokenPersisted":False,
+        }
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_loyalty,"issue_ios_claim",return_value=result) as issue:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],201)
+        self.assertFalse(h.response["json"]["rawTokenPersisted"])
+        issue.assert_called_once_with(self.account()["accountId"],"https://stage.example")
+
+        bad=Handler("/api/customer/loyalty/ios-claim","POST",{},headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"bad",
+        })
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=False), \
+             patch.object(http.customer_loyalty,"issue_ios_claim") as issue:
+            self.assertTrue(http.handle(bad))
+        self.assertEqual(bad.response["status"],403)
+        issue.assert_not_called()
+
     def test_report_list_requires_customer_session(self):
         h=Handler("/api/customer/reports")
         with patch.object(http,"_account",return_value=("",None)):
