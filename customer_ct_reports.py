@@ -206,14 +206,18 @@ def extract_text(raw: bytes, content_type: object) -> tuple[str, str]:
         raise CTReportError("ct_report_type_invalid")
     if not isinstance(raw, (bytes, bytearray)) or not 1 <= len(raw) <= MAX_UPLOAD_BYTES:
         raise CTReportError("ct_report_size_invalid")
+    raw = bytes(raw)
+    if not _magic_valid(content_type, raw):
+        raise CTReportError("ct_report_signature_invalid")
 
     with tempfile.TemporaryDirectory(prefix="checkupauto-ct-") as tmp:
         source = Path(tmp) / ("report" + suffix)
-        source.write_bytes(bytes(raw))
+        source.write_bytes(raw)
         if content_type != "application/pdf":
             text = _ocr_image(source)
             method = "tesseract-fra-eng"
         else:
+            pages = _pdf_pages(source)
             text = _run(["pdftotext", "-layout", str(source), "-"], timeout=25).decode(
                 "utf-8", errors="replace"
             )
@@ -223,7 +227,7 @@ def extract_text(raw: bytes, content_type: object) -> tuple[str, str]:
                 prefix = Path(tmp) / "page"
                 _run(
                     [
-                        "pdftoppm", "-jpeg", "-r", "220", "-f", "1", "-l", "8",
+                        "pdftoppm", "-jpeg", "-r", "220", "-f", "1", "-l", str(pages),
                         str(source), str(prefix),
                     ],
                     timeout=45,
@@ -424,7 +428,10 @@ def ingest(account_id: object, filename: object, content_type: object, raw: byte
         name = "rapport"
     if not isinstance(raw, (bytes, bytearray)) or not 1 <= len(raw) <= MAX_UPLOAD_BYTES:
         raise CTReportError("ct_report_size_invalid")
-    document_hash = hashlib.sha256(bytes(raw)).hexdigest()
+    raw = bytes(raw)
+    if not _magic_valid(content_type, raw):
+        raise CTReportError("ct_report_signature_invalid")
+    document_hash = hashlib.sha256(raw).hexdigest()
     init_db()
     with _connect() as db:
         existing = db.execute(
@@ -434,7 +441,7 @@ def ingest(account_id: object, filename: object, content_type: object, raw: byte
         if existing:
             return _public(existing, _decrypt(existing), include_markdown=True)
 
-    text, method = extract_text(bytes(raw), content_type)
+    text, method = extract_text(raw, content_type)
     structured = parse_report(text)
     advice = ct_advisor.advise(structured["defects"])
     markdown = render_markdown(structured, advice, extraction_method=method)
