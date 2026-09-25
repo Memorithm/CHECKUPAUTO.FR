@@ -22,6 +22,11 @@ struct MobileBookingConfig: Codable, Equatable, Sendable {
     let url: String
 }
 
+struct MobileAccountConfig: Codable, Equatable, Sendable {
+    let url: String
+    let reportScanUrl: String
+}
+
 struct MobileNotificationConfig: Codable, Equatable, Sendable {
     let remotePushActive: Bool
     let localFallback: Bool
@@ -42,6 +47,7 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let reminders: MobileReminderPolicy
     let booking: MobileBookingConfig
+    let account: MobileAccountConfig?
     let notifications: MobileNotificationConfig
     let referral: MobileReferralConfig
     let app: MobileAppConfig
@@ -50,6 +56,10 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
         schemaVersion: 1,
         reminders: MobileReminderPolicy(leadDays: [60, 30, 15, 7, 1], hour: 9, timezone: "Europe/Paris"),
         booking: MobileBookingConfig(url: "https://rdv.checkupauto.fr/"),
+        account: MobileAccountConfig(
+            url: "https://www.checkupauto.fr/compte",
+            reportScanUrl: "https://www.checkupauto.fr/compte#ct-report"
+        ),
         notifications: MobileNotificationConfig(remotePushActive: false, localFallback: true),
         referral: MobileReferralConfig(rewardCents: 500, currency: "EUR"),
         app: MobileAppConfig(landingUrl: "https://www.checkupauto.fr/app", available: false, downloadPath: "/go/app")
@@ -64,6 +74,12 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
               referral.rewardCents > 0, referral.rewardCents <= 5_000,
               referral.currency == "EUR" else {
             throw MobileBootstrapError.invalidConfiguration
+        }
+        if let account {
+            guard let accountURL = URL(string: account.url), accountURL.scheme == "https", accountURL.host != nil,
+                  let reportScanURL = URL(string: account.reportScanUrl), reportScanURL.scheme == "https", reportScanURL.host != nil else {
+                throw MobileBootstrapError.invalidConfiguration
+            }
         }
         return self
     }

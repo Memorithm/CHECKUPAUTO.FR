@@ -6,11 +6,12 @@ import json
 import re
 import secrets
 from http.cookies import SimpleCookie
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import customer_accounts
 import customer_ct_reports
 import customer_oidc
+import referral_wallet_claims
 
 ACCOUNT_ROUTE="/compte"
 PROVIDERS_ROUTE="/api/customer/providers"
@@ -19,6 +20,7 @@ PROFILE_ROUTE="/api/customer/profile"
 LOGOUT_ROUTE="/api/customer/logout"
 REPORTS_ROUTE="/api/customer/reports"
 REPORT_DELETE_ROUTE="/api/customer/reports/delete"
+WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 COOKIE_NAME="checkupauto_customer"
 
 
@@ -148,8 +150,8 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
-<section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
-<section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p></section>
+<section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
+<section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="report-actions"><button id="walletToApp" class="primary" type="button">Rattacher à l’app iOS</button></div><div id="walletToAppStatus" class="report-status" role="status" aria-live="polite"></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
 <section class="profile"><div class="eyebrow">PROFIL</div><h2>Particulier ou professionnel</h2>
@@ -161,7 +163,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="actions"><button class="primary" type="submit">Enregistrer</button><span id="profileStatus"></span></div>
 </form></section>
 </main><script nonce="{html.escape(nonce,quote=True)}">
-(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis');
+(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis'),walletToApp=document.getElementById('walletToApp'),walletToAppStatus=document.getElementById('walletToAppStatus');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
 document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
 const el=(tag,text='')=>{{const node=document.createElement(tag);if(text)node.textContent=text;return node;}};
@@ -169,6 +171,7 @@ const renderReports=rows=>{{reportList.replaceChildren();for(const row of rows){
 const loadReports=async()=>{{try{{const r=await fetch('{REPORTS_ROUTE}',{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.ok)throw new Error();renderReports(d.reports||[]);}}catch(_e){{reportStatus.textContent='Historique des rapports indisponible.';}}}};
 const showReport=async id=>{{reportStatus.textContent='Lecture du rapport…';try{{const r=await fetch('{REPORTS_ROUTE}/'+encodeURIComponent(id),{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.reportId)throw new Error();reportAnalysis.replaceChildren();reportAnalysis.hidden=false;reportAnalysis.append(el('h3','Analyse du contrôle technique'));reportAnalysis.append(el('p',(d.result||'Résultat non détecté')+' · '+String(d.defectCount||0)+' défaut(s) structuré(s)'));const list=el('ul');for(const finding of (d.advice||[])){{const li=el('li');const title=el('strong',finding.title||'Point à surveiller');li.append(title,document.createTextNode(' — '+(finding.prevention||'')));list.append(li);}}reportAnalysis.append(list);const actions=el('div');actions.className='report-actions';const download=el('a','Télécharger le Markdown');download.href='{REPORTS_ROUTE}/'+encodeURIComponent(id)+'?format=md';download.className='primary';const remove=el('button','Supprimer');remove.type='button';remove.addEventListener('click',async()=>{{if(!confirm('Supprimer ce rapport de votre espace client ?'))return;const rr=await fetch('{REPORT_DELETE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{reportId:id}})}});if(rr.ok){{reportAnalysis.hidden=true;await loadReports();}}}});actions.append(download,remove);reportAnalysis.append(actions);reportStatus.textContent='Analyse prête.';}}catch(_e){{reportStatus.textContent='Lecture du rapport impossible.';}}}};
 reportUpload.addEventListener('click',async()=>{{const file=reportInput.files[0];if(!file){{reportStatus.textContent='Sélectionnez une photo ou un PDF.';return;}}const type=file.type||({{pdf:'application/pdf',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png'}}[file.name.split('.').pop().toLowerCase()]||'');if(!['application/pdf','image/jpeg','image/png'].includes(type)){{reportStatus.textContent='Format accepté : PDF, JPEG ou PNG.';return;}}reportUpload.disabled=true;reportStatus.textContent='Extraction et analyse du rapport…';try{{const r=await fetch('{REPORTS_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':type,'X-CheckupAuto-Customer-CSRF':csrf,'X-CheckupAuto-Filename':encodeURIComponent(file.name)}},body:file}});const d=await r.json();if(!r.ok||!d.reportId)throw new Error(d.error||'upload_failed');reportInput.value='';await loadReports();await showReport(d.reportId);}}catch(_e){{reportStatus.textContent='Analyse impossible. Vérifiez la lisibilité du document.';}}finally{{reportUpload.disabled=false;}}}});
+walletToApp.addEventListener('click',async()=>{{walletToApp.disabled=true;walletToAppStatus.textContent='Création du rattachement sécurisé…';try{{const r=await fetch('{WALLET_MOBILE_CLAIM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:'{{}}'}});const d=await r.json();if(!r.ok||!d.ok||!d.claimUrl)throw new Error(d.error||'claim_failed');walletToAppStatus.textContent='Ouverture de Checkup Auto…';location.assign(d.claimUrl);}}catch(_e){{walletToAppStatus.textContent='Rattachement indisponible. Réessayez.';walletToApp.disabled=false;}}}});
 loadReports();
 document.getElementById('logout').addEventListener('click',async()=>{{await fetch('{LOGOUT_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:'{{}}'}});location.assign('{ACCOUNT_ROUTE}');}});
 }})();</script></body></html>""".encode("utf-8")
@@ -334,7 +337,7 @@ def handle(handler) -> bool:
                 handler.send_json({"ok":False,"error":"ct_report_processing_unavailable"},503)
             return True
 
-    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE}:
+    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE,WALLET_MOBILE_CLAIM_ROUTE}:
         token,account=_account(handler)
         if not token or not account:
             handler.send_json({"ok":False,"error":"customer_auth_required"},401)
@@ -357,6 +360,24 @@ def handle(handler) -> bool:
             return True
         if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
             handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+
+        if path==WALLET_MOBILE_CLAIM_ROUTE:
+            try:
+                payload=_json_body(handler)
+                if payload:
+                    raise ValueError
+                claim=referral_wallet_claims.issue(account["loyalty"]["referralCode"])
+                claim_url=_browser_origin(handler)+"/app/claim#token="+quote(str(claim["claimToken"]),safe="")
+                handler.send_json({
+                    "ok":True,
+                    "claimType":"referral_wallet",
+                    "claimUrl":claim_url,
+                    "expiresAt":claim["expiresAt"],
+                    "rawTokenPersisted":False,
+                },201)
+            except Exception:
+                handler.send_json({"ok":False,"error":"customer_wallet_claim_unavailable"},400)
             return True
 
         if path==LOGOUT_ROUTE:

@@ -85,6 +85,8 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("TABLEAU DE BORD CLIENT",body)
         self.assertIn("5.00 €",body)
         self.assertIn("Code TEST-1234",body)
+        self.assertIn("Rattacher à l’app iOS",body)
+        self.assertIn('id="ct-report"',body)
         self.assertIn('nonce="',body)
         self.assertTrue(h._csp_nonce)
 
@@ -149,6 +151,39 @@ class CustomerHttpTest(unittest.TestCase):
              patch.object(http.customer_accounts,"verify_csrf",return_value=False):
             self.assertTrue(http.handle(bad))
         self.assertEqual(bad.response["status"],403)
+
+    def test_wallet_mobile_claim_is_session_csrf_bound_and_returns_one_time_app_link(self):
+        h=Handler("/api/customer/wallet/mobile-claim","POST",{},headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"c"*64,
+        })
+        issued={
+            "claimToken":"rw_"+"x"*43,
+            "claimType":"referral_wallet",
+            "expiresAt":"2026-09-25T22:00:00+00:00",
+            "rawTokenPersisted":False,
+        }
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.referral_wallet_claims,"issue",return_value=issued) as issue:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],201)
+        self.assertEqual(h.response["json"]["claimType"],"referral_wallet")
+        self.assertTrue(h.response["json"]["claimUrl"].startswith("https://stage.example/app/claim#token=rw_"))
+        self.assertFalse(h.response["json"]["rawTokenPersisted"])
+        self.assertNotIn("accountId",repr(h.response["json"]))
+        issue.assert_called_once_with("TEST-1234")
+
+        bad=Handler("/api/customer/wallet/mobile-claim","POST",{},headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"bad",
+        })
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=False), \
+             patch.object(http.referral_wallet_claims,"issue") as issue:
+            self.assertTrue(http.handle(bad))
+        self.assertEqual(bad.response["status"],403)
+        issue.assert_not_called()
 
     def test_report_list_requires_customer_session(self):
         h=Handler("/api/customer/reports")
