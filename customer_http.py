@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import customer_accounts
 import customer_ct_reports
+import customer_loyalty
 import customer_oidc
 
 ACCOUNT_ROUTE="/compte"
@@ -17,6 +18,7 @@ PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
 LOGOUT_ROUTE="/api/customer/logout"
+LOYALTY_IOS_CLAIM_ROUTE="/api/customer/loyalty/ios-claim"
 REPORTS_ROUTE="/api/customer/reports"
 REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 COOKIE_NAME="checkupauto_customer"
@@ -143,13 +145,15 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 .report-list{{display:grid;gap:8px;margin-top:14px}}.report-item{{border:1px solid var(--line);background:#fff;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center}}
 .report-item button,.report-actions button{{border:1px solid var(--line);background:#fff;padding:9px 11px;cursor:pointer;color:var(--ink)}}.report-analysis{{margin-top:14px;border-top:1px solid var(--line);padding-top:14px}}
 .report-analysis h3{{font:400 22px Georgia,serif;margin:12px 0 6px}}.report-analysis ul{{padding-left:18px;color:var(--muted)}}.report-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.report-status{{font-size:11px;color:var(--muted);margin-top:8px}}
+.loyalty-sync{{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}}.loyalty-sync button{{border:0;background:var(--green);color:#fff;padding:11px 13px;font-weight:700;cursor:pointer}}
+.loyalty-claim{{display:grid;grid-template-columns:96px 1fr;gap:12px;align-items:center;margin-top:12px}}.loyalty-claim[hidden]{{display:none}}.loyalty-claim img{{width:96px;height:96px;background:#fff;border:1px solid var(--line)}}.loyalty-claim a{{font-size:11px;text-decoration:underline;overflow-wrap:anywhere}}.loyalty-claim small{{display:block;color:var(--muted);margin-top:6px}}
 @media(max-width:900px){{.grid{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}
 </style></head><body><main class="shell">
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
 <section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
-<section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p></section>
+<section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="loyalty-sync"><button id="loyaltyIosClaim" type="button">Rattacher cette cagnotte à l’app iPhone</button><div id="loyaltyClaim" class="loyalty-claim" hidden><img id="loyaltyClaimQr" alt="QR code de rattachement à la cagnotte"><div><a id="loyaltyClaimLink" href="#">Ouvrir le rattachement</a><small id="loyaltyClaimExpiry"></small></div></div><div id="loyaltyClaimStatus" class="sub" role="status" aria-live="polite"></div></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
 <section class="profile"><div class="eyebrow">PROFIL</div><h2>Particulier ou professionnel</h2>
@@ -161,9 +165,10 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="actions"><button class="primary" type="submit">Enregistrer</button><span id="profileStatus"></span></div>
 </form></section>
 </main><script nonce="{html.escape(nonce,quote=True)}">
-(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis');
+(()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis'),loyaltyButton=document.getElementById('loyaltyIosClaim'),loyaltyClaim=document.getElementById('loyaltyClaim'),loyaltyQr=document.getElementById('loyaltyClaimQr'),loyaltyLink=document.getElementById('loyaltyClaimLink'),loyaltyExpiry=document.getElementById('loyaltyClaimExpiry'),loyaltyStatus=document.getElementById('loyaltyClaimStatus');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
 document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+loyaltyButton.addEventListener('click',async()=>{{loyaltyButton.disabled=true;loyaltyStatus.textContent='Création du rattachement sécurisé…';try{{const r=await fetch('{LOYALTY_IOS_CLAIM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:'{{}}'}});const d=await r.json();if(!r.ok||!d.ok||d.claimType!=='referral_wallet')throw new Error();loyaltyQr.src=d.qrDataUrl;loyaltyLink.href=d.claimUrl;loyaltyClaim.hidden=false;loyaltyExpiry.textContent='Lien à usage unique · expiration '+d.expiresAt;loyaltyStatus.textContent='Scannez le QR avec l’iPhone ou ouvrez le lien sur l’iPhone.';}}catch(_e){{loyaltyStatus.textContent='Rattachement iOS indisponible.';}}finally{{loyaltyButton.disabled=false;}}}});
 const el=(tag,text='')=>{{const node=document.createElement(tag);if(text)node.textContent=text;return node;}};
 const renderReports=rows=>{{reportList.replaceChildren();for(const row of rows){{const item=el('div');item.className='report-item';const copy=el('div');copy.append(el('strong',row.controlDate||'Rapport CT'));copy.append(el('div',(row.registration||'Véhicule non identifié')+' · '+String(row.defectCount||0)+' défaut(s)'));const open=el('button','Ouvrir');open.type='button';open.addEventListener('click',()=>showReport(row.reportId));item.append(copy,open);reportList.append(item);}}if(!rows.length)reportList.append(el('div','Aucun rapport analysé.'));}};
 const loadReports=async()=>{{try{{const r=await fetch('{REPORTS_ROUTE}',{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.ok)throw new Error();renderReports(d.reports||[]);}}catch(_e){{reportStatus.textContent='Historique des rapports indisponible.';}}}};
@@ -235,6 +240,35 @@ def handle(handler) -> bool:
             _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"])
         except Exception:
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez."),"text/html; charset=utf-8",400,"no-store")
+        return True
+
+    if path==LOYALTY_IOS_CLAIM_ROUTE:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+        try:
+            payload=_json_body(handler)
+            if payload:
+                raise ValueError
+            handler.send_json(
+                customer_loyalty.issue_ios_claim(
+                    account["accountId"],
+                    handler._request_origin(),
+                ),
+                201,
+            )
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_loyalty_claim_unavailable"},503)
         return True
 
     report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)
