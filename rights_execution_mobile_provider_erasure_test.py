@@ -205,7 +205,7 @@ class RightsExecutionMobileProviderErasureTest(unittest.TestCase):
                 dispatch.provider_erasure_completion,
                 "record",
                 return_value=completion,
-            ),
+            ) as record,
             mock.patch.object(
                 dispatch.provider_erasure_plan,
                 "clear",
@@ -220,6 +220,14 @@ class RightsExecutionMobileProviderErasureTest(unittest.TestCase):
             "a" * 32,
             "account:client-42",
             ("apt-1",),
+        )
+        record.assert_called_once_with(
+            "a" * 32,
+            review,
+            booking,
+            "compliance.sqlite3",
+            subject_source="mobile_vehicle_binding",
+            provider_subject_ref="account:client-42",
         )
         clear.assert_called_once_with(
             "a" * 32,
