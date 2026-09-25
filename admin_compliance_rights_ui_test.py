@@ -37,6 +37,13 @@ class AdminComplianceRightsUIContractTest(unittest.TestCase):
         self.assertIn("payload.correction={deadlineId:$('#complianceRightDeadlineId').value,dueDate:$('#complianceRightDueDate').value}", self.js)
         self.assertIn("await api('/api/admin/compliance/request-execute',rightsExecutionPayload(b.dataset.id))", self.js)
 
+    def test_provider_erasure_evidence_is_rendered_without_raw_appointments(self):
+        self.assertIn("function providerErasureText(requestId)", self.js)
+        self.assertIn("PLAN CHIFFRÉ EN ATTENTE", self.js)
+        self.assertIn("Effacement provider : PROUVÉ", self.js)
+        self.assertIn("providerState", self.js)
+        self.assertNotIn("appointmentIds", self.js)
+
     def test_legacy_generic_payload_no_longer_sends_purpose_to_every_adapter(self):
         self.assertNotIn("adapter:$('#complianceRightAdapter').value,\n    subjectRef:$('#complianceRightExecutionRef').value,\n    purpose:$('#complianceRightPurpose').value", self.js)
 
