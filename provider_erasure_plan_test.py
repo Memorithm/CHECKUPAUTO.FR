@@ -103,6 +103,18 @@ class ProviderErasurePlanTest(unittest.TestCase):
         )
         self.assertIsNone(plan.load(self.request_id, self.subject_ref))
 
+    def test_pending_request_ids_are_bounded_and_content_free(self):
+        plan.stage(self.request_id, self.subject_ref, ["apt-1"])
+        other = "b" * 32
+        plan.stage(other, "free:7", ["apt-2"])
+        self.assertEqual(
+            plan.pending_request_ids(),
+            [self.request_id, other],
+        )
+        self.assertEqual(plan.pending_request_ids(1), [self.request_id])
+        with self.assertRaisesRegex(ValueError, "limite"):
+            plan.pending_request_ids(0)
+
     def test_corrupted_ciphertext_fails_closed(self):
         plan.stage(self.request_id, self.subject_ref, ["apt-1"])
         path = plan._plan_path(self.request_id)
