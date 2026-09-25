@@ -69,27 +69,22 @@
  function renderRefundPaymentOptions(){
   const select=$('#refundPayment'),editor=$('#refundEditor'),current=select.value;
   select.replaceChildren();
-  const holds=new Map(),blocked=new Set();
-  for(const row of refundSnapshot?.refunds||[]){
-   if(['completed','attempting','indeterminate'].includes(row.state))holds.set(row.paymentId,(holds.get(row.paymentId)||0)+Number(row.amountCents||0));
-   if(['attempting','indeterminate'].includes(row.state))blocked.add(row.paymentId);
-  }
-  const captured=(activitySnapshot?.transactions||[]).filter(row=>row.provider==='payline'&&row.environment==='sandbox'&&row.state==='captured');
+  const balances=refundSnapshot?.balances||[];
   let available=0;
-  for(const row of captured){
-   const remaining=Math.max(0,Number(row.amountCents)-Number(holds.get(row.paymentId)||0));
+  for(const row of balances){
+   const remaining=Math.max(0,Number(row.remainingAmountCents||0));
    const option=document.createElement('option');option.value=row.paymentId;option.dataset.remaining=String(remaining);
-   option.textContent=row.paymentId.slice(0,12)+'… · '+money(row.amountCents,row.currency)+' · restant '+money(remaining,row.currency);
-   option.disabled=remaining<1||blocked.has(row.paymentId);
-   if(option.disabled&&blocked.has(row.paymentId))option.textContent+=' · RÉCONCILIATION REQUISE';
+   option.textContent=row.paymentId.slice(0,12)+'… · '+money(row.capturedAmountCents)+' · restant '+money(remaining);
+   option.disabled=remaining<1||row.blocked===true;
+   if(option.disabled&&row.blocked===true)option.textContent+=' · RÉCONCILIATION REQUISE';
    if(!option.disabled)available++;
    select.append(option);
   }
-  if(!captured.length){const option=document.createElement('option');option.value='';option.textContent='Aucun paiement Payline capturé';select.append(option);}
+  if(!balances.length){const option=document.createElement('option');option.value='';option.textContent='Aucun paiement Payline capturé';select.append(option);}
   else if(!available){const option=document.createElement('option');option.value='';option.textContent='Aucun montant actuellement remboursable';option.disabled=false;select.prepend(option);}
   if([...select.options].some(option=>option.value===current&&!option.disabled))select.value=current;
   else {const first=[...select.options].find(option=>option.value&&!option.disabled);select.value=first?.value||'';}
-  editor.disabled=!activitySnapshot||!refundSnapshot||available===0;
+  editor.disabled=!refundSnapshot||available===0;
   syncRefundMax();
  }
  async function loadActivity(){
@@ -136,7 +131,7 @@
   if(response.status===401||response.status===403)throw new Error('Authentification requise pour les remboursements.');
   if(!response.ok)throw new Error('État des remboursements indisponible.');
   const data=await response.json();
-  if(!data.ok||!data.summary||!Array.isArray(data.refunds)||data.capability?.liveRefundsEnabled!==false||typeof data.csrfToken!=='string')throw new Error('Réponse remboursements invalide.');
+  if(!data.ok||!data.summary||!Array.isArray(data.refunds)||!Array.isArray(data.balances)||data.capability?.authoritativeRefundBalances!==true||data.capability?.liveRefundsEnabled!==false||typeof data.csrfToken!=='string')throw new Error('Réponse remboursements invalide.');
   renderRefunds(data);
  }
  function randomRequestId(){
