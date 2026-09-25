@@ -61,6 +61,13 @@ function updateRightsExecutor(){
 function rightsPlanFor(requestId){
  return (snapshot?.rightsCompletion?.plans||[]).find(plan=>plan.requestId===requestId)||null
 }
+function providerErasureText(requestId){
+ const state=snapshot?.providerErasure||{};
+ const completed=(state.completions||[]).find(row=>row.requestId===requestId)||null;
+ if(completed)return 'Effacement provider : PROUVÉ · '+String(completed.evidenceHash||'').slice(0,12);
+ if((state.pendingPlanRequestIds||[]).includes(requestId))return 'Effacement provider : PLAN CHIFFRÉ EN ATTENTE';
+ return 'Effacement provider : aucune preuve cross-store'
+}
 function rightsPlanItemText(item){
  const disposition=item.disposition==='not_applicable'?'non applicable':(item.disposition==='required'?'requis':'non planifié');
  const execution=!item.executed?'non exécuté':(item.executionComplete?'exécution complète':('exécution partielle'+(item.executionLimitation?' · '+item.executionLimitation:'')));
@@ -216,11 +223,12 @@ function render(){
   const planState=!plan?'Plan indisponible':(plan.knownScopeComplete?'Périmètre connu complet':(plan.planComplete?'Planifié · exécution incomplète':'À planifier'));
   const planText=planItems.length?planItems.map(rightsPlanItemText).join('<br>'):'Aucun adaptateur connu';
   const globalState=plan?.globalCoverageComplete?'Couverture globale complète':'Couverture globale incomplète';
+  const providerState=providerErasureText(row.id);
   const actions=(row.status==='closed'||row.status==='rejected')?'—':
    '<button type="button" class="compact-action compliance-execute-right" data-id="'+esc(row.id)+'">Exécuter</button> '+
    '<button type="button" class="compact-action compliance-bind-right" data-id="'+esc(row.id)+'">Lier Mercure</button> '+
    '<button type="button" class="compact-action compliance-plan-right" data-id="'+esc(row.id)+'">Planifier</button>';
-  return '<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'<br><small>'+execText+'</small><br><strong>'+esc(planState)+'</strong><br><small>'+planText+'<br>'+esc(globalState)+'</small></td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+actions+'</td></tr>';
+  return '<tr><td>'+esc(row.type)+'</td><td>'+esc(row.subjectRefHash)+'</td><td>'+esc(row.status)+(row.overdue?' · EN RETARD':'')+'<br><small>'+execText+'</small><br><strong>'+esc(planState)+'</strong><br><small>'+planText+'<br>'+esc(globalState)+'<br>'+esc(providerState)+'</small></td><td>'+new Date(row.receivedAt).toLocaleDateString('fr-FR')+'</td><td>'+new Date(row.dueAt).toLocaleDateString('fr-FR')+'</td><td>'+actions+'</td></tr>';
  }).join(''):'<tr><td colspan="6">Aucune demande enregistrée.</td></tr>';
  const incidents=snapshot.incidents||[];
  $('#complianceIncidentRows').innerHTML=incidents.length?incidents.map(row=>'<tr><td>'+esc(row.riskLevel)+'</td><td>'+esc(row.status)+(row.notificationOverdue?' · DÉLAI DÉPASSÉ':'')+'</td><td>'+esc(row.summary)+'</td><td>'+new Date(row.detectedAt).toLocaleString('fr-FR')+'</td><td>'+(row.cnilDueAt?new Date(row.cnilDueAt).toLocaleString('fr-FR'):'—')+'</td><td>'+(row.status==='closed'?'—':'<button type="button" class="compact-action compliance-close-incident" data-id="'+esc(row.id)+'">Clôturer</button>')+'</td></tr>').join(''):'<tr><td colspan="6">Aucun incident enregistré.</td></tr>';
