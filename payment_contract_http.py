@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import hmac
 import re
 import time
@@ -9,12 +10,14 @@ from urllib.parse import urlsplit
 
 import rights_completion_admin_route
 import payment_payline_private
+import payment_payline_admin
 import payment_checkout
 from payment_contract_store import (ContractStore, ContractInvalid, ContractConflict,
                                     MAX_BYTES, parse_json)
 
 ROUTE = "/api/admin/payments/contract"
 ACTIVITY_ROUTE = "/api/admin/payments/activity"
+SANDBOX_CONFIG_ROUTE = "/api/admin/payments/payline-sandbox"
 
 
 def csrf_token(secret: str, headers, hour: int | None = None) -> str:
@@ -35,7 +38,7 @@ def handle(handler, *, secret: str) -> bool:
         return True
 
     parsed = urlsplit(handler.path)
-    if parsed.path not in {ROUTE, ACTIVITY_ROUTE}:
+    if parsed.path not in {ROUTE, ACTIVITY_ROUTE, SANDBOX_CONFIG_ROUTE}:
         return False
     if not handler.authorized():
         handler.require_auth()
@@ -58,6 +61,16 @@ def handle(handler, *, secret: str) -> bool:
         except Exception:
             return reject("payments_activity_unavailable",500)
         return True
+    if parsed.path == SANDBOX_CONFIG_ROUTE and handler.command == "GET":
+        try:
+            handler.send_json({
+                "ok": True,
+                "status": payment_payline_private.status(),
+                "csrfToken": csrf_token(secret, handler.headers),
+            })
+        except Exception:
+            return reject("payline_sandbox_status_unavailable", 500)
+        return True
     if handler.command not in {"GET", "POST"}:
         return reject("payments_method_not_allowed", 405)
     if handler.command == "POST":
@@ -79,6 +92,37 @@ def handle(handler, *, secret: str) -> bool:
             return reject("payments_content_length_invalid", 400)
         if not 1 <= length <= MAX_BYTES:
             return reject("payments_body_too_large", 413)
+    if parsed.path == SANDBOX_CONFIG_ROUTE:
+        try:
+            raw = handler.rfile.read(length)
+            if len(raw) != length:
+                return reject("payline_sandbox_payload_invalid", 400)
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError):
+                return reject("payline_sandbox_payload_invalid", 400)
+            host = str(handler.headers.get("Host") or "").strip().lower()
+            if not host or "/" in host or "@" in host:
+                return reject("payline_sandbox_origin_invalid", 400)
+            result = payment_payline_admin.save(payload, "https://" + host)
+            handler.send_json({
+                "ok": True,
+                "status": result,
+                "csrfToken": csrf_token(secret, handler.headers),
+            }, 201)
+        except payment_payline_admin.PaylineSandboxAdminError as exc:
+            code = str(exc)
+            if code in {
+                "payline_sandbox_admin_payload_invalid",
+                "payline_sandbox_admin_configuration_invalid",
+                "payline_sandbox_admin_target_invalid",
+            }:
+                return reject(code, 400)
+            return reject("payline_sandbox_configuration_unavailable", 500)
+        except Exception:
+            return reject("payline_sandbox_configuration_unavailable", 500)
+        return True
+
     try:
         store = ContractStore()
         if handler.command == "GET":

@@ -264,7 +264,11 @@ class PaymentContractUIContractTest(unittest.TestCase):
         self.assertNotIn("localStorage", js)
         self.assertNotIn("sessionStorage", js)
         self.assertIn("X-CheckupAuto-Payments-CSRF", js)
-        self.assertNotIn("accessKey", js)
+        self.assertIn("accessKey=$('#paylineAccessKey').value", js)
+        self.assertNotIn("data.accessKey", js)
+        self.assertNotIn("data.status.accessKey", js)
+        self.assertIn("$('#paylineAccessKey').value=''", js)
+        self.assertNotIn("console.log", js)
 
     def test_routes_are_wired_after_guard_and_menu_link_exists(self):
         root = Path(__file__).resolve().parent

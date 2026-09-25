@@ -15,6 +15,19 @@ class PaymentContractFrontendTest(unittest.TestCase):
         self.assertNotIn('refundSubmit', js)
         self.assertIn('formulaire de contact', html)
 
+    def test_payline_sandbox_secret_form_never_prefills_or_reads_back_access_key(self):
+        root = Path(__file__).parent
+        html = (root / 'admin/payments.html').read_text()
+        js = (root / 'admin/payments.js').read_text()
+        self.assertIn('id="paylineAccessKey"', html)
+        self.assertIn('type="password"', html)
+        self.assertIn('autocomplete="new-password"', html)
+        self.assertIn('/api/admin/payments/payline-sandbox', js)
+        self.assertIn("$('#paylineAccessKey').value=''", js)
+        self.assertNotIn('data.status.accessKey', js)
+        self.assertNotIn('data.accessKey', js)
+        self.assertNotIn('console.log', js)
+
     def test_payment_editor_javascript_parses(self):
         result = subprocess.run(
             ['node', '--check', str(Path(__file__).parent / 'admin/payments.js')],
