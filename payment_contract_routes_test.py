@@ -86,6 +86,7 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertTrue(runtime["checkoutBasis"]["publicStartRouteBound"])
             self.assertTrue(runtime["refundBasis"]["operatorRefundLedger"])
             self.assertTrue(runtime["refundBasis"]["ambiguousRefundRetryBlocked"])
+            self.assertTrue(runtime["refundBasis"]["authoritativeRefundBalances"])
             self.assertFalse(runtime["refundBasis"]["liveRefundsEnabled"])
             self.assertNotIn("merchantId", repr(runtime))
             self.assertNotIn("accessKey", repr(runtime))
@@ -161,7 +162,9 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertTrue(body["ok"])
             self.assertEqual(body["summary"]["total"], 0)
             self.assertEqual(body["refunds"], [])
+            self.assertEqual(body["balances"], [])
             self.assertTrue(body["capability"]["operatorRefundLedger"])
+            self.assertTrue(body["capability"]["authoritativeRefundBalances"])
             self.assertFalse(body["capability"]["liveRefundsEnabled"])
             self.assertRegex(body["csrfToken"], r"^[0-9a-f]{64}$")
 
