@@ -221,3 +221,50 @@ def status(
         "completedAt": str(row["completed_at"]),
         "rawAppointmentIdsPersisted": False,
     }
+
+def statuses(
+    request_ids: object,
+    db_path: Path | str | None = None,
+) -> list[dict]:
+    """Read a bounded set of completion proofs without exposing appointment ids."""
+    if isinstance(request_ids, (str, bytes)) or not isinstance(request_ids, (list, tuple, set)):
+        raise ValueError("liste de demandes provider invalide")
+    clean: list[str] = []
+    seen: set[str] = set()
+    for value in request_ids:
+        rid = _request_id(value)
+        if rid in seen:
+            continue
+        seen.add(rid)
+        clean.append(rid)
+        if len(clean) > 500:
+            raise ValueError("trop de demandes provider")
+    if not clean:
+        return []
+
+    _init(db_path)
+    placeholders = ",".join("?" for _ in clean)
+    with compliance_store.connect(db_path) as db:
+        rows = db.execute(
+            f"""SELECT request_id,appointment_set_hash,appointment_count,
+                       review_evidence_hash,booking_evidence_hash,
+                       evidence_hash,completed_at
+                FROM provider_erasure_completion
+                WHERE request_id IN ({placeholders})
+                ORDER BY completed_at DESC,request_id""",
+            clean,
+        ).fetchall()
+    return [
+        {
+            "requestId": str(row["request_id"]),
+            "complete": True,
+            "appointmentSetHash": str(row["appointment_set_hash"]),
+            "appointmentCount": int(row["appointment_count"]),
+            "reviewEvidenceHash": str(row["review_evidence_hash"]),
+            "bookingEvidenceHash": str(row["booking_evidence_hash"]),
+            "evidenceHash": str(row["evidence_hash"]),
+            "completedAt": str(row["completed_at"]),
+            "rawAppointmentIdsPersisted": False,
+        }
+        for row in rows
+    ]

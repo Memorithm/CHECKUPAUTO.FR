@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import compliance_admin
@@ -205,6 +206,83 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
         self.assertNotIn("processing_privacy_review_not_approved", blockers)
         self.assertTrue(state["summary"]["operationalRegistersReady"])
         self.assertTrue(state["operationalRegisterAttestation"]["current"])
+
+    def test_provider_erasure_observability_stays_informational(self):
+        request = compliance_store.create_rights_request(
+            {"type": "erasure", "subjectRef": "account:42"},
+            self.db,
+        )
+        completion = {
+            "requestId": request["id"],
+            "complete": True,
+            "appointmentSetHash": "a" * 64,
+            "appointmentCount": 1,
+            "reviewEvidenceHash": "b" * 64,
+            "bookingEvidenceHash": "c" * 64,
+            "evidenceHash": "d" * 64,
+            "completedAt": "2026-09-24T22:00:00+00:00",
+            "rawAppointmentIdsPersisted": False,
+        }
+        rights_completion = {
+            "capability": {"globalCoverageComplete": False},
+            "requestCount": 1,
+            "plans": [{"requestId": request["id"]}],
+        }
+        with (
+            mock.patch.object(
+                compliance_admin,
+                "rights_completion_snapshot",
+                return_value=rights_completion,
+            ),
+            mock.patch.object(
+                compliance_admin.provider_erasure_plan,
+                "pending_request_ids",
+                return_value=[request["id"], "f" * 32],
+            ),
+            mock.patch.object(
+                compliance_admin.provider_erasure_completion,
+                "statuses",
+                return_value=[completion],
+            ),
+        ):
+            state = compliance_admin.snapshot(self.db)
+
+        provider = state["providerErasure"]
+        self.assertEqual(provider["pendingPlanRequestIds"], [request["id"]])
+        self.assertEqual(provider["pendingPlanCount"], 1)
+        self.assertEqual(provider["completedCount"], 1)
+        self.assertFalse(provider["rawAppointmentIdsExposed"])
+        self.assertNotIn("appointmentIds", str(provider))
+        self.assertEqual(state["summary"]["providerErasurePendingPlanCount"], 1)
+        self.assertEqual(state["summary"]["providerErasureCompletedCount"], 1)
+        self.assertFalse(state["summary"]["rightsCompletionGlobalCoverage"])
+        self.assertFalse(state["summary"]["readyForPublicContracting"])
+
+    def test_provider_erasure_observability_failure_is_sanitized(self):
+        with (
+            mock.patch.object(
+                compliance_admin.provider_erasure_plan,
+                "pending_request_ids",
+                side_effect=RuntimeError("private path must not leak"),
+            ),
+            mock.patch.object(
+                compliance_admin.provider_erasure_completion,
+                "statuses",
+                side_effect=RuntimeError("sqlite detail must not leak"),
+            ),
+        ):
+            state = compliance_admin.snapshot(self.db)
+
+        provider = state["providerErasure"]
+        self.assertEqual(provider["state"], "unavailable")
+        self.assertEqual(
+            set(provider["blockers"]),
+            {"encrypted_plan_status_unavailable", "completion_status_unavailable"},
+        )
+        self.assertEqual(provider["pendingPlanRequestIds"], [])
+        self.assertEqual(provider["completions"], [])
+        self.assertNotIn("private path must not leak", str(provider))
+        self.assertNotIn("sqlite detail must not leak", str(provider))
 
     def test_marketing_campaign_evidence_is_visible_without_raw_audience_or_content(self):
         marketing_campaigns.init_db(self.db)
