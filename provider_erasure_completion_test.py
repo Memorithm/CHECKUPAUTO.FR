@@ -74,6 +74,21 @@ class ProviderErasureCompletionTest(unittest.TestCase):
         self.assertEqual(first["evidenceHash"], second["evidenceHash"])
         self.assertEqual(first["completedAt"], second["completedAt"])
 
+    def test_statuses_are_bounded_and_do_not_expose_appointment_ids(self):
+        completion.record(
+            self.request["id"],
+            self.receipt("review_followup", evidence_hash="b" * 64),
+            self.receipt("booking_conversions", evidence_hash="c" * 64),
+            self.db,
+        )
+        rows = completion.statuses([self.request["id"]], self.db)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["requestId"], self.request["id"])
+        self.assertFalse(rows[0]["rawAppointmentIdsPersisted"])
+        self.assertNotIn("appointmentIds", rows[0])
+        with self.assertRaisesRegex(ValueError, "liste"):
+            completion.statuses(self.request["id"], self.db)
+
     def test_non_erasure_request_is_rejected(self):
         access = compliance_store.create_rights_request(
             {"type": "access", "subjectRef": "account:42"},
