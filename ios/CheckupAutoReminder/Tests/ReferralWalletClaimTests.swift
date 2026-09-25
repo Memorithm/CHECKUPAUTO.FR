@@ -168,6 +168,16 @@ final class ReferralWalletClaimTests: XCTestCase {
         XCTAssertEqual(try VehicleClaimLink.token(from: vehicleURL), vehicleToken)
     }
 
+    func testGenericClaimLinkAcceptsConfiguredDebugHostOnly() throws {
+        let stage = URL(string: "https://stage.179.198.210.187.sslip.io")!
+        let stageURL = URL(string: "https://stage.179.198.210.187.sslip.io/app/claim#token=\(walletToken)")!
+        let claim = try MobileClaimLink.claim(from: stageURL, trustedBaseURL: stage)
+        XCTAssertEqual(claim, MobileClaim(kind: .referralWallet, token: walletToken))
+
+        let unrelated = URL(string: "https://example.com/app/claim#token=\(walletToken)")!
+        XCTAssertThrowsError(try MobileClaimLink.claim(from: unrelated, trustedBaseURL: stage))
+    }
+
     func testGenericClaimLinkRejectsUntrustedOriginsAndQueryTokens() {
         XCTAssertThrowsError(try MobileClaimLink.claim(
             from: URL(string: "https://example.com/app/claim#token=\(walletToken)")!
