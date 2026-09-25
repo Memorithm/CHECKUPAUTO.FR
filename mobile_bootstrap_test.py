@@ -26,6 +26,10 @@ class MobileBootstrapTest(unittest.TestCase):
         self.assertEqual(result["reminders"]["hour"], 9)
         self.assertEqual(result["reminders"]["timezone"], "Europe/Paris")
         self.assertEqual(result["booking"]["url"], "https://rdv.checkupauto.fr/")
+        self.assertEqual(result["account"], {
+            "url": "https://www.checkupauto.fr/compte",
+            "reportScanUrl": "https://www.checkupauto.fr/compte#ct-report",
+        })
         self.assertEqual(result["notifications"], {"remotePushActive": False, "localFallback": True})
         self.assertEqual(result["referral"], {"rewardCents": 500, "currency": "EUR"})
         self.assertFalse(result["app"]["available"])
@@ -44,6 +48,12 @@ class MobileBootstrapTest(unittest.TestCase):
     def test_rejects_non_https_booking_url(self):
         config = self.config()
         config["business"]["bookingUrl"] = "http://example.test/"
+        with self.assertRaises(ValueError):
+            mobile.status(config)
+
+    def test_rejects_non_https_canonical_url_for_account_destinations(self):
+        config = self.config()
+        config["seo"]["canonicalUrl"] = "http://example.test/"
         with self.assertRaises(ValueError):
             mobile.status(config)
 
