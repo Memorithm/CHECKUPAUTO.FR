@@ -13,6 +13,8 @@ import marketing_consent
 import mercure_provider_coverage
 import mercure_rectification_boundary
 import processing_risk_review
+import provider_erasure_completion
+import provider_erasure_plan
 import retention_enforcement
 import rights_completion_admin
 import rights_readiness
@@ -161,6 +163,41 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     processing_reviews = processing_risk_review.status(db_path)
     rights_execution = rights_readiness.capability(db_path)
     rights_completion = rights_completion_snapshot(result.get("rightsRequests"), db_path)
+    rights_request_ids = [
+        str(plan.get("requestId") or "")
+        for plan in (rights_completion.get("plans") or [])
+        if str(plan.get("requestId") or "")
+    ]
+    known_rights_request_ids = set(rights_request_ids)
+    provider_erasure_blockers: list[str] = []
+    try:
+        pending_provider_plans = sorted(
+            set(provider_erasure_plan.pending_request_ids(500))
+            & known_rights_request_ids
+        )
+    except Exception:
+        pending_provider_plans = []
+        provider_erasure_blockers.append("encrypted_plan_status_unavailable")
+    try:
+        provider_completions = provider_erasure_completion.statuses(
+            rights_request_ids,
+            db_path,
+        )
+    except Exception:
+        provider_completions = []
+        provider_erasure_blockers.append("completion_status_unavailable")
+    provider_erasure = {
+        "capability": dict(
+            rights_execution.get("providerKeyedErasureExecution") or {}
+        ),
+        "state": "ready" if not provider_erasure_blockers else "unavailable",
+        "blockers": provider_erasure_blockers,
+        "pendingPlanRequestIds": pending_provider_plans,
+        "pendingPlanCount": len(pending_provider_plans),
+        "completions": provider_completions,
+        "completedCount": len(provider_completions),
+        "rawAppointmentIdsExposed": False,
+    }
     retention = retention_enforcement.status(db_path)
     marketing = marketing_consent.capability(db_path)
     campaigns = marketing_campaigns.capability(db_path)
@@ -244,6 +281,12 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     # executable coverage without pretending that every declared right and
     # every personal-data store is already bound.
     summary["dataSubjectExecutionBound"] = bool(rights_execution.get("bound"))
+    summary["providerErasurePendingPlanCount"] = int(
+        provider_erasure.get("pendingPlanCount") or 0
+    )
+    summary["providerErasureCompletedCount"] = int(
+        provider_erasure.get("completedCount") or 0
+    )
     summary["rightsCompletionGlobalCoverage"] = bool(
         rights_completion.get("capability", {}).get("globalCoverageComplete")
     )
@@ -339,6 +382,7 @@ def snapshot(db_path: Path | str | None = None) -> dict:
     result["withdrawal"] = withdrawal
     result["dataSubjectExecution"] = rights_execution
     result["rightsCompletion"] = rights_completion
+    result["providerErasure"] = provider_erasure
     result["rightsExecutionAudit"] = data_subject_rights.audit_rows(db_path, 200)
     result["marketingConsent"] = {
         "capability": marketing,
