@@ -19,7 +19,7 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
 
     def test_erasure_privacy_suppression_runs_review_followup_adapter(self):
         payload = {
-            "id": "request-1",
+            "id": "a" * 32,
             "subjectRef": "account:42",
             "adapter": "privacy_suppression",
             "purpose": "all_processing",
@@ -38,7 +38,7 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
                     "requestType": "erasure",
                 },
             ) as central,
-            mock.patch.object(dispatch.data_subject_rights, "_request_id", return_value="request-1"),
+            mock.patch.object(dispatch.data_subject_rights, "_request_id", return_value="a" * 32),
             mock.patch.object(
                 dispatch.mercure_rights,
                 "contact_snapshot",
@@ -59,15 +59,15 @@ class RightsExecutionReviewFollowupTest(unittest.TestCase):
 
         central.assert_called_once()
         snapshot.assert_called_once_with("account:42")
-        review.assert_called_once_with("request-1", ("apt-subject",))
-        booking.assert_called_once_with("request-1", ("apt-subject",))
+        review.assert_called_once_with("a" * 32, ("apt-subject",))
+        booking.assert_called_once_with("a" * 32, ("apt-subject",))
         self.assertEqual(result["reviewFollowupErasure"]["affectedRows"], 1)
         self.assertTrue(result["reviewFollowupErasure"]["executed"])
         self.assertTrue(result["reviewFollowupErasure"]["coverageComplete"])
 
     def test_non_erasure_privacy_suppression_does_not_delete_review_followup(self):
         payload = {
-            "id": "request-2",
+            "id": "b" * 32,
             "subjectRef": "account:42",
             "adapter": "privacy_suppression",
             "purpose": "direct_marketing",
