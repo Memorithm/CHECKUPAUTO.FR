@@ -7,6 +7,8 @@ import contract_subject_rights
 import data_subject_rights
 import mobile_dsar_erasure
 import mercure_rights
+import provider_erasure_completion
+import provider_erasure_plan
 import referral_wallet_rights
 import review_followup_privacy
 import rights_completion_plan
@@ -85,17 +87,22 @@ def _provider_erasure_recovery_needed(
     body: dict,
     db_path: Path | str | None = None,
 ) -> bool:
-    """Resume only a direct Mercure erasure whose local tail is incomplete."""
+    """Resume only a direct Mercure erasure whose provider tail is incomplete."""
     raw_ref = str(body.get("subjectRef") or "").strip()
     try:
         mercure_rights.parse_subject_ref(raw_ref)
         rid = data_subject_rights._request_id(body.get("id"))
     except ValueError:
         return False
-    return (
-        review_followup_privacy.receipt(rid) is None
-        or booking_conversion_erasure.receipt(rid) is None
-    )
+    completion = provider_erasure_completion.status(rid, db_path)
+    if completion is None:
+        # No cross-store completion proof exists yet. The resume flag is harmless
+        # on a first execution and is required if suppress_complete was already
+        # audited before the provider-keyed tail finished.
+        return True
+    # A completed tail is normally duplicate-protected. Only a stale encrypted
+    # plan means there is cleanup/replay work left after the completion proof.
+    return provider_erasure_plan.load(rid, raw_ref) is not None
 
 
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
@@ -170,41 +177,127 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             # lookup. Each provider-reference adapter remains independently
             # fail-closed when the Mercure inventory is incomplete.
             rid = data_subject_rights._request_id(body.get("id"))
+            subject_ref = str(body.get("subjectRef") or "").strip()
             result = dict(result)
-            appointment_ids, inventory_reason = _shared_mercure_erasure_inventory(
-                body.get("subjectRef")
-            )
-            if inventory_reason:
+
+            try:
+                mercure_rights.parse_subject_ref(subject_ref)
+            except ValueError:
                 result["reviewFollowupErasure"] = _provider_erasure_unavailable(
                     "review_followup",
-                    inventory_reason,
+                    "mercure_subject_reference_required",
                 )
                 result["bookingConversionErasure"] = _provider_erasure_unavailable(
                     "booking_conversions",
-                    inventory_reason,
+                    "mercure_subject_reference_required",
                 )
-            else:
-                assert appointment_ids is not None
-                review_mutation = review_followup_privacy.erase_appointments(
+                return result
+
+            review_receipt = review_followup_privacy.receipt(rid)
+            booking_receipt = booking_conversion_erasure.receipt(rid)
+            completion = provider_erasure_completion.status(rid, db_path)
+            plan = provider_erasure_plan.load(rid, subject_ref)
+
+            if completion is not None and plan is None:
+                result["providerErasurePlanCleared"] = True
+                result["providerErasureCompletion"] = completion
+                if review_receipt is not None:
+                    result["reviewFollowupErasure"] = {
+                        **review_receipt,
+                        "executed": True,
+                        "coverageComplete": True,
+                        "reason": "",
+                    }
+                if booking_receipt is not None:
+                    result["bookingConversionErasure"] = {
+                        **booking_receipt,
+                        "executed": True,
+                        "coverageComplete": True,
+                        "reason": "",
+                    }
+                return result
+
+            if (
+                plan is None
+                and review_receipt is not None
+                and booking_receipt is not None
+            ):
+                completion = provider_erasure_completion.record(
                     rid,
-                    appointment_ids,
+                    review_receipt,
+                    booking_receipt,
+                    db_path,
                 )
+                result["providerErasureCompletion"] = completion
+                result["providerErasurePlanCleared"] = True
                 result["reviewFollowupErasure"] = {
-                    **review_mutation,
+                    **review_receipt,
                     "executed": True,
                     "coverageComplete": True,
                     "reason": "",
                 }
-                booking_mutation = booking_conversion_erasure.erase_appointments(
+                result["bookingConversionErasure"] = {
+                    **booking_receipt,
+                    "executed": True,
+                    "coverageComplete": True,
+                    "reason": "",
+                }
+                return result
+
+            if plan is None:
+                appointment_ids, inventory_reason = _shared_mercure_erasure_inventory(
+                    subject_ref
+                )
+                if inventory_reason:
+                    result["reviewFollowupErasure"] = _provider_erasure_unavailable(
+                        "review_followup",
+                        inventory_reason,
+                    )
+                    result["bookingConversionErasure"] = _provider_erasure_unavailable(
+                        "booking_conversions",
+                        inventory_reason,
+                    )
+                    return result
+                assert appointment_ids is not None
+                plan = provider_erasure_plan.stage(
                     rid,
+                    subject_ref,
                     appointment_ids,
                 )
-                result["bookingConversionErasure"] = {
-                    **booking_mutation,
-                    "executed": True,
-                    "coverageComplete": True,
-                    "reason": "",
-                }
+
+            appointment_ids = tuple(plan["appointmentIds"])
+            review_mutation = review_followup_privacy.erase_appointments(
+                rid,
+                appointment_ids,
+            )
+            result["reviewFollowupErasure"] = {
+                **review_mutation,
+                "executed": True,
+                "coverageComplete": True,
+                "reason": "",
+            }
+            booking_mutation = booking_conversion_erasure.erase_appointments(
+                rid,
+                appointment_ids,
+            )
+            result["bookingConversionErasure"] = {
+                **booking_mutation,
+                "executed": True,
+                "coverageComplete": True,
+                "reason": "",
+            }
+            completion = provider_erasure_completion.record(
+                rid,
+                review_mutation,
+                booking_mutation,
+                db_path,
+            )
+            result["providerErasureCompletion"] = completion
+            result["providerErasurePlanCleared"] = provider_erasure_plan.clear(
+                rid,
+                subject_ref,
+                completion["appointmentSetHash"],
+            )
         return result
 
     if adapter == rights_rectification.ADAPTER:
