@@ -26,6 +26,9 @@ def status(config: dict) -> dict:
     business = config.get("business") if isinstance(config, dict) else {}
     business = business if isinstance(business, dict) else {}
     booking_url = _https_url(business.get("bookingUrl"), "business.bookingUrl")
+    seo = config.get("seo") if isinstance(config, dict) else {}
+    seo = seo if isinstance(seo, dict) else {}
+    canonical_url = _https_url(seo.get("canonicalUrl"), "seo.canonicalUrl").rstrip("/")
     app = app_download.status(config)
     push_requested = str(os.environ.get("CYBERCHECK_MOBILE_PUSH_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"}
     push_active = bool(push_requested and apns_gateway.status().get("configured"))
@@ -37,6 +40,10 @@ def status(config: dict) -> dict:
             "timezone": reminders.DEFAULT_TIMEZONE,
         },
         "booking": {"url": booking_url},
+        "account": {
+            "url": canonical_url + "/compte",
+            "reportScanUrl": canonical_url + "/compte#ct-report",
+        },
         "notifications": {"remotePushActive": push_active, "localFallback": not push_active},
         "referral": {
             "rewardCents": referrals.configured_reward_cents(),
