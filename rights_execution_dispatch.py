@@ -121,6 +121,20 @@ def _provider_erasure_subject_ref(subject_ref: object) -> tuple[str | None, str]
     return next(iter(provider_refs)), ""
 
 
+def _provider_erasure_subject_source(subject_ref: object) -> str:
+    raw_ref = str(subject_ref or "").strip()
+    try:
+        mercure_rights.parse_subject_ref(raw_ref)
+        return "direct_mercure"
+    except ValueError:
+        pass
+    try:
+        data_subject_rights._mobile_installation(raw_ref)
+        return "mobile_vehicle_binding"
+    except ValueError:
+        return ""
+
+
 def _provider_erasure_recovery_needed(
     body: dict,
     db_path: Path | str | None = None,
@@ -221,7 +235,8 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             subject_ref = str(body.get("subjectRef") or "").strip()
             result = dict(result)
             provider_ref, resolution_reason = _provider_erasure_subject_ref(subject_ref)
-            if resolution_reason or provider_ref is None:
+            provider_source = _provider_erasure_subject_source(subject_ref)
+            if resolution_reason or provider_ref is None or not provider_source:
                 reason = resolution_reason or "mercure_subject_reference_required"
                 result["reviewFollowupErasure"] = _provider_erasure_unavailable(
                     "review_followup",
@@ -267,6 +282,8 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
                     review_receipt,
                     booking_receipt,
                     db_path,
+                    subject_source=provider_source,
+                    provider_subject_ref=provider_ref,
                 )
                 result["providerErasureCompletion"] = completion
                 result["providerErasurePlanCleared"] = True
@@ -331,6 +348,8 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
                 review_mutation,
                 booking_mutation,
                 db_path,
+                subject_source=provider_source,
+                provider_subject_ref=provider_ref,
             )
             result["providerErasureCompletion"] = completion
             result["providerErasurePlanCleared"] = provider_erasure_plan.clear(
