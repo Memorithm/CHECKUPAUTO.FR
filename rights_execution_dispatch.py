@@ -94,16 +94,15 @@ def _provider_erasure_recovery_needed(
         rid = data_subject_rights._request_id(body.get("id"))
     except ValueError:
         return False
-    plan = provider_erasure_plan.load(rid, raw_ref)
-    review_receipt = review_followup_privacy.receipt(rid)
-    booking_receipt = booking_conversion_erasure.receipt(rid)
     completion = provider_erasure_completion.status(rid, db_path)
-    return bool(
-        plan is not None
-        or review_receipt is None
-        or booking_receipt is None
-        or completion is None
-    )
+    if completion is None:
+        # No cross-store completion proof exists yet. The resume flag is harmless
+        # on a first execution and is required if suppress_complete was already
+        # audited before the provider-keyed tail finished.
+        return True
+    # A completed tail is normally duplicate-protected. Only a stale encrypted
+    # plan means there is cleanup/replay work left after the completion proof.
+    return provider_erasure_plan.load(rid, raw_ref) is not None
 
 
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
