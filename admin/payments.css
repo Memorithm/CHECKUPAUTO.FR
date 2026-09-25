@@ -7,3 +7,13 @@
 #paymentsAudit td,#paymentsAudit th,#paymentsActivity td,#paymentsActivity th{padding:10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
 #paymentsAudit,#paymentsActivity{font-size:13px}
 @media(max-width:760px){.payment-fields{grid-template-columns:1fr}.shell{display:block}.shell>aside{position:static;width:auto;height:auto}.shell>main{margin:0;padding:20px}}
+
+.refund-panel{border-left:3px solid #315c4b}.refund-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.refund-head>div{max-width:760px}.sandbox-badge{display:inline-flex;align-items:center;white-space:nowrap;padding:9px 11px;border:1px solid #b7c8be;background:#eef4f0;color:#315c4b;font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em}
+#refundEditor{border:0;padding:0;margin:20px 0 8px;min-width:0}#refundEditor:disabled{opacity:.6}
+.refund-fields{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(150px,.55fr) minmax(190px,.8fr);gap:16px;align-items:end}
+.refund-fields label{min-width:0}.refund-fields select,.refund-fields input{display:block;width:100%;min-height:44px;margin-top:7px}
+.refund-actions{display:flex;align-items:center;gap:16px;margin:16px 0 20px;flex-wrap:wrap}.refund-actions .hint{margin:0;max-width:660px}
+#refundActivity td,#refundActivity th{padding:10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}#refundActivity{font-size:13px}
+.refund-state{font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em}.refund-state.indeterminate{color:#9a5b22}.refund-state.completed{color:#2d664f}.refund-state.refused{color:#913e35}
+@media(max-width:900px){.refund-head{flex-direction:column}.refund-fields{grid-template-columns:1fr 1fr}.refund-fields label:first-child{grid-column:1/-1}}
+@media(max-width:760px){.refund-fields{grid-template-columns:1fr}.refund-fields label:first-child{grid-column:auto}.refund-actions{align-items:stretch;flex-direction:column}.refund-actions button{width:100%}.sandbox-badge{white-space:normal}}
