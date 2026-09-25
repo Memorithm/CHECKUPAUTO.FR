@@ -237,6 +237,90 @@ def handle(handler) -> bool:
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez."),"text/html; charset=utf-8",400,"no-store")
         return True
 
+    report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)
+    if path in {REPORTS_ROUTE,REPORT_DELETE_ROUTE} or report_match:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        account_id=account["accountId"]
+
+        if command=="GET" and path==REPORTS_ROUTE:
+            handler.send_json({"ok":True,"reports":customer_ct_reports.list_reports(account_id)})
+            return True
+
+        if command=="GET" and report_match:
+            try:
+                report=customer_ct_reports.get_report(account_id,report_match.group(1))
+                query=parse_qs(parsed.query,keep_blank_values=True)
+                if query and set(query)!={"format"}:
+                    raise customer_ct_reports.CTReportError("ct_report_query_invalid")
+                format_value=(query.get("format") or [""])[0]
+                if format_value:
+                    if format_value!="md":
+                        raise customer_ct_reports.CTReportError("ct_report_format_invalid")
+                    handler.send_bytes(
+                        report["markdown"].encode("utf-8"),
+                        "text/markdown; charset=utf-8",
+                        200,
+                        "no-store",
+                        {"Content-Disposition":f'attachment; filename="rapport-{report["reportId"]}.md"'},
+                    )
+                else:
+                    handler.send_json(report)
+            except customer_ct_reports.CTReportError:
+                handler.send_json({"ok":False,"error":"ct_report_not_found"},404)
+            return True
+
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+
+        if path==REPORT_DELETE_ROUTE:
+            try:
+                payload=_json_body(handler)
+                if set(payload)!={"reportId"}:
+                    raise ValueError
+                removed=customer_ct_reports.delete_report(account_id,payload.get("reportId"))
+                handler.send_json({"ok":True,"removed":removed})
+            except Exception:
+                handler.send_json({"ok":False,"error":"ct_report_delete_invalid"},400)
+            return True
+
+        if path==REPORTS_ROUTE:
+            if handler.headers.get("Transfer-Encoding"):
+                handler.send_json({"ok":False,"error":"ct_report_transfer_encoding_invalid"},400)
+                return True
+            try:
+                length=int(handler.headers.get("Content-Length",""))
+            except (TypeError,ValueError):
+                length=0
+            if not 1<=length<=customer_ct_reports.MAX_UPLOAD_BYTES:
+                handler.send_json({"ok":False,"error":"ct_report_size_invalid"},413)
+                return True
+            content_type=handler.headers.get("Content-Type","")
+            filename=unquote(str(handler.headers.get("X-CheckupAuto-Filename") or "rapport"))
+            raw=handler.rfile.read(length)
+            if len(raw)!=length:
+                handler.send_json({"ok":False,"error":"ct_report_upload_incomplete"},400)
+                return True
+            try:
+                created=customer_ct_reports.ingest(account_id,filename,content_type,raw)
+                handler.send_json(created,201)
+            except customer_ct_reports.CTReportError as exc:
+                code=str(exc)
+                status=503 if code=="ct_extraction_unavailable" else (422 if code in {"ct_extraction_failed","ct_extraction_empty"} else 400)
+                handler.send_json({"ok":False,"error":code},status)
+            except Exception:
+                handler.send_json({"ok":False,"error":"ct_report_processing_unavailable"},503)
+            return True
+
     if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE}:
         token,account=_account(handler)
         if not token or not account:
