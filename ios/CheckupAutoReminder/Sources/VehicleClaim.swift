@@ -86,9 +86,13 @@ enum VehicleClaimToken {
 }
 
 enum MobileClaimLink {
-    static func token(from url: URL) throws -> String {
-        guard url.scheme?.lowercased() == "https",
-              url.host?.lowercased() == "www.checkupauto.fr",
+    static func token(
+        from url: URL,
+        trustedBaseURL: URL = MobileAPI.currentBaseURL
+    ) throws -> String {
+        guard let trustedHost = trustedBaseURL.host?.lowercased(),
+              url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == trustedHost,
               url.path == "/app/claim",
               url.query == nil,
               let fragment = url.fragment,
@@ -99,15 +103,23 @@ enum MobileClaimLink {
         return try MobileClaimToken.validated(raw)
     }
 
-    static func claim(from url: URL) throws -> MobileClaim {
-        let token = try token(from: url)
+    static func claim(
+        from url: URL,
+        trustedBaseURL: URL = MobileAPI.currentBaseURL
+    ) throws -> MobileClaim {
+        let token = try token(from: url, trustedBaseURL: trustedBaseURL)
         return MobileClaim(kind: try MobileClaimToken.kind(of: token), token: token)
     }
 }
 
 enum VehicleClaimLink {
-    static func token(from url: URL) throws -> String {
-        try VehicleClaimToken.validated(MobileClaimLink.token(from: url))
+    static func token(
+        from url: URL,
+        trustedBaseURL: URL = MobileAPI.currentBaseURL
+    ) throws -> String {
+        try VehicleClaimToken.validated(
+            MobileClaimLink.token(from: url, trustedBaseURL: trustedBaseURL)
+        )
     }
 }
 
