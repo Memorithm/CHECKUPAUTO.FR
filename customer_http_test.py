@@ -1,5 +1,9 @@
 import io
 import json
+import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -83,6 +87,25 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Code TEST-1234",body)
         self.assertIn('nonce="',body)
         self.assertTrue(h._csp_nonce)
+
+    @unittest.skipUnless(shutil.which("node"),"Node.js is required for inline dashboard syntax validation")
+    def test_dashboard_inline_javascript_parses(self):
+        h=Handler("/compte")
+        with patch.object(http,"_account",return_value=("session-token",self.account())), \
+             patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
+            self.assertTrue(http.handle(h))
+        body=h.response["data"].decode()
+        match=re.search(r'<script nonce="[^"]+">(.*?)</script>',body,re.S)
+        self.assertIsNotNone(match)
+        with tempfile.NamedTemporaryFile("w",suffix=".js",delete=False) as tmp:
+            tmp.write(match.group(1))
+            path=tmp.name
+        try:
+            result=subprocess.run(["node","--check",path],capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
+        finally:
+            import os
+            os.unlink(path)
 
     def test_oidc_start_redirects_only_from_configured_begin(self):
         h=Handler("/auth/customer/google")
