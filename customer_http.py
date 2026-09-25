@@ -6,9 +6,10 @@ import json
 import re
 import secrets
 from http.cookies import SimpleCookie
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import customer_accounts
+import customer_ct_reports
 import customer_oidc
 
 ACCOUNT_ROUTE="/compte"
@@ -16,6 +17,8 @@ PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
 LOGOUT_ROUTE="/api/customer/logout"
+REPORTS_ROUTE="/api/customer/reports"
+REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 COOKIE_NAME="checkupauto_customer"
 
 
