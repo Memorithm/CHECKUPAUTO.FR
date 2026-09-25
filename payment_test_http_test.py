@@ -41,7 +41,70 @@ class PaymentTestHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],200)
         self.assertIn("noindex",h.response["headers"]["X-Robots-Tag"])
-        self.assertIn("AUCUN D",h.response["data"].decode("utf-8"))
+        body=h.response["data"].decode("utf-8")
+        self.assertIn("PAIEMENT SANDBOX UNIQUEMENT",body)
+        self.assertIn("Payline homologation réelle",body)
+
+    def test_demo_page_and_status_are_noindex_and_secret_free(self):
+        h=Handler(http.DEMO_ROUTE)
+        with patch.object(http.lab,"enabled",return_value=True), \
+             patch.object(http.lab,"demo_status",return_value={
+                 "ok":True,
+                 "mode":"staging-demo",
+                 "site":{"homepage":"/","booking":"/#reservation","contact":"/contact"},
+                 "payment":{
+                     "simulation":"/payment/test",
+                     "checkout":"/payment/payline/checkout",
+                     "paylineSandbox":{
+                         "configured":False,"configurationValid":False,
+                         "checkoutBound":True,"callbacksBound":True,
+                         "livePaymentsEnabled":False,
+                         "blockingReasons":["explicit_api_configuration_missing"],
+                     },
+                 },
+                 "backend":{},
+                 "refundPolicy":"contact-only",
+             }):
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        body=h.response["data"].decode("utf-8")
+        self.assertIn("DÉMO QUASI-RÉELLE",body)
+        self.assertIn("CONFIG API SANDBOX À INSTALLER",body)
+        self.assertNotIn("merchantId",body)
+        self.assertNotIn("accessKey",body)
+        self.assertIn("noindex",h.response["headers"]["X-Robots-Tag"])
+
+        status=Handler(http.DEMO_STATUS_ROUTE)
+        with patch.object(http.lab,"enabled",return_value=True), \
+             patch.object(http.lab,"demo_status",return_value={
+                 "ok":True,"mode":"staging-demo","payment":{"paylineSandbox":{"configured":False}},
+             }):
+            self.assertTrue(http.handle(status))
+        self.assertEqual(status.response["status"],200)
+        self.assertFalse(status.response["json"]["payment"]["paylineSandbox"]["configured"])
+
+    def test_prepare_payline_endpoint_returns_first_party_checkout_only(self):
+        h=Handler(http.PREPARE_PAYLINE_ROUTE,"POST",{
+            "token":"test-token","service":"technical","date":"2026-10-03","time":"09:00",
+            "acceptTerms":True,"immediatePerformance":True,
+        })
+        prepared={
+            "ok":True,
+            "mode":"reservation-payline-homologation-test",
+            "checkoutUrl":"/payment/payline/checkout#ccid=ccid-test&cct=cct-test",
+            "paylineSandbox":{"configured":True,"configurationValid":True,"livePaymentsEnabled":False},
+        }
+        with patch.object(http.lab,"enabled",return_value=True), \
+             patch.object(http.lab,"prepare_payline_checkout",return_value=prepared) as prepare:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],201)
+        self.assertEqual(h.response["json"]["checkoutUrl"],prepared["checkoutUrl"])
+        self.assertNotIn("merchantId",repr(h.response["json"]))
+        self.assertNotIn("accessKey",repr(h.response["json"]))
+        prepare.assert_called_once_with(
+            "test-token","technical","2026-10-03","09:00",
+            accept_terms=True,immediate_performance=True,
+        )
 
     def test_session_endpoint_returns_only_test_session_data(self):
         h=Handler(http.SESSION_ROUTE,"POST",{})

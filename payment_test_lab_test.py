@@ -40,6 +40,57 @@ class PaymentTestLabTest(unittest.TestCase):
         self.assertIn("ne constitue pas les conditions générales de vente de production",payload["body"])
         self.assertIn("aucun encaissement bancaire réel",payload["body"])
 
+    def test_prepare_payline_checkout_requires_private_sandbox_config_before_mercure(self):
+        with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"1"},clear=False), \
+             patch.object(lab.payline_private,"status",return_value={
+                 "provider":"payline","environment":"sandbox","configured":False,
+                 "configurationValid":False,"checkoutBound":True,"callbacksBound":True,
+                 "livePaymentsEnabled":False,"blockingReasons":["explicit_api_configuration_missing"],
+             }), \
+             patch.object(lab.booking_test,"create_appointment") as create:
+            with self.assertRaisesRegex(lab.PaymentTestError,"^payment_test_payline_not_configured$"):
+                lab.prepare_payline_checkout(
+                    "session-token","technical","2026-10-03","09:00",
+                    accept_terms=True,immediate_performance=True,
+                )
+        create.assert_not_called()
+
+    def test_prepare_payline_checkout_stops_before_provider_and_returns_first_party_checkout(self):
+        with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"1"},clear=False), \
+             patch.object(lab.payline_private,"status",return_value={
+                 "provider":"payline","environment":"sandbox","configured":True,
+                 "configurationValid":True,"checkoutBound":True,"callbacksBound":True,
+                 "livePaymentsEnabled":False,"blockingReasons":["provider_authentication_unverified"],
+             }), \
+             patch.object(lab.booking_test,"status",return_value={"ok":True,"status":"ready"}), \
+             patch.object(lab.booking_test,"create_appointment",return_value={
+                 "appointmentId":"RDV-PAYLINE-123","appointmentAt":"2026-10-03T09:00",
+                 "price":80.0,"providerVerified":True,
+             }), \
+             patch.object(lab.booking,"create_intent",return_value={"token":"ccid-test"}), \
+             patch.object(lab.booking,"browser_token",return_value="cct-test"), \
+             patch.object(lab.compliance,"published_document",return_value={
+                 "version":"2026-09","contentHash":"a"*64,
+             }), \
+             patch.object(lab.booking,"record_terms_acceptance",return_value={"ok":True}), \
+             patch.object(lab.booking,"apply_conversion",return_value={
+                 "ok":True,"contractAcceptanceBound":True,
+             }), \
+             patch.object(lab.checkout,"create_sandbox_intent") as create_payment:
+            result=lab.prepare_payline_checkout(
+                "session-token","technical","2026-10-03","09:00",
+                accept_terms=True,immediate_performance=True,
+            )
+        self.assertEqual(result["mode"],"reservation-payline-homologation-test")
+        self.assertEqual(result["appointment"]["id"],"RDV-PAYLINE-123")
+        self.assertEqual(
+            result["checkoutUrl"],
+            "/payment/payline/checkout#ccid=ccid-test&cct=cct-test",
+        )
+        self.assertTrue(result["paylineSandbox"]["configured"])
+        self.assertFalse(result["paylineSandbox"]["livePaymentsEnabled"])
+        create_payment.assert_not_called()
+
     def test_create_reservation_binds_synthetic_mercure_to_local_payment(self):
         fake_store=MagicMock()
         fake_store.bind_provider.return_value=None

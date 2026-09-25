@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib
 import os
 import re
+from urllib.parse import quote
 
 import analytics_store as analytics
 import booking_bridge as booking
@@ -17,6 +18,7 @@ import booking_test
 import compliance_store as compliance
 import payment_checkout as checkout
 import payment_payline as payline
+import payment_payline_private as payline_private
 from payment_core import PaymentError, SandboxJournal
 
 
@@ -79,6 +81,40 @@ def init_db() -> None:
         )""")
 
 
+def _payline_demo_status() -> dict:
+    status = payline_private.status()
+    return {
+        "provider": "payline",
+        "environment": "sandbox",
+        "configured": bool(status.get("configured")),
+        "configurationValid": bool(status.get("configurationValid")),
+        "checkoutBound": bool(status.get("checkoutBound")),
+        "callbacksBound": bool(status.get("callbacksBound")),
+        "livePaymentsEnabled": False,
+        "blockingReasons": list(status.get("blockingReasons") or []),
+    }
+
+
+def demo_status() -> dict:
+    _require_enabled()
+    return {
+        "ok": True,
+        "mode": "staging-demo",
+        "site": {"homepage": "/", "booking": "/#reservation", "contact": "/contact"},
+        "payment": {
+            "simulation": "/payment/test",
+            "checkout": "/payment/payline/checkout",
+            "paylineSandbox": _payline_demo_status(),
+        },
+        "backend": {
+            "bookingServices": "/api/booking/services",
+            "bookingAvailability": "/api/booking/availability",
+            "mobileBootstrap": "/api/mobile/bootstrap",
+        },
+        "refundPolicy": "contact-only",
+    }
+
+
 def create_session() -> dict:
     _require_enabled()
     session=booking_test.create_session()
@@ -87,7 +123,8 @@ def create_session() -> dict:
         "mode": "reservation-payment-test",
         "token": session["token"],
         "expiresAt": session["expiresAt"],
-        "safety": "Synthetic Mercure appointment; simulated Payline result; no bank debit.",
+        "paylineSandbox": _payline_demo_status(),
+        "safety": "Synthetic Mercure appointment; sandbox payment only; no live production debit.",
     }
 
 
@@ -214,6 +251,96 @@ def create_reservation(token: str, service_key: str, date_value: str, time_value
             },
             "providerUrl":f"/payment/test/provider#token={token}&paymentId={payment_id}",
             "safety":"No bank request has been made.",
+        }
+    except Exception:
+        if created_appointment:
+            try:
+                booking_test.remove_appointment(token)
+            except Exception:
+                pass
+        raise
+
+
+def prepare_payline_checkout(token: str, service_key: str, date_value: str, time_value: str,
+                             *, accept_terms: bool, immediate_performance: bool) -> dict:
+    """Prepare a synthetic Mercure booking for the real Payline homologation checkout.
+
+    This function deliberately stops before creating a payment intent or calling Payline.
+    The normal first-party checkout creates the intent and invokes doWebPayment only after
+    the tester explicitly clicks its payment button.
+    """
+    _require_enabled()
+    payline_status = _payline_demo_status()
+    if not payline_status["configured"] or not payline_status["configurationValid"]:
+        raise PaymentTestError("payment_test_payline_not_configured")
+    if accept_terms is not True:
+        raise PaymentTestError("payment_test_terms_required")
+    token=str(token or "")
+    booking_test.status(token)
+    key,label=_service(service_key)
+    date_value=_appointment(date_value,"date",r"\d{4}-\d{2}-\d{2}")
+    time_value=_appointment(time_value,"time",r"\d{2}:\d{2}")
+
+    created_appointment=False
+    try:
+        appointment=_step(
+            "payment_test_mercure_create_failed",
+            lambda: booking_test.create_appointment(token,key,date_value,time_value),
+        )
+        created_appointment=True
+
+        site_booking=_step("payment_test_booking_intent_failed",lambda: booking.create_intent({
+            "service":label,
+            "preferredDate":date_value,
+            "preferredTime":time_value,
+            "device":"desktop",
+            "path":"/payment/test",
+            "utmSource":"reservation-payment-test",
+            "utmCampaign":"hostinger-staging-payline",
+        }, "https://rdv.checkupauto.fr/"))
+        ccid=str(site_booking["token"])
+        cct=_step("payment_test_browser_binding_failed",lambda: booking.browser_token(ccid))
+
+        terms=_step("payment_test_terms_lookup_failed",_test_terms)
+        _step("payment_test_terms_acceptance_failed",lambda: booking.record_terms_acceptance({
+            "ccid":ccid,
+            "cct":cct,
+            "termsVersion":terms.get("version"),
+            "termsContentHash":terms.get("contentHash"),
+            "accepted":True,
+            "reviewed":True,
+            "immediatePerformance":bool(immediate_performance),
+        }))
+
+        external_id=str(appointment["appointmentId"])
+        conversion=_step("payment_test_conversion_failed",lambda: booking.apply_conversion({
+            "externalId":external_id,
+            "status":"confirmed",
+            "ccid":ccid,
+            "appointmentDate":str(appointment["appointmentAt"]),
+            "service":label,
+            "amount":float(appointment["price"]),
+        }))
+        if not conversion.get("contractAcceptanceBound"):
+            raise PaymentTestError("payment_test_contract_binding_failed")
+
+        checkout_url=(
+            "/payment/payline/checkout#ccid="+quote(ccid,safe="")
+            +"&cct="+quote(cct,safe="")
+        )
+        return {
+            "ok": True,
+            "mode": "reservation-payline-homologation-test",
+            "appointment": {
+                "id": external_id,
+                "service": key,
+                "appointmentAt": str(appointment["appointmentAt"]),
+                "price": float(appointment["price"]),
+                "providerVerified": bool(appointment.get("providerVerified")),
+            },
+            "checkoutUrl": checkout_url,
+            "paylineSandbox": payline_status,
+            "safety": "Payline homologation only; live production payments remain disabled.",
         }
     except Exception:
         if created_appointment:
