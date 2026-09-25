@@ -83,6 +83,29 @@ class PaylineRefundLedgerTest(unittest.TestCase):
         self.assertEqual(report["refunds"][0]["state"], "indeterminate")
         self.assertEqual(len(calls), 1)
 
+    def test_activity_balances_are_authoritative_beyond_visible_history(self):
+        self.execute("1" * 32, 3000, lambda *args: object())
+
+        def refused(*args):
+            raise core.PaymentError("payline_refund_refused")
+        with self.assertRaisesRegex(core.PaymentError, "^payline_refund_refused$"):
+            self.execute("2" * 32, 1000, refused)
+
+        def ambiguous(*args):
+            raise OSError("synthetic network interruption")
+        with self.assertRaisesRegex(core.PaymentError, "^refund_reconciliation_required$"):
+            self.execute("3" * 32, 500, ambiguous)
+
+        report = refunds.activity(limit=1)
+        self.assertEqual(len(report["refunds"]), 1)
+        self.assertEqual(len(report["balances"]), 1)
+        balance = report["balances"][0]
+        self.assertEqual(balance["paymentId"], self.intent.payment_id)
+        self.assertEqual(balance["capturedAmountCents"], 8000)
+        self.assertEqual(balance["reservedAmountCents"], 3500)
+        self.assertEqual(balance["remainingAmountCents"], 4500)
+        self.assertTrue(balance["blocked"])
+
     def test_request_id_replay_cannot_change_amount_or_reason(self):
         self.execute("e" * 32, 1000, lambda *args: object())
         with patch.object(refunds.payline_private, "load", return_value=object()):
@@ -113,6 +136,7 @@ class PaylineRefundLedgerTest(unittest.TestCase):
         self.assertTrue(capability["operatorRefundLedger"])
         self.assertTrue(capability["cumulativeCaptureLimit"])
         self.assertTrue(capability["ambiguousRefundRetryBlocked"])
+        self.assertTrue(capability["authoritativeRefundBalances"])
         self.assertFalse(capability["liveRefundsEnabled"])
 
 
