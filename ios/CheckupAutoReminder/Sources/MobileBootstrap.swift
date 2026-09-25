@@ -47,7 +47,7 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let reminders: MobileReminderPolicy
     let booking: MobileBookingConfig
-    let account: MobileAccountConfig
+    let account: MobileAccountConfig?
     let notifications: MobileNotificationConfig
     let referral: MobileReferralConfig
     let app: MobileAppConfig
@@ -69,13 +69,17 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
         guard schemaVersion == 1 else { throw MobileBootstrapError.unsupportedSchema }
         _ = try reminders.validated()
         guard let bookingURL = URL(string: booking.url), bookingURL.scheme == "https", bookingURL.host != nil,
-              let accountURL = URL(string: account.url), accountURL.scheme == "https", accountURL.host != nil,
-              let reportScanURL = URL(string: account.reportScanUrl), reportScanURL.scheme == "https", reportScanURL.host != nil,
               let landingURL = URL(string: app.landingUrl), landingURL.scheme == "https", landingURL.host != nil,
               app.downloadPath.hasPrefix("/"), notifications.localFallback != notifications.remotePushActive,
               referral.rewardCents > 0, referral.rewardCents <= 5_000,
               referral.currency == "EUR" else {
             throw MobileBootstrapError.invalidConfiguration
+        }
+        if let account {
+            guard let accountURL = URL(string: account.url), accountURL.scheme == "https", accountURL.host != nil,
+                  let reportScanURL = URL(string: account.reportScanUrl), reportScanURL.scheme == "https", reportScanURL.host != nil else {
+                throw MobileBootstrapError.invalidConfiguration
+            }
         }
         return self
     }
