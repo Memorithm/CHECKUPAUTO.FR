@@ -125,7 +125,7 @@ def _provider_erasure_recovery_needed(
     body: dict,
     db_path: Path | str | None = None,
 ) -> bool:
-    """Resume only a direct Mercure erasure whose provider tail is incomplete."""
+    """Resume a provider tail only when one provider subject is proven."""
     provider_ref, resolution_reason = _provider_erasure_subject_ref(
         body.get("subjectRef")
     )
