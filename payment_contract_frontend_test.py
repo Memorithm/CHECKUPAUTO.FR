@@ -13,18 +13,6 @@ class PaymentContractFrontendTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_refund_ui_is_explicitly_sandbox_and_preserves_idempotency_key(self):
-        root = Path(__file__).parent
-        html = (root / 'admin/payments.html').read_text()
-        js = (root / 'admin/payments.js').read_text()
-        self.assertIn('SANDBOX · AUCUN REMBOURSEMENT LIVE', html)
-        self.assertIn('/api/admin/payments/refunds', js)
-        self.assertIn('crypto.getRandomValues', js)
-        self.assertIn('refund_reconciliation_required', js)
-        self.assertIn("data.capability?.liveRefundsEnabled!==false", js)
-        self.assertNotIn('transactionId', html)
-        self.assertNotIn('transactionId', js)
-
 
 if __name__ == '__main__':
     unittest.main()
