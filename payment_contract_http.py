@@ -1,9 +1,8 @@
-"""Authenticated payment administration; sandbox refund operations only, never live."""
+"""Authenticated acquiring-sheet editor; never exposes a payment operation."""
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import re
 import time
 from urllib.parse import urlsplit
@@ -11,14 +10,11 @@ from urllib.parse import urlsplit
 import rights_completion_admin_route
 import payment_payline_private
 import payment_checkout
-import payment_refund
 from payment_contract_store import (ContractStore, ContractInvalid, ContractConflict,
                                     MAX_BYTES, parse_json)
-from payment_core import PaymentError
 
 ROUTE = "/api/admin/payments/contract"
 ACTIVITY_ROUTE = "/api/admin/payments/activity"
-REFUND_ROUTE = "/api/admin/payments/refunds"
 
 
 def csrf_token(secret: str, headers, hour: int | None = None) -> str:
@@ -39,7 +35,7 @@ def handle(handler, *, secret: str) -> bool:
         return True
 
     parsed = urlsplit(handler.path)
-    if parsed.path not in {ROUTE, ACTIVITY_ROUTE, REFUND_ROUTE}:
+    if parsed.path not in {ROUTE, ACTIVITY_ROUTE}:
         return False
     if not handler.authorized():
         handler.require_auth()
@@ -83,69 +79,6 @@ def handle(handler, *, secret: str) -> bool:
             return reject("payments_content_length_invalid", 400)
         if not 1 <= length <= MAX_BYTES:
             return reject("payments_body_too_large", 413)
-    if parsed.path == REFUND_ROUTE:
-        try:
-            if handler.command == "GET":
-                result = {
-                    "ok": True,
-                    **payment_refund.activity(),
-                    "capability": payment_refund.capability(),
-                    "csrfToken": csrf_token(secret, handler.headers),
-                }
-                handler.send_json(result)
-                return True
-
-            raw = handler.rfile.read(length)
-            if len(raw) != length:
-                raise PaymentError("refund_payload_invalid")
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError):
-                raise PaymentError("refund_payload_invalid") from None
-            if not isinstance(payload, dict) or set(payload) != {"requestId", "paymentId", "amountCents", "reason"}:
-                raise PaymentError("refund_payload_invalid")
-            result = payment_refund.execute(
-                payload.get("requestId"),
-                payload.get("paymentId"),
-                payload.get("amountCents"),
-                payload.get("reason"),
-            )
-            result = {
-                "ok": True,
-                **result,
-                "capability": payment_refund.capability(),
-                "csrfToken": csrf_token(secret, handler.headers),
-            }
-            handler.send_json(result, 200 if result["reused"] else 201)
-        except payment_payline_private.PaylinePrivateConfigurationError:
-            return reject("payment_provider_not_configured", 503)
-        except PaymentError as exc:
-            code = str(exc)
-            conflicts = {
-                "refund_reconciliation_required",
-                "refund_request_replay_conflict",
-                "refund_amount_exceeds_remaining_capture",
-                "captured_payline_sandbox_payment_required",
-                "provider_transaction_not_found",
-                "intent_not_found",
-                "payline_refund_refused",
-            }
-            invalid = {
-                "refund_payload_invalid",
-                "refund_request_id_invalid",
-                "payment_id_invalid",
-                "refund_amount_invalid",
-                "refund_reason_invalid",
-            }
-            if code in conflicts:
-                return reject(code, 409)
-            if code in invalid:
-                return reject(code, 400)
-            return reject("payment_refund_unavailable", 503)
-        except Exception:
-            return reject("payment_refund_unavailable", 503)
-        return True
-
     try:
         store = ContractStore()
         if handler.command == "GET":
@@ -158,7 +91,6 @@ def handle(handler, *, secret: str) -> bool:
         result["csrfToken"] = csrf_token(secret, handler.headers)
         result["runtime"] = payment_payline_private.status()
         result["runtime"]["checkoutBasis"] = payment_checkout.capability()
-        result["runtime"]["refundBasis"] = payment_refund.capability()
         handler.send_json(result)
     except ContractConflict:
         return reject("payments_contract_conflict_reload", 409)
