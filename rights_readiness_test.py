@@ -62,6 +62,14 @@ class RightsReadinessTest(unittest.TestCase):
         self.assertIn("mobile_deadline_rectification", state["partialSystemAdapters"])
         self.assertIn("rectification", state["partiallySupportedRightTypes"])
         self.assertIn("rectification", state["remainingRightTypes"])
+        provider = state["providerKeyedErasureExecution"]
+        self.assertTrue(provider["implemented"])
+        self.assertTrue(provider["partial"])
+        self.assertTrue(provider["encryptedCrashPlan"])
+        self.assertTrue(provider["crossStoreCompletionEvidence"])
+        self.assertFalse(provider["rawAppointmentIdsPersistedInCompliance"])
+        self.assertFalse(provider["completionEligibleForGlobalCoverage"])
+        self.assertFalse(state["bound"])
 
     def test_bounded_rectification_does_not_overstate_global_readiness(self):
         with mock.patch.object(
