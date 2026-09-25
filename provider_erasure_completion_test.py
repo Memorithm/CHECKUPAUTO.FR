@@ -1,3 +1,4 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +43,81 @@ class ProviderErasureCompletionTest(unittest.TestCase):
         self.assertTrue(stored["complete"])
         self.assertEqual(stored["appointmentSetHash"], "a" * 64)
         self.assertNotIn("appointmentIds", stored)
+
+    def test_records_minimized_provider_subject_provenance(self):
+        provider_ref = "account:client-42"
+        result = completion.record(
+            self.request["id"],
+            self.receipt("review_followup", evidence_hash="b" * 64),
+            self.receipt("booking_conversions", evidence_hash="c" * 64),
+            self.db,
+            subject_source="mobile_vehicle_binding",
+            provider_subject_ref=provider_ref,
+        )
+        expected_hash = hashlib.sha256(provider_ref.encode("utf-8")).hexdigest()
+        self.assertEqual(result["subjectSource"], "mobile_vehicle_binding")
+        self.assertEqual(result["providerSubjectHash"], expected_hash)
+        self.assertTrue(result["provenanceComplete"])
+        self.assertFalse(result["rawProviderSubjectPersisted"])
+        self.assertNotIn(provider_ref, repr(result))
+
+        stored = completion.status(self.request["id"], self.db)
+        self.assertEqual(stored["subjectSource"], "mobile_vehicle_binding")
+        self.assertEqual(stored["providerSubjectHash"], expected_hash)
+        self.assertTrue(stored["provenanceComplete"])
+        self.assertNotIn(provider_ref, repr(stored))
+
+    def test_provenance_cannot_be_downgraded_or_rebound(self):
+        review = self.receipt("review_followup", evidence_hash="b" * 64)
+        booking = self.receipt("booking_conversions", evidence_hash="c" * 64)
+        completion.record(
+            self.request["id"],
+            review,
+            booking,
+            self.db,
+            subject_source="direct_mercure",
+            provider_subject_ref="account:42",
+        )
+        with self.assertRaisesRegex(RuntimeError, "provenance provider requise"):
+            completion.record(
+                self.request["id"],
+                review,
+                booking,
+                self.db,
+            )
+        with self.assertRaisesRegex(RuntimeError, "autre sujet provider"):
+            completion.record(
+                self.request["id"],
+                review,
+                booking,
+                self.db,
+                subject_source="direct_mercure",
+                provider_subject_ref="account:99",
+            )
+
+    def test_init_migrates_legacy_completion_table(self):
+        with compliance_store.connect(self.db) as db:
+            db.execute(
+                """CREATE TABLE provider_erasure_completion(
+                     request_id TEXT PRIMARY KEY,
+                     appointment_set_hash TEXT NOT NULL,
+                     appointment_count INTEGER NOT NULL,
+                     review_evidence_hash TEXT NOT NULL,
+                     booking_evidence_hash TEXT NOT NULL,
+                     evidence_hash TEXT NOT NULL,
+                     completed_at TEXT NOT NULL
+                   )"""
+            )
+        self.assertIsNone(completion.status(self.request["id"], self.db))
+        with compliance_store.connect(self.db) as db:
+            columns = {
+                str(row["name"])
+                for row in db.execute(
+                    "PRAGMA table_info(provider_erasure_completion)"
+                ).fetchall()
+            }
+        self.assertIn("subject_source", columns)
+        self.assertIn("provider_subject_hash", columns)
 
     def test_mismatched_inventory_hashes_fail_closed(self):
         with self.assertRaisesRegex(RuntimeError, "divergentes"):
