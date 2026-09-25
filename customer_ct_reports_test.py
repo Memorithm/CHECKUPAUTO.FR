@@ -57,7 +57,7 @@ class CTReportsTest(unittest.TestCase):
         self.assertIn("ne remplace",md)
 
     def test_ingest_discards_raw_document_and_encrypts_retained_payload(self):
-        raw=b"synthetic-binary-report-do-not-store"
+        raw=b"%PDF-1.7 synthetic-binary-report-do-not-store"
         with patch.object(reports,"extract_text",return_value=(SAMPLE,"synthetic-text")):
             created=reports.ingest(self.account,"controle.pdf","application/pdf",raw)
         self.assertFalse(created["rawDocumentRetained"])
@@ -70,7 +70,7 @@ class CTReportsTest(unittest.TestCase):
         self.assertEqual(reports.db_path().stat().st_mode & 0o777,0o600)
 
     def test_duplicate_document_is_idempotent_per_account(self):
-        raw=b"same-document"
+        raw=b"%PDF-1.7 same-document"
         with patch.object(reports,"extract_text",return_value=(SAMPLE,"synthetic-text")) as extract:
             first=reports.ingest(self.account,"controle.pdf","application/pdf",raw)
             second=reports.ingest(self.account,"controle.pdf","application/pdf",raw)
@@ -79,7 +79,7 @@ class CTReportsTest(unittest.TestCase):
 
     def test_list_get_delete_are_account_scoped(self):
         with patch.object(reports,"extract_text",return_value=(SAMPLE,"synthetic-text")):
-            created=reports.ingest(self.account,"controle.jpg","image/jpeg",b"jpeg-data")
+            created=reports.ingest(self.account,"controle.jpg","image/jpeg",bytes((0xFF,0xD8,0xFF))+b"jpeg-data")
         listed=reports.list_reports(self.account)
         self.assertEqual(len(listed),1)
         self.assertIsNone(listed[0]["structured"])
@@ -90,6 +90,21 @@ class CTReportsTest(unittest.TestCase):
         self.assertFalse(reports.delete_report(other,created["reportId"]))
         self.assertTrue(reports.delete_report(self.account,created["reportId"]))
         self.assertEqual(reports.list_reports(self.account),[])
+
+    def test_declared_type_must_match_file_signature(self):
+        with self.assertRaisesRegex(reports.CTReportError,"^ct_report_signature_invalid$"):
+            reports.ingest(
+                self.account,"fake.pdf","application/pdf",
+                bytes((0xFF,0xD8,0xFF))+b"not-a-pdf",
+            )
+
+    def test_pdf_page_count_is_bounded_before_ocr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"report.pdf"
+            path.write_bytes(b"%PDF-1.7")
+            with patch.object(reports,"_run",return_value=b"Pages: 9\n"):
+                with self.assertRaisesRegex(reports.CTReportError,"^ct_report_pages_invalid$"):
+                    reports._pdf_pages(path)
 
     def test_invalid_content_type_and_size_fail_before_extraction(self):
         with self.assertRaisesRegex(reports.CTReportError,"^ct_report_type_invalid$"):
