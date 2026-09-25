@@ -41,6 +41,7 @@ import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
 import contact_request as contact_request
 import customer_http
+import customer_oidc_admin_http
 import payment_contract_http
 import payment_payline_http
 import payment_test_http
@@ -277,6 +278,8 @@ class Handler(SimpleHTTPRequestHandler):
   return raw.replace('</head>',block+'\n</head>',1).encode()
  def do_GET(self):
   if not self._guard(): return
+  if customer_oidc_admin_http.handle(self,secret=PASSWORD): return
+  if customer_oidc_admin_http.handle(self,secret=PASSWORD): return
   if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
