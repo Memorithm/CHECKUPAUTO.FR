@@ -58,9 +58,27 @@ struct MobileBootstrap: Codable, Equatable, Sendable {
     func validated() throws -> MobileBootstrap {
         guard schemaVersion == 1 else { throw MobileBootstrapError.unsupportedSchema }
         _ = try reminders.validated()
-        guard let bookingURL = URL(string: booking.url), bookingURL.scheme == "https", bookingURL.host != nil,
-              let landingURL = URL(string: app.landingUrl), landingURL.scheme == "https", landingURL.host != nil,
-              app.downloadPath.hasPrefix("/"), notifications.localFallback != notifications.remotePushActive,
+
+        guard let bookingURL = URL(string: booking.url),
+              bookingURL.scheme?.lowercased() == "https",
+              bookingURL.host?.lowercased() == "rdv.checkupauto.fr",
+              bookingURL.user == nil,
+              bookingURL.password == nil,
+              bookingURL.port == nil || bookingURL.port == 443,
+              bookingURL.query == nil,
+              bookingURL.fragment == nil,
+              bookingURL.path.isEmpty || bookingURL.path == "/",
+              let landingURL = URL(string: app.landingUrl),
+              landingURL.scheme?.lowercased() == "https",
+              landingURL.host?.lowercased() == "www.checkupauto.fr",
+              landingURL.user == nil,
+              landingURL.password == nil,
+              landingURL.port == nil || landingURL.port == 443,
+              landingURL.query == nil,
+              landingURL.fragment == nil,
+              landingURL.path == "/app",
+              app.downloadPath == "/go/app",
+              notifications.localFallback != notifications.remotePushActive,
               referral.rewardCents > 0, referral.rewardCents <= 5_000,
               referral.currency == "EUR" else {
             throw MobileBootstrapError.invalidConfiguration
