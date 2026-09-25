@@ -77,7 +77,14 @@ class RightsExecutionBookingConversionTest(unittest.TestCase):
         stage.assert_called_once_with("a" * 32, "account:42", ("apt-1",))
         erase_review.assert_called_once_with("a" * 32, ("apt-1",))
         erase_booking.assert_called_once_with("a" * 32, ("apt-1",))
-        record.assert_called_once_with("a" * 32, review, booking, "compliance.sqlite3")
+        record.assert_called_once_with(
+            "a" * 32,
+            review,
+            booking,
+            "compliance.sqlite3",
+            subject_source="direct_mercure",
+            provider_subject_ref="account:42",
+        )
         clear.assert_called_once_with("a" * 32, "account:42", "a" * 64)
         self.assertTrue(result["providerErasurePlanCleared"])
         self.assertEqual(result["providerErasureCompletion"], completion)
@@ -133,7 +140,14 @@ class RightsExecutionBookingConversionTest(unittest.TestCase):
         snapshot.assert_not_called()
         erase_review.assert_not_called()
         erase_booking.assert_not_called()
-        record.assert_called_once_with("a" * 32, review, booking, "compliance.sqlite3")
+        record.assert_called_once_with(
+            "a" * 32,
+            review,
+            booking,
+            "compliance.sqlite3",
+            subject_source="direct_mercure",
+            provider_subject_ref="account:42",
+        )
         self.assertEqual(result["providerErasureCompletion"], completion)
 
     def test_stale_plan_replays_even_after_completion_was_recorded(self):
@@ -161,7 +175,14 @@ class RightsExecutionBookingConversionTest(unittest.TestCase):
         snapshot.assert_not_called()
         erase_review.assert_called_once_with("a" * 32, ("apt-1",))
         erase_booking.assert_called_once_with("a" * 32, ("apt-1",))
-        record.assert_called_once_with("a" * 32, review, booking, "compliance.sqlite3")
+        record.assert_called_once_with(
+            "a" * 32,
+            review,
+            booking,
+            "compliance.sqlite3",
+            subject_source="direct_mercure",
+            provider_subject_ref="account:42",
+        )
         clear.assert_called_once_with("a" * 32, "account:42", "a" * 64)
         self.assertTrue(result["providerErasurePlanCleared"])
 
