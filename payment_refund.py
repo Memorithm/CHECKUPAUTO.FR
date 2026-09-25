@@ -204,6 +204,7 @@ def activity(limit: int = 50) -> dict:
         return {
             "summary": {"total": 0, "completed": 0, "attempting": 0, "indeterminate": 0, "refused": 0},
             "refunds": [],
+            "balances": [],
         }
     SandboxJournal(path)
     db = _connect(path)
@@ -217,6 +218,25 @@ def activity(limit: int = 50) -> dict:
             (limit,),
         ).fetchall()
         total = int(db.execute("SELECT COUNT(*) FROM payment_refunds").fetchone()[0])
+        balance_rows = db.execute(
+            """SELECT t.payment_id,
+                      t.captured_amount_cents,
+                      COALESCE(SUM(CASE
+                        WHEN r.state IN ('attempting','indeterminate','completed') THEN r.amount_cents
+                        ELSE 0 END),0) AS reserved_amount_cents,
+                      COALESCE(MAX(CASE
+                        WHEN r.state IN ('attempting','indeterminate') THEN 1
+                        ELSE 0 END),0) AS blocked
+               FROM payment_provider_transactions t
+               JOIN payment_intents i ON i.payment_id=t.payment_id
+               LEFT JOIN payment_refunds r ON r.payment_id=t.payment_id
+               WHERE t.provider='payline'
+                 AND i.provider='payline'
+                 AND i.environment='sandbox'
+                 AND i.state='captured'
+               GROUP BY t.payment_id,t.captured_amount_cents
+               ORDER BY t.updated_at DESC,t.payment_id DESC"""
+        ).fetchall()
     finally:
         db.close()
     return {
@@ -228,6 +248,16 @@ def activity(limit: int = 50) -> dict:
             "refused": counts.get("refused", 0),
         },
         "refunds": [_public(row) for row in rows],
+        "balances": [{
+            "paymentId": str(row["payment_id"]),
+            "capturedAmountCents": int(row["captured_amount_cents"]),
+            "reservedAmountCents": int(row["reserved_amount_cents"]),
+            "remainingAmountCents": max(
+                0,
+                int(row["captured_amount_cents"]) - int(row["reserved_amount_cents"]),
+            ),
+            "blocked": bool(row["blocked"]),
+        } for row in balance_rows],
     }
 
 
@@ -239,5 +269,6 @@ def capability() -> dict:
         "providerTransactionFromVerifiedCapture": True,
         "cumulativeCaptureLimit": True,
         "ambiguousRefundRetryBlocked": True,
+        "authoritativeRefundBalances": True,
         "liveRefundsEnabled": False,
     }
