@@ -38,11 +38,11 @@
   if(!response.ok||!data.ok)throw new Error(response.status===400?'Configuration refusée. Vérifiez les champs et le callback déclaré chez le fournisseur.':'Configuration des connecteurs indisponible.');
   return data;
  }
- async function load(){
-  if(busy)return;setBusy(true);
+ async function load(force=false){
+  if(busy&&!force)return;if(!force)setBusy(true);
   try{const data=await request();render(data);$('#oidcAuth').hidden=true;message('État des connecteurs chargé. Les secrets ne sont jamais relus.');}
   catch(e){message(e.message||'Connecteurs indisponibles.',true);}
-  finally{setBusy(false);}
+  finally{if(!force)setBusy(false);}
  }
  async function saveProvider(provider){
   if(busy||!snapshot)return;
@@ -52,7 +52,7 @@
   try{
    const data=await request({action:'save',provider,clientId,clientSecret});
    $('#oidc-client-'+provider).value='';$('#oidc-secret-'+provider).value='';
-   await load();message('Connecteur '+provider+' enregistré. Le secret a été effacé du formulaire et n’est pas relu.');
+   await load(true);message('Connecteur '+provider+' enregistré. Le secret a été effacé du formulaire et n’est pas relu.');
   }catch(e){$('#oidc-secret-'+provider).value='';message(e.message||'Enregistrement impossible.',true);}
   finally{setBusy(false);}
  }
@@ -60,7 +60,7 @@
   if(busy||!snapshot)return;
   if(!confirm('Désactiver ce connecteur pour les nouvelles connexions ? Les comptes existants sont conservés.'))return;
   setBusy(true);
-  try{await request({action:'remove',provider});await load();message('Connecteur '+provider+' désactivé.');}
+  try{await request({action:'remove',provider});await load(true);message('Connecteur '+provider+' désactivé.');}
   catch(e){message(e.message||'Suppression impossible.',true);}
   finally{setBusy(false);}
  }
