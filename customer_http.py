@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import secrets
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, urlsplit
 
@@ -107,7 +108,7 @@ p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-co
 </section></main></body></html>""".encode("utf-8")
 
 
-def _dashboard_page(token: str, account: dict) -> bytes:
+def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     csrf=customer_accounts.csrf_token(token)
     kind=str(account["kind"])
     pro=kind=="professional"
@@ -152,7 +153,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <label>SIRET<input id="siret" value="{siret}" inputmode="numeric" maxlength="14"></label>
 <div class="actions"><button class="primary" type="submit">Enregistrer</button><span id="profileStatus"></span></div>
 </form></section>
-</main><script>
+</main><script nonce="{html.escape(nonce,quote=True)}">
 (()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
 document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
@@ -185,7 +186,9 @@ def handle(handler) -> bool:
         if not account:
             handler.send_bytes(_login_page(),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
             return True
-        handler.send_bytes(_dashboard_page(token,account),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+        nonce=secrets.token_urlsafe(18)
+        handler._csp_nonce=nonce
+        handler.send_bytes(_dashboard_page(token,account,nonce),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
         return True
 
     if command=="GET" and path==PROVIDERS_ROUTE:
