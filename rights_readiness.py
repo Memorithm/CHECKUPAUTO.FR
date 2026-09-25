@@ -83,6 +83,17 @@ def capability(db_path: Path | str | None = None) -> dict:
         partial.add("referral_wallet")
         result["partialSystemAdapters"] = sorted(partial)
 
+    result["providerKeyedErasureExecution"] = {
+        "implemented": True,
+        "partial": True,
+        "directMercureSubjectOnly": True,
+        "providerAppointmentCoverageRequired": True,
+        "encryptedCrashPlan": True,
+        "crossStoreCompletionEvidence": True,
+        "rawAppointmentIdsPersistedInCompliance": False,
+        "completionEligibleForGlobalCoverage": False,
+    }
+
     withdrawal = withdrawal_readiness.capability(db_path)
     result["withdrawalEvidenceExecution"] = withdrawal
     withdrawal_rights = [
