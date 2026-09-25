@@ -7,6 +7,7 @@ import contract_subject_rights
 import data_subject_rights
 import mobile_dsar_erasure
 import mercure_rights
+import mobile_devices
 import provider_erasure_completion
 import provider_erasure_plan
 import referral_wallet_rights
@@ -83,14 +84,54 @@ def _provider_erasure_unavailable(store: str, reason: str) -> dict:
     }
 
 
+def _provider_erasure_subject_ref(subject_ref: object) -> tuple[str | None, str]:
+    """Resolve one provider subject only from direct or verified mobile evidence."""
+    raw_ref = str(subject_ref or "").strip()
+    try:
+        client_kind, client_id = mercure_rights.parse_subject_ref(raw_ref)
+        return f"{client_kind}:{client_id}", ""
+    except ValueError:
+        pass
+
+    try:
+        installation_id = data_subject_rights._mobile_installation(raw_ref)
+    except ValueError:
+        return None, "mercure_subject_reference_required"
+
+    try:
+        bindings = mobile_devices.registered_vehicle_bindings(installation_id)
+    except Exception:
+        return None, "mercure_subject_binding_unavailable"
+
+    provider_refs: set[str] = set()
+    for row in bindings:
+        if not isinstance(row, dict):
+            return None, "mercure_subject_binding_invalid"
+        candidate = f"{str(row.get('client_kind') or '').strip()}:{str(row.get('client_id') or '').strip()}"
+        try:
+            client_kind, client_id = mercure_rights.parse_subject_ref(candidate)
+        except ValueError:
+            return None, "mercure_subject_binding_invalid"
+        provider_refs.add(f"{client_kind}:{client_id}")
+
+    if not provider_refs:
+        return None, "mercure_subject_binding_missing"
+    if len(provider_refs) != 1:
+        return None, "mercure_subject_binding_ambiguous"
+    return next(iter(provider_refs)), ""
+
+
 def _provider_erasure_recovery_needed(
     body: dict,
     db_path: Path | str | None = None,
 ) -> bool:
     """Resume only a direct Mercure erasure whose provider tail is incomplete."""
-    raw_ref = str(body.get("subjectRef") or "").strip()
+    provider_ref, resolution_reason = _provider_erasure_subject_ref(
+        body.get("subjectRef")
+    )
+    if resolution_reason or provider_ref is None:
+        return False
     try:
-        mercure_rights.parse_subject_ref(raw_ref)
         rid = data_subject_rights._request_id(body.get("id"))
     except ValueError:
         return False
@@ -102,7 +143,7 @@ def _provider_erasure_recovery_needed(
         return True
     # A completed tail is normally duplicate-protected. Only a stale encrypted
     # plan means there is cleanup/replay work left after the completion proof.
-    return provider_erasure_plan.load(rid, raw_ref) is not None
+    return provider_erasure_plan.load(rid, provider_ref) is not None
 
 
 def execute(payload: object, db_path: Path | str | None = None) -> dict:
@@ -179,24 +220,23 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             rid = data_subject_rights._request_id(body.get("id"))
             subject_ref = str(body.get("subjectRef") or "").strip()
             result = dict(result)
-
-            try:
-                mercure_rights.parse_subject_ref(subject_ref)
-            except ValueError:
+            provider_ref, resolution_reason = _provider_erasure_subject_ref(subject_ref)
+            if resolution_reason or provider_ref is None:
+                reason = resolution_reason or "mercure_subject_reference_required"
                 result["reviewFollowupErasure"] = _provider_erasure_unavailable(
                     "review_followup",
-                    "mercure_subject_reference_required",
+                    reason,
                 )
                 result["bookingConversionErasure"] = _provider_erasure_unavailable(
                     "booking_conversions",
-                    "mercure_subject_reference_required",
+                    reason,
                 )
                 return result
 
             review_receipt = review_followup_privacy.receipt(rid)
             booking_receipt = booking_conversion_erasure.receipt(rid)
             completion = provider_erasure_completion.status(rid, db_path)
-            plan = provider_erasure_plan.load(rid, subject_ref)
+            plan = provider_erasure_plan.load(rid, provider_ref)
 
             if completion is not None and plan is None:
                 result["providerErasurePlanCleared"] = True
@@ -246,7 +286,7 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
 
             if plan is None:
                 appointment_ids, inventory_reason = _shared_mercure_erasure_inventory(
-                    subject_ref
+                    provider_ref
                 )
                 if inventory_reason:
                     result["reviewFollowupErasure"] = _provider_erasure_unavailable(
@@ -261,7 +301,7 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
                 assert appointment_ids is not None
                 plan = provider_erasure_plan.stage(
                     rid,
-                    subject_ref,
+                    provider_ref,
                     appointment_ids,
                 )
 
@@ -295,7 +335,7 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
             result["providerErasureCompletion"] = completion
             result["providerErasurePlanCleared"] = provider_erasure_plan.clear(
                 rid,
-                subject_ref,
+                provider_ref,
                 completion["appointmentSetHash"],
             )
         return result
