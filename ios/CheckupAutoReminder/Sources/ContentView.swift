@@ -10,11 +10,17 @@ private enum CheckupTheme {
     static let line = Color.black.opacity(0.08)
 }
 
+private struct BrowserDestination: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
+    @State private var browserDestination: BrowserDestination?
 
     var body: some View {
         NavigationStack {
@@ -57,12 +63,14 @@ struct ContentView: View {
             .toolbarBackground(CheckupTheme.paper, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Link(destination: model.accountURL) {
+                    Button {
+                        openInApp(model.accountURL)
+                    } label: {
                         Image(systemName: "person.crop.circle")
                             .font(.title3)
                             .foregroundStyle(CheckupTheme.ink)
-                            .accessibilityLabel("Mon compte")
                     }
+                    .accessibilityLabel("Mon compte")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -115,6 +123,10 @@ struct ContentView: View {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate in
                     model.add(registration: registration, name: name, dueDate: dueDate)
                 }
+            }
+            .fullScreenCover(item: $browserDestination) { destination in
+                InAppBrowserView(url: destination.url)
+                    .ignoresSafeArea()
             }
         }
         .tint(CheckupTheme.accent)
@@ -178,13 +190,13 @@ struct ContentView: View {
             sectionLabel("ACCÈS RAPIDE")
 
             HStack(spacing: 12) {
-                actionLink(
+                actionButton(
                     title: "Scanner mon CT",
                     subtitle: "Analyse & conseils",
                     systemImage: "doc.viewfinder",
                     destination: model.reportScanURL
                 )
-                actionLink(
+                actionButton(
                     title: "Réserver",
                     subtitle: "Créneaux en direct",
                     systemImage: "calendar.badge.plus",
@@ -192,7 +204,9 @@ struct ContentView: View {
                 )
             }
 
-            Link(destination: model.accountURL) {
+            Button {
+                openInApp(model.accountURL)
+            } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "person.text.rectangle")
                         .font(.title2)
@@ -269,8 +283,10 @@ struct ContentView: View {
                     Text("Rattachez la cagnotte depuis votre compte client ou le QR remis par Checkup Auto. Le solde reste calculé côté serveur.")
                         .font(.caption)
                         .foregroundStyle(CheckupTheme.muted)
-                    Link("Ouvrir mon compte", destination: model.accountURL)
-                        .font(.subheadline.weight(.semibold))
+                    Button("Ouvrir mon compte") {
+                        openInApp(model.accountURL)
+                    }
+                    .font(.subheadline.weight(.semibold))
                 }
                 .padding(20)
                 .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
@@ -426,13 +442,15 @@ struct ContentView: View {
         }
     }
 
-    private func actionLink(
+    private func actionButton(
         title: String,
         subtitle: String,
         systemImage: String,
         destination: URL
     ) -> some View {
-        Link(destination: destination) {
+        Button {
+            openInApp(destination)
+        } label: {
             VStack(alignment: .leading, spacing: 14) {
                 Image(systemName: systemImage)
                     .font(.title2)
@@ -527,6 +545,10 @@ struct ContentView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(CheckupTheme.soft, in: Capsule())
+    }
+
+    private func openInApp(_ url: URL) {
+        browserDestination = BrowserDestination(url: url)
     }
 
     private func daysLabel(until date: Date) -> String {
