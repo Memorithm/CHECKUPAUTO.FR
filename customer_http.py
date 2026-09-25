@@ -174,6 +174,19 @@ document.getElementById('logout').addEventListener('click',async()=>{{await fetc
 }})();</script></body></html>""".encode("utf-8")
 
 
+def _browser_origin(handler) -> str:
+    host = str(handler.headers.get("Host") or "").strip().lower()
+    if (
+        not host
+        or len(host) > 255
+        or "/" in host
+        or "@" in host
+        or not re.fullmatch(r"[A-Za-z0-9.-]+(?::[0-9]{1,5})?", host)
+    ):
+        raise ValueError("customer_origin_invalid")
+    return "https://" + host
+
+
 def _same_origin(handler) -> bool:
     if handler.headers.get("Sec-Fetch-Site","")=="cross-site":
         return False
@@ -211,7 +224,7 @@ def handle(handler) -> bool:
     if command=="GET" and re.fullmatch(r"/auth/customer/(google|apple|microsoft)",path):
         provider=path.rsplit("/",1)[-1]
         try:
-            target=customer_oidc.begin(provider,handler._request_origin())
+            target=customer_oidc.begin(provider,_browser_origin(handler))
             handler.send_redirect(target,302)
         except customer_oidc.CustomerOIDCError:
             handler.send_bytes(_login_page("Ce fournisseur de connexion n’est pas encore configuré."),"text/html; charset=utf-8",503,"no-store")

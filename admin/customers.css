@@ -1,0 +1,9 @@
+.oidc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.oidc-card{border:1px solid var(--line);background:#fff;padding:20px;display:flex;flex-direction:column;gap:14px}
+.oidc-card h3{margin:0;font-size:22px}.oidc-state{display:inline-flex;align-self:flex-start;padding:7px 9px;border:1px solid var(--line);font:700 9px Consolas,monospace;letter-spacing:.08em}
+.oidc-state.ready{background:#e7f1e9;border-color:#a9c1af}.oidc-state.missing{background:#fff3df;border-color:#d9bd8e}
+.oidc-card label{display:grid;gap:6px;font-size:11px;font-weight:700}.oidc-card input{width:100%;min-height:44px}
+.oidc-callback{font:11px/1.6 Consolas,monospace;overflow-wrap:anywhere;background:#f5f7f4;border:1px solid var(--line);padding:10px}
+.oidc-actions{display:flex;gap:8px;flex-wrap:wrap}.oidc-actions button{flex:1}.oidc-help{font-size:11px;line-height:1.55;color:var(--muted)}
+#oidcMessage{padding:14px 18px;border:1px solid #c6d8cf;background:#fff;margin:18px 0}#oidcMessage.error{border-color:#af4035;color:#822c23}
+@media(max-width:1050px){.oidc-grid{grid-template-columns:1fr}}
