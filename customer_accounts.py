@@ -448,6 +448,22 @@ def authenticate_session(token: object) -> str:
         return str(row["account_id"])
 
 
+def csrf_token(session_token: object) -> str:
+    raw = str(session_token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw):
+        raise PermissionError("customer_session_invalid")
+    return _hmac("csrf", raw)
+
+
+def verify_csrf(session_token: object, supplied: object) -> bool:
+    try:
+        expected = csrf_token(session_token)
+    except PermissionError:
+        return False
+    raw = str(supplied or "").strip()
+    return bool(re.fullmatch(r"[0-9a-f]{64}", raw)) and hmac.compare_digest(expected, raw)
+
+
 def close_session(token: object) -> None:
     raw = str(token or "").strip()
     if not raw:
