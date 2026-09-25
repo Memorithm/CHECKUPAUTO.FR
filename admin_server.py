@@ -1116,7 +1116,6 @@ def sitemap_entries(c):
  rows=[
   {'loc':origin+'/', 'changefreq':'weekly', 'priority':'1.0'},
   {'loc':origin+'/zone-tarifs', 'changefreq':'weekly', 'priority':'0.8'},
-  {'loc':origin+'/contact', 'changefreq':'monthly', 'priority':'0.4'},
  ]
  if app_download.status(c).get('ios',{}).get('channel')=='app-store':
   rows.append({'loc':origin+'/app', 'changefreq':'monthly', 'priority':'0.6'})
