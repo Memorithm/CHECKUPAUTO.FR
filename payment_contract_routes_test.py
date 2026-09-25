@@ -103,6 +103,15 @@ class PaymentContractRoutesTest(unittest.TestCase):
             self.assertNotIn('booking_reference', repr(body))
             self.assertNotIn('provider_reference', repr(body))
 
+    def test_refund_admin_route_is_not_exposed(self):
+        with self.server() as (address, authorization, private):
+            status, _, body = self.request(
+                address,
+                authorization,
+                path="/api/admin/payments/refunds",
+            )
+            self.assertEqual(status, 404)
+
     def test_http_validation_never_returns_submitted_secret(self):
         with self.server() as (address, authorization, private):
             data = self.request(address, authorization)[2]
