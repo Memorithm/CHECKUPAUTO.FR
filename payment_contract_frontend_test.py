@@ -21,7 +21,9 @@ class PaymentContractFrontendTest(unittest.TestCase):
         self.assertIn('/api/admin/payments/refunds', js)
         self.assertIn('crypto.getRandomValues', js)
         self.assertIn('refund_reconciliation_required', js)
+        self.assertIn("data.capability?.authoritativeRefundBalances!==true", js)
         self.assertIn("data.capability?.liveRefundsEnabled!==false", js)
+        self.assertIn("refundSnapshot?.balances||[]", js)
         self.assertNotIn('transactionId', html)
         self.assertNotIn('transactionId', js)
 
