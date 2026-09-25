@@ -132,6 +132,8 @@ def handle(handler, *, secret: str) -> bool:
             **result,
             "csrfToken": csrf_token(secret, handler.headers),
         }, 200 if action == "remove" else 201)
+    except ValueError:
+        return reject("customer_oidc_admin_payload_invalid", 400)
     except customer_oidc_admin.CustomerOIDCAdminError as exc:
         code = str(exc)
         invalid = {
