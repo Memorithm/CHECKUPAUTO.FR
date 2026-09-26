@@ -9,6 +9,9 @@ MAX_GLB_BYTES = 4 * 1024 * 1024
 
 
 def inspect_glb(path: Path, max_bytes: int = MAX_GLB_BYTES) -> dict:
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise ValueError("glb_size_budget_exceeded")
     raw = path.read_bytes()
     if len(raw) < 20 or raw[:4] != b"glTF":
         raise ValueError("invalid_glb_magic")
@@ -17,9 +20,6 @@ def inspect_glb(path: Path, max_bytes: int = MAX_GLB_BYTES) -> dict:
         raise ValueError("invalid_glb_version")
     if declared != len(raw):
         raise ValueError("invalid_glb_length")
-    if len(raw) > max_bytes:
-        raise ValueError("glb_size_budget_exceeded")
-
     chunk_length, chunk_type = struct.unpack("<II", raw[12:20])
     if chunk_type != 0x4E4F534A:
         raise ValueError("glb_json_chunk_missing")
