@@ -85,7 +85,11 @@ struct ContentView: View {
             }
             .onOpenURL { url in
                 if url.host == "www.checkupauto.fr" && url.path == "/app/live" {
-                    model.acknowledgeControlLiveActivity()
+                    let reminderId = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                        .queryItems?
+                        .first(where: { $0.name == "reminder" })?
+                        .value
+                    model.acknowledgeControlLiveActivity(reminderId: reminderId)
                 } else {
                     model.consumeMobileClaim(url: url)
                 }
