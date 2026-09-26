@@ -3,6 +3,17 @@ import Foundation
 struct AuthoritativeInventoryRequest: Codable, Equatable, Sendable {
     let installationId: String
     let registrationSecret: String
+    let refreshAppointments: Bool
+
+    init(
+        installationId: String,
+        registrationSecret: String,
+        refreshAppointments: Bool = false
+    ) {
+        self.installationId = installationId
+        self.registrationSecret = registrationSecret
+        self.refreshAppointments = refreshAppointments
+    }
 
     func validated() throws -> AuthoritativeInventoryRequest {
         guard UUID(uuidString: installationId)?.uuidString.lowercased() == installationId.lowercased() else {
@@ -163,13 +174,17 @@ enum AuthoritativeInventoryStore {
 enum AuthoritativeInventoryClient {
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/inventory") }
 
-    static func fetch(session: URLSession = .shared) async throws -> AuthoritativeInventoryResponse {
+    static func fetch(
+        session: URLSession = .shared,
+        requireFreshAppointments: Bool = false
+    ) async throws -> AuthoritativeInventoryResponse {
         guard let identity = DeviceRegistrationIdentity.loadExisting() else {
             return AuthoritativeInventoryResponse(ok: true, vehicles: [], source: "mercure")
         }
         let payload = try AuthoritativeInventoryRequest(
             installationId: identity.installationId,
-            registrationSecret: identity.secret
+            registrationSecret: identity.secret,
+            refreshAppointments: requireFreshAppointments
         ).validated()
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
