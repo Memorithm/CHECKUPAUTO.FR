@@ -185,6 +185,11 @@ final class AppModel: ObservableObject {
                 }
                 VehicleDeadlineStore.clear()
                 AuthoritativeInventoryStore.clear()
+                #if canImport(ActivityKit)
+                if #available(iOS 26.0, *) {
+                    await CheckupControlLiveActivityCoordinator.clearAll()
+                }
+                #endif
                 vehicles = []
                 authoritativeVehicles = []
                 referralWallets = []
@@ -220,11 +225,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func acknowledgeControlLiveActivity() {
+    func acknowledgeControlLiveActivity(reminderId: String?) {
         #if canImport(ActivityKit)
         if #available(iOS 26.0, *) {
             Task {
-                await CheckupControlLiveActivityCoordinator.acknowledgeAll()
+                await CheckupControlLiveActivityCoordinator.acknowledge(reminderId: reminderId)
             }
         }
         #endif
@@ -323,6 +328,7 @@ final class AppModel: ObservableObject {
             }
             authoritativeVehicles = response.vehicles
             AuthoritativeInventoryStore.save(response.vehicles)
+            await scheduleControlLiveActivities()
 
             if let walletStatus = response.referralWalletStatus {
                 if walletStatus.wallets.isEmpty {
@@ -341,6 +347,26 @@ final class AppModel: ObservableObject {
             // Preserve the last verified opaque inventory and referral-wallet snapshot
             // when the server is offline or does not yet expose the combined response.
         }
+    }
+
+    private func scheduleControlLiveActivities() async {
+        #if canImport(ActivityKit)
+        if #available(iOS 26.0, *) {
+            for vehicle in authoritativeVehicles {
+                guard let reference = vehicle.bindingUUID,
+                      let appointmentAt = vehicle.appointmentAtValue,
+                      appointmentAt > Date() else { continue }
+                do {
+                    try await CheckupControlLiveActivityCoordinator.schedule(
+                        appointmentAt: appointmentAt,
+                        reference: reference
+                    )
+                } catch {
+                    // A Live Activity is an enhancement. Existing local/APNs reminders remain authoritative fallbacks.
+                }
+            }
+        }
+        #endif
     }
 
     private func refreshNotificationState() async {
