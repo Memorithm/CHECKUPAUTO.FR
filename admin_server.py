@@ -675,7 +675,10 @@ class Handler(SimpleHTTPRequestHandler):
     payload=self._read_json()
     mobile_devices.bound_inventory(payload)
     try:
-     mobile_authoritative_sync.sync_installation(str(payload.get('installationId') or ''))
+     mobile_authoritative_sync.sync_installation(
+      str(payload.get('installationId') or ''),
+      refresh_appointments=True,
+     )
     except Exception:
      pass
     return self.send_json(mobile_devices.bound_inventory(payload),200)
