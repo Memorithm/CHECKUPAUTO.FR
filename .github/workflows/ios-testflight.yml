@@ -1,0 +1,151 @@
+name: iOS TestFlight Delivery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-delivery
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 45
+    env:
+      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
+      CHECKUPAUTO_MAC_USER: tarek
+      CHECKUPAUTO_APPLE_TEAM_ID: ${{ secrets.CHECKUPAUTO_APPLE_TEAM_ID }}
+      CHECKUPAUTO_ASC_KEY_ID: ${{ secrets.CHECKUPAUTO_ASC_KEY_ID }}
+      CHECKUPAUTO_ASC_ISSUER_ID: ${{ secrets.CHECKUPAUTO_ASC_ISSUER_ID }}
+      CHECKUPAUTO_ASC_KEY_P8: ${{ secrets.CHECKUPAUTO_ASC_KEY_P8 }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Require canonical main release
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "::error::TestFlight delivery must be dispatched from main"
+            exit 2
+          }
+          test -n "$CHECKUPAUTO_APPLE_TEAM_ID" || { echo "::error::CHECKUPAUTO_APPLE_TEAM_ID is missing"; exit 2; }
+          test -n "$CHECKUPAUTO_ASC_KEY_ID" || { echo "::error::CHECKUPAUTO_ASC_KEY_ID is missing"; exit 2; }
+          test -n "$CHECKUPAUTO_ASC_ISSUER_ID" || { echo "::error::CHECKUPAUTO_ASC_ISSUER_ID is missing"; exit 2; }
+          test -n "$CHECKUPAUTO_ASC_KEY_P8" || { echo "::error::CHECKUPAUTO_ASC_KEY_P8 is missing"; exit 2; }
+          git checkout -B main "$GITHUB_SHA"
+          git update-ref refs/remotes/origin/main "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Resolve authorized Mac SSH identity
+        env:
+          CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/checkupauto-testflight-mac-key"
+          auth="$RUNNER_TEMP/checkupauto-testflight-auth"
+          rm -f "$key" "$auth"
+          umask 077
+
+          verify_key() {
+            candidate="$1"
+            [ -r "$candidate" ] || return 1
+            timeout 3 ssh-keygen -y -f "$candidate" >/dev/null 2>&1 || return 1
+            timeout 8 ssh -i "$candidate" -o BatchMode=yes -o IdentitiesOnly=yes               -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
+          }
+
+          if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
+            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$key"
+            if verify_key "$key"; then
+              printf '%s\n' key > "$auth"
+            else
+              rm -f "$key"
+            fi
+          fi
+
+          if [ ! -s "$auth" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5             -o StrictHostKeyChecking=accept-new             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
+            printf '%s\n' default > "$auth"
+          fi
+
+          if [ ! -s "$auth" ]; then
+            for candidate in               /root/.ssh/checkupauto_macmini_ed25519               "$HOME/.ssh/checkupauto_macmini_ed25519"               /opt/actions-runner/.ssh/checkupauto_macmini_ed25519               /root/.ssh/remoteops_thor_ed25519               "$HOME/.ssh/remoteops_thor_ed25519"               /opt/actions-runner/.ssh/remoteops_thor_ed25519; do
+              if verify_key "$candidate"; then
+                cp "$candidate" "$key"
+                chmod 600 "$key"
+                printf '%s\n' key > "$auth"
+                break
+              fi
+            done
+          fi
+
+          [ -s "$auth" ] || { echo "::error::No authorized Mac mini SSH identity is available"; exit 2; }
+          printf '%s\n' "$auth" > "$RUNNER_TEMP/checkupauto-testflight-auth-path"
+          if [ -s "$key" ]; then printf '%s\n' "$key" > "$RUNNER_TEMP/checkupauto-testflight-key-path"; fi
+
+      - name: Stage exact GitHub source on Mac mini
+        run: |
+          set -euo pipefail
+          auth="$(cat "$RUNNER_TEMP/checkupauto-testflight-auth-path")"
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat "$auth")" = key ]; then
+            ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
+          fi
+          remote_dir="/tmp/checkupauto-testflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' "$remote_dir" > "$RUNNER_TEMP/checkupauto-testflight-remote-dir"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
+          tar -czf - --exclude='.build' --exclude='DerivedData' --exclude='*.xcodeproj' . |             ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"               "tar -xzf - -C '$remote_dir'"
+
+      - name: Install ephemeral App Store Connect API key
+        run: |
+          set -euo pipefail
+          auth="$(cat "$RUNNER_TEMP/checkupauto-testflight-auth-path")"
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat "$auth")" = key ]; then
+            ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
+          fi
+          remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
+          remote_key="$remote_dir/AuthKey_${CHECKUPAUTO_ASC_KEY_ID}.p8"
+          printf '%s\n' "$CHECKUPAUTO_ASC_KEY_P8" |             ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"               "umask 077; cat > '$remote_key'; chmod 600 '$remote_key'"
+
+      - name: Build, sign and upload to TestFlight
+        run: |
+          set -euo pipefail
+          auth="$(cat "$RUNNER_TEMP/checkupauto-testflight-auth-path")"
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat "$auth")" = key ]; then
+            ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
+          fi
+          remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
+          remote_key="$remote_dir/AuthKey_${CHECKUPAUTO_ASC_KEY_ID}.p8"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "set -euo pipefail
+             export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
+             cd '$remote_dir'
+             export CHECKUPAUTO_RELEASE_PINNED_SHA='$GITHUB_SHA'
+             export CHECKUPAUTO_APPLE_TEAM_ID='$CHECKUPAUTO_APPLE_TEAM_ID'
+             export CHECKUPAUTO_ASC_KEY_ID='$CHECKUPAUTO_ASC_KEY_ID'
+             export CHECKUPAUTO_ASC_ISSUER_ID='$CHECKUPAUTO_ASC_ISSUER_ID'
+             export CHECKUPAUTO_ASC_KEY_PATH='$remote_key'
+             python3 ios_release_runner.py testflight --allow-upload"
+
+      - name: Clean temporary release material
+        if: always()
+        run: |
+          set -u
+          if [ -s "$RUNNER_TEMP/checkupauto-testflight-auth-path" ] && [ -s "$RUNNER_TEMP/checkupauto-testflight-remote-dir" ]; then
+            auth="$(cat "$RUNNER_TEMP/checkupauto-testflight-auth-path")"
+            ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+            if [ "$(cat "$auth")" = key ] && [ -s "$RUNNER_TEMP/checkupauto-testflight-key-path" ]; then
+              ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
+            fi
+            remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
+            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"               "rm -rf '$remote_dir'" || true
+          fi
+          if [ -s "$RUNNER_TEMP/checkupauto-testflight-key-path" ]; then
+            rm -f "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")"
+          fi
+          rm -f "$RUNNER_TEMP/checkupauto-testflight-auth-path"                 "$RUNNER_TEMP/checkupauto-testflight-key-path"                 "$RUNNER_TEMP/checkupauto-testflight-remote-dir"
