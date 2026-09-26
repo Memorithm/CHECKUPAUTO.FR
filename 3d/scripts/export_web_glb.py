@@ -61,6 +61,9 @@ def bind_repository_images(cutout: Path) -> None:
 
 
 def validate_glb(path: Path, max_bytes: int) -> dict:
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise RuntimeError(f"glb_too_large:{size}:{max_bytes}")
     raw = path.read_bytes()
     if len(raw) < 12 or raw[:4] != b"glTF":
         raise RuntimeError("invalid_glb_magic")
@@ -69,8 +72,6 @@ def validate_glb(path: Path, max_bytes: int) -> dict:
         raise RuntimeError(f"invalid_glb_version:{version}")
     if declared != len(raw):
         raise RuntimeError(f"invalid_glb_length:{declared}:{len(raw)}")
-    if len(raw) > max_bytes:
-        raise RuntimeError(f"glb_too_large:{len(raw)}:{max_bytes}")
     return {"bytes": len(raw), "version": version}
 
 
