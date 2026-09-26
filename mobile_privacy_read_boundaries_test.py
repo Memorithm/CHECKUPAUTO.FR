@@ -120,6 +120,7 @@ class MobilePrivacyReadBoundariesTest(unittest.TestCase):
         sync.assert_called_once_with(
             bindings[0]["installation_id"],
             [{"deadlineId": "binding-visible", "dueDate": "2026-10-02"}],
+            preserve_appointments=True,
         )
         self.assertEqual(result["suppressedBindings"], 1)
         self.assertEqual(result["authoritativeDeadlines"], 1)
@@ -150,7 +151,7 @@ class MobilePrivacyReadBoundariesTest(unittest.TestCase):
             result = authoritative.sync_installation(installation)
 
         inventory.assert_called_once_with([])
-        sync.assert_called_once_with(installation, [])
+        sync.assert_called_once_with(installation, [], preserve_appointments=True)
         self.assertEqual(result["suppressedBindings"], 1)
         self.assertEqual(result["authoritativeDeadlines"], 0)
 
