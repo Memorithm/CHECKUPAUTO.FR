@@ -153,7 +153,7 @@ class MercureSchemaTest(unittest.TestCase):
             "clientKind": "account",
             "clientId": "12",
             "appointmentId": "77",
-            "appointmentAt": "2026-10-04T14:30+02:00",
+            "appointmentAt": "2026-10-04T14:30:00+02:00",
         }])
 
     def test_upcoming_mobile_control_window_is_bounded(self):
