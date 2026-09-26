@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import mobile_authoritative_sync as sync
 import mobile_devices as devices
@@ -157,10 +158,44 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         self.assertEqual(inventory["vehicles"], [{
             "bindingId": binding["bindingId"],
             "dueDate": "2027-02-15",
-            "appointmentAt": "2026-10-04T14:30+02:00",
+            "appointmentAt": "2026-10-04T14:30:00+02:00",
         }])
         self.assertNotIn("future-77", repr(inventory))
         self.assertNotIn("other-client", repr(inventory))
+
+    def test_elapsed_appointment_does_not_hide_later_match(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2099-02-15",
+            "appointmentId": "historic-77",
+        }])
+        result = sync.sync_installation(self.installation, [
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "client-42",
+                "appointmentAt": "2020-01-01T09:00:00+00:00",
+            },
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "client-42",
+                "appointmentAt": "2099-01-01T09:00:00+00:00",
+            },
+        ])
+        self.assertEqual(result["authoritativeAppointments"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": binding["bindingId"],
+            "dueDate": "2099-02-15",
+            "appointmentAt": "2099-01-01T09:00:00+00:00",
+        }])
 
     def test_refresh_failure_preserves_cached_appointment(self):
         binding = self.bind()
@@ -176,7 +211,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
             "dueDate": "2027-02-15",
             "appointmentAt": "2026-10-04T14:30:00+02:00",
         }])
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             sync,
             "upcoming_appointments_snapshot",
             side_effect=TimeoutError("provider unavailable"),
@@ -192,7 +227,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         })
         self.assertEqual(
             inventory["vehicles"][0]["appointmentAt"],
-            "2026-10-04T14:30+02:00",
+            "2026-10-04T14:30:00+02:00",
         )
 
     def test_sync_once_is_noop_without_bindings(self):
