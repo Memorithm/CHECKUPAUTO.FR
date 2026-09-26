@@ -134,6 +134,7 @@ if(canvas&&stage){
       ];
 
       let yaw=-0.28,pointerStart=0,yawStart=0,dragging=false,lastFrame=0;
+      let frameId=0,visible=false,contextLost=false;
       const resize=()=>{
         const ratio=Math.min(devicePixelRatio||1,lowPower?1.35:1.85);
         const rect=canvas.getBoundingClientRect();
@@ -147,8 +148,13 @@ if(canvas&&stage){
       gl.clearColor(0,0,0,0);
       gl.uniformMatrix4fv(loc.view,false,view);
 
+      const schedule=()=>{
+        if(!frameId&&visible&&!document.hidden&&!contextLost) frameId=requestAnimationFrame(draw);
+      };
       const draw=(time)=>{
-        if(!document.hidden&&(time-lastFrame>(lowPower?32:16))){
+        frameId=0;
+        if(!visible||document.hidden||contextLost) return;
+        if(time-lastFrame>(lowPower?32:16)){
           lastFrame=time;
           if(!dragging&&!reduced) yaw+=0.00022*(lowPower?1:1.2);
           gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
@@ -160,15 +166,31 @@ if(canvas&&stage){
             gl.drawElements(gl.TRIANGLES,indices.length,gl.UNSIGNED_SHORT,0);
           }
         }
-        requestAnimationFrame(draw);
+        frameId=requestAnimationFrame(draw);
       };
       const point=x=>{pointerStart=x;yawStart=yaw;dragging=true;};
       canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);point(e.clientX);});
       canvas.addEventListener("pointermove",e=>{if(dragging)yaw=yawStart+(e.clientX-pointerStart)*.008;});
       canvas.addEventListener("pointerup",()=>{dragging=false;});
       canvas.addEventListener("pointercancel",()=>{dragging=false;});
+      canvas.addEventListener("webglcontextlost",event=>{
+        event.preventDefault();
+        contextLost=true;
+        if(frameId) cancelAnimationFrame(frameId);
+        frameId=0;
+        stage.classList.remove("webgl-ready");
+        stage.dataset.quality="fallback";
+      });
+      canvas.addEventListener("webglcontextrestored",()=>window.location.reload());
+      document.addEventListener("visibilitychange",schedule);
+      if("IntersectionObserver" in window){
+        new IntersectionObserver(entries=>{
+          visible=entries.some(entry=>entry.isIntersecting);
+          if(!visible&&frameId){cancelAnimationFrame(frameId);frameId=0;}
+          schedule();
+        },{rootMargin:"80px"}).observe(stage);
+      }else{visible=true;schedule();}
       stage.classList.add("webgl-ready");
-      requestAnimationFrame(draw);
     }catch(_error){
       canvas.hidden=true;
       stage.dataset.quality="fallback";
