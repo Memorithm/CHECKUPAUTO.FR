@@ -49,7 +49,7 @@ _QUERY_SIG = re.compile(
     re.I,
 )
 _ALLOWED_METHODS = {'GET', 'HEAD', 'POST', 'DELETE', 'OPTIONS'}
-_PUBLIC_STATIC = {'/style.css', '/app.js', '/consent.js', '/favicon.ico', '/favicon.png'}
+_PUBLIC_STATIC = {'/style.css', '/app.js', '/consent.js', '/favicon.ico', '/favicon.png', '/assets/cybercheck-hero-3d.js'}
 _ASSET_SUFFIXES = {'.png','.jpg','.jpeg','.webp','.gif','.svg','.ico','.mp4','.webm','.glb','.gltf','.bin','.ktx2','.wasm'}
 _ADMIN_SUFFIXES = {'.html','.css','.js'}
 _ADMIN_PREFIX = '/admin/'
