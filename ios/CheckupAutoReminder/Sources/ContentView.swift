@@ -84,7 +84,11 @@ struct ContentView: View {
                 }
             }
             .onOpenURL { url in
-                model.consumeMobileClaim(url: url)
+                if url.host == "www.checkupauto.fr" && url.path == "/app/live" {
+                    model.acknowledgeControlLiveActivity()
+                } else {
+                    model.consumeMobileClaim(url: url)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: DeviceRegistrationState.changedNotification)) { _ in
                 model.refreshRegistrationState()
