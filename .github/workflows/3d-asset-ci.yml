@@ -47,12 +47,20 @@ jobs:
           export_path="$export_dir/CyberCheckVehicle_Photo3D.glb"
           cutout_path="$export_dir/vehicle_cutout.png"
           blender_home="$export_dir/blender-home"
-          mkdir -p "$blender_home"
+          blender_tmp="$export_dir/blender-tmp"
+          blender_xdg="$export_dir/blender-xdg"
+          mkdir -p "$blender_home" "$blender_tmp" "$blender_xdg/config" "$blender_xdg/cache" "$blender_xdg/data"
           python3 -m py_compile 3d/scripts/prepare_vehicle_cutout.py
           python3 3d/scripts/prepare_vehicle_cutout.py \
             --source assets/vehicle.png \
             --output "$cutout_path"
-          HOME="$blender_home" "$blender_bin" \
+          BOX64_DYNAREC=0 \
+          HOME="$blender_home" \
+          TMPDIR="$blender_tmp" \
+          XDG_CONFIG_HOME="$blender_xdg/config" \
+          XDG_CACHE_HOME="$blender_xdg/cache" \
+          XDG_DATA_HOME="$blender_xdg/data" \
+          "$blender_bin" \
             -b 3d/blend/CyberCheckVehicle_Photo3D.blend \
             --python 3d/scripts/export_web_glb.py -- \
             --output "$export_path" \
