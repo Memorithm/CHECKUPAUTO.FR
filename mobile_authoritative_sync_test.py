@@ -119,7 +119,48 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         self.assertEqual(inventory["vehicles"], [{
             "bindingId": binding["bindingId"],
             "dueDate": "2027-04-30",
+            "appointmentAt": None,
         }])
+
+
+    def test_future_appointment_is_projected_only_on_exact_bound_identity(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        upcoming = [
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "other-client",
+                "appointmentId": "wrong",
+                "appointmentAt": "2026-10-04T13:00+02:00",
+            },
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "client-42",
+                "appointmentId": "future-77",
+                "appointmentAt": "2026-10-04T14:30+02:00",
+            },
+        ]
+        result = sync.sync_installation(self.installation, upcoming)
+        self.assertEqual(result["authoritativeAppointments"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2026-10-04T14:30+02:00",
+        }])
+        self.assertNotIn("future-77", repr(inventory))
+        self.assertNotIn("other-client", repr(inventory))
 
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()
