@@ -46,14 +46,14 @@ class MobileClaimAPISurfaceTest(unittest.TestCase):
         self.assertEqual(limits["/api/mobile/reminders/sync"], 30)
         self.assertEqual(limits["/api/admin/mobile/claims/issue"], 12)
 
-    def test_mobile_inventory_authenticates_before_authoritative_sync(self):
+    def test_mobile_inventory_serves_only_authenticated_cached_state(self):
         source = Path("admin_server.py").read_text()
         route = source.index("if path=='/api/mobile/inventory':")
         end = source.index("if path=='/api/mobile/reminders/sync':", route)
         block = source[route:end]
-        auth = block.index("mobile_devices.bound_inventory(payload)")
-        sync = block.index("mobile_authoritative_sync.sync_installation")
-        self.assertLess(auth, sync)
+        self.assertIn("mobile_devices.bound_inventory(payload)", block)
+        self.assertNotIn("mobile_authoritative_sync.sync_installation", block)
+        self.assertNotIn("upcoming_appointments_snapshot", block)
 
     def test_admin_claim_issuance_remains_authenticated_and_internal(self):
         source = Path("admin_server.py").read_text()
