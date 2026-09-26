@@ -61,9 +61,42 @@ def cutout_with_repository_alpha(image: bpy.types.Image) -> bpy.types.Image:
         sum(pixels[offset + channel] for offset in corner_offsets) / len(corner_offsets)
         for channel in range(3)
     )
-    for offset in range(0, len(pixels), 4):
-        distance = max(abs(pixels[offset + channel] - background[channel]) for channel in range(3))
-        pixels[offset + 3] = max(0.0, min(1.0, (distance - 0.03) / 0.12))
+    def distance(index: int) -> float:
+        offset = index * 4
+        return max(abs(pixels[offset + channel] - background[channel]) for channel in range(3))
+
+    visited = bytearray(width * height)
+    stack: list[int] = []
+
+    def enqueue(index: int) -> None:
+        if not visited[index] and distance(index) <= 0.18:
+            visited[index] = 1
+            stack.append(index)
+
+    for x in range(width):
+        enqueue(x)
+        enqueue((height - 1) * width + x)
+    for y in range(height):
+        enqueue(y * width)
+        enqueue(y * width + width - 1)
+
+    while stack:
+        index = stack.pop()
+        x, y = index % width, index // width
+        if x:
+            enqueue(index - 1)
+        if x + 1 < width:
+            enqueue(index + 1)
+        if y:
+            enqueue(index - width)
+        if y + 1 < height:
+            enqueue(index + width)
+
+    for index, connected in enumerate(visited):
+        pixels[index * 4 + 3] = (
+            max(0.0, min(1.0, (distance(index) - 0.03) / 0.12))
+            if connected else 1.0
+        )
 
     derived = bpy.data.images.new(
         "vehicle_cutout_repository_alpha",
