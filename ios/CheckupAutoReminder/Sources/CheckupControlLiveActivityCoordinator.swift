@@ -215,13 +215,16 @@ enum CheckupControlLiveActivityRetryScheduler {
             let previous = AuthoritativeInventoryStore.load()
             let response: AuthoritativeInventoryResponse
             do {
-                response = try await AuthoritativeInventoryClient.fetch()
+                response = try await AuthoritativeInventoryClient.fetch(
+                    requireFreshAppointments: true
+                )
             } catch {
                 submit(for: previous, retryFailed: true)
                 backgroundTask.setTaskCompleted(success: false)
                 return
             }
             if Task.isCancelled {
+                submit(for: previous, retryFailed: true)
                 backgroundTask.setTaskCompleted(success: false)
                 return
             }
@@ -255,6 +258,7 @@ enum CheckupControlLiveActivityRetryScheduler {
             }
 
             if Task.isCancelled {
+                submit(for: vehicles, retryFailed: true)
                 backgroundTask.setTaskCompleted(success: false)
                 return
             }
