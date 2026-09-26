@@ -35,7 +35,9 @@ class MobileErasureReceiptTests(unittest.TestCase):
                 (INSTALLATION_ID, mobile_devices._hash(TEST_SECRET), "", "", "production", now, now, now, "", ""),
             )
             db.execute(
-                "INSERT INTO mobile_deadline VALUES(?,?,?,?,?,?)",
+                """INSERT INTO mobile_deadline(
+                installation_id,deadline_id,due_date,source,created_at,updated_at)
+                VALUES(?,?,?,?,?,?)""",
                 (INSTALLATION_ID, "22222222-2222-2222-2222-222222222222", "2027-01-10", "device", now, now),
             )
             db.execute(
