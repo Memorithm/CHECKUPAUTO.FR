@@ -230,6 +230,61 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
             "2099-10-04T14:30:00+02:00",
         )
 
+    def test_strict_refresh_failure_raises_without_mutating_cached_appointment(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        devices.sync_authoritative_deadlines(self.installation, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        with mock.patch.object(
+            sync,
+            "upcoming_appointments_snapshot",
+            side_effect=TimeoutError("provider unavailable"),
+        ):
+            with self.assertRaises(TimeoutError):
+                sync.sync_installation_fresh(self.installation)
+
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(
+            inventory["vehicles"][0]["appointmentAt"],
+            "2099-10-04T14:30:00+02:00",
+        )
+
+    def test_strict_refresh_removes_stale_appointment_from_fresh_empty_snapshot(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        devices.sync_authoritative_deadlines(self.installation, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        with mock.patch.object(sync, "upcoming_appointments_snapshot", return_value=[]):
+            result = sync.sync_installation_fresh(self.installation)
+
+        self.assertEqual(result["authoritativeAppointments"], 0)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertIsNone(inventory["vehicles"][0]["appointmentAt"])
+
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()
         self.assertTrue(result["ok"])
