@@ -605,7 +605,12 @@ def sync_deadlines(payload: dict) -> dict:
     }
 
 
-def sync_authoritative_deadlines(\n    installation_id: str,\n    deadlines: list[dict],\n    *,\n    preserve_appointments: bool = False,\n) -> dict:
+def sync_authoritative_deadlines(
+    installation_id: str,
+    deadlines: list[dict],
+    *,
+    preserve_appointments: bool = False,
+) -> dict:
     """Replace the authoritative Mercure snapshot for one already registered installation.
 
     This is an internal server-side primitive. It intentionally accepts no registration
