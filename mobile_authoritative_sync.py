@@ -110,7 +110,11 @@ def sync_installation(
         deadlines.append(item)
     # Always synchronize, including an empty allowed set: this removes previously
     # cached authoritative deadlines that became restricted after the binding existed.
-    result = mobile_devices.sync_authoritative_deadlines(\n        installation,\n        deadlines,\n        preserve_appointments=preserve_appointments,\n    )
+    result = mobile_devices.sync_authoritative_deadlines(
+        installation,
+        deadlines,
+        preserve_appointments=preserve_appointments,
+    )
     return {
         "ok": True,
         "installationId": installation,
@@ -153,7 +157,11 @@ def sync_once() -> dict:
     failed = 0
     for installation_id in installation_ids:
         try:
-            result = sync_installation(\n                installation_id,\n                upcoming,\n                preserve_appointments=appointment_state == "unavailable",\n            )
+            result = sync_installation(
+                installation_id,
+                upcoming,
+                preserve_appointments=appointment_state == "unavailable",
+            )
             if result.get("privacySuppressed"):
                 suppressed += 1
                 continue
