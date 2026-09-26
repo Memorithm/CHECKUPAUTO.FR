@@ -31,6 +31,19 @@ def upcoming_appointments_snapshot() -> list[dict]:
     return mercure.upcoming_control_appointments(today.isoformat(), end.isoformat())
 
 
+def _future_appointment(value: object, now: datetime.datetime) -> str | None:
+    appointment_at = str(value or "").strip()
+    if not appointment_at:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(appointment_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.astimezone(datetime.timezone.utc) <= now:
+        return None
+    return appointment_at
+
+
 def sync_installation(
     installation_id: str,
     upcoming_appointments: list[dict] | None = None,
@@ -85,13 +98,14 @@ def sync_installation(
         )
     }
     appointment_by_identity: dict[tuple[str, str, str], str] = {}
+    now = datetime.datetime.now(datetime.timezone.utc)
     for item in sorted(upcoming_appointments or [], key=lambda row: str(row.get("appointmentAt") or "")):
         identity = (
             str(item.get("vehicleId") or ""),
             str(item.get("clientKind") or ""),
             str(item.get("clientId") or ""),
         )
-        appointment_at = str(item.get("appointmentAt") or "")
+        appointment_at = _future_appointment(item.get("appointmentAt"), now)
         if all(identity) and appointment_at:
             appointment_by_identity.setdefault(identity, appointment_at)
 
