@@ -1,0 +1,53 @@
+name: 3D Asset CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '3d/**'
+      - 'glb_contract.py'
+      - 'glb_contract_test.py'
+      - '.github/workflows/3d-asset-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - '3d/**'
+      - 'glb_contract.py'
+      - 'glb_contract_test.py'
+      - '.github/workflows/3d-asset-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-3d-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  export-glb:
+    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Validate GLB contract tests
+        run: python3 -m unittest glb_contract_test
+      - name: Export repository Blender asset
+        run: |
+          set -euo pipefail
+          blender_bin="$(command -v blender || true)"
+          test -n "$blender_bin" || { echo "::error::Blender is not installed on the internal runner"; exit 2; }
+          export_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-glb.XXXXXX")"
+          export_path="$export_dir/CyberCheckVehicle_Photo3D.glb"
+          "$blender_bin" -b 3d/blend/CyberCheckVehicle_Photo3D.blend             --python 3d/scripts/export_web_glb.py --             --output "$export_path" --max-bytes 4194304
+          python3 glb_contract.py "$export_path" --max-bytes 4194304
+          echo "GLB_EXPORT_PATH=$export_path" >> "$GITHUB_ENV"
+      - name: Save verified GLB artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cybercheck-vehicle-glb
+          path: ${{ env.GLB_EXPORT_PATH }}
+          if-no-files-found: error
+          retention-days: 14
