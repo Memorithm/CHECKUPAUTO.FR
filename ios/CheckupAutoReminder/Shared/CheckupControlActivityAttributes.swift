@@ -42,6 +42,9 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
 enum CheckupControlActivityPolicy {
     static let cardReminder = "Pensez à votre carte grise"
     static let dayOfLeadHours = 2
+    // ActivityKit currently accepts scheduled starts only inside a bounded future window.
+    // Keep a conservative one-day margin and use a persisted background refresh for later starts.
+    static let activitySchedulingLookahead: TimeInterval = 6 * 24 * 60 * 60
 
     static func dayBeforeStart(for appointment: Date, calendar: Calendar = .current) -> Date? {
         guard let previous = calendar.date(byAdding: .day, value: -1, to: appointment) else { return nil }
@@ -53,5 +56,25 @@ enum CheckupControlActivityPolicy {
 
     static func dayOfStart(for appointment: Date, leadHours: Int = dayOfLeadHours, calendar: Calendar = .current) -> Date? {
         calendar.date(byAdding: .hour, value: -max(1, leadHours), to: appointment)
+    }
+
+    static func isInsideSchedulingLookahead(_ requestedStart: Date, now: Date = Date()) -> Bool {
+        requestedStart <= now.addingTimeInterval(activitySchedulingLookahead)
+    }
+
+    static func retryDate(
+        for appointment: Date,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Date? {
+        let boundary = now.addingTimeInterval(activitySchedulingLookahead)
+        let starts = [
+            dayBeforeStart(for: appointment, calendar: calendar),
+            dayOfStart(for: appointment, calendar: calendar),
+        ].compactMap { $0 }
+        return starts
+            .filter { $0 > boundary }
+            .map { $0.addingTimeInterval(-activitySchedulingLookahead) }
+            .min()
     }
 }
