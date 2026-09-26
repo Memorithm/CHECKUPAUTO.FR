@@ -220,11 +220,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func acknowledgeControlLiveActivity() {
+    func acknowledgeControlLiveActivity(reminderId: String?) {
         #if canImport(ActivityKit)
         if #available(iOS 26.0, *) {
             Task {
-                await CheckupControlLiveActivityCoordinator.acknowledgeAll()
+                await CheckupControlLiveActivityCoordinator.acknowledge(reminderId: reminderId)
             }
         }
         #endif
