@@ -82,7 +82,7 @@ def cutout_with_repository_alpha(image: bpy.types.Image) -> bpy.types.Image:
         for node in material.node_tree.nodes:
             if node.type == "TEX_IMAGE" and node.image == image:
                 node.image = derived
-    if min(derived.pixels[3::4]) >= 0.999:
+    if min(pixels[3::4]) >= 0.999:
         raise RuntimeError("vehicle_reference_alpha_not_generated")
     return derived
 
