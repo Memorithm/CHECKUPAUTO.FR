@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE_BLEND = ROOT / "3d" / "blend" / "CyberCheckVehicle_Photo3D.blend"
 SAFE_COLLECTIONS = ("CYBERCHECK_PHOTO_3D", "CYBERCHECK_STAGE")
 MAX_GLB_BYTES = 4 * 1024 * 1024
+MAX_REFERENCE_DIMENSION = 8192
+MAX_REFERENCE_PIXELS = 16 * 1024 * 1024
 REFERENCE_TEXTURE = ROOT / "assets" / "vehicle.png"
 
 
@@ -78,13 +80,28 @@ def _decode_rgba_png(path: Path) -> tuple[int, int, bytearray]:
             )
             if (depth, color_type, compression, filtering, interlace) != (8, 6, 0, 0, 0):
                 raise RuntimeError("vehicle_reference_png_format")
+            if (
+                width == 0
+                or height == 0
+                or width > MAX_REFERENCE_DIMENSION
+                or height > MAX_REFERENCE_DIMENSION
+                or width * height > MAX_REFERENCE_PIXELS
+            ):
+                raise RuntimeError("vehicle_reference_png_dimensions")
         elif kind == b"IDAT":
             compressed.extend(payload)
         elif kind == b"IEND":
             break
     stride = width * 4
-    encoded = zlib.decompress(bytes(compressed))
-    if len(encoded) != height * (stride + 1):
+    expected_length = height * (stride + 1)
+    decompressor = zlib.decompressobj()
+    encoded = decompressor.decompress(bytes(compressed), expected_length + 1)
+    if (
+        len(encoded) != expected_length
+        or decompressor.unconsumed_tail
+        or not decompressor.eof
+        or decompressor.unused_data
+    ):
         raise RuntimeError("vehicle_reference_png_length")
     pixels = bytearray()
     previous = bytearray(stride)
