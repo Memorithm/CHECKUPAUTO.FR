@@ -162,6 +162,39 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         self.assertNotIn("future-77", repr(inventory))
         self.assertNotIn("other-client", repr(inventory))
 
+    def test_refresh_failure_preserves_cached_appointment(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        devices.sync_authoritative_deadlines(self.installation, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2026-10-04T14:30:00+02:00",
+        }])
+        with unittest.mock.patch.object(
+            sync,
+            "upcoming_appointments_snapshot",
+            side_effect=TimeoutError("provider unavailable"),
+        ):
+            result = sync.sync_installation(
+                self.installation,
+                refresh_appointments=True,
+            )
+        self.assertEqual(result["authoritativeDeadlines"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(
+            inventory["vehicles"][0]["appointmentAt"],
+            "2026-10-04T14:30+02:00",
+        )
+
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()
         self.assertTrue(result["ok"])
