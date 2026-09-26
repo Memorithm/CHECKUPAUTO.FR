@@ -43,6 +43,7 @@ jobs:
           blender_bin="$(command -v blender || true)"
           test -n "$blender_bin" || { echo "::error::Blender is not installed on the internal runner"; exit 2; }
           export_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-glb.XXXXXX")"
+          echo "GLB_EXPORT_DIR=$export_dir" >> "$GITHUB_ENV"
           export_path="$export_dir/CyberCheckVehicle_Photo3D.glb"
           cutout_path="$export_dir/vehicle_cutout.png"
           blender_home="$export_dir/blender-home"
@@ -59,7 +60,6 @@ jobs:
             --max-bytes 4194304
           python3 glb_contract.py "$export_path" --max-bytes 4194304
           echo "GLB_EXPORT_PATH=$export_path" >> "$GITHUB_ENV"
-          echo "GLB_EXPORT_DIR=$export_dir" >> "$GITHUB_ENV"
       - name: Save verified GLB artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
