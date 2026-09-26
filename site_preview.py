@@ -94,16 +94,25 @@ PREVIEW_JS = r"""
     }
     $('#bookingLiveStatus').textContent='DÉMONSTRATION · créneaux fictifs · aucune connexion à Mercure';
   }
-  const video=$('#vehicleVideo'); const image=document.createElement('img');
-  image.id='previewVehicleImage'; image.hidden=true; video.after(image);
-  if (reduced) { video.pause(); video.removeAttribute('autoplay'); }
+  const video=$('#vehicleVideo');
+  let image=$('.vehicle-3d-fallback');
+  if (!image) {
+    image=document.createElement('img');
+    image.id='previewVehicleImage';
+    image.hidden=true;
+    if (video) video.after(image);
+  }
+  if (video && reduced) { video.pause(); video.removeAttribute('autoplay'); }
   function choose(index, scroll=false) {
     current=(index+buttons.length)%buttons.length;
     buttons.forEach((b,i)=>{b.classList.toggle('selected',i===current);b.setAttribute('aria-pressed',String(i===current));});
     $('#service').value=buttons[current].dataset.service; $('#price').textContent=String(amount());
-    const picture=buttons[current].querySelector('img'); image.src=picture.src; image.alt=picture.alt;
-    video.hidden=current!==0; image.hidden=current===0;
-    if (current!==0) video.pause(); else if (!reduced) video.play().catch(()=>{});
+    const picture=buttons[current].querySelector('img');
+    if (picture && image) { image.src=picture.src; image.alt=picture.alt; image.hidden=false; }
+    if (video) {
+      video.hidden=current!==0;
+      if (current!==0) video.pause(); else if (!reduced) video.play().catch(()=>{});
+    }
     if (scroll) buttons[current].scrollIntoView({behavior:reduced?'auto':'smooth',block:'nearest',inline:'center'});
     render();
   }
