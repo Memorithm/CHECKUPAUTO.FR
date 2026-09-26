@@ -166,13 +166,13 @@ if(canvas&&stage){
             gl.drawElements(gl.TRIANGLES,indices.length,gl.UNSIGNED_SHORT,0);
           }
         }
-        frameId=requestAnimationFrame(draw);
+        if(!reduced||dragging) frameId=requestAnimationFrame(draw);
       };
-      const point=x=>{pointerStart=x;yawStart=yaw;dragging=true;};
+      const point=x=>{pointerStart=x;yawStart=yaw;dragging=true;schedule();};
       canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);point(e.clientX);});
-      canvas.addEventListener("pointermove",e=>{if(dragging)yaw=yawStart+(e.clientX-pointerStart)*.008;});
-      canvas.addEventListener("pointerup",()=>{dragging=false;});
-      canvas.addEventListener("pointercancel",()=>{dragging=false;});
+      canvas.addEventListener("pointermove",e=>{if(dragging){yaw=yawStart+(e.clientX-pointerStart)*.008;schedule();}});
+      canvas.addEventListener("pointerup",()=>{dragging=false;schedule();});
+      canvas.addEventListener("pointercancel",()=>{dragging=false;schedule();});
       canvas.addEventListener("webglcontextlost",event=>{
         event.preventDefault();
         contextLost=true;
