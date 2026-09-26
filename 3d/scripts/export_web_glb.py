@@ -181,10 +181,23 @@ def repository_cutout_path(source: Path) -> Path:
             enqueue(index + width)
 
     for index, connected in enumerate(visited):
+        offset = index * 4
         if connected:
-            pixels[index * 4 + 3] = max(0, min(255, (distance(index) - 8) * 255 // 31))
+            alpha = max(0, min(255, (distance(index) - 8) * 255 // 31))
+            for channel in range(3):
+                if alpha == 0:
+                    pixels[offset + channel] = 0
+                else:
+                    straight = (
+                        pixels[offset + channel] * 255
+                        - background[channel] * (255 - alpha)
+                    )
+                    pixels[offset + channel] = max(
+                        0, min(255, (straight + alpha // 2) // alpha)
+                    )
+            pixels[offset + 3] = alpha
         else:
-            pixels[index * 4 + 3] = 255
+            pixels[offset + 3] = 255
     if min(pixels[3::4]) == 255:
         raise RuntimeError("vehicle_reference_alpha_not_generated")
 
