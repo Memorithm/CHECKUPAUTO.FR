@@ -74,6 +74,19 @@ def _due_date(value: object) -> str:
     return parsed.isoformat()
 
 
+def _appointment_at(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = datetime.datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError("appointmentAt invalide") from exc
+    if parsed.tzinfo is None or parsed.year < 2020 or parsed.year > 2100:
+        raise ValueError("appointmentAt invalide")
+    return parsed.isoformat(timespec="minutes")
+
+
 def _device_token(value: object) -> str:
     raw = str(value or "").strip().lower()
     if len(raw) % 2 or not _TOKEN_RE.fullmatch(raw):
@@ -147,6 +160,7 @@ def init_db() -> None:
           installation_id TEXT NOT NULL,
           deadline_id TEXT NOT NULL,
           due_date TEXT NOT NULL,
+          appointment_at TEXT NOT NULL DEFAULT '',
           source TEXT NOT NULL DEFAULT 'device',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
@@ -155,6 +169,8 @@ def init_db() -> None:
         deadline_columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(mobile_deadline)")}
         if "source" not in deadline_columns:
             db.execute("ALTER TABLE mobile_deadline ADD COLUMN source TEXT NOT NULL DEFAULT 'device'")
+        if "appointment_at" not in deadline_columns:
+            db.execute("ALTER TABLE mobile_deadline ADD COLUMN appointment_at TEXT NOT NULL DEFAULT ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_deadline_due ON mobile_deadline(due_date)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_mobile_deadline_source ON mobile_deadline(installation_id,source,due_date)")
 
@@ -491,7 +507,7 @@ def bound_inventory(payload: dict) -> dict:
     with connect() as db:
         _authenticated_installation(db, installation_id, secret_hash)
         rows = db.execute(
-            """SELECT b.binding_id,d.due_date
+            """SELECT b.binding_id,d.due_date,d.appointment_at
                FROM mobile_vehicle_binding b
                LEFT JOIN mobile_deadline d
                  ON d.installation_id=b.installation_id
@@ -505,6 +521,7 @@ def bound_inventory(payload: dict) -> dict:
             {
                 "bindingId": str(row["binding_id"]),
                 "dueDate": str(row["due_date"]) if row["due_date"] else None,
+                "appointmentAt": str(row["appointment_at"]) if row["appointment_at"] else None,
             }
             for row in rows
         ]
@@ -572,10 +589,10 @@ def sync_deadlines(payload: dict) -> dict:
                 raise ValueError("deadlineId réservé à une source autoritaire")
             db.execute(
                 """INSERT INTO mobile_deadline(
-                     installation_id,deadline_id,due_date,source,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?)
+                     installation_id,deadline_id,due_date,appointment_at,source,created_at,updated_at
+                   ) VALUES(?,?,?,'',?,?,?)
                    ON CONFLICT(installation_id,deadline_id) DO UPDATE SET
-                     due_date=excluded.due_date,updated_at=excluded.updated_at
+                     due_date=excluded.due_date,appointment_at='',updated_at=excluded.updated_at
                    WHERE mobile_deadline.source='device'""",
                 (installation_id, deadline_id, due_date, DEVICE_DEADLINE_SOURCE, now, now),
             )
@@ -599,7 +616,7 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
     _assert_processing_allowed(installation_id)
     if not isinstance(deadlines, list) or len(deadlines) > MAX_DEADLINES_PER_INSTALLATION:
         raise ValueError("deadlines invalides")
-    parsed: list[tuple[str, str]] = []
+    parsed: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     for item in deadlines:
         if not isinstance(item, dict):
@@ -608,7 +625,11 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
         if deadline_id in seen:
             raise ValueError("deadlineId dupliqué")
         seen.add(deadline_id)
-        parsed.append((deadline_id, _due_date(item.get("dueDate"))))
+        parsed.append((
+            deadline_id,
+            _due_date(item.get("dueDate")),
+            _appointment_at(item.get("appointmentAt")),
+        ))
 
     init_db()
     now = _now_iso()
@@ -627,7 +648,7 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
                 f"""DELETE FROM mobile_deadline
                     WHERE installation_id=? AND source=?
                     AND deadline_id NOT IN ({placeholders})""",
-                (installation_id, AUTHORITATIVE_DEADLINE_SOURCE, *(deadline_id for deadline_id, _ in parsed)),
+                (installation_id, AUTHORITATIVE_DEADLINE_SOURCE, *(deadline_id for deadline_id, _, _ in parsed)),
             )
         else:
             db.execute(
@@ -635,7 +656,7 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
                 (installation_id, AUTHORITATIVE_DEADLINE_SOURCE),
             )
 
-        for deadline_id, due_date in parsed:
+        for deadline_id, due_date, appointment_at in parsed:
             db.execute(
                 """DELETE FROM mobile_deadline
                    WHERE installation_id=? AND deadline_id=? AND source=?""",
@@ -643,14 +664,16 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
             )
             db.execute(
                 """INSERT INTO mobile_deadline(
-                     installation_id,deadline_id,due_date,source,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?)
+                     installation_id,deadline_id,due_date,appointment_at,source,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?)
                    ON CONFLICT(installation_id,deadline_id) DO UPDATE SET
-                     due_date=excluded.due_date,source=excluded.source,updated_at=excluded.updated_at""",
+                     due_date=excluded.due_date,appointment_at=excluded.appointment_at,
+                     source=excluded.source,updated_at=excluded.updated_at""",
                 (
                     installation_id,
                     deadline_id,
                     due_date,
+                    appointment_at,
                     AUTHORITATIVE_DEADLINE_SOURCE,
                     now,
                     now,
