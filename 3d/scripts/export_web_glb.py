@@ -154,11 +154,13 @@ def repository_cutout_path(source: Path) -> Path:
         offset = index * 4
         return max(abs(pixels[offset + channel] - background[channel]) for channel in range(3))
 
+    background_distance = 46
+    transparent_distance = 8
     visited = bytearray(width * height)
     stack: list[int] = []
 
     def enqueue(index: int) -> None:
-        if not visited[index] and distance(index) <= 46:
+        if not visited[index] and distance(index) <= background_distance:
             visited[index] = 1
             stack.append(index)
 
@@ -183,7 +185,15 @@ def repository_cutout_path(source: Path) -> Path:
     for index, connected in enumerate(visited):
         offset = index * 4
         if connected:
-            alpha = max(0, min(255, (distance(index) - 8) * 255 // 31))
+            alpha = max(
+                0,
+                min(
+                    254,
+                    (distance(index) - transparent_distance)
+                    * 255
+                    // (background_distance - transparent_distance + 1),
+                ),
+            )
             for channel in range(3):
                 if alpha == 0:
                     pixels[offset + channel] = 0
