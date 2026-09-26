@@ -54,7 +54,10 @@ jobs:
           python3 3d/scripts/prepare_vehicle_cutout.py \
             --source assets/vehicle.png \
             --output "$cutout_path"
-          BOX64_DYNAREC=0 \
+          BOX64_DYNAREC_SAFEFLAGS=2 \
+          BOX64_DYNAREC_FASTNAN=0 \
+          BOX64_DYNAREC_FASTROUND=0 \
+          BOX64_DYNAREC_BIGBLOCK=0 \
           HOME="$blender_home" \
           TMPDIR="$blender_tmp" \
           XDG_CONFIG_HOME="$blender_xdg/config" \
