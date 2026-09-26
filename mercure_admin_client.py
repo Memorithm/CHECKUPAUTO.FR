@@ -271,7 +271,7 @@ def _appointment_at_iso(value):
     for fmt in ('%Y-%m-%d %H:%M:%S','%Y-%m-%dT%H:%M:%S','%Y-%m-%dT%H:%M'):
         try:
             parsed=datetime.datetime.strptime(raw,fmt).replace(tzinfo=MERCURE_TIMEZONE)
-            return parsed.isoformat(timespec='minutes')
+            return parsed.isoformat(timespec='seconds')
         except ValueError:
             continue
     return ''
