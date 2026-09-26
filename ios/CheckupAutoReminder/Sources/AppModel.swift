@@ -129,6 +129,7 @@ final class AppModel: ObservableObject {
                     installationRegistrationSuppressed =
                         InstallationLifecycleState.isAutoRegistrationSuppressed()
                     await refreshAuthoritativeInventory()
+                    Task { await self.refreshAuthoritativeInventoryAfterVehicleClaim() }
                     if notificationAuthorized {
                         registerForRemoteNotifications()
                     }
@@ -307,6 +308,14 @@ final class AppModel: ObservableObject {
             } catch {
                 errorMessage = "Certains rappels autoritaires n’ont pas pu être reprogrammés."
             }
+        }
+    }
+
+    private func refreshAuthoritativeInventoryAfterVehicleClaim() async {
+        for delaySeconds: UInt64 in [2, 5, 10, 20, 30] {
+            try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            if Task.isCancelled { return }
+            await refreshAuthoritativeInventory()
         }
     }
 
