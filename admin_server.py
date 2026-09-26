@@ -673,14 +673,6 @@ class Handler(SimpleHTTPRequestHandler):
     ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     payload=self._read_json()
-    mobile_devices.bound_inventory(payload)
-    try:
-     mobile_authoritative_sync.sync_installation(
-      str(payload.get('installationId') or ''),
-      refresh_appointments=True,
-     )
-    except Exception:
-     pass
     return self.send_json(mobile_devices.bound_inventory(payload),200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)
