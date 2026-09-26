@@ -136,7 +136,7 @@ private extension CheckupControlActivityAttributes.ContentState {
         case .approaching:
             let seconds = max(0, appointmentAt.timeIntervalSinceNow)
             let hours = max(1, Int((seconds / 3600).rounded(.up)))
-            return "\\(hours)h"
+            return "\(hours)h"
         case .acknowledged: return "✓"
         }
     }
