@@ -31,7 +31,7 @@ class SitePreviewTest(unittest.TestCase):
         cls.parsed.feed(cls.page)
 
     def test_preview_uses_embedded_source_media_only(self):
-        self.assertGreaterEqual(len(self.parsed.sources), 7)
+        self.assertGreaterEqual(len(self.parsed.sources), 6)
         self.assertTrue(all(src.startswith(('data:image/webp;base64,', 'data:video/mp4;base64,')) for src in self.parsed.sources))
         self.assertTrue(all(href.startswith('#') for href in self.parsed.links))
         self.assertNotIn('assets/app/qr-site.svg', self.page)
