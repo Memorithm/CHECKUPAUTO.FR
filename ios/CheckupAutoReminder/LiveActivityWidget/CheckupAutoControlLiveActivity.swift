@@ -48,9 +48,18 @@ struct CheckupAutoControlLiveActivity: Widget {
                 Image(systemName: "car.side.fill")
                     .foregroundStyle(.green)
             }
-            .widgetURL(URL(string: "https://www.checkupauto.fr/app/live?source=dynamic-island"))
+            .widgetURL(liveActivityURL(context.attributes.reminderId))
             .keylineTint(Color(red: 0.12, green: 0.33, blue: 0.26))
         }
+    }
+
+    private func liveActivityURL(_ reminderId: String) -> URL? {
+        var components = URLComponents(string: "https://www.checkupauto.fr/app/live")
+        components?.queryItems = [
+            URLQueryItem(name: "source", value: "dynamic-island"),
+            URLQueryItem(name: "reminder", value: reminderId),
+        ]
+        return components?.url
     }
 
     private func lockScreen(_ context: ActivityViewContext<CheckupControlActivityAttributes>) -> some View {
