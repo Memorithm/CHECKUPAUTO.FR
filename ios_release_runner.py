@@ -249,6 +249,11 @@ def _testflight_export_options(team_id: str, output_root: Path) -> Path:
 def run_release(*, stage: str, export_options: Path | None = None, allow_upload: bool = False) -> dict:
     if sys.platform != "darwin":
         raise ReleaseError(f"macos_required:{sys.platform}")
+    build_number = os.environ.get("CHECKUPAUTO_BUILD_NUMBER", "").strip()
+    if build_number and not re.fullmatch(r"[0-9]{1,18}", build_number):
+        raise ReleaseError("build_number_invalid")
+    if stage == "testflight" and not build_number:
+        raise ReleaseError("build_number_required")
     guard = release_guard(require_main=True)
     for tool in ("xcodegen", "xcodebuild", "xcrun"):
         _require_tool(tool)
@@ -280,11 +285,6 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         if archive_path.exists():
             shutil.rmtree(archive_path)
         auth_args = app_store_connect_auth_args(required=stage == "testflight")
-        build_number = os.environ.get("CHECKUPAUTO_BUILD_NUMBER", "").strip()
-        if build_number and not re.fullmatch(r"[0-9]{1,18}", build_number):
-            raise ReleaseError("build_number_invalid")
-        if stage == "testflight" and not build_number:
-            raise ReleaseError("build_number_required")
         if build_number:
             result["buildNumber"] = build_number
         archive_cmd = [
