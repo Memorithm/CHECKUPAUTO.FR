@@ -32,8 +32,10 @@ enum CheckupControlLiveActivityCoordinator {
         }
     }
 
-    static func acknowledgeAll() async {
-        for activity in Activity<CheckupControlActivityAttributes>.activities {
+    static func acknowledge(reminderId: String?) async {
+        guard let reminderId, !reminderId.isEmpty else { return }
+        for activity in Activity<CheckupControlActivityAttributes>.activities
+        where activity.attributes.reminderId == reminderId {
             let state = CheckupControlActivityAttributes.ContentState(
                 moment: .acknowledged,
                 appointmentAt: activity.content.state.appointmentAt,
