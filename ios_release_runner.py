@@ -47,8 +47,16 @@ def release_guard(*, require_main: bool = True) -> dict:
         raise ReleaseError("git_tree_not_clean")
     branch = _git(["branch", "--show-current"])
     head = _git(["rev-parse", "HEAD"])
-    _git(["fetch", "origin", "main"])
-    remote = _git(["rev-parse", "origin/main"])
+    pinned = os.environ.get("CHECKUPAUTO_RELEASE_PINNED_SHA", "").strip().lower()
+    if pinned:
+        if not re.fullmatch(r"[0-9a-f]{40}", pinned):
+            raise ReleaseError("release_pinned_sha_invalid")
+        remote = _git(["rev-parse", "origin/main"])
+        if head != pinned or remote != pinned:
+            raise ReleaseError(f"release_pinned_sha_mismatch:{head}:{remote}:{pinned}")
+    else:
+        _git(["fetch", "origin", "main"])
+        remote = _git(["rev-parse", "origin/main"])
     if require_main and branch != "main":
         raise ReleaseError(f"release_requires_main:{branch or 'detached'}")
     if head != remote:
@@ -161,7 +169,7 @@ def _show_release_settings(project_dir: Path) -> dict[str, str]:
     output = _run([
         _require_tool("xcodebuild"),
         "-project", str(project_dir / f"{PROJECT_NAME}.xcodeproj"),
-        "-scheme", SCHEME,
+        "-target", PROJECT_NAME,
         "-configuration", "Release",
         "-showBuildSettings",
     ], capture=True)
@@ -201,6 +209,43 @@ def _signed_entitlements(app_path: Path) -> dict:
         raise ReleaseError("signed_entitlements_invalid") from exc
 
 
+
+
+def app_store_connect_auth_args(*, required: bool = False) -> list[str]:
+    key_id = os.environ.get("CHECKUPAUTO_ASC_KEY_ID", "").strip()
+    issuer_id = os.environ.get("CHECKUPAUTO_ASC_ISSUER_ID", "").strip()
+    key_path_raw = os.environ.get("CHECKUPAUTO_ASC_KEY_PATH", "").strip()
+    present = bool(key_id or issuer_id or key_path_raw)
+    if not present and not required:
+        return []
+    if not re.fullmatch(r"[A-Za-z0-9]{10}", key_id):
+        raise ReleaseError("app_store_connect_key_id_required")
+    if not re.fullmatch(r"[0-9A-Fa-f-]{36}", issuer_id):
+        raise ReleaseError("app_store_connect_issuer_id_required")
+    key_path = Path(key_path_raw)
+    if not key_path.is_file():
+        raise ReleaseError("app_store_connect_key_file_required")
+    return [
+        "-authenticationKeyPath", str(key_path),
+        "-authenticationKeyID", key_id,
+        "-authenticationKeyIssuerID", issuer_id,
+        "-allowProvisioningUpdates",
+    ]
+
+
+def _testflight_export_options(team_id: str, output_root: Path) -> Path:
+    path = output_root / "ExportOptions-TestFlight.plist"
+    payload = {
+        "method": "app-store-connect",
+        "destination": "upload",
+        "signingStyle": "automatic",
+        "teamID": team_id,
+        "uploadSymbols": True,
+    }
+    path.write_bytes(plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=True))
+    return path
+
+
 def run_release(*, stage: str, export_options: Path | None = None, allow_upload: bool = False) -> dict:
     if sys.platform != "darwin":
         raise ReleaseError(f"macos_required:{sys.platform}")
@@ -234,6 +279,7 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         archive_path = output_root / f"{PROJECT_NAME}.xcarchive"
         if archive_path.exists():
             shutil.rmtree(archive_path)
+        auth_args = app_store_connect_auth_args(required=stage == "testflight")
         archive_cmd = [
             _require_tool("xcodebuild"), "archive",
             "-project", str(project_dir / f"{PROJECT_NAME}.xcodeproj"),
@@ -243,7 +289,9 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
             "-archivePath", str(archive_path),
             f"DEVELOPMENT_TEAM={team_id}",
         ]
-        if os.environ.get("CHECKUPAUTO_ALLOW_PROVISIONING_UPDATES") == "1":
+        if auth_args:
+            archive_cmd.extend(auth_args)
+        elif os.environ.get("CHECKUPAUTO_ALLOW_PROVISIONING_UPDATES") == "1":
             archive_cmd.append("-allowProvisioningUpdates")
         _run(archive_cmd)
         app_path = _archive_app(archive_path)
@@ -253,6 +301,10 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         result["signedApp"] = str(app_path)
         if stage == "archive":
             return result
+        if stage == "testflight":
+            if not allow_upload:
+                raise ReleaseError("upload_requires_explicit_allow_upload")
+            export_options = _testflight_export_options(team_id, output_root)
         if export_options is None or not export_options.is_file():
             raise ReleaseError("export_options_plist_required")
         options = plistlib.loads(export_options.read_bytes())
@@ -262,12 +314,15 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         export_path = output_root / "export"
         shutil.rmtree(export_path, ignore_errors=True)
         export_path.mkdir(parents=True)
-        _run([
+        export_cmd = [
             _require_tool("xcodebuild"), "-exportArchive",
             "-archivePath", str(archive_path),
             "-exportPath", str(export_path),
             "-exportOptionsPlist", str(export_options),
-        ])
+        ]
+        if auth_args:
+            export_cmd.extend(auth_args)
+        _run(export_cmd)
         result["exportPath"] = str(export_path)
         result["exportDestination"] = destination
         return result
@@ -275,7 +330,7 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="CheckupAuto reproducible iOS release runner")
-    parser.add_argument("stage", choices=("preflight", "test", "archive", "export"))
+    parser.add_argument("stage", choices=("preflight", "test", "archive", "export", "testflight"))
     parser.add_argument("--export-options", type=Path)
     parser.add_argument("--allow-upload", action="store_true")
     parser.add_argument("--toolchain-status", action="store_true")
