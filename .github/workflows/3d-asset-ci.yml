@@ -56,18 +56,18 @@ jobs:
             /lib/x86_64-linux-gnu/libm.so.6 \
             /usr/lib/x86_64-linux-gnu/libm.so.6
           do
-            if [ -f "$candidate" ] && file "$candidate" | grep -q 'x86-64'; then
+            if [ -f "$candidate" ] && file -L "$candidate" | grep -q 'x86-64'; then
               guest_libm="$candidate"
               break
             fi
           done
           if [ -z "$guest_libm" ]; then
             while IFS= read -r candidate; do
-              if file "$candidate" | grep -q 'x86-64'; then
+              if file -L "$candidate" | grep -q 'x86-64'; then
                 guest_libm="$candidate"
                 break
               fi
-            done < <(find "$(dirname "$blender_real")" -maxdepth 5 -type f -name 'libm.so.6' -print)
+            done < <(find "$(dirname "$blender_real")" -maxdepth 5 \( -type f -o -type l \) -name 'libm.so.6' -print)
           fi
           test -n "$guest_libm" || {
             echo "::error::Compatible emulated x86_64 libm.so.6 is not installed on the ARM64 runner"
