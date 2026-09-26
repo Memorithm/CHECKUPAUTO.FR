@@ -115,9 +115,14 @@ private extension CheckupControlActivityAttributes.ContentState {
         case .tomorrow:
             Text("J-1")
         case .approaching:
-            Text(appointmentAt, style: .timer)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            Text(
+                timerInterval: min(Date.now, appointmentAt)...appointmentAt,
+                pauseTime: appointmentAt,
+                countsDown: true,
+                showsHours: true
+            )
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
         case .acknowledged:
             Text("✓")
         }
