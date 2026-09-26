@@ -58,6 +58,7 @@ jobs:
             --max-bytes 4194304
           python3 glb_contract.py "$export_path" --max-bytes 4194304
           echo "GLB_EXPORT_PATH=$export_path" >> "$GITHUB_ENV"
+          echo "GLB_EXPORT_DIR=$export_dir" >> "$GITHUB_ENV"
       - name: Save verified GLB artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -65,3 +66,13 @@ jobs:
           path: ${{ env.GLB_EXPORT_PATH }}
           if-no-files-found: error
           retention-days: 14
+      - name: Remove temporary export directory
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${GLB_EXPORT_DIR:-}" ]; then
+            case "$GLB_EXPORT_DIR" in
+              "$RUNNER_TEMP"/checkupauto-glb.*) rm -rf -- "$GLB_EXPORT_DIR" ;;
+              *) echo "::error::Refusing to remove unexpected path: $GLB_EXPORT_DIR"; exit 2 ;;
+            esac
+          fi
