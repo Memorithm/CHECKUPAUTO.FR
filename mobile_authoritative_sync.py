@@ -67,6 +67,9 @@ def sync_installation(
             upcoming_appointments = None
             preserve_appointments = True
 
+    if upcoming_appointments is None:
+        preserve_appointments = True
+
     allowed_bindings = []
     suppressed_bindings = 0
     for binding in bindings:
