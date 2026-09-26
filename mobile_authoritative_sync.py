@@ -25,7 +25,18 @@ def _binding_processing_suppressed(binding: dict) -> bool:
     return privacy.any_suppressed(candidates, "all_processing")
 
 
-def sync_installation(installation_id: str, upcoming_appointments: list[dict] | None = None) -> dict:
+def upcoming_appointments_snapshot() -> list[dict]:
+    today = mercure.business_today()
+    end = today + datetime.timedelta(days=UPCOMING_APPOINTMENT_DAYS)
+    return mercure.upcoming_control_appointments(today.isoformat(), end.isoformat())
+
+
+def sync_installation(
+    installation_id: str,
+    upcoming_appointments: list[dict] | None = None,
+    *,
+    refresh_appointments: bool = False,
+) -> dict:
     installation = mobile_devices._install_id(installation_id)
     if privacy.is_suppressed("installation", installation, "all_processing"):
         return {
@@ -47,6 +58,12 @@ def sync_installation(installation_id: str, upcoming_appointments: list[dict] | 
             "privacySuppressed": False,
             "suppressedBindings": 0,
         }
+
+    if refresh_appointments and upcoming_appointments is None:
+        try:
+            upcoming_appointments = upcoming_appointments_snapshot()
+        except Exception:
+            upcoming_appointments = []
 
     allowed_bindings = []
     suppressed_bindings = 0
@@ -118,9 +135,7 @@ def sync_once() -> dict:
 
     appointment_state = "ready"
     try:
-        today = mercure.business_today()
-        end = today + datetime.timedelta(days=UPCOMING_APPOINTMENT_DAYS)
-        upcoming = mercure.upcoming_control_appointments(today.isoformat(), end.isoformat())
+        upcoming = upcoming_appointments_snapshot()
     except Exception:
         upcoming = []
         appointment_state = "unavailable"
