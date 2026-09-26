@@ -220,6 +220,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func acknowledgeControlLiveActivity() {
+        #if canImport(ActivityKit)
+        if #available(iOS 26.0, *) {
+            Task {
+                await CheckupControlLiveActivityCoordinator.acknowledgeAll()
+            }
+        }
+        #endif
+    }
+
+
     var remotePushActiveForDevice: Bool {
         notificationAuthorized &&
             mobileConfig.notifications.remotePushActive &&
