@@ -1,4 +1,5 @@
 import ActivityKit
+import BackgroundTasks
 import Foundation
 
 @available(iOS 26.0, *)
@@ -8,7 +9,8 @@ enum CheckupControlLiveActivityCoordinator {
         reference: UUID,
         leadHours: Int = CheckupControlActivityPolicy.dayOfLeadHours
     ) async throws {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled, appointmentAt > Date() else { return }
+        let now = Date()
+        guard ActivityAuthorizationInfo().areActivitiesEnabled, appointmentAt > now else { return }
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Paris") ?? .current
@@ -28,8 +30,11 @@ enum CheckupControlLiveActivityCoordinator {
 
         if let start = CheckupControlActivityPolicy.dayBeforeStart(for: appointmentAt, calendar: calendar) {
             let reminderId = expectedPrefix + "j1"
-            let sameDay = calendar.isDate(Date(), inSameDayAs: start)
-            if (start > Date() || sameDay), !existing.contains(reminderId), !Acknowledgements.contains(reminderId) {
+            let sameDay = calendar.isDate(now, inSameDayAs: start)
+            if (start > now || sameDay),
+               CheckupControlActivityPolicy.isInsideSchedulingLookahead(start, now: now),
+               !existing.contains(reminderId),
+               !Acknowledgements.contains(reminderId) {
                 try scheduleOne(
                     appointmentAt: appointmentAt,
                     requestedStart: start,
@@ -43,8 +48,11 @@ enum CheckupControlLiveActivityCoordinator {
 
         if let start = CheckupControlActivityPolicy.dayOfStart(for: appointmentAt, leadHours: leadHours, calendar: calendar) {
             let reminderId = expectedPrefix + "j0"
-            let insideLeadWindow = Date() >= start && Date() < appointmentAt
-            if (start > Date() || insideLeadWindow), !existing.contains(reminderId), !Acknowledgements.contains(reminderId) {
+            let insideLeadWindow = now >= start && now < appointmentAt
+            if (start > now || insideLeadWindow),
+               CheckupControlActivityPolicy.isInsideSchedulingLookahead(start, now: now),
+               !existing.contains(reminderId),
+               !Acknowledgements.contains(reminderId) {
                 try scheduleOne(
                     appointmentAt: appointmentAt,
                     requestedStart: start,
@@ -155,5 +163,83 @@ private enum Acknowledgements {
 
     static func clear(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: key)
+    }
+}
+
+
+@available(iOS 26.0, *)
+enum CheckupControlLiveActivityRetryScheduler {
+    static let taskIdentifier = "fr.checkupauto.reminder.live-activity-refresh"
+
+    @discardableResult
+    static func register() -> Bool {
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            handle(refreshTask)
+        }
+    }
+
+    static func submit(
+        for vehicles: [AuthoritativeVehicleDeadline],
+        retryFailed: Bool = false,
+        now: Date = Date()
+    ) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Paris") ?? .current
+        var candidateDates = vehicles.compactMap { vehicle -> Date? in
+            guard let appointmentAt = vehicle.appointmentAtValue, appointmentAt > now else {
+                return nil
+            }
+            return CheckupControlActivityPolicy.retryDate(
+                for: appointmentAt,
+                now: now,
+                calendar: calendar
+            )
+        }
+        if retryFailed {
+            candidateDates.append(now.addingTimeInterval(60 * 60))
+        }
+
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
+        guard let earliest = candidateDates.min() else { return }
+        let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
+        request.earliestBeginDate = earliest
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    private static func handle(_ backgroundTask: BGAppRefreshTask) {
+        let work = Task {
+            let vehicles = AuthoritativeInventoryStore.load()
+            var retryFailed = false
+            for vehicle in vehicles {
+                if Task.isCancelled { break }
+                guard let reference = vehicle.bindingUUID,
+                      let appointmentAt = vehicle.appointmentAtValue,
+                      appointmentAt > Date() else {
+                    continue
+                }
+                do {
+                    try await CheckupControlLiveActivityCoordinator.schedule(
+                        appointmentAt: appointmentAt,
+                        reference: reference
+                    )
+                } catch {
+                    retryFailed = true
+                }
+            }
+
+            if Task.isCancelled {
+                backgroundTask.setTaskCompleted(success: false)
+                return
+            }
+            submit(for: vehicles, retryFailed: retryFailed)
+            backgroundTask.setTaskCompleted(success: !retryFailed)
+        }
+        backgroundTask.expirationHandler = {
+            work.cancel()
+        }
     }
 }
