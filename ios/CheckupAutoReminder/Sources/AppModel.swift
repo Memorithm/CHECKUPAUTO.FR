@@ -353,9 +353,12 @@ final class AppModel: ObservableObject {
         #if canImport(ActivityKit)
         if #available(iOS 26.0, *) {
             for vehicle in authoritativeVehicles {
-                guard let reference = vehicle.bindingUUID,
-                      let appointmentAt = vehicle.appointmentAtValue,
-                      appointmentAt > Date() else { continue }
+                guard let reference = vehicle.bindingUUID else { continue }
+                guard let appointmentAt = vehicle.appointmentAtValue,
+                      appointmentAt > Date() else {
+                    await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
+                    continue
+                }
                 do {
                     try await CheckupControlLiveActivityCoordinator.schedule(
                         appointmentAt: appointmentAt,
