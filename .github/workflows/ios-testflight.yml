@@ -126,6 +126,7 @@ jobs:
              export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
              cd '$remote_dir'
              export CHECKUPAUTO_RELEASE_PINNED_SHA='$GITHUB_SHA'
+             export CHECKUPAUTO_BUILD_NUMBER='$(date -u +%y%m%d%H%M%S)'
              export CHECKUPAUTO_APPLE_TEAM_ID='$CHECKUPAUTO_APPLE_TEAM_ID'
              export CHECKUPAUTO_ASC_KEY_ID='$CHECKUPAUTO_ASC_KEY_ID'
              export CHECKUPAUTO_ASC_ISSUER_ID='$CHECKUPAUTO_ASC_ISSUER_ID'
