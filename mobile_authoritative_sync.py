@@ -140,6 +140,19 @@ def sync_installation(
     }
 
 
+def sync_installation_fresh(installation_id: str) -> dict:
+    """Synchronize with a provider-current appointment snapshot or fail closed.
+
+    Callers that schedule future work must not consume a preserved cached appointment
+    when the provider cannot be reached.
+    """
+    return sync_installation(
+        installation_id,
+        upcoming_appointments_snapshot(),
+        preserve_appointments=False,
+    )
+
+
 def sync_once() -> dict:
     bindings = mobile_devices.registered_vehicle_bindings()
     installation_ids = sorted({row["installation_id"] for row in bindings})
