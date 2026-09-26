@@ -212,13 +212,36 @@ enum CheckupControlLiveActivityRetryScheduler {
 
     private static func handle(_ backgroundTask: BGAppRefreshTask) {
         let work = Task {
-            let vehicles = AuthoritativeInventoryStore.load()
+            let previous = AuthoritativeInventoryStore.load()
+            let response: AuthoritativeInventoryResponse
+            do {
+                response = try await AuthoritativeInventoryClient.fetch()
+            } catch {
+                submit(for: previous, retryFailed: true)
+                backgroundTask.setTaskCompleted(success: false)
+                return
+            }
+            if Task.isCancelled {
+                backgroundTask.setTaskCompleted(success: false)
+                return
+            }
+
+            let vehicles = response.vehicles
+            let currentBindings = Set(vehicles.map(\.bindingId))
+            for stale in previous where !currentBindings.contains(stale.bindingId) {
+                if let reference = stale.bindingUUID {
+                    await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
+                }
+            }
+            AuthoritativeInventoryStore.save(vehicles)
+
             var retryFailed = false
             for vehicle in vehicles {
                 if Task.isCancelled { break }
-                guard let reference = vehicle.bindingUUID,
-                      let appointmentAt = vehicle.appointmentAtValue,
+                guard let reference = vehicle.bindingUUID else { continue }
+                guard let appointmentAt = vehicle.appointmentAtValue,
                       appointmentAt > Date() else {
+                    await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
                     continue
                 }
                 do {
