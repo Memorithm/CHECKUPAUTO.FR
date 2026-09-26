@@ -122,11 +122,12 @@ jobs:
           fi
           remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
           remote_key="$remote_dir/AuthKey_${CHECKUPAUTO_ASC_KEY_ID}.p8"
+          build_number="$(date -u +%y%m%d%H%M%S)"
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "set -euo pipefail
              export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
              cd '$remote_dir'
              export CHECKUPAUTO_RELEASE_PINNED_SHA='$GITHUB_SHA'
-             export CHECKUPAUTO_BUILD_NUMBER='$(date -u +%y%m%d%H%M%S)'
+             export CHECKUPAUTO_BUILD_NUMBER='$build_number'
              export CHECKUPAUTO_APPLE_TEAM_ID='$CHECKUPAUTO_APPLE_TEAM_ID'
              export CHECKUPAUTO_ASC_KEY_ID='$CHECKUPAUTO_ASC_KEY_ID'
              export CHECKUPAUTO_ASC_ISSUER_ID='$CHECKUPAUTO_ASC_ISSUER_ID'
