@@ -366,6 +366,7 @@ final class AppModel: ObservableObject {
     private func scheduleControlLiveActivities() async {
         #if canImport(ActivityKit)
         if #available(iOS 26.0, *) {
+            var retryFailed = false
             for vehicle in authoritativeVehicles {
                 guard let reference = vehicle.bindingUUID else { continue }
                 guard let appointmentAt = vehicle.appointmentAtValue,
@@ -379,9 +380,14 @@ final class AppModel: ObservableObject {
                         reference: reference
                     )
                 } catch {
+                    retryFailed = true
                     // A Live Activity is an enhancement. Existing local/APNs reminders remain authoritative fallbacks.
                 }
             }
+            CheckupControlLiveActivityRetryScheduler.submit(
+                for: authoritativeVehicles,
+                retryFailed: retryFailed
+            )
         }
         #endif
     }
