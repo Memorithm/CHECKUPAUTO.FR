@@ -20,7 +20,13 @@ struct AuthoritativeInventoryRequest: Codable, Equatable, Sendable {
 struct AuthoritativeVehicleDeadline: Codable, Equatable, Hashable, Identifiable, Sendable {
     let bindingId: String
     let dueDate: String?
-    let appointmentAt: String? = nil
+    let appointmentAt: String?
+
+    init(bindingId: String, dueDate: String?, appointmentAt: String? = nil) {
+        self.bindingId = bindingId
+        self.dueDate = dueDate
+        self.appointmentAt = appointmentAt
+    }
 
     var id: String { bindingId }
 
