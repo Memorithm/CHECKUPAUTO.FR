@@ -84,7 +84,7 @@ def _appointment_at(value: object) -> str:
         raise ValueError("appointmentAt invalide") from exc
     if parsed.tzinfo is None or parsed.year < 2020 or parsed.year > 2100:
         raise ValueError("appointmentAt invalide")
-    return parsed.isoformat(timespec="minutes")
+    return parsed.isoformat(timespec="seconds")
 
 
 def _device_token(value: object) -> str:
