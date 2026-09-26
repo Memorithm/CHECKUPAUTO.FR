@@ -41,6 +41,52 @@ def selected_export_objects() -> list[bpy.types.Object]:
     return selected
 
 
+def cutout_with_repository_alpha(image: bpy.types.Image) -> bpy.types.Image:
+    """Return an RGBA image whose border-matched background is transparent."""
+    width, height = image.size
+    pixels = list(image.pixels[:])
+    if width <= 0 or height <= 0 or len(pixels) != width * height * 4:
+        raise RuntimeError("vehicle_reference_texture_unreadable")
+    alpha_values = pixels[3::4]
+    if min(alpha_values) < 0.999:
+        return image
+
+    corner_offsets = (
+        0,
+        (width - 1) * 4,
+        (height - 1) * width * 4,
+        ((height * width) - 1) * 4,
+    )
+    background = tuple(
+        sum(pixels[offset + channel] for offset in corner_offsets) / len(corner_offsets)
+        for channel in range(3)
+    )
+    for offset in range(0, len(pixels), 4):
+        distance = max(abs(pixels[offset + channel] - background[channel]) for channel in range(3))
+        pixels[offset + 3] = max(0.0, min(1.0, (distance - 0.03) / 0.12))
+
+    derived = bpy.data.images.new(
+        "vehicle_cutout_repository_alpha",
+        width=width,
+        height=height,
+        alpha=True,
+    )
+    derived.file_format = "PNG"
+    derived.pixels.foreach_set(pixels)
+    derived.update()
+    derived.pack()
+
+    for material in bpy.data.materials:
+        if not material.use_nodes:
+            continue
+        for node in material.node_tree.nodes:
+            if node.type == "TEX_IMAGE" and node.image == image:
+                node.image = derived
+    if min(derived.pixels[3::4]) >= 0.999:
+        raise RuntimeError("vehicle_reference_alpha_not_generated")
+    return derived
+
+
 def bind_repository_images() -> None:
     """Resolve every external Blender image from tracked repository assets."""
     for image in bpy.data.images:
@@ -51,6 +97,7 @@ def bind_repository_images() -> None:
                 raise RuntimeError("vehicle_reference_texture_missing")
             image.filepath = str(REFERENCE_TEXTURE)
             image.reload()
+            cutout_with_repository_alpha(image)
             continue
         current = Path(bpy.path.abspath(image.filepath)).resolve()
         if not current.is_file():
