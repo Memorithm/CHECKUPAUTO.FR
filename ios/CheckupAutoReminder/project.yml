@@ -22,16 +22,40 @@ targets:
     platform: iOS
     sources:
       - Sources
+      - Shared
+    dependencies:
+      - target: CheckupAutoLiveActivity
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Checkup Auto
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: CheckupAutoReminder.entitlements
     scheme:
       testTargets:
         - CheckupAutoReminderTests
+  CheckupAutoLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - LiveActivityWidget
+      - Shared
+    info:
+      path: LiveActivityWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Checkup Auto Live
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder.liveactivity
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
   CheckupAutoReminderTests:
     type: bundle.unit-test
     platform: iOS
