@@ -521,6 +521,8 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/app/claim':
    self._referrer_policy='no-referrer'
    return self.send_bytes(mobile_claim_delivery.claim_landing_html(load_config()),'text/html; charset=utf-8',cache='no-store')
+  if path=='/app/live':
+   return self.send_redirect('/app?src=live-activity',302)
   if path=='/app':
    c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
    return self.send_bytes(app_download.landing_html(c,source,nonce),'text/html; charset=utf-8',cache='no-cache')
