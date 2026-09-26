@@ -1,5 +1,5 @@
 from pathlib import Path
-import datetime, json, os, requests
+import datetime, json, os, requests, unicodedata
 from collections import Counter, defaultdict
 from zoneinfo import ZoneInfo
 
@@ -245,6 +245,87 @@ def _event_id(event):
     if not isinstance(event,dict): return ''
     ext=event.get('extendedProps') or {}
     return str(event.get('id') or ext.get('rendezVousId') or ext.get('rendezvousId') or '')
+
+
+def _fold_service(value):
+    return ' '.join(
+        unicodedata.normalize('NFKD', str(value or ''))
+        .encode('ascii', 'ignore')
+        .decode('ascii')
+        .upper()
+        .split()
+    )
+
+
+def _mobile_control_service(value):
+    folded=_fold_service(value)
+    return (
+        'CONTROLE TECHNIQUE' in folded
+        or folded.startswith('TOUT VEHICULE HORS CAMPING CAR')
+        or folded.startswith('VISITE TECHNIQUE VASP')
+    ) and 'CONTRE-VISITE' not in folded and 'POLLUTION' not in folded
+
+
+def _appointment_at_iso(value):
+    raw=str(value or '').strip()
+    for fmt in ('%Y-%m-%d %H:%M:%S','%Y-%m-%dT%H:%M:%S','%Y-%m-%dT%H:%M'):
+        try:
+            parsed=datetime.datetime.strptime(raw,fmt).replace(tzinfo=MERCURE_TIMEZONE)
+            return parsed.isoformat(timespec='seconds')
+        except ValueError:
+            continue
+    return ''
+
+
+def upcoming_control_appointments(start, end):
+    start_date=datetime.date.fromisoformat(str(start))
+    end_date=datetime.date.fromisoformat(str(end))
+    if end_date < start_date or end_date > start_date + datetime.timedelta(days=180):
+        raise ValueError('Période rendez-vous mobile invalide')
+
+    s=_session()
+    appointments={}
+    for row in _appointments(s,start_date.isoformat(),end_date.isoformat()):
+        if not isinstance(row,dict) or not _mobile_control_service(row.get('prestation')):
+            continue
+        rid=str(row.get('id') or '').strip()
+        appointment_at=_appointment_at_iso(row.get('date_rdv'))
+        if rid and appointment_at:
+            appointments[rid]={'appointmentAt':appointment_at}
+
+    out=[]; seen=set()
+    for ev in _calendar_events(s,start_date.isoformat(),end_date.isoformat()):
+        if not isinstance(ev,dict):
+            continue
+        ext=ev.get('extendedProps') or {}
+        rid=str(ext.get('rendezVousId') or ev.get('id') or '').strip()
+        authoritative=appointments.get(rid)
+        if not authoritative:
+            continue
+        account_id=str(ext.get('clientCompteId') or '').strip()
+        free_id=str(ext.get('clientLibreId') or '').strip()
+        client_kind='account' if account_id else ('free' if free_id else '')
+        client_id=account_id or free_id
+        if not client_kind:
+            continue
+        vehicle_ids=ext.get('vehiculeId') or []
+        if not isinstance(vehicle_ids,list):
+            vehicle_ids=[vehicle_ids]
+        for raw_vehicle_id in vehicle_ids:
+            vehicle_id=str(raw_vehicle_id or '').strip()
+            key=(vehicle_id,client_kind,client_id,rid)
+            if not vehicle_id or key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                'vehicleId':vehicle_id,
+                'clientKind':client_kind,
+                'clientId':client_id,
+                'appointmentId':rid,
+                'appointmentAt':authoritative['appointmentAt'],
+            })
+    out.sort(key=lambda row:(row['appointmentAt'],row['vehicleId'],row['appointmentId']))
+    return out
 
 
 def create_synthetic_test_appointment(service_key, date_value, time_value):
