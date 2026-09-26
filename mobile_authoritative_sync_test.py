@@ -139,14 +139,14 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
                 "clientKind": "account",
                 "clientId": "other-client",
                 "appointmentId": "wrong",
-                "appointmentAt": "2026-10-04T13:00:00+02:00",
+                "appointmentAt": "2099-10-04T13:00:00+02:00",
             },
             {
                 "vehicleId": "vehicle-77",
                 "clientKind": "account",
                 "clientId": "client-42",
                 "appointmentId": "future-77",
-                "appointmentAt": "2026-10-04T14:30:00+02:00",
+                "appointmentAt": "2099-10-04T14:30:00+02:00",
             },
         ]
         result = sync.sync_installation(self.installation, upcoming)
@@ -158,7 +158,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         self.assertEqual(inventory["vehicles"], [{
             "bindingId": binding["bindingId"],
             "dueDate": "2027-02-15",
-            "appointmentAt": "2026-10-04T14:30:00+02:00",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
         }])
         self.assertNotIn("future-77", repr(inventory))
         self.assertNotIn("other-client", repr(inventory))
@@ -209,7 +209,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         devices.sync_authoritative_deadlines(self.installation, [{
             "deadlineId": binding["bindingId"],
             "dueDate": "2027-02-15",
-            "appointmentAt": "2026-10-04T14:30:00+02:00",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
         }])
         with mock.patch.object(
             sync,
@@ -227,7 +227,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         })
         self.assertEqual(
             inventory["vehicles"][0]["appointmentAt"],
-            "2026-10-04T14:30:00+02:00",
+            "2099-10-04T14:30:00+02:00",
         )
 
     def test_sync_once_is_noop_without_bindings(self):
