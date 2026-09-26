@@ -38,6 +38,9 @@ def selected_export_objects() -> list[bpy.types.Object]:
                 seen.add(obj.name)
     if not selected:
         raise RuntimeError("web_export_selection_empty")
+    vehicle = bpy.data.objects.get("VehiclePhoto3D")
+    if vehicle is None or vehicle.type != "MESH" or vehicle not in selected:
+        raise RuntimeError("web_export_vehicle_missing")
     return selected
 
 
