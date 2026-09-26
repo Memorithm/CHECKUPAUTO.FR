@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 
 import mobile_authoritative_sync
 import mobile_devices
@@ -138,6 +139,25 @@ def consume(payload: dict) -> dict:
     }
 
 
+def _refresh_vehicle_claim(installation_id: str) -> None:
+    try:
+        mobile_authoritative_sync.sync_installation(
+            installation_id,
+            refresh_appointments=True,
+        )
+    except Exception:
+        pass
+
+
+def _start_authoritative_refresh(installation_id: str) -> None:
+    threading.Thread(
+        target=_refresh_vehicle_claim,
+        args=(installation_id,),
+        name="mobile-claim-authoritative-refresh",
+        daemon=True,
+    ).start()
+
+
 def consume_with_authoritative_refresh(payload: dict) -> dict:
     """Consume a typed claim and refresh Mercure data only for vehicle claims.
 
@@ -149,12 +169,7 @@ def consume_with_authoritative_refresh(payload: dict) -> dict:
     result = consume(payload)
     if result.get("claimType") != "vehicle":
         return result
-    try:
-        mobile_authoritative_sync.sync_installation(
-            str(payload.get("installationId") or "")
-        )
-    except Exception:
-        pass
+    _start_authoritative_refresh(str(payload.get("installationId") or ""))
     return result
 
 
