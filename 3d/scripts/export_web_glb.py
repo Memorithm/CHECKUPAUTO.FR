@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE_BLEND = ROOT / "3d" / "blend" / "CyberCheckVehicle_Photo3D.blend"
 SAFE_COLLECTIONS = ("CYBERCHECK_PHOTO_3D", "CYBERCHECK_STAGE")
 MAX_GLB_BYTES = 4 * 1024 * 1024
+REFERENCE_TEXTURE = ROOT / "assets" / "premium" / "vehicle-peugeot208-premium.webp"
 
 
 def arguments() -> argparse.Namespace:
@@ -40,6 +41,22 @@ def selected_export_objects() -> list[bpy.types.Object]:
     return selected
 
 
+def bind_repository_images() -> None:
+    """Resolve every external Blender image from tracked repository assets."""
+    for image in bpy.data.images:
+        if image.source != "FILE" or image.packed_file is not None:
+            continue
+        current = Path(bpy.path.abspath(image.filepath)).resolve()
+        if current.is_file():
+            continue
+        if Path(image.filepath).name != "vehicle_cutout.png":
+            raise RuntimeError(f"external_image_missing:{Path(image.filepath).name}")
+        if not REFERENCE_TEXTURE.is_file():
+            raise RuntimeError("vehicle_reference_texture_missing")
+        image.filepath = str(REFERENCE_TEXTURE)
+        image.reload()
+
+
 def validate_glb(path: Path, max_bytes: int) -> dict:
     raw = path.read_bytes()
     if len(raw) < 12 or raw[:4] != b"glTF":
@@ -65,6 +82,8 @@ def main() -> None:
     current = Path(bpy.data.filepath).resolve() if bpy.data.filepath else None
     if current != SOURCE_BLEND.resolve():
         bpy.ops.wm.open_mainfile(filepath=str(SOURCE_BLEND))
+
+    bind_repository_images()
 
     bpy.ops.object.select_all(action="DESELECT")
     export_objects = selected_export_objects()
