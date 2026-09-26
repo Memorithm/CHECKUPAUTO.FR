@@ -142,8 +142,8 @@ if(canvas&&stage){
         if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
         gl.viewport(0,0,w,h);
         gl.uniformMatrix4fv(loc.projection,false,perspective(Math.PI/4.2,w/h,.1,100));
+        if(reduced) schedule();
       };
-      new ResizeObserver(resize).observe(stage);resize();
       gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);
       gl.clearColor(0,0,0,0);
       gl.uniformMatrix4fv(loc.view,false,view);
@@ -168,6 +168,7 @@ if(canvas&&stage){
         }
         if(!reduced||dragging) frameId=requestAnimationFrame(draw);
       };
+      new ResizeObserver(resize).observe(stage);resize();
       const point=x=>{pointerStart=x;yawStart=yaw;dragging=true;schedule();};
       canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);point(e.clientX);});
       canvas.addEventListener("pointermove",e=>{if(dragging){yaw=yawStart+(e.clientX-pointerStart)*.008;schedule();}});
