@@ -36,6 +36,7 @@ def sync_installation(
     upcoming_appointments: list[dict] | None = None,
     *,
     refresh_appointments: bool = False,
+    preserve_appointments: bool = False,
 ) -> dict:
     installation = mobile_devices._install_id(installation_id)
     if privacy.is_suppressed("installation", installation, "all_processing"):
@@ -63,7 +64,8 @@ def sync_installation(
         try:
             upcoming_appointments = upcoming_appointments_snapshot()
         except Exception:
-            upcoming_appointments = []
+            upcoming_appointments = None
+            preserve_appointments = True
 
     allowed_bindings = []
     suppressed_bindings = 0
@@ -105,7 +107,7 @@ def sync_installation(
         deadlines.append(item)
     # Always synchronize, including an empty allowed set: this removes previously
     # cached authoritative deadlines that became restricted after the binding existed.
-    result = mobile_devices.sync_authoritative_deadlines(installation, deadlines)
+    result = mobile_devices.sync_authoritative_deadlines(\n        installation,\n        deadlines,\n        preserve_appointments=preserve_appointments,\n    )
     return {
         "ok": True,
         "installationId": installation,
@@ -137,7 +139,7 @@ def sync_once() -> dict:
     try:
         upcoming = upcoming_appointments_snapshot()
     except Exception:
-        upcoming = []
+        upcoming = None
         appointment_state = "unavailable"
 
     synced = 0
@@ -148,7 +150,7 @@ def sync_once() -> dict:
     failed = 0
     for installation_id in installation_ids:
         try:
-            result = sync_installation(installation_id, upcoming)
+            result = sync_installation(\n                installation_id,\n                upcoming,\n                preserve_appointments=appointment_state == "unavailable",\n            )
             if result.get("privacySuppressed"):
                 suppressed += 1
                 continue
