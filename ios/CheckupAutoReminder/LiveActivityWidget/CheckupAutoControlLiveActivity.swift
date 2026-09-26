@@ -41,7 +41,7 @@ struct CheckupAutoControlLiveActivity: Widget {
             } compactLeading: {
                 CarJourneyMark(seed: context.state.animationSeed, compact: true)
             } compactTrailing: {
-                Text(context.state.kindLabel)
+                context.state.compactStatus
                     .font(.caption2.bold())
                     .monospacedDigit()
             } minimal: {
@@ -109,14 +109,17 @@ private struct CarJourneyMark: View {
 }
 
 private extension CheckupControlActivityAttributes.ContentState {
-    var kindLabel: String {
+    @ViewBuilder
+    var compactStatus: some View {
         switch moment {
-        case .tomorrow: return "J-1"
+        case .tomorrow:
+            Text("J-1")
         case .approaching:
-            let seconds = max(0, appointmentAt.timeIntervalSinceNow)
-            let hours = max(1, Int((seconds / 3600).rounded(.up)))
-            return "\(hours)h"
-        case .acknowledged: return "✓"
+            Text(appointmentAt, style: .timer)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        case .acknowledged:
+            Text("✓")
         }
     }
 }
