@@ -322,7 +322,9 @@ final class AppModel: ObservableObject {
     private func refreshAuthoritativeInventory() async {
         guard !installationRegistrationSuppressed else { return }
         do {
-            let response = try await AuthoritativeInventoryClient.fetch()
+            let response = try await AuthoritativeInventoryClient.fetch(
+                requireFreshAppointments: true
+            )
             let stale = AuthoritativeInventoryReconciliation.remindersToRemove(
                 previous: authoritativeVehicles,
                 next: response.vehicles
