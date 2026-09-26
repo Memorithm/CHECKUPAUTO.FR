@@ -605,7 +605,7 @@ def sync_deadlines(payload: dict) -> dict:
     }
 
 
-def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) -> dict:
+def sync_authoritative_deadlines(\n    installation_id: str,\n    deadlines: list[dict],\n    *,\n    preserve_appointments: bool = False,\n) -> dict:
     """Replace the authoritative Mercure snapshot for one already registered installation.
 
     This is an internal server-side primitive. It intentionally accepts no registration
@@ -667,7 +667,11 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
                      installation_id,deadline_id,due_date,appointment_at,source,created_at,updated_at
                    ) VALUES(?,?,?,?,?,?,?)
                    ON CONFLICT(installation_id,deadline_id) DO UPDATE SET
-                     due_date=excluded.due_date,appointment_at=excluded.appointment_at,
+                     due_date=excluded.due_date,
+                     appointment_at=CASE
+                       WHEN ? THEN mobile_deadline.appointment_at
+                       ELSE excluded.appointment_at
+                     END,
                      source=excluded.source,updated_at=excluded.updated_at""",
                 (
                     installation_id,
@@ -677,6 +681,7 @@ def sync_authoritative_deadlines(installation_id: str, deadlines: list[dict]) ->
                     AUTHORITATIVE_DEADLINE_SOURCE,
                     now,
                     now,
+                    int(bool(preserve_appointments)),
                 ),
             )
     return {
