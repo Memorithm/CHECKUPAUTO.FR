@@ -57,6 +57,14 @@ enum CheckupControlLiveActivityCoordinator {
         }
     }
 
+    static func cancel(reference: UUID) async {
+        let prefix = reference.uuidString + "-"
+        for activity in Activity<CheckupControlActivityAttributes>.activities
+        where activity.attributes.reminderId.hasPrefix(prefix) {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     static func acknowledge(reminderId: String?) async {
         guard let reminderId, !reminderId.isEmpty else { return }
         Acknowledgements.insert(reminderId)
