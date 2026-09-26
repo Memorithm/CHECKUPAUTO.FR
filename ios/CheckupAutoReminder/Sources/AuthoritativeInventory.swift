@@ -20,6 +20,7 @@ struct AuthoritativeInventoryRequest: Codable, Equatable, Sendable {
 struct AuthoritativeVehicleDeadline: Codable, Equatable, Hashable, Identifiable, Sendable {
     let bindingId: String
     let dueDate: String?
+    let appointmentAt: String? = nil
 
     var id: String { bindingId }
 
@@ -30,10 +31,14 @@ struct AuthoritativeVehicleDeadline: Codable, Equatable, Hashable, Identifiable,
         if let dueDate, AuthoritativeInventoryDate.date(from: dueDate) == nil {
             throw AuthoritativeInventoryError.invalidResponse
         }
+        if let appointmentAt, AuthoritativeInventoryDate.appointment(from: appointmentAt) == nil {
+            throw AuthoritativeInventoryError.invalidResponse
+        }
         return self
     }
 
     var dueDateValue: Date? { dueDate.flatMap(AuthoritativeInventoryDate.date(from:)) }
+    var appointmentAtValue: Date? { appointmentAt.flatMap(AuthoritativeInventoryDate.appointment(from:)) }
     var bindingUUID: UUID? { UUID(uuidString: bindingId) }
 }
 
@@ -79,6 +84,14 @@ enum AuthoritativeInventoryError: Error {
 }
 
 enum AuthoritativeInventoryDate {
+    static func appointment(from raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let value = formatter.date(from: raw) else { return nil }
+        let year = Calendar(identifier: .gregorian).component(.year, from: value)
+        return (2020...2100).contains(year) ? value : nil
+    }
+
     static func date(from raw: String) -> Date? {
         let parts = raw.split(separator: "-")
         guard parts.count == 3,
