@@ -138,14 +138,14 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
                 "clientKind": "account",
                 "clientId": "other-client",
                 "appointmentId": "wrong",
-                "appointmentAt": "2026-10-04T13:00+02:00",
+                "appointmentAt": "2026-10-04T13:00:00+02:00",
             },
             {
                 "vehicleId": "vehicle-77",
                 "clientKind": "account",
                 "clientId": "client-42",
                 "appointmentId": "future-77",
-                "appointmentAt": "2026-10-04T14:30+02:00",
+                "appointmentAt": "2026-10-04T14:30:00+02:00",
             },
         ]
         result = sync.sync_installation(self.installation, upcoming)
