@@ -87,6 +87,17 @@ class IOSReleaseRunnerTest(unittest.TestCase):
         self.assertEqual(payload["teamID"], "ABCDE12345")
         self.assertEqual(payload["signingStyle"], "automatic")
 
+
+    def test_testflight_build_number_must_be_numeric(self):
+        with mock.patch.object(runner.sys, "platform", "darwin"), \
+             mock.patch.object(runner, "release_guard", return_value={"branch":"main","head":"a"*40,"originMain":"a"*40}), \
+             mock.patch.object(runner, "_require_tool", return_value="/usr/bin/true"), \
+             mock.patch.object(runner, "_stage_project"), \
+             mock.patch.object(runner, "_show_release_settings", return_value={}), \
+             mock.patch.dict(runner.os.environ, {"CHECKUPAUTO_BUILD_NUMBER":"bad-build"}, clear=False):
+            with self.assertRaisesRegex(runner.ReleaseError, "build_number_invalid"):
+                runner.run_release(stage="archive")
+
     def test_linux_refuses_real_release(self):
         with mock.patch.object(runner.sys, "platform", "linux"):
             with self.assertRaisesRegex(runner.ReleaseError, "macos_required"):
