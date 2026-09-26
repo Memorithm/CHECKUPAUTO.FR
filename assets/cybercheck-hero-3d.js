@@ -154,7 +154,7 @@ if(canvas&&stage){
       const draw=(time)=>{
         frameId=0;
         if(!visible||document.hidden||contextLost) return;
-        if(time-lastFrame>(lowPower?32:16)){
+        if(reduced||time-lastFrame>(lowPower?32:16)){
           lastFrame=time;
           if(!dragging&&!reduced) yaw+=0.00022*(lowPower?1:1.2);
           gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
