@@ -152,10 +152,12 @@ def _release_automation_check() -> dict:
     except OSError:
         return _check("release_automation", False, "runner_unavailable")
     required = (
-        'choices=("preflight", "test", "archive", "export")',
+        'choices=("preflight", "test", "archive", "export", "testflight")',
         'release_guard(require_main=True)',
         'validate_signed_entitlements(entitlements)',
         'upload_requires_explicit_allow_upload',
+        'app_store_connect_auth_args',
+        '_testflight_export_options',
     )
     ok = all(token in text for token in required)
     return _check("release_automation", ok, RELEASE_RUNNER.name if ok else "runner_incomplete")
