@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE_BLEND = ROOT / "3d" / "blend" / "CyberCheckVehicle_Photo3D.blend"
 SAFE_COLLECTIONS = ("CYBERCHECK_PHOTO_3D", "CYBERCHECK_STAGE")
 MAX_GLB_BYTES = 4 * 1024 * 1024
-REFERENCE_TEXTURE = ROOT / "assets" / "premium" / "vehicle-peugeot208-premium.webp"
+REFERENCE_TEXTURE = ROOT / "assets" / "vehicle.png"
 
 
 def arguments() -> argparse.Namespace:
@@ -46,15 +46,15 @@ def bind_repository_images() -> None:
     for image in bpy.data.images:
         if image.source != "FILE" or image.packed_file is not None:
             continue
-        current = Path(bpy.path.abspath(image.filepath)).resolve()
-        if current.is_file():
+        if Path(image.filepath).name == "vehicle_cutout.png":
+            if not REFERENCE_TEXTURE.is_file():
+                raise RuntimeError("vehicle_reference_texture_missing")
+            image.filepath = str(REFERENCE_TEXTURE)
+            image.reload()
             continue
-        if Path(image.filepath).name != "vehicle_cutout.png":
+        current = Path(bpy.path.abspath(image.filepath)).resolve()
+        if not current.is_file():
             raise RuntimeError(f"external_image_missing:{Path(image.filepath).name}")
-        if not REFERENCE_TEXTURE.is_file():
-            raise RuntimeError("vehicle_reference_texture_missing")
-        image.filepath = str(REFERENCE_TEXTURE)
-        image.reload()
 
 
 def validate_glb(path: Path, max_bytes: int) -> dict:
