@@ -280,6 +280,13 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         if archive_path.exists():
             shutil.rmtree(archive_path)
         auth_args = app_store_connect_auth_args(required=stage == "testflight")
+        build_number = os.environ.get("CHECKUPAUTO_BUILD_NUMBER", "").strip()
+        if build_number and not re.fullmatch(r"[0-9]{1,18}", build_number):
+            raise ReleaseError("build_number_invalid")
+        if stage == "testflight" and not build_number:
+            raise ReleaseError("build_number_required")
+        if build_number:
+            result["buildNumber"] = build_number
         archive_cmd = [
             _require_tool("xcodebuild"), "archive",
             "-project", str(project_dir / f"{PROJECT_NAME}.xcodeproj"),
@@ -289,6 +296,8 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
             "-archivePath", str(archive_path),
             f"DEVELOPMENT_TEAM={team_id}",
         ]
+        if build_number:
+            archive_cmd.append(f"CURRENT_PROJECT_VERSION={build_number}")
         if auth_args:
             archive_cmd.extend(auth_args)
         elif os.environ.get("CHECKUPAUTO_ALLOW_PROVISIONING_UPDATES") == "1":
