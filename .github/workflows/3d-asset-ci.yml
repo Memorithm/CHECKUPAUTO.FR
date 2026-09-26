@@ -50,10 +50,37 @@ jobs:
           blender_tmp="$export_dir/blender-tmp"
           blender_xdg="$export_dir/blender-xdg"
           mkdir -p "$blender_home" "$blender_tmp" "$blender_xdg/config" "$blender_xdg/cache" "$blender_xdg/data"
+          blender_real="$(readlink -f "$blender_bin")"
+          guest_libm=""
+          for candidate in \
+            /lib/x86_64-linux-gnu/libm.so.6 \
+            /usr/lib/x86_64-linux-gnu/libm.so.6
+          do
+            if [ -f "$candidate" ] && file "$candidate" | grep -q 'x86-64'; then
+              guest_libm="$candidate"
+              break
+            fi
+          done
+          if [ -z "$guest_libm" ]; then
+            while IFS= read -r candidate; do
+              if file "$candidate" | grep -q 'x86-64'; then
+                guest_libm="$candidate"
+                break
+              fi
+            done < <(find "$(dirname "$blender_real")" -maxdepth 5 -type f -name 'libm.so.6' -print)
+          fi
+          test -n "$guest_libm" || {
+            echo "::error::Compatible emulated x86_64 libm.so.6 is not installed on the ARM64 runner"
+            exit 2
+          }
+          guest_libm_dir="$(dirname "$guest_libm")"
           python3 -m py_compile 3d/scripts/prepare_vehicle_cutout.py
           python3 3d/scripts/prepare_vehicle_cutout.py \
             --source assets/vehicle.png \
             --output "$cutout_path"
+          BOX64_EMULATED_LIBS=libm.so.6 \
+          BOX64_PREFER_EMULATED=1 \
+          BOX64_LD_LIBRARY_PATH="$guest_libm_dir${BOX64_LD_LIBRARY_PATH:+:$BOX64_LD_LIBRARY_PATH}" \
           BOX64_DYNAREC_SAFEFLAGS=2 \
           BOX64_DYNAREC_FASTNAN=0 \
           BOX64_DYNAREC_FASTROUND=0 \
