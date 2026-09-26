@@ -325,6 +325,11 @@ final class AppModel: ObservableObject {
                         Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays)
                     )
                 )
+                #if canImport(ActivityKit)
+                if #available(iOS 26.0, *), let reference = vehicle.bindingUUID {
+                    await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
+                }
+                #endif
             }
             authoritativeVehicles = response.vehicles
             AuthoritativeInventoryStore.save(response.vehicles)
