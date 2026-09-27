@@ -233,6 +233,11 @@ def app_store_connect_auth_args(*, required: bool = False) -> list[str]:
     ]
 
 
+
+def xcode_account_upload_enabled() -> bool:
+    return os.environ.get("CHECKUPAUTO_ALLOW_XCODE_ACCOUNT_UPLOAD", "").strip() == "1"
+
+
 def _testflight_export_options(team_id: str, output_root: Path) -> Path:
     path = output_root / "ExportOptions-TestFlight.plist"
     payload = {
@@ -284,7 +289,10 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         archive_path = output_root / f"{PROJECT_NAME}.xcarchive"
         if archive_path.exists():
             shutil.rmtree(archive_path)
-        auth_args = app_store_connect_auth_args(required=stage == "testflight")
+        auth_args = app_store_connect_auth_args(required=False)
+        xcode_account_upload = stage == "testflight" and not auth_args and xcode_account_upload_enabled()
+        if stage == "testflight" and not auth_args and not xcode_account_upload:
+            raise ReleaseError("testflight_auth_required")
         if build_number:
             result["buildNumber"] = build_number
         archive_cmd = [
@@ -300,7 +308,7 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
             archive_cmd.append(f"CURRENT_PROJECT_VERSION={build_number}")
         if auth_args:
             archive_cmd.extend(auth_args)
-        elif os.environ.get("CHECKUPAUTO_ALLOW_PROVISIONING_UPDATES") == "1":
+        elif xcode_account_upload or os.environ.get("CHECKUPAUTO_ALLOW_PROVISIONING_UPDATES") == "1":
             archive_cmd.append("-allowProvisioningUpdates")
         _run(archive_cmd)
         app_path = _archive_app(archive_path)
@@ -331,6 +339,10 @@ def run_release(*, stage: str, export_options: Path | None = None, allow_upload:
         ]
         if auth_args:
             export_cmd.extend(auth_args)
+            result["uploadAuthMode"] = "app-store-connect-api-key"
+        elif xcode_account_upload:
+            export_cmd.append("-allowProvisioningUpdates")
+            result["uploadAuthMode"] = "xcode-account"
         _run(export_cmd)
         result["exportPath"] = str(export_path)
         result["exportDestination"] = destination
