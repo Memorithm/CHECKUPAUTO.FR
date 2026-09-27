@@ -734,10 +734,19 @@ def due_targets(start_date: str, end_date: str) -> list[dict]:
     with connect() as db:
         rows = db.execute(
             """WITH source_choice AS (
-                 SELECT installation_id,
-                        MAX(CASE WHEN source=? THEN 1 ELSE 0 END) AS has_authoritative
-                 FROM mobile_deadline
-                 GROUP BY installation_id
+                 SELECT d.installation_id,
+                        MAX(
+                          CASE
+                            WHEN d.source=? AND EXISTS(
+                              SELECT 1 FROM mobile_vehicle_binding b
+                              WHERE b.installation_id=d.installation_id
+                                AND b.binding_id=d.deadline_id
+                            )
+                            THEN 1 ELSE 0
+                          END
+                        ) AS has_authoritative
+                 FROM mobile_deadline d
+                 GROUP BY d.installation_id
                )
                SELECT d.installation_id,d.deadline_id,d.due_date,d.source,
                       m.device_token,m.environment
@@ -747,7 +756,13 @@ def due_targets(start_date: str, end_date: str) -> list[dict]:
                WHERE d.due_date>=? AND d.due_date<=?
                  AND m.disabled_at='' AND m.device_token<>''
                  AND (
-                   (c.has_authoritative=1 AND d.source=?)
+                   (
+                     c.has_authoritative=1 AND d.source=? AND EXISTS(
+                       SELECT 1 FROM mobile_vehicle_binding b
+                       WHERE b.installation_id=d.installation_id
+                         AND b.binding_id=d.deadline_id
+                     )
+                   )
                    OR
                    (c.has_authoritative=0 AND d.source=?)
                  )
