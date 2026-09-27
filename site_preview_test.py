@@ -71,6 +71,7 @@ class SitePreviewTest(unittest.TestCase):
         self.assertIn('alphaMode!=="BLEND"', loader)
         self.assertIn('MAX_GLB_BYTES=4*1024*1024', loader)
         self.assertIn('stage.dataset.modelSource="blender-glb"', loader)
+        self.assertIn('badge.textContent="MODÈLE BLENDER · GLB"', loader)
         self.assertNotIn('three.js', loader.lower())
         self.assertNotIn('cdn.', loader.lower())
 
