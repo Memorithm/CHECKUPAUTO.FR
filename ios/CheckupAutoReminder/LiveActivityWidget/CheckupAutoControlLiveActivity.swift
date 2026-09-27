@@ -85,25 +85,63 @@ private struct CarJourneyMark: View {
     let seed: Int
     let compact: Bool
     @Environment(\.isLuminanceReduced) private var luminanceReduced
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var motionEnabled: Bool {
+        !luminanceReduced && !reduceMotion
+    }
 
     var body: some View {
         ZStack(alignment: .leading) {
             Capsule()
                 .fill(Color.secondary.opacity(0.18))
                 .frame(height: compact ? 2 : 3)
+                .id("road-\(seed)")
+                .transition(.opacity)
+                .animation(
+                    motionEnabled ? .easeOut(duration: 0.35) : nil,
+                    value: seed
+                )
+
             Image(systemName: "building.2.fill")
                 .font(.system(size: compact ? 9 : 12))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .id("centre-\(seed)")
+                .transition(.scale(scale: 0.72).combined(with: .opacity))
+                .animation(
+                    motionEnabled
+                        ? .timingCurve(0.18, 0.88, 0.28, 1.0, duration: 0.38)
+                            .delay(1.34)
+                        : nil,
+                    value: seed
+                )
 
             Image(systemName: "car.side.fill")
                 .font(.system(size: compact ? 13 : 18, weight: .semibold))
                 .foregroundStyle(Color(red: 0.12, green: 0.48, blue: 0.34))
-                .id(seed)
-                .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
-                .offset(x: luminanceReduced ? (compact ? 7 : 18) : (compact ? 14 : 34))
+                .id("car-\(seed)")
+                .transition(
+                    .asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal: .opacity
+                    )
+                )
+                .animation(
+                    motionEnabled
+                        ? .timingCurve(0.16, 0.72, 0.18, 1.0, duration: 0.95)
+                            .delay(0.32)
+                        : nil,
+                    value: seed
+                )
+                .offset(
+                    x: motionEnabled
+                        ? (compact ? 14 : 34)
+                        : (compact ? 7 : 18)
+                )
         }
         .frame(width: compact ? 34 : 72, height: compact ? 18 : 26)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Voiture en route vers le centre Checkup Auto")
     }
 }
