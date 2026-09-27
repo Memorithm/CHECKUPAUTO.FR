@@ -149,6 +149,7 @@ def _security_client_ip(handler):
 class Handler(SimpleHTTPRequestHandler):
  server_version='CyberCheck'
  sys_version=''
+ extensions_map={**SimpleHTTPRequestHandler.extensions_map,'.glb':'model/gltf-binary'}
  def version_string(self): return 'CyberCheck'
  def list_directory(self,path):
   self.send_error(404); return None
@@ -180,6 +181,8 @@ class Handler(SimpleHTTPRequestHandler):
   self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
   self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
   response_path=urlparse(self.path).path
+  if response_path.startswith('/assets/3d/') and response_path.endswith('.glb'):
+   self.send_header('Cache-Control','public, max-age=31536000, immutable')
   if response_path.startswith('/admin') or response_path.startswith('/payment/test') or response_path.startswith('/auth/customer/') or response_path in {'/app/claim','/compte'}: self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
   return super().end_headers()
  def do_OPTIONS(self):
