@@ -17,11 +17,11 @@ on:
         required: true
         type: string
 
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/staging-deploy.yml'
+  workflow_run:
+    workflows:
+      - Security CI
+    types:
+      - completed
 
 permissions:
   actions: read
@@ -33,6 +33,14 @@ concurrency:
 
 jobs:
   staging:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 20
     env:
@@ -49,8 +57,8 @@ jobs:
     steps:
       - name: Validate staging request against GitHub main
         env:
-          DEPLOY_ACTION: ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'probe' }}
-          DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
+          DEPLOY_ACTION: ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'update' }}
+          DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
           GH_API: ${{ github.api_url }}
           GH_REPOSITORY: ${{ github.repository }}
@@ -119,7 +127,7 @@ jobs:
 
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -166,9 +174,13 @@ jobs:
           "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py probe             --name staging-v3             --known-hosts "$STAGING_KNOWN_HOSTS"
 
       - name: Execute staging action
-        if: github.event_name == 'workflow_dispatch' && inputs.action != 'probe'
+        if: >-
+          github.event_name == 'workflow_run' ||
+          (github.event_name == 'workflow_dispatch' && inputs.action != 'probe')
         env:
           CYBERCHECK_DEPLOY_ADMIN_PASSWORD_FILE: ${{ env.STAGING_ADMIN_PASSWORD_FILE }}
+          DEPLOY_ACTION: ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'update' }}
+          DEPLOY_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py "${{ inputs.action }}"             --name staging-v3             --known-hosts "$STAGING_KNOWN_HOSTS"             --sha "${{ inputs.sha }}"
+          "$RUNNER_TEMP/checkupauto-staging-venv/bin/python"             scripts/checkupauto-deployctl.py "$DEPLOY_ACTION"             --name staging-v3             --known-hosts "$STAGING_KNOWN_HOSTS"             --sha "$DEPLOY_SHA"
