@@ -98,7 +98,7 @@ jobs:
           fi
 
           profile_teams="$(
-            find "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"                  "$HOME/Library/MobileDevice/Provisioning Profiles"                  -maxdepth 1 -type f 2>/dev/null |
+            { find "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"                    "$HOME/Library/MobileDevice/Provisioning Profiles"                    -maxdepth 1 -type f 2>/dev/null || true; } |
             while IFS= read -r profile; do
               security cms -D -i "$profile" 2>/dev/null |
                 plutil -extract TeamIdentifier.0 raw -o - - 2>/dev/null || true
@@ -114,7 +114,7 @@ jobs:
           fi
 
           key_ids="$(
-            find "$HOME/.appstoreconnect/private_keys" "$HOME/.private_keys" "$HOME/private_keys"               -maxdepth 1 -type f -name 'AuthKey_*.p8' 2>/dev/null |
+            { find "$HOME/.appstoreconnect/private_keys" "$HOME/.private_keys" "$HOME/private_keys"                 -maxdepth 1 -type f -name 'AuthKey_*.p8' 2>/dev/null || true; } |
               sed -E 's#^.*/AuthKey_([A-Za-z0-9]{10})\.p8$#\1#' |
               grep -E '^[A-Za-z0-9]{10}$' |
               sort -u |
