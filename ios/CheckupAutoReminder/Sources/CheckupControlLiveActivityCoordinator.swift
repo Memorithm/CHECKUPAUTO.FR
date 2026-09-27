@@ -174,7 +174,7 @@ enum CheckupControlLiveActivityRetryScheduler {
     @discardableResult
     static func register() -> Bool {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { task in
-            guard let refreshTask = task as? BGAppRefreshTask else {
+            guard let refreshTask = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
                 return
             }
@@ -205,12 +205,14 @@ enum CheckupControlLiveActivityRetryScheduler {
 
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
         guard let earliest = candidateDates.min() else { return }
-        let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
+        let request = BGProcessingTaskRequest(identifier: taskIdentifier)
         request.earliestBeginDate = earliest
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = false
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    private static func handle(_ backgroundTask: BGAppRefreshTask) {
+    private static func handle(_ backgroundTask: BGProcessingTask) {
         let work = Task {
             let previous = AuthoritativeInventoryStore.load()
             let response: AuthoritativeInventoryResponse
