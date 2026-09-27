@@ -38,12 +38,26 @@ def inspect_glb(path: Path, max_bytes: int = MAX_GLB_BYTES) -> dict:
     nodes = document.get("nodes") or []
     if not meshes or not nodes:
         raise ValueError("glb_scene_empty")
+
+    materials = document.get("materials") or []
+    vehicle_material = next(
+        (item for item in materials if str(item.get("name") or "") == "VehiclePhotoMaterial"),
+        None,
+    )
+    if vehicle_material is None:
+        raise ValueError("glb_vehicle_material_missing")
+    if vehicle_material.get("alphaMode") != "BLEND":
+        raise ValueError("glb_vehicle_alpha_mode_invalid")
+    if not (document.get("images") or []):
+        raise ValueError("glb_vehicle_texture_missing")
+
     return {
         "bytes": len(raw),
         "version": version,
         "meshes": len(meshes),
         "nodes": len(nodes),
         "animations": len(document.get("animations") or []),
+        "vehicleAlphaMode": vehicle_material.get("alphaMode"),
     }
 
 
