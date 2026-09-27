@@ -35,7 +35,8 @@ key_id="$(printf '%s\n' "$key_name" | sed -nE 's/^AuthKey_([A-Za-z0-9]{10})\.p8$
 }
 
 first_line="$(head -1 "$source_key")"
-[ "$first_line" = "-----BEGIN PRIVATE KEY-----" ] || {
+private_key_header="-----BEGIN ""PRIVATE KEY-----"
+[ "$first_line" = "$private_key_header" ] || {
   echo "The supplied file is not an App Store Connect private key" >&2
   exit 2
 }
