@@ -61,6 +61,20 @@ class SitePreviewTest(unittest.TestCase):
         self.assertLess(len(self.page.encode()), 3 * 1024 * 1024)
 
 
+
+    def test_glb_runtime_loader_prefers_local_verified_model_and_keeps_fallback(self):
+        loader = (self.root / "assets" / "cybercheck-glb-hero.js").read_text(encoding="utf-8")
+        self.assertIn('/assets/3d/CyberCheckVehicle_Photo3D.glb?v=1', loader)
+        self.assertIn('/assets/cybercheck-hero-3d.js?v=photo-depth-1', loader)
+        self.assertIn('VehiclePhoto3D', loader)
+        self.assertIn('VehiclePhotoMaterial', loader)
+        self.assertIn('alphaMode!=="BLEND"', loader)
+        self.assertIn('MAX_GLB_BYTES=4*1024*1024', loader)
+        self.assertIn('stage.dataset.modelSource="blender-glb"', loader)
+        self.assertIn('badge.textContent="MODÈLE BLENDER · GLB"', loader)
+        self.assertNotIn('three.js', loader.lower())
+        self.assertNotIn('cdn.', loader.lower())
+
     def test_webgl_hero_uses_local_vehicle_photo_with_bounded_parallax(self):
         hero = (self.root / "assets" / "cybercheck-hero-3d.js").read_text(encoding="utf-8")
         self.assertIn('/assets/vehicle.png?v=photo-depth-1', hero)
