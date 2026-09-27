@@ -115,8 +115,7 @@ jobs:
 
           key_ids="$(
             { find "$HOME/.appstoreconnect/private_keys" "$HOME/.private_keys" "$HOME/private_keys"                 -maxdepth 1 -type f -name 'AuthKey_*.p8' 2>/dev/null || true; } |
-              sed -E 's#^.*/AuthKey_([A-Za-z0-9]{10})\.p8$#\1#' |
-              grep -E '^[A-Za-z0-9]{10}$' |
+              sed -nE 's#^.*/AuthKey_([A-Za-z0-9]{10})\.p8$#\1#p' |
               sort -u |
               paste -sd, -
           )"
@@ -124,6 +123,30 @@ jobs:
             echo "ASC_LOCAL_KEY_IDS=$key_ids"
           else
             echo "ASC_LOCAL_KEY_IDS=none"
+          fi
+
+          app_profile_matches="$(
+            { find "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"                    "$HOME/Library/MobileDevice/Provisioning Profiles"                    -maxdepth 1 -type f 2>/dev/null || true; } |
+            while IFS= read -r profile; do
+              tmp="$(mktemp)"
+              if security cms -D -i "$profile" >"$tmp" 2>/dev/null; then
+                app_id="$(plutil -extract Entitlements.application-identifier raw -o - "$tmp" 2>/dev/null || true)"
+                if [[ "$app_id" == *.fr.checkupauto.reminder ]]; then
+                  team="$(plutil -extract TeamIdentifier.0 raw -o - "$tmp" 2>/dev/null || true)"
+                  expiration="$(plutil -extract ExpirationDate raw -o - "$tmp" 2>/dev/null || true)"
+                  profile_name="$(plutil -extract Name raw -o - "$tmp" 2>/dev/null || true)"
+                  printf '%s|%s|%s\n' "$team" "$expiration" "$profile_name"
+                fi
+              fi
+              rm -f "$tmp"
+            done
+          )"
+          if [ -n "$app_profile_matches" ]; then
+            echo "CHECKUPAUTO_PROFILES_BEGIN"
+            printf '%s\n' "$app_profile_matches"
+            echo "CHECKUPAUTO_PROFILES_END"
+          else
+            echo "CHECKUPAUTO_PROFILES=none"
           fi
 
           if defaults read com.apple.dt.Xcode >/dev/null 2>&1; then
