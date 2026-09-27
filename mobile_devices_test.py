@@ -333,10 +333,7 @@ class MobileDevicesTest(unittest.TestCase):
             })
 
     def test_identity_changing_rebind_rotates_identity_and_rejects_stale_appointment(self):
-        devices.register_installation({
-            "installationId": self.install_id,
-            "registrationSecret": self.secret,
-        })
+        devices.register(self.payload())
         first_claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
         first = devices.consume_vehicle_claim({
             "installationId": self.install_id,
@@ -385,6 +382,10 @@ class MobileDevicesTest(unittest.TestCase):
             "dueDate": None,
             "appointmentAt": None,
         }])
+        self.assertEqual(
+            devices.due_targets("2027-01-01", "2027-03-01"),
+            [],
+        )
 
     def test_wrong_installation_secret_does_not_consume_vehicle_claim(self):
         devices.register(self.payload())
