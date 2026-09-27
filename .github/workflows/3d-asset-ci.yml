@@ -29,7 +29,7 @@ jobs:
   export-glb:
     if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, Linux, ARM64, internal]
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
       CHECKUPAUTO_MAC_USER: tarek
@@ -121,7 +121,20 @@ jobs:
                if [ -x \"\$candidate\" ]; then blender_bin=\"\$candidate\"; break; fi
              done
              if [ -z \"\$blender_bin\" ]; then blender_bin=\$(command -v blender || true); fi
-             [ -n \"\$blender_bin\" ] || { echo 'BLENDER_MISSING_ON_MAC'; exit 2; }
+             if [ -z \"\$blender_bin\" ]; then
+               brew_bin=\$(command -v brew || true)
+               [ -n \"\$brew_bin\" ] || { echo 'BLENDER_AND_HOMEBREW_MISSING_ON_MAC'; exit 2; }
+               \"\$brew_bin\" install --cask blender
+               for candidate in \
+                 '/Applications/Blender.app/Contents/MacOS/Blender' \
+                 '/opt/homebrew/bin/blender' \
+                 '/usr/local/bin/blender'; do
+                 if [ -x \"\$candidate\" ]; then blender_bin=\"\$candidate\"; break; fi
+               done
+               if [ -z \"\$blender_bin\" ]; then blender_bin=\$(command -v blender || true); fi
+             fi
+             [ -n \"\$blender_bin\" ] || { echo 'BLENDER_INSTALL_FAILED_ON_MAC'; exit 2; }
+             \"\$blender_bin\" --version | head -2
              cd '$remote_dir'
              python3 3d/scripts/prepare_vehicle_cutout.py                --source assets/vehicle.png                --output vehicle_cutout.png
              \"\$blender_bin\" -b 3d/blend/CyberCheckVehicle_Photo3D.blend                --python 3d/scripts/export_web_glb.py --                --output CyberCheckVehicle_Photo3D.glb                --cutout vehicle_cutout.png                --max-bytes 4194304
