@@ -2,7 +2,7 @@
 
 Application SwiftUI local-first pour les rappels de contrôle technique.
 
-## V0.2 préparée
+## V0.3 préparée
 
 - ajout manuel d’un ou plusieurs véhicules ;
 - stockage local des échéances ;
@@ -15,7 +15,12 @@ Application SwiftUI local-first pour les rappels de contrôle technique.
 - accès direct à l’espace client particulier/pro et au scan de rapport CT ;
 - affichage natif de la cagnotte fidélité vérifiée et des véhicules rattachés à Mercure ;
 - navigation vers l’analyse chiffrée des rapports CT (PDF/JPEG/PNG → Markdown + conseils) via le compte authentifié ;
-- tests unitaires du calcul des échéances.
+- tests unitaires du calcul des échéances ;
+- Live Activities / Dynamic Island pour le parcours court autour d’un rendez-vous de contrôle technique ;
+- activité J-1 à 18:00 puis activité jour J deux heures avant le rendez-vous, à partir de l’horaire Mercure vérifié ;
+- rappel visible « Pensez à votre carte grise » et ouverture ciblée de l’app depuis la Dynamic Island ;
+- planification idempotente et réconciliation si l’horaire du rendez-vous change ;
+- pipeline de livraison TestFlight piloté par GitHub Actions via le Mac mini, avec numéro de build unique.
 
 L'application synchronise au serveur uniquement un `deadlineId` UUID opaque et la date d'échéance. L'immatriculation et le libellé du véhicule restent sur l'iPhone ; aucun identifiant Mercure ni aucune donnée client n'est transmis par cette API. L'instantané est authentifié par l'identité d'installation conservée dans le Trousseau Apple.
 
