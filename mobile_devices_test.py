@@ -332,7 +332,7 @@ class MobileDevicesTest(unittest.TestCase):
                 "claimToken": token,
             })
 
-    def test_identity_changing_rebind_clears_cached_appointment(self):
+    def test_identity_changing_rebind_rotates_identity_and_rejects_stale_appointment(self):
         devices.register_installation({
             "installationId": self.install_id,
             "registrationSecret": self.secret,
@@ -356,18 +356,35 @@ class MobileDevicesTest(unittest.TestCase):
             "claimToken": second_claim["claimToken"],
         })
 
-        self.assertEqual(second["bindingId"], first["bindingId"])
+        self.assertNotEqual(second["bindingId"], first["bindingId"])
         inventory = devices.bound_inventory({
             "installationId": self.install_id,
             "registrationSecret": self.secret,
         })
         self.assertEqual(inventory["vehicles"], [{
-            "bindingId": first["bindingId"],
+            "bindingId": second["bindingId"],
             "dueDate": "2027-02-15",
             "appointmentAt": None,
         }])
         bindings = devices.registered_vehicle_bindings(self.install_id)
         self.assertEqual(bindings[0]["client_id"], "client-99")
+
+        # A refresh that captured the previous identity before the rebind may
+        # still finish later, but its old binding ID must remain unobservable.
+        devices.sync_authoritative_deadlines(self.install_id, [{
+            "deadlineId": first["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        stale_inventory = devices.bound_inventory({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(stale_inventory["vehicles"], [{
+            "bindingId": second["bindingId"],
+            "dueDate": None,
+            "appointmentAt": None,
+        }])
 
     def test_wrong_installation_secret_does_not_consume_vehicle_claim(self):
         devices.register(self.payload())
