@@ -69,8 +69,74 @@ jobs:
               fi
             done < <(find "$(dirname "$blender_real")" -maxdepth 5 \( -type f -o -type l \) -name 'libm.so.6' -print)
           fi
+          if [ -z "$guest_libm" ]; then
+            apt_root="$export_dir/ubuntu-amd64"
+            apt_sources="$apt_root/ubuntu-amd64.list"
+            mkdir -p "$apt_root/lists/partial" "$apt_root/cache/archives/partial"
+            test -r /usr/share/keyrings/ubuntu-archive-keyring.gpg || {
+              echo "::error::Ubuntu archive signing keyring is unavailable"
+              exit 2
+            }
+            . /etc/os-release
+            test -n "${VERSION_CODENAME:-}" || {
+              echo "::error::Runner distribution codename is unavailable"
+              exit 2
+            }
+            {
+              printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu %s main\n' "$VERSION_CODENAME"
+              printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu %s-updates main\n' "$VERSION_CODENAME"
+              printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://security.ubuntu.com/ubuntu %s-security main\n' "$VERSION_CODENAME"
+            } > "$apt_sources"
+            apt_options=(
+              -o "Dir::Etc::sourcelist=$apt_sources"
+              -o "Dir::Etc::sourceparts=-"
+              -o "Dir::State::Lists=$apt_root/lists"
+              -o "Dir::Cache::Archives=$apt_root/cache/archives"
+              -o "APT::Architecture=amd64"
+              -o "Acquire::Languages=none"
+            )
+            apt-get "${apt_options[@]}" update
+            candidate="$(apt-cache "${apt_options[@]}" policy libc6:amd64 | awk '/Candidate:/ {print $2; exit}')"
+            test -n "$candidate" && [ "$candidate" != "(none)" ] || {
+              echo "::error::No signed Ubuntu amd64 libc6 candidate is available"
+              exit 2
+            }
+            (
+              cd "$apt_root"
+              apt-get "${apt_options[@]}" download "libc6:amd64=$candidate"
+            )
+            mapfile -t libc_packages < <(
+              find "$apt_root" -maxdepth 1 -type f -name 'libc6_*_amd64.deb' -print
+            )
+            [ "${#libc_packages[@]}" -eq 1 ] || {
+              echo "::error::Expected exactly one downloaded amd64 libc6 package"
+              exit 2
+            }
+            libc_package="${libc_packages[0]}"
+            [ "$(stat -c %s "$libc_package")" -le 16777216 ] || {
+              echo "::error::Downloaded libc6 package exceeds the 16 MiB bound"
+              exit 2
+            }
+            [ "$(dpkg-deb -f "$libc_package" Package)" = "libc6" ] &&
+              [ "$(dpkg-deb -f "$libc_package" Architecture)" = "amd64" ] || {
+                echo "::error::Downloaded package is not Ubuntu libc6 for amd64"
+                exit 2
+              }
+            sha256sum "$libc_package"
+            sysroot="$apt_root/sysroot"
+            mkdir -p "$sysroot"
+            dpkg-deb --extract "$libc_package" "$sysroot"
+            while IFS= read -r candidate_path; do
+              if file -L "$candidate_path" | grep -q 'x86-64'; then
+                guest_libm="$candidate_path"
+                break
+              fi
+            done < <(
+              find "$sysroot" -maxdepth 6 \( -type f -o -type l \) -name 'libm.so.6' -print
+            )
+          fi
           test -n "$guest_libm" || {
-            echo "::error::Compatible emulated x86_64 libm.so.6 is not installed on the ARM64 runner"
+            echo "::error::Compatible emulated x86_64 libm.so.6 could not be provisioned"
             exit 2
           }
           guest_libm_dir="$(dirname "$guest_libm")"
