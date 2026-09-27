@@ -174,6 +174,11 @@ enum AuthoritativeInventoryStore {
 enum AuthoritativeInventoryClient {
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/inventory") }
 
+    static func timeoutInterval(requireFreshAppointments: Bool) -> TimeInterval {
+        // Mercure performs two sequential bounded reads (30 s + 25 s).
+        requireFreshAppointments ? 65 : 8
+    }
+
     static func fetch(
         session: URLSession = .shared,
         requireFreshAppointments: Bool = false
@@ -188,7 +193,9 @@ enum AuthoritativeInventoryClient {
         ).validated()
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 8
+        request.timeoutInterval = timeoutInterval(
+            requireFreshAppointments: requireFreshAppointments
+        )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder().encode(payload)
