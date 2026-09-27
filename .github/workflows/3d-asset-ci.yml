@@ -151,6 +151,7 @@ jobs:
           remote_dir="$(cat "$RUNNER_TEMP/checkupauto-3d-remote-dir")"
           local_dir="$(cat "$RUNNER_TEMP/checkupauto-3d-local-dir")"
           scp "${ssh_args[@]}"             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST:$remote_dir/CyberCheckVehicle_Photo3D.glb"             "$local_dir/CyberCheckVehicle_Photo3D.glb"
+          test -s "$local_dir/CyberCheckVehicle_Photo3D.glb"
           python3 glb_contract.py "$local_dir/CyberCheckVehicle_Photo3D.glb" --max-bytes 4194304
           echo "GLB_EXPORT_PATH=$local_dir/CyberCheckVehicle_Photo3D.glb" >> "$GITHUB_ENV"
 
