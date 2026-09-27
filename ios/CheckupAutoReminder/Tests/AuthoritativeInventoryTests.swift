@@ -2,6 +2,17 @@ import XCTest
 @testable import CheckupAutoReminder
 
 final class AuthoritativeInventoryTests: XCTestCase {
+    func testFreshAppointmentRequestTimeoutCoversSequentialProviderBudget() {
+        XCTAssertEqual(
+            AuthoritativeInventoryClient.timeoutInterval(requireFreshAppointments: false),
+            8
+        )
+        XCTAssertGreaterThan(
+            AuthoritativeInventoryClient.timeoutInterval(requireFreshAppointments: true),
+            55
+        )
+    }
+
     func testFreshAppointmentRequestIsExplicitlyEncoded() throws {
         let request = AuthoritativeInventoryRequest(
             installationId: "60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1",
