@@ -273,6 +273,7 @@ class MobileDevicesTest(unittest.TestCase):
         self.assertEqual(inventory["vehicles"], [{
             "bindingId": binding["bindingId"],
             "dueDate": "2027-02-15",
+            "appointmentAt": None,
         }])
         raw = str(inventory)
         self.assertNotIn("vehicle-77", raw)

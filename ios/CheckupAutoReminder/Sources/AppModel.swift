@@ -129,6 +129,7 @@ final class AppModel: ObservableObject {
                     installationRegistrationSuppressed =
                         InstallationLifecycleState.isAutoRegistrationSuppressed()
                     await refreshAuthoritativeInventory()
+                    Task { await self.refreshAuthoritativeInventoryAfterVehicleClaim() }
                     if notificationAuthorized {
                         registerForRemoteNotifications()
                     }
@@ -185,6 +186,11 @@ final class AppModel: ObservableObject {
                 }
                 VehicleDeadlineStore.clear()
                 AuthoritativeInventoryStore.clear()
+                #if canImport(ActivityKit)
+                if #available(iOS 26.0, *) {
+                    await CheckupControlLiveActivityCoordinator.clearAll()
+                }
+                #endif
                 vehicles = []
                 authoritativeVehicles = []
                 referralWallets = []
@@ -219,6 +225,17 @@ final class AppModel: ObservableObject {
             await rescheduleAll()
         }
     }
+
+    func acknowledgeControlLiveActivity(reminderId: String?) {
+        #if canImport(ActivityKit)
+        if #available(iOS 26.0, *) {
+            Task {
+                await CheckupControlLiveActivityCoordinator.acknowledge(reminderId: reminderId)
+            }
+        }
+        #endif
+    }
+
 
     var remotePushActiveForDevice: Bool {
         notificationAuthorized &&
@@ -294,10 +311,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func refreshAuthoritativeInventoryAfterVehicleClaim() async {
+        for delaySeconds: UInt64 in [2, 5, 10, 20, 30] {
+            try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            if Task.isCancelled { return }
+            await refreshAuthoritativeInventory()
+        }
+    }
+
     private func refreshAuthoritativeInventory() async {
         guard !installationRegistrationSuppressed else { return }
         do {
-            let response = try await AuthoritativeInventoryClient.fetch()
+            let response = try await AuthoritativeInventoryClient.fetch(
+                requireFreshAppointments: true
+            )
             let stale = AuthoritativeInventoryReconciliation.remindersToRemove(
                 previous: authoritativeVehicles,
                 next: response.vehicles
@@ -309,9 +336,15 @@ final class AppModel: ObservableObject {
                         Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays)
                     )
                 )
+                #if canImport(ActivityKit)
+                if #available(iOS 26.0, *), let reference = vehicle.bindingUUID {
+                    await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
+                }
+                #endif
             }
             authoritativeVehicles = response.vehicles
             AuthoritativeInventoryStore.save(response.vehicles)
+            await scheduleControlLiveActivities()
 
             if let walletStatus = response.referralWalletStatus {
                 if walletStatus.wallets.isEmpty {
@@ -330,6 +363,35 @@ final class AppModel: ObservableObject {
             // Preserve the last verified opaque inventory and referral-wallet snapshot
             // when the server is offline or does not yet expose the combined response.
         }
+    }
+
+    private func scheduleControlLiveActivities() async {
+        #if canImport(ActivityKit)
+        if #available(iOS 26.0, *) {
+            var retryFailed = false
+            for vehicle in authoritativeVehicles {
+                guard let reference = vehicle.bindingUUID else { continue }
+                guard let appointmentAt = vehicle.appointmentAtValue,
+                      appointmentAt > Date() else {
+                    await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
+                    continue
+                }
+                do {
+                    try await CheckupControlLiveActivityCoordinator.schedule(
+                        appointmentAt: appointmentAt,
+                        reference: reference
+                    )
+                } catch {
+                    retryFailed = true
+                    // A Live Activity is an enhancement. Existing local/APNs reminders remain authoritative fallbacks.
+                }
+            }
+            CheckupControlLiveActivityRetryScheduler.submit(
+                for: authoritativeVehicles,
+                retryFailed: retryFailed
+            )
+        }
+        #endif
     }
 
     private func refreshNotificationState() async {

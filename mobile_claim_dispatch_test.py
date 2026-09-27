@@ -118,10 +118,10 @@ class MobileClaimDispatchTest(unittest.TestCase):
             "claimedAt": "2026-09-22T06:00:00+00:00",
         }
         with mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim", return_value=vehicle_result) as vehicle, \
-             mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation", return_value={"ok": True}) as sync:
+             mock.patch.object(dispatch, "_start_authoritative_refresh") as start_refresh:
             result = dispatch.consume_with_authoritative_refresh(payload)
         vehicle.assert_called_once_with(payload)
-        sync.assert_called_once_with(self.identity["installationId"])
+        start_refresh.assert_called_once_with(self.identity["installationId"])
         self.assertEqual(result["claimType"], "vehicle")
 
     def test_wallet_claim_never_triggers_authoritative_vehicle_refresh(self):
@@ -148,12 +148,16 @@ class MobileClaimDispatchTest(unittest.TestCase):
             "bindingId": "22222222-2222-4222-8222-222222222222",
             "claimedAt": "2026-09-22T06:00:00+00:00",
         }
-        with mock.patch.object(dispatch.mobile_devices, "consume_vehicle_claim", return_value=vehicle_result), \
-             mock.patch.object(dispatch.mobile_authoritative_sync, "sync_installation", side_effect=RuntimeError("upstream unavailable")):
-            result = dispatch.consume_with_authoritative_refresh(payload)
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["claimType"], "vehicle")
-        self.assertEqual(result["bindingId"], vehicle_result["bindingId"])
+        with mock.patch.object(
+            dispatch.mobile_authoritative_sync,
+            "sync_installation",
+            side_effect=RuntimeError("upstream unavailable"),
+        ) as sync:
+            dispatch._refresh_vehicle_claim(self.identity["installationId"])
+        sync.assert_called_once_with(
+            self.identity["installationId"],
+            refresh_appointments=True,
+        )
 
     def test_malformed_payload_never_triggers_authoritative_refresh(self):
         payload = {**self.identity, "claimToken": "rw_short"}

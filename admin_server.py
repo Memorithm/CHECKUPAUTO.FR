@@ -521,6 +521,8 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/app/claim':
    self._referrer_policy='no-referrer'
    return self.send_bytes(mobile_claim_delivery.claim_landing_html(load_config()),'text/html; charset=utf-8',cache='no-store')
+  if path=='/app/live':
+   return self.send_redirect('/app?src=live-activity',302)
   if path=='/app':
    c=load_config(); q=parse_qs(parsed.query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
    return self.send_bytes(app_download.landing_html(c,source,nonce),'text/html; charset=utf-8',cache='no-cache')
@@ -672,10 +674,19 @@ class Handler(SimpleHTTPRequestHandler):
     if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
     payload=self._read_json()
     mobile_devices.bound_inventory(payload)
-    try:
-     mobile_authoritative_sync.sync_installation(str(payload.get('installationId') or ''))
-    except Exception:
-     pass
+    refresh_appointments=payload.get('refreshAppointments',False)
+    if not isinstance(refresh_appointments,bool):
+     raise ValueError('refreshAppointments invalide')
+    if refresh_appointments:
+     try:
+      mobile_authoritative_sync.sync_installation_fresh(str(payload.get('installationId') or ''))
+     except Exception:
+      return self.send_json({'ok':False,'error':'authoritative_appointment_refresh_unavailable'},503)
+    else:
+     try:
+      mobile_authoritative_sync.sync_installation(str(payload.get('installationId') or ''))
+     except Exception:
+      pass
     return self.send_json(mobile_devices.bound_inventory(payload),200)
    except PermissionError as exc: return self.send_json({'ok':False,'error':'mobile_request_forbidden'},403)
    except Exception: return self.send_json({'ok':False,'error':'mobile_request_invalid'},400)

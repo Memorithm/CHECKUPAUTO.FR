@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import mobile_authoritative_sync as sync
 import mobile_devices as devices
@@ -119,7 +120,178 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         self.assertEqual(inventory["vehicles"], [{
             "bindingId": binding["bindingId"],
             "dueDate": "2027-04-30",
+            "appointmentAt": None,
         }])
+
+
+    def test_future_appointment_is_projected_only_on_exact_bound_identity(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        upcoming = [
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "other-client",
+                "appointmentId": "wrong",
+                "appointmentAt": "2099-10-04T13:00:00+02:00",
+            },
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "client-42",
+                "appointmentId": "future-77",
+                "appointmentAt": "2099-10-04T14:30:00+02:00",
+            },
+        ]
+        result = sync.sync_installation(self.installation, upcoming)
+        self.assertEqual(result["authoritativeAppointments"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        self.assertNotIn("future-77", repr(inventory))
+        self.assertNotIn("other-client", repr(inventory))
+
+    def test_elapsed_appointment_does_not_hide_later_match(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2099-02-15",
+            "appointmentId": "historic-77",
+        }])
+        result = sync.sync_installation(self.installation, [
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "client-42",
+                "appointmentAt": "2020-01-01T09:00:00+00:00",
+            },
+            {
+                "vehicleId": "vehicle-77",
+                "clientKind": "account",
+                "clientId": "client-42",
+                "appointmentAt": "2099-01-01T09:00:00+00:00",
+            },
+        ])
+        self.assertEqual(result["authoritativeAppointments"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": binding["bindingId"],
+            "dueDate": "2099-02-15",
+            "appointmentAt": "2099-01-01T09:00:00+00:00",
+        }])
+
+    def test_refresh_failure_preserves_cached_appointment(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        devices.sync_authoritative_deadlines(self.installation, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        with mock.patch.object(
+            sync,
+            "upcoming_appointments_snapshot",
+            side_effect=TimeoutError("provider unavailable"),
+        ):
+            result = sync.sync_installation(
+                self.installation,
+                refresh_appointments=True,
+            )
+        self.assertEqual(result["authoritativeDeadlines"], 1)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(
+            inventory["vehicles"][0]["appointmentAt"],
+            "2099-10-04T14:30:00+02:00",
+        )
+
+    def test_strict_refresh_failure_raises_without_mutating_cached_appointment(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        devices.sync_authoritative_deadlines(self.installation, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        with mock.patch.object(
+            sync,
+            "upcoming_appointments_snapshot",
+            side_effect=TimeoutError("provider unavailable"),
+        ):
+            with self.assertRaises(TimeoutError):
+                sync.sync_installation_fresh(self.installation)
+
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(
+            inventory["vehicles"][0]["appointmentAt"],
+            "2099-10-04T14:30:00+02:00",
+        )
+
+    def test_strict_refresh_removes_stale_appointment_from_fresh_empty_snapshot(self):
+        binding = self.bind()
+        reminders._upsert([{
+            "vehicleId": "vehicle-77",
+            "clientKind": "account",
+            "clientId": "client-42",
+            "dueDate": "2027-02-15",
+            "appointmentId": "historic-77",
+        }])
+        devices.sync_authoritative_deadlines(self.installation, [{
+            "deadlineId": binding["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        with mock.patch.object(sync, "upcoming_appointments_snapshot", return_value=[]):
+            result = sync.sync_installation_fresh(self.installation)
+
+        self.assertEqual(result.get("authoritativeAppointments", 0), 0)
+        inventory = devices.bound_inventory({
+            "installationId": self.installation,
+            "registrationSecret": self.secret,
+        })
+        self.assertIsNone(inventory["vehicles"][0]["appointmentAt"])
+
+    def test_strict_refresh_skips_provider_without_eligible_binding(self):
+        with mock.patch.object(sync, "upcoming_appointments_snapshot") as snapshot:
+            result = sync.sync_installation_fresh(self.installation)
+
+        snapshot.assert_not_called()
+        self.assertEqual(result["bindings"], 0)
+        self.assertEqual(result.get("authoritativeAppointments", 0), 0)
 
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()

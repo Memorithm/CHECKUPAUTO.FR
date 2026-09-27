@@ -3,6 +3,17 @@ import Foundation
 struct AuthoritativeInventoryRequest: Codable, Equatable, Sendable {
     let installationId: String
     let registrationSecret: String
+    let refreshAppointments: Bool
+
+    init(
+        installationId: String,
+        registrationSecret: String,
+        refreshAppointments: Bool = false
+    ) {
+        self.installationId = installationId
+        self.registrationSecret = registrationSecret
+        self.refreshAppointments = refreshAppointments
+    }
 
     func validated() throws -> AuthoritativeInventoryRequest {
         guard UUID(uuidString: installationId)?.uuidString.lowercased() == installationId.lowercased() else {
@@ -20,6 +31,13 @@ struct AuthoritativeInventoryRequest: Codable, Equatable, Sendable {
 struct AuthoritativeVehicleDeadline: Codable, Equatable, Hashable, Identifiable, Sendable {
     let bindingId: String
     let dueDate: String?
+    let appointmentAt: String?
+
+    init(bindingId: String, dueDate: String?, appointmentAt: String? = nil) {
+        self.bindingId = bindingId
+        self.dueDate = dueDate
+        self.appointmentAt = appointmentAt
+    }
 
     var id: String { bindingId }
 
@@ -30,10 +48,14 @@ struct AuthoritativeVehicleDeadline: Codable, Equatable, Hashable, Identifiable,
         if let dueDate, AuthoritativeInventoryDate.date(from: dueDate) == nil {
             throw AuthoritativeInventoryError.invalidResponse
         }
+        if let appointmentAt, AuthoritativeInventoryDate.appointment(from: appointmentAt) == nil {
+            throw AuthoritativeInventoryError.invalidResponse
+        }
         return self
     }
 
     var dueDateValue: Date? { dueDate.flatMap(AuthoritativeInventoryDate.date(from:)) }
+    var appointmentAtValue: Date? { appointmentAt.flatMap(AuthoritativeInventoryDate.appointment(from:)) }
     var bindingUUID: UUID? { UUID(uuidString: bindingId) }
 }
 
@@ -79,6 +101,14 @@ enum AuthoritativeInventoryError: Error {
 }
 
 enum AuthoritativeInventoryDate {
+    static func appointment(from raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let value = formatter.date(from: raw) else { return nil }
+        let year = Calendar(identifier: .gregorian).component(.year, from: value)
+        return (2020...2100).contains(year) ? value : nil
+    }
+
     static func date(from raw: String) -> Date? {
         let parts = raw.split(separator: "-")
         guard parts.count == 3,
@@ -144,17 +174,29 @@ enum AuthoritativeInventoryStore {
 enum AuthoritativeInventoryClient {
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/inventory") }
 
-    static func fetch(session: URLSession = .shared) async throws -> AuthoritativeInventoryResponse {
+    static func timeoutInterval(requireFreshAppointments: Bool) -> TimeInterval {
+        // Requests applies scalar timeouts independently to connect and read.
+        // The two sequential Mercure calls can therefore consume 30+30+25+25 seconds.
+        requireFreshAppointments ? 120 : 8
+    }
+
+    static func fetch(
+        session: URLSession = .shared,
+        requireFreshAppointments: Bool = false
+    ) async throws -> AuthoritativeInventoryResponse {
         guard let identity = DeviceRegistrationIdentity.loadExisting() else {
             return AuthoritativeInventoryResponse(ok: true, vehicles: [], source: "mercure")
         }
         let payload = try AuthoritativeInventoryRequest(
             installationId: identity.installationId,
-            registrationSecret: identity.secret
+            registrationSecret: identity.secret,
+            refreshAppointments: requireFreshAppointments
         ).validated()
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 8
+        request.timeoutInterval = timeoutInterval(
+            requireFreshAppointments: requireFreshAppointments
+        )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder().encode(payload)

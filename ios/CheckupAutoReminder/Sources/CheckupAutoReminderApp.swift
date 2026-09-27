@@ -22,6 +22,12 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
             options: []
         )
         center.setNotificationCategories([controlDue])
+        if #available(iOS 26.0, *),
+           CheckupControlLiveActivityRetryScheduler.register() {
+            CheckupControlLiveActivityRetryScheduler.submit(
+                for: AuthoritativeInventoryStore.load()
+            )
+        }
         return true
     }
 

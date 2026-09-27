@@ -15,6 +15,7 @@ import reminder_dispatch
 BUNDLE_ID = "fr.checkupauto.reminder"
 APP_ID_PREFIX_ENV = "CYBERCHECK_IOS_APP_IDENTIFIER_PREFIX"
 CLAIM_PATH = "/app/claim"
+LIVE_ACTIVITY_PATH = "/app/live"
 DEFAULT_TTL_SECONDS = 1800
 MIN_TTL_SECONDS = 300
 MAX_TTL_SECONDS = 3600
@@ -78,6 +79,10 @@ def association_document(config: dict) -> bytes:
                         {
                             "/": CLAIM_PATH,
                             "comment": "Rattachement one-shot Checkup Auto",
+                        },
+                        {
+                            "/": LIVE_ACTIVITY_PATH,
+                            "comment": "Ouverture du rappel Dynamic Island Checkup Auto",
                         }
                     ],
                 }

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import datetime
 import threading
 
+import mercure_admin_client as mercure
 import mobile_devices
 import privacy_suppression as privacy
 import reminder_dispatch
 
 INTERVAL_SECONDS = 3600
+UPCOMING_APPOINTMENT_DAYS = 180
 _STOP = threading.Event()
 _THREAD = None
 
@@ -22,7 +25,32 @@ def _binding_processing_suppressed(binding: dict) -> bool:
     return privacy.any_suppressed(candidates, "all_processing")
 
 
-def sync_installation(installation_id: str) -> dict:
+def upcoming_appointments_snapshot() -> list[dict]:
+    today = mercure.business_today()
+    end = today + datetime.timedelta(days=UPCOMING_APPOINTMENT_DAYS)
+    return mercure.upcoming_control_appointments(today.isoformat(), end.isoformat())
+
+
+def _future_appointment(value: object, now: datetime.datetime) -> str | None:
+    appointment_at = str(value or "").strip()
+    if not appointment_at:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(appointment_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.astimezone(datetime.timezone.utc) <= now:
+        return None
+    return appointment_at
+
+
+def sync_installation(
+    installation_id: str,
+    upcoming_appointments: list[dict] | None = None,
+    *,
+    refresh_appointments: bool = False,
+    preserve_appointments: bool = False,
+) -> dict:
     installation = mobile_devices._install_id(installation_id)
     if privacy.is_suppressed("installation", installation, "all_processing"):
         return {
@@ -45,6 +73,16 @@ def sync_installation(installation_id: str) -> dict:
             "suppressedBindings": 0,
         }
 
+    if refresh_appointments and upcoming_appointments is None:
+        try:
+            upcoming_appointments = upcoming_appointments_snapshot()
+        except Exception:
+            upcoming_appointments = None
+            preserve_appointments = True
+
+    if upcoming_appointments is None:
+        preserve_appointments = True
+
     allowed_bindings = []
     suppressed_bindings = 0
     for binding in bindings:
@@ -59,41 +97,111 @@ def sync_installation(installation_id: str) -> dict:
             [row["vehicle_id"] for row in allowed_bindings]
         )
     }
-    deadlines = [
-        {"deadlineId": row["binding_id"], "dueDate": inventory[row["vehicle_id"]]}
-        for row in allowed_bindings
-        if row["vehicle_id"] in inventory
-    ]
+    appointment_by_identity: dict[tuple[str, str, str], str] = {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for item in sorted(upcoming_appointments or [], key=lambda row: str(row.get("appointmentAt") or "")):
+        identity = (
+            str(item.get("vehicleId") or ""),
+            str(item.get("clientKind") or ""),
+            str(item.get("clientId") or ""),
+        )
+        appointment_at = _future_appointment(item.get("appointmentAt"), now)
+        if all(identity) and appointment_at:
+            appointment_by_identity.setdefault(identity, appointment_at)
+
+    deadlines = []
+    appointments = 0
+    for row in allowed_bindings:
+        vehicle_id = row["vehicle_id"]
+        if vehicle_id not in inventory:
+            continue
+        identity = (vehicle_id, row["client_kind"], row["client_id"])
+        appointment_at = appointment_by_identity.get(identity, "")
+        item = {"deadlineId": row["binding_id"], "dueDate": inventory[vehicle_id]}
+        if appointment_at:
+            item["appointmentAt"] = appointment_at
+            appointments += 1
+        deadlines.append(item)
     # Always synchronize, including an empty allowed set: this removes previously
     # cached authoritative deadlines that became restricted after the binding existed.
-    result = mobile_devices.sync_authoritative_deadlines(installation, deadlines)
+    result = mobile_devices.sync_authoritative_deadlines(
+        installation,
+        deadlines,
+        preserve_appointments=preserve_appointments,
+    )
     return {
         "ok": True,
         "installationId": installation,
         "bindings": len(bindings),
         "authoritativeDeadlines": result["deadlineCount"],
+        "authoritativeAppointments": appointments,
         "privacySuppressed": False,
         "suppressedBindings": suppressed_bindings,
     }
 
 
+def sync_installation_fresh(installation_id: str) -> dict:
+    """Synchronize with a provider-current appointment snapshot or fail closed.
+
+    Callers that schedule future work must not consume a preserved cached appointment
+    when the provider cannot be reached.
+    """
+    installation = mobile_devices._install_id(installation_id)
+    if privacy.is_suppressed("installation", installation, "all_processing"):
+        return sync_installation(installation, [])
+    bindings = mobile_devices.registered_vehicle_bindings(installation)
+    if not any(not _binding_processing_suppressed(binding) for binding in bindings):
+        return sync_installation(installation, [])
+    return sync_installation(
+        installation,
+        upcoming_appointments_snapshot(),
+        preserve_appointments=False,
+    )
+
+
 def sync_once() -> dict:
     bindings = mobile_devices.registered_vehicle_bindings()
     installation_ids = sorted({row["installation_id"] for row in bindings})
+    if not installation_ids:
+        return {
+            "ok": True,
+            "installations": 0,
+            "synced": 0,
+            "privacySuppressed": 0,
+            "suppressedBindings": 0,
+            "authoritativeDeadlines": 0,
+            "authoritativeAppointments": 0,
+            "appointmentState": "no_bindings",
+            "failed": 0,
+        }
+
+    appointment_state = "ready"
+    try:
+        upcoming = upcoming_appointments_snapshot()
+    except Exception:
+        upcoming = None
+        appointment_state = "unavailable"
+
     synced = 0
     suppressed = 0
     suppressed_bindings = 0
     deadlines = 0
+    appointments = 0
     failed = 0
     for installation_id in installation_ids:
         try:
-            result = sync_installation(installation_id)
+            result = sync_installation(
+                installation_id,
+                upcoming,
+                preserve_appointments=appointment_state == "unavailable",
+            )
             if result.get("privacySuppressed"):
                 suppressed += 1
                 continue
             synced += 1
             suppressed_bindings += int(result.get("suppressedBindings") or 0)
             deadlines += int(result["authoritativeDeadlines"])
+            appointments += int(result.get("authoritativeAppointments") or 0)
         except Exception:
             failed += 1
     return {
@@ -103,6 +211,8 @@ def sync_once() -> dict:
         "privacySuppressed": suppressed,
         "suppressedBindings": suppressed_bindings,
         "authoritativeDeadlines": deadlines,
+        "authoritativeAppointments": appointments,
+        "appointmentState": appointment_state,
         "failed": failed,
     }
 

@@ -2,6 +2,28 @@ import XCTest
 @testable import CheckupAutoReminder
 
 final class AuthoritativeInventoryTests: XCTestCase {
+    func testFreshAppointmentRequestTimeoutCoversSequentialProviderBudget() {
+        XCTAssertEqual(
+            AuthoritativeInventoryClient.timeoutInterval(requireFreshAppointments: false),
+            8
+        )
+        XCTAssertGreaterThan(
+            AuthoritativeInventoryClient.timeoutInterval(requireFreshAppointments: true),
+            110
+        )
+    }
+
+    func testFreshAppointmentRequestIsExplicitlyEncoded() throws {
+        let request = AuthoritativeInventoryRequest(
+            installationId: "60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1",
+            registrationSecret: String(repeating: "A", count: 43),
+            refreshAppointments: true
+        )
+        let data = try JSONEncoder().encode(try request.validated())
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["refreshAppointments"] as? Bool, true)
+    }
+
     func testResponseAcceptsOnlyOpaqueBindingAndDate() throws {
         let response = AuthoritativeInventoryResponse(
             ok: true,
@@ -18,6 +40,19 @@ final class AuthoritativeInventoryTests: XCTestCase {
         XCTAssertNotNil(validated.vehicles[0].dueDateValue)
         XCTAssertNotNil(validated.vehicles[0].bindingUUID)
         XCTAssertNil(validated.referralWalletStatus)
+    }
+
+    func testResponseAcceptsOpaqueFutureAppointmentTimestamp() throws {
+        let json = "{\"ok\":true,\"vehicles\":[{\"bindingId\":\"60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1\",\"dueDate\":\"2027-04-30\",\"appointmentAt\":\"2026-10-04T14:30:00+02:00\"}],\"source\":\"mercure\"}"
+        let response = try JSONDecoder().decode(AuthoritativeInventoryResponse.self, from: Data(json.utf8))
+        let vehicle = try XCTUnwrap(try response.validated().vehicles.first)
+        XCTAssertNotNil(vehicle.appointmentAtValue)
+    }
+
+    func testResponseRejectsMalformedAppointmentTimestamp() throws {
+        let json = "{\"ok\":true,\"vehicles\":[{\"bindingId\":\"60cf7ccf-4297-41f4-b76b-c0bd44dbe3d1\",\"dueDate\":\"2027-04-30\",\"appointmentAt\":\"2026-10-04 14:30\"}],\"source\":\"mercure\"}"
+        let response = try JSONDecoder().decode(AuthoritativeInventoryResponse.self, from: Data(json.utf8))
+        XCTAssertThrowsError(try response.validated())
     }
 
     func testResponseAllowsBindingWhileAuthoritativeDateIsPending() throws {

@@ -127,5 +127,39 @@ class MercureSchemaTest(unittest.TestCase):
         self.assertNotIn("SECRET", repr(result))
 
 
+    @patch.object(mercure, "_session")
+    @patch.object(mercure, "_calendar_events")
+    @patch.object(mercure, "_appointments")
+    def test_upcoming_mobile_control_appointments_require_exact_provider_join(self, appointments, events, session):
+        session.return_value = Mock()
+        appointments.return_value = [
+            {"id": 77, "date_rdv": "2026-10-04 14:30:00", "prestation": "Contrôle technique"},
+            {"id": 78, "date_rdv": "2026-10-04 15:00:00", "prestation": "Visite pollution"},
+        ]
+        events.return_value = [
+            {"id": 77, "extendedProps": {
+                "rendezVousId": 77, "clientCompteId": "12", "clientLibreId": "", "vehiculeId": ["99"]
+            }},
+            {"id": 78, "extendedProps": {
+                "rendezVousId": 78, "clientCompteId": "12", "clientLibreId": "", "vehiculeId": ["99"]
+            }},
+            {"id": 999, "extendedProps": {
+                "rendezVousId": 999, "clientCompteId": "12", "clientLibreId": "", "vehiculeId": ["99"]
+            }},
+        ]
+        rows = mercure.upcoming_control_appointments("2026-10-01", "2026-10-10")
+        self.assertEqual(rows, [{
+            "vehicleId": "99",
+            "clientKind": "account",
+            "clientId": "12",
+            "appointmentId": "77",
+            "appointmentAt": "2026-10-04T14:30:00+02:00",
+        }])
+
+    def test_upcoming_mobile_control_window_is_bounded(self):
+        with self.assertRaises(ValueError):
+            mercure.upcoming_control_appointments("2026-01-01", "2026-08-01")
+
+
 if __name__ == "__main__":
     unittest.main()
