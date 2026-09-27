@@ -22,6 +22,8 @@ class GLBContractTest(unittest.TestCase):
             "asset": {"version": "2.0"},
             "nodes": [{"mesh": 0}],
             "meshes": [{"primitives": []}],
+            "materials": [{"name": "VehiclePhotoMaterial", "alphaMode": "BLEND"}],
+            "images": [{"mimeType": "image/png", "bufferView": 0}],
             "animations": [{"channels": [], "samplers": []}],
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -32,6 +34,22 @@ class GLBContractTest(unittest.TestCase):
         self.assertEqual(result["meshes"], 1)
         self.assertEqual(result["nodes"], 1)
         self.assertEqual(result["animations"], 1)
+        self.assertEqual(result["vehicleAlphaMode"], "BLEND")
+
+
+    def test_rejects_opaque_vehicle_material(self):
+        document = {
+            "asset": {"version": "2.0"},
+            "nodes": [{"mesh": 0}],
+            "meshes": [{"primitives": []}],
+            "materials": [{"name": "VehiclePhotoMaterial"}],
+            "images": [{"mimeType": "image/png", "bufferView": 0}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "opaque.glb"
+            path.write_bytes(self.build_glb(document))
+            with self.assertRaisesRegex(ValueError, "alpha_mode"):
+                glb_contract.inspect_glb(path)
 
     def test_rejects_empty_or_oversized_asset(self):
         empty = {"asset": {"version": "2.0"}, "nodes": [], "meshes": []}
