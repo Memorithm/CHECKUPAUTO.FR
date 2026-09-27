@@ -9,7 +9,7 @@ final class AuthoritativeInventoryTests: XCTestCase {
         )
         XCTAssertGreaterThan(
             AuthoritativeInventoryClient.timeoutInterval(requireFreshAppointments: true),
-            55
+            110
         )
     }
 
