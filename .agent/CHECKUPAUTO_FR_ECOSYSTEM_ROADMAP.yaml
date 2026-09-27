@@ -1,0 +1,26 @@
+schema_version: 1
+kind: checkupauto_fr_ecosystem_roadmap
+status: active
+last_updated: "2026-09-27"
+repository: Memorithm/CHECKUPAUTO.FR
+merge_policy: never_merge_this_file_to_default_branch_unless_user_explicitly_requests
+mission:
+  role: operational_automation_task_consumer
+  boundary: product_business_and_customer_authority_remains_application_owned
+ax_task_program:
+  external_reference: google_ax_architecture_only
+  objective: >-
+    Bind deployment, security-supervisor, integration and maintenance
+    automation to exact target/workspace identity, least-privilege capabilities
+    and bounded execution without moving application business authority into the
+    task runtime.
+  phases:
+    - AXCA1_task_scope_deployment_and_read_only_diagnostic_capabilities
+    - AXCA2_separate_data_read_from_customer_or_production_mutation_authority
+    - AXCA3_bind_target_release_and_environment_identity_before_effects
+    - AXCA4_reconcile_ambiguous_external_effects_before_retry
+    - AXCA5_use_RemoteOps_as_the_reference_remote_execution_plane
+  invariants:
+    - credentials_and_customer_secrets_never_enter_task_manifests
+    - production_mutation_requires_explicit_capability_and_target_identity
+    - task_success_is_not_business_state_authority
