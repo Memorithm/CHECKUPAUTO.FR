@@ -434,19 +434,29 @@ def consume_vehicle_claim(payload: dict) -> dict:
                WHERE installation_id=? AND vehicle_id=?""",
             (installation_id, claim["vehicle_id"]),
         ).fetchone()
-        binding_id = str(existing["binding_id"]) if existing else str(uuid.uuid4())
-        created_at = str(existing["created_at"]) if existing else now
+        previous_binding_id = str(existing["binding_id"]) if existing else ""
         identity_changed = bool(existing) and (
             str(existing["client_kind"]) != str(claim["client_kind"])
             or str(existing["client_id"]) != str(claim["client_id"])
+        )
+        binding_id = (
+            str(uuid.uuid4())
+            if not existing or identity_changed
+            else previous_binding_id
+        )
+        created_at = (
+            now
+            if not existing or identity_changed
+            else str(existing["created_at"])
         )
         db.execute(
             """INSERT INTO mobile_vehicle_binding(
                  binding_id,installation_id,vehicle_id,client_kind,client_id,created_at,updated_at
                ) VALUES(?,?,?,?,?,?,?)
                ON CONFLICT(installation_id,vehicle_id) DO UPDATE SET
+                 binding_id=excluded.binding_id,
                  client_kind=excluded.client_kind,client_id=excluded.client_id,
-                 updated_at=excluded.updated_at""",
+                 created_at=excluded.created_at,updated_at=excluded.updated_at""",
             (
                 binding_id,
                 installation_id,
@@ -459,9 +469,16 @@ def consume_vehicle_claim(payload: dict) -> dict:
         )
         if identity_changed:
             db.execute(
-                """UPDATE mobile_deadline SET appointment_at='',updated_at=?
+                """UPDATE mobile_deadline
+                   SET deadline_id=?,appointment_at='',updated_at=?
                    WHERE installation_id=? AND deadline_id=? AND source=?""",
-                (now, installation_id, binding_id, AUTHORITATIVE_DEADLINE_SOURCE),
+                (
+                    binding_id,
+                    now,
+                    installation_id,
+                    previous_binding_id,
+                    AUTHORITATIVE_DEADLINE_SOURCE,
+                ),
             )
         db.execute(
             "DELETE FROM mobile_vehicle_claim WHERE token_hash=?",
