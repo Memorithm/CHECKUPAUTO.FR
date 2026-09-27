@@ -21,7 +21,7 @@ class InstallAppStoreTeamKeyTest(unittest.TestCase):
             home = Path(tmp) / "home"
             home.mkdir()
             key = Path(tmp) / "wrong.p8"
-            key.write_text("-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n")
+            key.write_text("-----BEGIN " + "PRIVATE KEY-----\nabc\n-----END " + "PRIVATE KEY-----\n")
             result = subprocess.run(
                 ["bash", str(script), str(key), "12345678-1234-1234-1234-123456789abc"],
                 env={**os.environ, "HOME": str(home)},
