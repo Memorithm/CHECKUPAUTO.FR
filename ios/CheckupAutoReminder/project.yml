@@ -23,6 +23,8 @@ targets:
     sources:
       - Sources
       - Shared
+      - path: Resources
+        buildPhase: resources
     dependencies:
       - target: CheckupAutoLiveActivity
         embed: true
