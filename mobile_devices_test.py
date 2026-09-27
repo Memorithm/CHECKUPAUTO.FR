@@ -156,7 +156,13 @@ class MobileDevicesTest(unittest.TestCase):
     def test_authoritative_deadlines_suppress_device_fallback_without_deleting_it(self):
         devices.register(self.payload())
         device_id = "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca"
-        mercure_id = "936246c1-8932-4b6f-92b6-1ea591c09f96"
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        binding = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        mercure_id = binding["bindingId"]
         base = {"installationId": self.install_id, "registrationSecret": self.secret}
         devices.sync_deadlines(base | {"deadlines": [
             {"deadlineId": device_id, "dueDate": "2027-01-15"},
@@ -183,7 +189,13 @@ class MobileDevicesTest(unittest.TestCase):
 
     def test_device_snapshot_cannot_overwrite_authoritative_deadline(self):
         devices.register(self.payload())
-        deadline_id = "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca"
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        binding = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        deadline_id = binding["bindingId"]
         devices.sync_authoritative_deadlines(self.install_id, [
             {"deadlineId": deadline_id, "dueDate": "2027-02-15"},
         ])
@@ -331,6 +343,61 @@ class MobileDevicesTest(unittest.TestCase):
                 "registrationSecret": self.secret,
                 "claimToken": token,
             })
+
+    def test_identity_changing_rebind_rotates_identity_and_rejects_stale_appointment(self):
+        devices.register(self.payload())
+        first_claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        first = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": first_claim["claimToken"],
+        })
+        devices.sync_authoritative_deadlines(self.install_id, [{
+            "deadlineId": first["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+
+        second_claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-99")
+        second = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": second_claim["claimToken"],
+        })
+
+        self.assertNotEqual(second["bindingId"], first["bindingId"])
+        inventory = devices.bound_inventory({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(inventory["vehicles"], [{
+            "bindingId": second["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": None,
+        }])
+        bindings = devices.registered_vehicle_bindings(self.install_id)
+        self.assertEqual(bindings[0]["client_id"], "client-99")
+
+        # A refresh that captured the previous identity before the rebind may
+        # still finish later, but its old binding ID must remain unobservable.
+        devices.sync_authoritative_deadlines(self.install_id, [{
+            "deadlineId": first["bindingId"],
+            "dueDate": "2027-02-15",
+            "appointmentAt": "2099-10-04T14:30:00+02:00",
+        }])
+        stale_inventory = devices.bound_inventory({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+        })
+        self.assertEqual(stale_inventory["vehicles"], [{
+            "bindingId": second["bindingId"],
+            "dueDate": None,
+            "appointmentAt": None,
+        }])
+        self.assertEqual(
+            devices.due_targets("2027-01-01", "2027-03-01"),
+            [],
+        )
 
     def test_wrong_installation_secret_does_not_consume_vehicle_claim(self):
         devices.register(self.payload())

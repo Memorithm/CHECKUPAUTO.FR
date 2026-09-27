@@ -429,19 +429,34 @@ def consume_vehicle_claim(payload: dict) -> dict:
             raise PermissionError("claim mobile refusé")
 
         existing = db.execute(
-            """SELECT binding_id,created_at FROM mobile_vehicle_binding
+            """SELECT binding_id,client_kind,client_id,created_at
+               FROM mobile_vehicle_binding
                WHERE installation_id=? AND vehicle_id=?""",
             (installation_id, claim["vehicle_id"]),
         ).fetchone()
-        binding_id = str(existing["binding_id"]) if existing else str(uuid.uuid4())
-        created_at = str(existing["created_at"]) if existing else now
+        previous_binding_id = str(existing["binding_id"]) if existing else ""
+        identity_changed = bool(existing) and (
+            str(existing["client_kind"]) != str(claim["client_kind"])
+            or str(existing["client_id"]) != str(claim["client_id"])
+        )
+        binding_id = (
+            str(uuid.uuid4())
+            if not existing or identity_changed
+            else previous_binding_id
+        )
+        created_at = (
+            now
+            if not existing or identity_changed
+            else str(existing["created_at"])
+        )
         db.execute(
             """INSERT INTO mobile_vehicle_binding(
                  binding_id,installation_id,vehicle_id,client_kind,client_id,created_at,updated_at
                ) VALUES(?,?,?,?,?,?,?)
                ON CONFLICT(installation_id,vehicle_id) DO UPDATE SET
+                 binding_id=excluded.binding_id,
                  client_kind=excluded.client_kind,client_id=excluded.client_id,
-                 updated_at=excluded.updated_at""",
+                 created_at=excluded.created_at,updated_at=excluded.updated_at""",
             (
                 binding_id,
                 installation_id,
@@ -452,6 +467,19 @@ def consume_vehicle_claim(payload: dict) -> dict:
                 now,
             ),
         )
+        if identity_changed:
+            db.execute(
+                """UPDATE mobile_deadline
+                   SET deadline_id=?,appointment_at='',updated_at=?
+                   WHERE installation_id=? AND deadline_id=? AND source=?""",
+                (
+                    binding_id,
+                    now,
+                    installation_id,
+                    previous_binding_id,
+                    AUTHORITATIVE_DEADLINE_SOURCE,
+                ),
+            )
         db.execute(
             "DELETE FROM mobile_vehicle_claim WHERE token_hash=?",
             (token_hash,),
@@ -706,10 +734,19 @@ def due_targets(start_date: str, end_date: str) -> list[dict]:
     with connect() as db:
         rows = db.execute(
             """WITH source_choice AS (
-                 SELECT installation_id,
-                        MAX(CASE WHEN source=? THEN 1 ELSE 0 END) AS has_authoritative
-                 FROM mobile_deadline
-                 GROUP BY installation_id
+                 SELECT d.installation_id,
+                        MAX(
+                          CASE
+                            WHEN d.source=? AND EXISTS(
+                              SELECT 1 FROM mobile_vehicle_binding b
+                              WHERE b.installation_id=d.installation_id
+                                AND b.binding_id=d.deadline_id
+                            )
+                            THEN 1 ELSE 0
+                          END
+                        ) AS has_authoritative
+                 FROM mobile_deadline d
+                 GROUP BY d.installation_id
                )
                SELECT d.installation_id,d.deadline_id,d.due_date,d.source,
                       m.device_token,m.environment
@@ -719,7 +756,13 @@ def due_targets(start_date: str, end_date: str) -> list[dict]:
                WHERE d.due_date>=? AND d.due_date<=?
                  AND m.disabled_at='' AND m.device_token<>''
                  AND (
-                   (c.has_authoritative=1 AND d.source=?)
+                   (
+                     c.has_authoritative=1 AND d.source=? AND EXISTS(
+                       SELECT 1 FROM mobile_vehicle_binding b
+                       WHERE b.installation_id=d.installation_id
+                         AND b.binding_id=d.deadline_id
+                     )
+                   )
                    OR
                    (c.has_authoritative=0 AND d.source=?)
                  )
