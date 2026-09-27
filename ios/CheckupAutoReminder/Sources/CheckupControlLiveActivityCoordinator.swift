@@ -121,7 +121,7 @@ enum CheckupControlLiveActivityCoordinator {
         let alert = AlertConfiguration(
             title: moment == .tomorrow ? "Contrôle technique demain" : "Contrôle technique aujourd’hui",
             body: LocalizedStringResource(stringLiteral: CheckupControlActivityPolicy.cardReminder),
-            sound: .default
+            sound: .named(CheckupControlActivityPolicy.hornSoundName)
         )
         if requestedStart > now {
             _ = try Activity<CheckupControlActivityAttributes>.request(
