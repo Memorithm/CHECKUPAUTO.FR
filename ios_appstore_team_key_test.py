@@ -7,6 +7,13 @@ from pathlib import Path
 
 
 class InstallAppStoreTeamKeyTest(unittest.TestCase):
+    def test_shell_syntax(self):
+        subprocess.run(
+            ["bash", "-n", "scripts/install-appstore-team-key.sh"],
+            check=True,
+            timeout=10,
+        )
+
     def test_rejects_bad_filename_without_touching_vault(self):
         script = Path("scripts/install-appstore-team-key.sh")
         self.assertTrue(script.is_file())
@@ -16,7 +23,7 @@ class InstallAppStoreTeamKeyTest(unittest.TestCase):
             key = Path(tmp) / "wrong.p8"
             key.write_text("-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n")
             result = subprocess.run(
-                [str(script), str(key), "12345678-1234-1234-1234-123456789abc"],
+                ["bash", str(script), str(key), "12345678-1234-1234-1234-123456789abc"],
                 env={**os.environ, "HOME": str(home)},
                 capture_output=True,
                 text=True,
@@ -32,7 +39,7 @@ class InstallAppStoreTeamKeyTest(unittest.TestCase):
             key = Path(tmp) / "AuthKey_ABC1234567.p8"
             key.write_text("-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n")
             result = subprocess.run(
-                [str(script), str(key), "12345678-1234-1234-1234-123456789abc"],
+                ["bash", str(script), str(key), "12345678-1234-1234-1234-123456789abc"],
                 env={**os.environ, "HOME": str(home)},
                 check=True,
                 capture_output=True,
