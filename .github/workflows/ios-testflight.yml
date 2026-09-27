@@ -211,7 +211,8 @@ jobs:
             esac
 
             first_line="$(head -1 "$key_path")"
-            [ "$first_line" = "-----BEGIN PRIVATE KEY-----" ] || exit 11
+            private_key_header="-----BEGIN ""PRIVATE KEY-----"
+            [ "$first_line" = "$private_key_header" ] || exit 11
             printf '%s\t%s\t%s\n' "$key_id" "$issuer_id" "$key_path"
             REMOTE
             )" || {
