@@ -30,13 +30,16 @@ class StagingDeployWorkflowTest(unittest.TestCase):
         self.assertIn('"/actions/workflows/security-ci.yml/runs"', text)
         self.assertIn('run.get("conclusion") == "success"', text)
 
-    def test_pushes_only_autoprobe_workflow_changes(self):
+    def test_green_main_security_run_updates_staging_exact_sha(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("push:", text)
-        self.assertIn("'.github/workflows/staging-deploy.yml'", text)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.action || 'probe'", text)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.sha || github.sha", text)
-        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.action != 'probe'", text)
+        self.assertIn("workflow_run:", text)
+        self.assertIn("- Security CI", text)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", text)
+        self.assertIn("github.event.workflow_run.event == 'push'", text)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", text)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.action || 'update'", text)
+        self.assertIn("github.event.workflow_run.head_sha", text)
+        self.assertIn("github.event_name == 'workflow_run'", text)
 
     def test_admin_password_is_runner_local_not_repository_secret(self):
         text = WORKFLOW.read_text(encoding="utf-8")
