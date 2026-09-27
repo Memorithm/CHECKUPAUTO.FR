@@ -156,7 +156,13 @@ class MobileDevicesTest(unittest.TestCase):
     def test_authoritative_deadlines_suppress_device_fallback_without_deleting_it(self):
         devices.register(self.payload())
         device_id = "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca"
-        mercure_id = "936246c1-8932-4b6f-92b6-1ea591c09f96"
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        binding = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        mercure_id = binding["bindingId"]
         base = {"installationId": self.install_id, "registrationSecret": self.secret}
         devices.sync_deadlines(base | {"deadlines": [
             {"deadlineId": device_id, "dueDate": "2027-01-15"},
@@ -183,7 +189,13 @@ class MobileDevicesTest(unittest.TestCase):
 
     def test_device_snapshot_cannot_overwrite_authoritative_deadline(self):
         devices.register(self.payload())
-        deadline_id = "e62c0b27-2141-4f5c-b2f4-1e458aa6a6ca"
+        claim = devices.issue_vehicle_claim("vehicle-77", "account", "client-42")
+        binding = devices.consume_vehicle_claim({
+            "installationId": self.install_id,
+            "registrationSecret": self.secret,
+            "claimToken": claim["claimToken"],
+        })
+        deadline_id = binding["bindingId"]
         devices.sync_authoritative_deadlines(self.install_id, [
             {"deadlineId": deadline_id, "dueDate": "2027-02-15"},
         ])
