@@ -429,12 +429,17 @@ def consume_vehicle_claim(payload: dict) -> dict:
             raise PermissionError("claim mobile refusé")
 
         existing = db.execute(
-            """SELECT binding_id,created_at FROM mobile_vehicle_binding
+            """SELECT binding_id,client_kind,client_id,created_at
+               FROM mobile_vehicle_binding
                WHERE installation_id=? AND vehicle_id=?""",
             (installation_id, claim["vehicle_id"]),
         ).fetchone()
         binding_id = str(existing["binding_id"]) if existing else str(uuid.uuid4())
         created_at = str(existing["created_at"]) if existing else now
+        identity_changed = bool(existing) and (
+            str(existing["client_kind"]) != str(claim["client_kind"])
+            or str(existing["client_id"]) != str(claim["client_id"])
+        )
         db.execute(
             """INSERT INTO mobile_vehicle_binding(
                  binding_id,installation_id,vehicle_id,client_kind,client_id,created_at,updated_at
@@ -452,6 +457,12 @@ def consume_vehicle_claim(payload: dict) -> dict:
                 now,
             ),
         )
+        if identity_changed:
+            db.execute(
+                """UPDATE mobile_deadline SET appointment_at='',updated_at=?
+                   WHERE installation_id=? AND deadline_id=? AND source=?""",
+                (now, installation_id, binding_id, AUTHORITATIVE_DEADLINE_SOURCE),
+            )
         db.execute(
             "DELETE FROM mobile_vehicle_claim WHERE token_hash=?",
             (token_hash,),
