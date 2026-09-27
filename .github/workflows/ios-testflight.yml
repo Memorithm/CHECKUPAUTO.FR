@@ -2,6 +2,12 @@ name: iOS TestFlight Delivery
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/CheckupAutoReminder/**'
+      - 'ios_release_runner.py'
+      - '.github/workflows/ios-testflight.yml'
 
 permissions:
   contents: read
