@@ -239,6 +239,10 @@ const renderGLB=async ({json,binary})=>{
   stage.classList.add("webgl-ready");
   stage.dataset.quality=lowPower?"glb-adaptive":"glb-high";
   stage.dataset.modelSource="blender-glb";
+  const badge=stage.querySelector(".vehicle-3d-badge span");
+  const hint=stage.querySelector(".vehicle-3d-badge b");
+  if(badge) badge.textContent="MODÈLE BLENDER · GLB";
+  if(hint) hint.textContent="GLISSEZ POUR EXPLORER";
 };
 
 if(canvas&&stage){
