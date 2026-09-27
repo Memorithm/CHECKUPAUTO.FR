@@ -75,6 +75,25 @@ class IOSReleaseRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(runner.ReleaseError, "issuer_id"):
                 runner.app_store_connect_auth_args(required=True)
 
+
+    def test_xcode_account_upload_requires_explicit_opt_in(self):
+        with mock.patch.dict(runner.os.environ, {
+            "CHECKUPAUTO_ALLOW_XCODE_ACCOUNT_UPLOAD": "",
+        }, clear=False):
+            self.assertFalse(runner.xcode_account_upload_enabled())
+        with mock.patch.dict(runner.os.environ, {
+            "CHECKUPAUTO_ALLOW_XCODE_ACCOUNT_UPLOAD": "1",
+        }, clear=False):
+            self.assertTrue(runner.xcode_account_upload_enabled())
+
+    def test_optional_app_store_auth_accepts_fully_absent_triplet(self):
+        with mock.patch.dict(runner.os.environ, {
+            "CHECKUPAUTO_ASC_KEY_ID": "",
+            "CHECKUPAUTO_ASC_ISSUER_ID": "",
+            "CHECKUPAUTO_ASC_KEY_PATH": "",
+        }, clear=False):
+            self.assertEqual(runner.app_store_connect_auth_args(required=False), [])
+
     def test_testflight_export_options_are_upload_only(self):
         import plistlib
         import tempfile
