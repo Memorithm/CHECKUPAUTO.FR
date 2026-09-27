@@ -19,7 +19,7 @@ on:
       - '.github/workflows/3d-asset-ci.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: checkupauto-3d-${{ github.event.pull_request.number || github.ref }}
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
+          persist-credentials: ${{ github.event_name == 'pull_request' }}
 
       - name: Validate portable GLB contract
         run: |
@@ -161,6 +161,28 @@ jobs:
           path: ${{ env.GLB_EXPORT_PATH }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Commit verified GLB into same-repository PR branch
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          target="assets/3d/CyberCheckVehicle_Photo3D.glb"
+          mkdir -p "$(dirname "$target")"
+          cp "$GLB_EXPORT_PATH" "$target"
+          python3 glb_contract.py "$target" --max-bytes 4194304
+          git add -- "$target"
+          if git diff --cached --quiet; then
+            echo "GLB_ALREADY_CURRENT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: update verified CyberCheck GLB"
+          git push origin "HEAD:$PR_HEAD_REF"
 
       - name: Clean temporary 3D material
         if: always()
