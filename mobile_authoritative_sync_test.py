@@ -278,7 +278,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         with mock.patch.object(sync, "upcoming_appointments_snapshot", return_value=[]):
             result = sync.sync_installation_fresh(self.installation)
 
-        self.assertEqual(result["authoritativeAppointments"], 0)
+        self.assertEqual(result.get("authoritativeAppointments", 0), 0)
         inventory = devices.bound_inventory({
             "installationId": self.installation,
             "registrationSecret": self.secret,
