@@ -42,7 +42,7 @@ class IOSTestFlightWorkflowTest(unittest.TestCase):
         self.assertNotIn("CHECKUPAUTO_ASC_KEY_P8", workflow)
         self.assertIn("key_path=%s", helper)
         self.assertIn('vault="$HOME/Library/Application Support/CheckupAuto/AppStoreConnect"', helper)
-        self.assertNotIn("cat "$key_path"", helper)
+        self.assertNotIn('cat "$key_path"', helper)
 
 
 if __name__ == "__main__":
