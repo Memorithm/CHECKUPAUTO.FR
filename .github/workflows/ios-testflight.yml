@@ -229,7 +229,12 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            IFS=            echo "::error::Resolved App Store Connect Key ID is invalid"
+            IFS=$'\t' read -r key_id issuer_id remote_key <<<"$local_state"
+            key_source="mac"
+          fi
+
+          [[ "$key_id" =~ ^[A-Za-z0-9]{10}$ ]] || {
+            echo "::error::Resolved App Store Connect Key ID is invalid"
             exit 2
           }
           [[ "$issuer_id" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
@@ -279,85 +284,6 @@ jobs:
         run: |
           echo "TESTFLIGHT_BLOCKED_EXTERNAL=app-store-connect-team-key"
           echo "::notice::TestFlight upload skipped until the App Store Connect Team API key is installed"
-
-      - name: Clean temporary release material
-        if: always()
-        run: |
-          set -u
-          if [ -s "$RUNNER_TEMP/checkupauto-testflight-auth-path" ] &&
-             [ -s "$RUNNER_TEMP/checkupauto-testflight-remote-dir" ]; then
-            auth="$(cat "$RUNNER_TEMP/checkupauto-testflight-auth-path")"
-            ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-            if [ "$(cat "$auth")" = key ] &&
-               [ -s "$RUNNER_TEMP/checkupauto-testflight-key-path" ]; then
-              ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
-            fi
-            remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
-            remote_key=""
-            key_source=""
-            [ -s "$RUNNER_TEMP/checkupauto-testflight-remote-key-path" ] &&
-              remote_key="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-key-path")"
-            [ -s "$RUNNER_TEMP/checkupauto-testflight-key-source" ] &&
-              key_source="$(cat "$RUNNER_TEMP/checkupauto-testflight-key-source")"
-            if [ "$key_source" = "github" ] && [ -n "$remote_key" ]; then
-              ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"                 "rm -rf '$remote_dir'; rm -f '$remote_key'" || true
-            else
-              ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"                 "rm -rf '$remote_dir'" || true
-            fi
-          fi
-
-          if [ -s "$RUNNER_TEMP/checkupauto-testflight-key-path" ]; then
-            rm -f "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")"
-          fi
-
-          rm -f             "$RUNNER_TEMP/checkupauto-testflight-auth-path"             "$RUNNER_TEMP/checkupauto-testflight-key-path"             "$RUNNER_TEMP/checkupauto-testflight-remote-dir"             "$RUNNER_TEMP/checkupauto-testflight-team-id"             "$RUNNER_TEMP/checkupauto-testflight-asc-key-id"             "$RUNNER_TEMP/checkupauto-testflight-asc-issuer-id"             "$RUNNER_TEMP/checkupauto-testflight-remote-key-path"             "$RUNNER_TEMP/checkupauto-testflight-key-source"
-\t' read -r key_id issuer_id remote_key <<<"$local_state"
-            key_source="mac"
-          fi
-
-          [[ "$key_id" =~ ^[A-Za-z0-9]{10}$ ]] || {
-            echo "::error::Resolved App Store Connect Key ID is invalid"
-            exit 2
-          }
-          [[ "$issuer_id" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
-            echo "::error::Resolved App Store Connect Issuer ID is invalid"
-            exit 2
-          }
-
-          umask 077
-          printf '%s\n' "$derived_team" > "$RUNNER_TEMP/checkupauto-testflight-team-id"
-          printf '%s\n' "$key_id" > "$RUNNER_TEMP/checkupauto-testflight-asc-key-id"
-          printf '%s\n' "$issuer_id" > "$RUNNER_TEMP/checkupauto-testflight-asc-issuer-id"
-          printf '%s\n' "$remote_key" > "$RUNNER_TEMP/checkupauto-testflight-remote-key-path"
-          printf '%s\n' "$key_source" > "$RUNNER_TEMP/checkupauto-testflight-key-source"
-
-      - name: Build, sign and upload to TestFlight
-        run: |
-          set -euo pipefail
-          auth="$(cat "$RUNNER_TEMP/checkupauto-testflight-auth-path")"
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat "$auth")" = key ]; then
-            ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
-          fi
-
-          remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
-          remote_key="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-key-path")"
-          team_id="$(cat "$RUNNER_TEMP/checkupauto-testflight-team-id")"
-          key_id="$(cat "$RUNNER_TEMP/checkupauto-testflight-asc-key-id")"
-          issuer_id="$(cat "$RUNNER_TEMP/checkupauto-testflight-asc-issuer-id")"
-          build_number="$(date -u +%y%m%d%H%M%S)"
-          echo "CHECKUPAUTO_BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
-
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "set -euo pipefail
-             export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
-             cd '$remote_dir'
-             export CHECKUPAUTO_RELEASE_PINNED_SHA='$GITHUB_SHA'
-             export CHECKUPAUTO_BUILD_NUMBER='$build_number'
-             export CHECKUPAUTO_APPLE_TEAM_ID='$team_id'
-             export CHECKUPAUTO_ASC_KEY_ID='$key_id'
-             export CHECKUPAUTO_ASC_ISSUER_ID='$issuer_id'
-             export CHECKUPAUTO_ASC_KEY_PATH='$remote_key'
-             python3 ios_release_runner.py testflight --allow-upload"
 
       - name: Clean temporary release material
         if: always()
