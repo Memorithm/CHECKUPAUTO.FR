@@ -146,8 +146,14 @@ def sync_installation_fresh(installation_id: str) -> dict:
     Callers that schedule future work must not consume a preserved cached appointment
     when the provider cannot be reached.
     """
+    installation = mobile_devices._install_id(installation_id)
+    if privacy.is_suppressed("installation", installation, "all_processing"):
+        return sync_installation(installation, [])
+    bindings = mobile_devices.registered_vehicle_bindings(installation)
+    if not any(not _binding_processing_suppressed(binding) for binding in bindings):
+        return sync_installation(installation, [])
     return sync_installation(
-        installation_id,
+        installation,
         upcoming_appointments_snapshot(),
         preserve_appointments=False,
     )
