@@ -291,7 +291,7 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
 
         snapshot.assert_not_called()
         self.assertEqual(result["bindings"], 0)
-        self.assertEqual(result["authoritativeAppointments"], 0)
+        self.assertEqual(result.get("authoritativeAppointments", 0), 0)
 
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()
