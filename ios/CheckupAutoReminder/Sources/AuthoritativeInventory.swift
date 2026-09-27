@@ -175,8 +175,9 @@ enum AuthoritativeInventoryClient {
     static var endpoint: URL { MobileAPI.endpoint("/api/mobile/inventory") }
 
     static func timeoutInterval(requireFreshAppointments: Bool) -> TimeInterval {
-        // Mercure performs two sequential bounded reads (30 s + 25 s).
-        requireFreshAppointments ? 65 : 8
+        // Requests applies scalar timeouts independently to connect and read.
+        // The two sequential Mercure calls can therefore consume 30+30+25+25 seconds.
+        requireFreshAppointments ? 120 : 8
     }
 
     static func fetch(
