@@ -60,6 +60,36 @@ def bind_repository_images(cutout: Path) -> None:
             raise RuntimeError(f"external_image_missing:{Path(image.filepath).name}")
 
 
+def prepare_vehicle_material_for_gltf() -> None:
+    """Rebuild the photographed vehicle material using glTF-exportable alpha wiring."""
+    material = bpy.data.materials.get("VehiclePhotoMaterial")
+    if material is None:
+        raise RuntimeError("vehicle_material_missing")
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    image = None
+    for node in nodes:
+        if node.type == "TEX_IMAGE" and getattr(node, "image", None) is not None:
+            image = node.image
+            break
+    if image is None:
+        raise RuntimeError("vehicle_material_texture_missing")
+
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    principled = nodes.new("ShaderNodeBsdfPrincipled")
+    texture = nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    texture.interpolation = "Linear"
+
+    principled.inputs["Roughness"].default_value = 0.68
+    principled.inputs["Metallic"].default_value = 0.0
+    links.new(texture.outputs["Color"], principled.inputs["Base Color"])
+    links.new(texture.outputs["Alpha"], principled.inputs["Alpha"])
+    links.new(principled.outputs["BSDF"], output.inputs["Surface"])
+
+
 def validate_glb(path: Path, max_bytes: int) -> dict:
     size = path.stat().st_size
     if size > max_bytes:
@@ -88,6 +118,7 @@ def main() -> None:
         bpy.ops.wm.open_mainfile(filepath=str(SOURCE_BLEND))
 
     bind_repository_images(args.cutout.expanduser().resolve())
+    prepare_vehicle_material_for_gltf()
 
     bpy.ops.object.select_all(action="DESELECT")
     export_objects = selected_export_objects()
