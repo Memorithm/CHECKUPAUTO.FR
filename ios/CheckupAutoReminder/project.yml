@@ -34,7 +34,7 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - fr.checkupauto.reminder.live-activity-refresh
         UIBackgroundModes:
-          - fetch
+          - processing
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder
