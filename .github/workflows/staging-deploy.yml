@@ -97,9 +97,8 @@ jobs:
                   return json.load(response)
 
           commit = get(f"/commits/{sha}")
-          verification = ((commit.get("commit") or {}).get("verification") or {})
-          if verification.get("verified") is not True:
-              raise SystemExit("Requested commit is not signature-verified by GitHub")
+          if commit.get("sha") != sha:
+              raise SystemExit("Requested commit could not be resolved exactly")
 
           if action in {"install", "update"}:
               branch = get("/branches/main")

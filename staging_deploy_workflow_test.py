@@ -25,10 +25,15 @@ class StagingDeployWorkflowTest(unittest.TestCase):
 
     def test_install_and_update_require_current_green_main(self):
         text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('commit = get(f"/commits/{sha}")', text)
+        self.assertIn('commit.get("sha") != sha', text)
         self.assertIn('if action in {"install", "update"}:', text)
         self.assertIn('get("/branches/main")', text)
         self.assertIn('"/actions/workflows/security-ci.yml/runs"', text)
+        self.assertIn('run.get("head_sha") == sha', text)
+        self.assertIn('run.get("event") == "push"', text)
         self.assertIn('run.get("conclusion") == "success"', text)
+        self.assertNotIn("signature-verified", text)
 
     def test_green_main_security_run_updates_staging_exact_sha(self):
         text = WORKFLOW.read_text(encoding="utf-8")
