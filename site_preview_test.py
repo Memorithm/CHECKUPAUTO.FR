@@ -62,6 +62,16 @@ class SitePreviewTest(unittest.TestCase):
 
 
 
+
+    def test_glb_diagnostic_scene_uses_embedded_nodes_and_animation(self):
+        loader = (self.root / "assets" / "cybercheck-glb-hero.js").read_text(encoding="utf-8")
+        self.assertIn("diagnosticNodeIndices", loader)
+        self.assertIn("Diagnostic", loader)
+        self.assertIn("sampleAnimation(", loader)
+        self.assertIn("animation.channels.find", loader)
+        self.assertIn('stage.dataset.diagnosticScene=diagnostics.length?"active":"vehicle-only"', loader)
+        self.assertIn("lowPower?[0,3,4]:[0,1,2,3,4]", loader)
+
     def test_glb_runtime_loader_prefers_local_verified_model_and_keeps_fallback(self):
         loader = (self.root / "assets" / "cybercheck-glb-hero.js").read_text(encoding="utf-8")
         self.assertIn('/assets/3d/CyberCheckVehicle_Photo3D.glb?v=1', loader)
