@@ -60,6 +60,17 @@ class SitePreviewTest(unittest.TestCase):
                 self.assertIn(text, self.page)
         self.assertLess(len(self.page.encode()), 3 * 1024 * 1024)
 
+
+    def test_webgl_hero_uses_local_vehicle_photo_with_bounded_parallax(self):
+        hero = (self.root / "assets" / "cybercheck-hero-3d.js").read_text(encoding="utf-8")
+        self.assertIn('/assets/vehicle.png?v=photo-depth-1', hero)
+        self.assertIn('targetYaw=Math.max(-0.18,Math.min(0.11', hero)
+        self.assertIn('createGrid(aspect)', hero)
+        self.assertNotIn('https://', hero)
+        self.assertNotIn('http://', hero)
+        self.assertNotIn('three.js', hero.lower())
+        self.assertNotIn('cdn', hero.lower())
+
     def test_invalid_source_sha_is_refused(self):
         with self.assertRaises(ValueError):
             preview.build(self.root, 'main')
