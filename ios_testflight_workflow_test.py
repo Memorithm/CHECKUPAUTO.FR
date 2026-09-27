@@ -9,9 +9,9 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
 class IOSTestFlightWorkflowTest(unittest.TestCase):
     def test_missing_external_team_key_does_not_red_main_ci(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("CHECKUPAUTO_TESTFLIGHT_READY=0", text)
+        self.assertIn('echo "ready=false" >> "$GITHUB_OUTPUT"', text)
         self.assertIn("TestFlight upload blocked externally", text)
-        self.assertIn("if: env.CHECKUPAUTO_TESTFLIGHT_READY == '1'", text)
+        self.assertIn("if: steps.credentials.outputs.ready == 'true'", text)
         self.assertIn("Report TestFlight external prerequisite", text)
         self.assertIn("TESTFLIGHT_BLOCKED_EXTERNAL=app-store-connect-team-key", text)
 
@@ -22,7 +22,7 @@ class IOSTestFlightWorkflowTest(unittest.TestCase):
         self.assertEqual(text.count("- name: Clean temporary release material"), 1)
         self.assertEqual(text.count("- name: Report TestFlight external prerequisite"), 1)
         self.assertNotIn("IFS=            echo", text)
-        self.assertNotIn("\\t' read -r key_id issuer_id remote_key", text)
+        self.assertIn('IFS="$(printf \'\\t\')" read -r key_id issuer_id remote_key', text)
 
     def test_partial_or_invalid_credentials_still_fail_closed(self):
         text = WORKFLOW.read_text(encoding="utf-8")
