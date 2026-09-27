@@ -383,6 +383,7 @@ struct ContentView: View {
                     title: "Véhicule Checkup Auto",
                     registration: "Rattaché au centre",
                     dueDate: vehicle.dueDateValue,
+                    appointmentAt: vehicle.appointmentAtValue,
                     verified: true,
                     remove: nil
                 )
@@ -393,6 +394,7 @@ struct ContentView: View {
                     title: vehicle.displayName.isEmpty ? "Mon véhicule" : vehicle.displayName,
                     registration: vehicle.registration,
                     dueDate: vehicle.controlDueDate,
+                    appointmentAt: nil,
                     verified: false,
                     remove: { vehiclePendingDeletion = vehicle }
                 )
@@ -484,6 +486,7 @@ struct ContentView: View {
         title: String,
         registration: String,
         dueDate: Date?,
+        appointmentAt: Date?,
         verified: Bool,
         remove: (() -> Void)?
     ) -> some View {
@@ -501,6 +504,14 @@ struct ContentView: View {
                 Text(registration)
                     .font(.caption.monospaced())
                     .foregroundStyle(CheckupTheme.muted)
+                if let appointmentAt {
+                    Label(
+                        "Rendez-vous : " + appointmentAt.formatted(date: .abbreviated, time: .shortened),
+                        systemImage: "calendar.badge.clock"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(CheckupTheme.accent)
+                }
                 if let dueDate {
                     Text("Contrôle : \(dueDate.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
