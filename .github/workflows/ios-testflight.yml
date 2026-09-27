@@ -27,6 +27,7 @@ jobs:
       CHECKUPAUTO_ASC_KEY_ID: ${{ secrets.CHECKUPAUTO_ASC_KEY_ID }}
       CHECKUPAUTO_ASC_ISSUER_ID: ${{ secrets.CHECKUPAUTO_ASC_ISSUER_ID }}
       CHECKUPAUTO_ASC_KEY_P8: ${{ secrets.CHECKUPAUTO_ASC_KEY_P8 }}
+      CHECKUPAUTO_TESTFLIGHT_GROUP_NAME: Checkup Auto Internal
 
     steps:
       - uses: actions/checkout@v5
@@ -129,6 +130,7 @@ jobs:
           remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
           remote_key="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-key-path")"
           build_number="$(date -u +%y%m%d%H%M%S)"
+          echo "CHECKUPAUTO_BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "set -euo pipefail
              export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
              cd '$remote_dir'
@@ -139,6 +141,23 @@ jobs:
              export CHECKUPAUTO_ASC_ISSUER_ID='$CHECKUPAUTO_ASC_ISSUER_ID'
              export CHECKUPAUTO_ASC_KEY_PATH='$remote_key'
              python3 ios_release_runner.py testflight --allow-upload"
+
+      - name: Attach processed build to internal TestFlight group
+        run: |
+          set -euo pipefail
+          local_key="$RUNNER_TEMP/AuthKey_${CHECKUPAUTO_ASC_KEY_ID}.p8"
+          trap 'rm -f "$local_key"' EXIT
+          umask 077
+          printf '%s\n' "$CHECKUPAUTO_ASC_KEY_P8" > "$local_key"
+          node scripts/appstore-testflight.mjs --self-test
+          node scripts/appstore-testflight.mjs \
+            --key-id="$CHECKUPAUTO_ASC_KEY_ID" \
+            --issuer-id="$CHECKUPAUTO_ASC_ISSUER_ID" \
+            --key-path="$local_key" \
+            --bundle-id="fr.checkupauto.reminder" \
+            --build-number="$CHECKUPAUTO_BUILD_NUMBER" \
+            --group-name="$CHECKUPAUTO_TESTFLIGHT_GROUP_NAME" \
+            --timeout-seconds=1800
 
       - name: Clean temporary release material
         if: always()
