@@ -15,6 +15,15 @@ class IOSTestFlightWorkflowTest(unittest.TestCase):
         self.assertIn("Report TestFlight external prerequisite", text)
         self.assertIn("TESTFLIGHT_BLOCKED_EXTERNAL=app-store-connect-team-key", text)
 
+
+    def test_workflow_has_one_upload_and_one_cleanup_block(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(text.count("- name: Build, sign and upload to TestFlight"), 1)
+        self.assertEqual(text.count("- name: Clean temporary release material"), 1)
+        self.assertEqual(text.count("- name: Report TestFlight external prerequisite"), 1)
+        self.assertNotIn("IFS=            echo", text)
+        self.assertNotIn("\\t' read -r key_id issuer_id remote_key", text)
+
     def test_partial_or_invalid_credentials_still_fail_closed(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("App Store Connect API credentials are partially configured", text)
