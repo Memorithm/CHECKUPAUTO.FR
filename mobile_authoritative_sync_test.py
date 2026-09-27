@@ -285,6 +285,14 @@ class MobileAuthoritativeSyncTest(unittest.TestCase):
         })
         self.assertIsNone(inventory["vehicles"][0]["appointmentAt"])
 
+    def test_strict_refresh_skips_provider_without_eligible_binding(self):
+        with mock.patch.object(sync, "upcoming_appointments_snapshot") as snapshot:
+            result = sync.sync_installation_fresh(self.installation)
+
+        snapshot.assert_not_called()
+        self.assertEqual(result["bindings"], 0)
+        self.assertEqual(result["authoritativeAppointments"], 0)
+
     def test_sync_once_is_noop_without_bindings(self):
         result = sync.sync_once()
         self.assertTrue(result["ok"])
