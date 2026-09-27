@@ -40,10 +40,14 @@ jobs:
             echo "::error::TestFlight delivery must be dispatched from main"
             exit 2
           }
-          test -n "$CHECKUPAUTO_APPLE_TEAM_ID" || { echo "::error::CHECKUPAUTO_APPLE_TEAM_ID is missing"; exit 2; }
-          test -n "$CHECKUPAUTO_ASC_KEY_ID" || { echo "::error::CHECKUPAUTO_ASC_KEY_ID is missing"; exit 2; }
-          test -n "$CHECKUPAUTO_ASC_ISSUER_ID" || { echo "::error::CHECKUPAUTO_ASC_ISSUER_ID is missing"; exit 2; }
-          test -n "$CHECKUPAUTO_ASC_KEY_P8" || { echo "::error::CHECKUPAUTO_ASC_KEY_P8 is missing"; exit 2; }
+          asc_parts=0
+          [ -n "$CHECKUPAUTO_ASC_KEY_ID" ] && asc_parts=$((asc_parts+1))
+          [ -n "$CHECKUPAUTO_ASC_ISSUER_ID" ] && asc_parts=$((asc_parts+1))
+          [ -n "$CHECKUPAUTO_ASC_KEY_P8" ] && asc_parts=$((asc_parts+1))
+          if [ "$asc_parts" -ne 0 ] && [ "$asc_parts" -ne 3 ]; then
+            echo "::error::App Store Connect API credentials are only partially configured"
+            exit 2
+          fi
           git checkout -B main "$GITHUB_SHA"
           git update-ref refs/remotes/origin/main "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
@@ -114,9 +118,13 @@ jobs:
           if [ "$(cat "$auth")" = key ]; then
             ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-testflight-key-path")" -o IdentitiesOnly=yes)
           fi
-          remote_key="/tmp/checkupauto-testflight-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.p8"
+          remote_key=""
+          if [ -n "$CHECKUPAUTO_ASC_KEY_P8" ]; then
+            remote_key="/tmp/checkupauto-testflight-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.p8"
+            printf '%s\n' "$CHECKUPAUTO_ASC_KEY_P8" |
+              ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"                 "umask 077; cat > '$remote_key'; chmod 600 '$remote_key'"
+          fi
           printf '%s\n' "$remote_key" > "$RUNNER_TEMP/checkupauto-testflight-remote-key-path"
-          printf '%s\n' "$CHECKUPAUTO_ASC_KEY_P8" |             ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"               "umask 077; cat > '$remote_key'; chmod 600 '$remote_key'"
 
       - name: Build, sign and upload to TestFlight
         run: |
@@ -129,15 +137,36 @@ jobs:
           remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
           remote_key="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-key-path")"
           build_number="$(date -u +%y%m%d%H%M%S)"
+
+          team_id="$CHECKUPAUTO_APPLE_TEAM_ID"
+          if [ -z "$team_id" ]; then
+            team_id="$(
+              ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"                 "security find-identity -v -p codesigning 2>/dev/null |
+                 grep -Eo '\\([A-Z0-9]{10}\\)' |
+                 tr -d '()' |
+                 sort -u" |
+              awk 'NF{ids[++n]=$0} END{if(n==1) print ids[1]}'
+            )"
+          fi
+          [[ "$team_id" =~ ^[A-Za-z0-9]{10}$ ]] || {
+            echo "::error::Unable to resolve one unambiguous Apple signing Team ID on the Mac mini"
+            exit 2
+          }
+
+          auth_exports=""
+          if [ -n "$remote_key" ]; then
+            auth_exports="export CHECKUPAUTO_ASC_KEY_ID='$CHECKUPAUTO_ASC_KEY_ID'; export CHECKUPAUTO_ASC_ISSUER_ID='$CHECKUPAUTO_ASC_ISSUER_ID'; export CHECKUPAUTO_ASC_KEY_PATH='$remote_key';"
+          else
+            auth_exports="export CHECKUPAUTO_ALLOW_XCODE_ACCOUNT_UPLOAD=1;"
+          fi
+
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "set -euo pipefail
              export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
              cd '$remote_dir'
              export CHECKUPAUTO_RELEASE_PINNED_SHA='$GITHUB_SHA'
              export CHECKUPAUTO_BUILD_NUMBER='$build_number'
-             export CHECKUPAUTO_APPLE_TEAM_ID='$CHECKUPAUTO_APPLE_TEAM_ID'
-             export CHECKUPAUTO_ASC_KEY_ID='$CHECKUPAUTO_ASC_KEY_ID'
-             export CHECKUPAUTO_ASC_ISSUER_ID='$CHECKUPAUTO_ASC_ISSUER_ID'
-             export CHECKUPAUTO_ASC_KEY_PATH='$remote_key'
+             export CHECKUPAUTO_APPLE_TEAM_ID='$team_id'
+             $auth_exports
              python3 ios_release_runner.py testflight --allow-upload"
 
       - name: Clean temporary release material
