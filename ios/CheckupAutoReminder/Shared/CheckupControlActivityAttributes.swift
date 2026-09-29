@@ -23,12 +23,19 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             }
         }
 
+        var compactMessage: String {
+            switch moment {
+            case .tomorrow: return "CT demain"
+            case .approaching, .localTest: return "CT bientôt"
+            case .acknowledged: return "Rappel vu"
+            }
+        }
+
         var primaryMessage: String {
             switch moment {
             case .tomorrow: return "Contrôle technique demain"
-            case .approaching: return "Votre contrôle approche"
+            case .approaching, .localTest: return "Votre contrôle technique arrive à échéance"
             case .acknowledged: return "Bon trajet vers Checkup Auto"
-            case .localTest: return "Rappel de contrôle technique"
             }
         }
     }
