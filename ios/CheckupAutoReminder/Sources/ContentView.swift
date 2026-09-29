@@ -18,6 +18,7 @@ private struct BrowserDestination: Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
+    @State private var testReminderAt = LocalReminderPlan.testDate()
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
     @State private var browserDestination: BrowserDestination?
@@ -40,6 +41,7 @@ struct ContentView: View {
                         )
                     }
 
+                    localReminderSection
                     quickActions
                     nextControlCard
                     loyaltySection
@@ -128,8 +130,8 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showingAddVehicle) {
-                AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate in
-                    model.add(registration: registration, name: name, dueDate: dueDate)
+                AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate, reminderAt in
+                    model.add(registration: registration, name: name, dueDate: dueDate, reminderAt: reminderAt)
                 }
             }
             .fullScreenCover(item: $browserDestination) { destination in
@@ -138,6 +140,45 @@ struct ContentView: View {
             }
         }
         .tint(CheckupTheme.accent)
+    }
+
+    private var localReminderSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Tester un rappel", systemImage: "bell.badge")
+                .font(.headline)
+                .foregroundStyle(CheckupTheme.ink)
+            Text("Notification locale, même sans Internet. Vous pouvez refaire le test à tout moment.")
+                .font(.caption)
+                .foregroundStyle(CheckupTheme.muted)
+            DatePicker("Date et heure", selection: $testReminderAt, in: Date()...,
+                       displayedComponents: [.date, .hourAndMinute])
+            Button("Programmer à cette heure") {
+                model.scheduleLocalTest(at: testReminderAt)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.schedulingLocalTest || testReminderAt <= Date())
+            Button("Tester dans 2 minutes") {
+                let date = LocalReminderPlan.testDate()
+                testReminderAt = date
+                model.scheduleLocalTest(at: date)
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.schedulingLocalTest)
+            if let notice = model.localReminderNotice {
+                Text(notice)
+                    .font(.subheadline)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+            Button("Annuler le test", role: .cancel) { model.cancelLocalTest() }
+                .font(.caption)
+                .disabled(model.schedulingLocalTest)
+            Text("Le nouveau test remplace le précédent. Le son dépend des réglages de notifications et du mode Concentration de l’iPhone. Ce test ne déclenche pas la Dynamic Island.")
+                .font(.caption2)
+                .foregroundStyle(CheckupTheme.muted)
+        }
+        .padding(20)
+        .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
     }
 
     private var hero: some View {
@@ -384,6 +425,7 @@ struct ContentView: View {
                     registration: "Rattaché au centre",
                     dueDate: vehicle.dueDateValue,
                     appointmentAt: vehicle.appointmentAtValue,
+                    reminderAt: nil,
                     verified: true,
                     remove: nil
                 )
@@ -395,6 +437,7 @@ struct ContentView: View {
                     registration: vehicle.registration,
                     dueDate: vehicle.controlDueDate,
                     appointmentAt: nil,
+                    reminderAt: vehicle.localReminderAt,
                     verified: false,
                     remove: { vehiclePendingDeletion = vehicle }
                 )
@@ -487,6 +530,7 @@ struct ContentView: View {
         registration: String,
         dueDate: Date?,
         appointmentAt: Date?,
+        reminderAt: Date?,
         verified: Bool,
         remove: (() -> Void)?
     ) -> some View {
@@ -511,6 +555,12 @@ struct ContentView: View {
                     )
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(CheckupTheme.accent)
+                }
+                if let reminderAt {
+                    Label("Rappel : " + reminderAt.formatted(date: .abbreviated, time: .shortened),
+                          systemImage: "bell.badge")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(CheckupTheme.accent)
                 }
                 if let dueDate {
                     Text("Contrôle : \(dueDate.formatted(date: .abbreviated, time: .omitted))")

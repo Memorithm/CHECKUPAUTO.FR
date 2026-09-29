@@ -5,12 +5,14 @@ struct VehicleDeadline: Codable, Identifiable, Hashable {
     var registration: String
     var displayName: String
     var controlDueDate: Date
+    var localReminderAt: Date?
 
     init(
         id: UUID = UUID(),
         registration: String,
         displayName: String = "",
-        controlDueDate: Date
+        controlDueDate: Date,
+        localReminderAt: Date? = nil
     ) {
         self.id = id
         self.registration = registration
@@ -18,6 +20,7 @@ struct VehicleDeadline: Codable, Identifiable, Hashable {
             .filter { $0.isLetter || $0.isNumber || $0 == "-" }
         self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.controlDueDate = controlDueDate
+        self.localReminderAt = localReminderAt
     }
 }
 
@@ -70,4 +73,20 @@ enum VehicleDeadlineStore {
     static func clear(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: storageKey)
     }
+}
+
+enum LocalReminderPlan {
+    static func components(for date: Date, now: Date = Date()) -> DateComponents? {
+        guard date > now else { return nil }
+        // Store an absolute instant, including seconds for the two-minute test.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        components.calendar = calendar
+        components.timeZone = calendar.timeZone
+        guard let resolved = calendar.date(from: components), resolved > now else { return nil }
+        return components
+    }
+
+    static func testDate(now: Date = Date()) -> Date { now.addingTimeInterval(120) }
 }

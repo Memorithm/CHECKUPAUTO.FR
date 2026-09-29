@@ -12,6 +12,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var referralWallets: [ReferralWalletProductStatus] = []
     @Published var notificationAuthorized = false
     @Published var errorMessage: String?
+    @Published private(set) var localReminderNotice: String?
+    @Published private(set) var schedulingLocalTest = false
     @Published private(set) var claimNotice: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
@@ -34,6 +36,8 @@ final class AppModel: ObservableObject {
             referralWallets = snapshot.wallets
         }
         Task {
+            await refreshNotificationState()
+            await rescheduleAll()
             try? await DeviceRegistrationClient.registerInstallation()
             installationRegistrationSuppressed =
                 InstallationLifecycleState.isAutoRegistrationSuppressed()
@@ -51,6 +55,7 @@ final class AppModel: ObservableObject {
             do {
                 notificationAuthorized = try await scheduler.requestAuthorization()
                 if notificationAuthorized {
+                    await rescheduleAll()
                     _ = try await DeviceRegistrationClient.registerInstallation(reactivate: true)
                     installationRegistrationSuppressed =
                         InstallationLifecycleState.isAutoRegistrationSuppressed()
@@ -66,28 +71,72 @@ final class AppModel: ObservableObject {
             }
         }
     }
-    func add(registration: String, name: String, dueDate: Date) {
+    func add(registration: String, name: String, dueDate: Date, reminderAt: Date? = nil) {
         let vehicle = VehicleDeadline(
             registration: registration,
             displayName: name,
-            controlDueDate: dueDate
+            controlDueDate: dueDate,
+            localReminderAt: reminderAt
         )
         vehicles.append(vehicle)
         vehicles.sort { $0.controlDueDate < $1.controlDueDate }
         persist()
         Task {
+            if reminderAt != nil {
+                do { notificationAuthorized = try await scheduler.requestAuthorization() }
+                catch { errorMessage = error.localizedDescription }
+            }
             if notificationAuthorized {
                 do {
+                    if let date = reminderAt, LocalReminderPlan.components(for: date) == nil {
+                        throw LocalReminderError.pastDate
+                    }
                     if useLocalFallback {
                         try await scheduler.reschedule(vehicle, policy: mobileConfig.reminders)
                     } else {
-                        await scheduler.remove(vehicle, leadDays: mobileConfig.reminders.leadDays)
+                        await scheduler.remove(vehicle, leadDays: mobileConfig.reminders.leadDays, includeCustom: false)
+                    }
+                    try await scheduler.rescheduleCustom(vehicle)
+                    if let date = reminderAt {
+                        localReminderNotice = "Rappel programmé le " + date.formatted(date: .abbreviated, time: .shortened)
                     }
                 } catch {
                     errorMessage = "Le véhicule est enregistré, mais les rappels n’ont pas pu être programmés."
                 }
             }
+            if reminderAt != nil && !notificationAuthorized {
+                errorMessage = "Véhicule enregistré. Autorisez les notifications dans Réglages pour recevoir son rappel."
+            }
             await syncRemoteDeadlines()
+        }
+    }
+
+    func scheduleLocalTest(at date: Date) {
+        guard !schedulingLocalTest else { return }
+        schedulingLocalTest = true
+        localReminderNotice = nil
+        Task {
+            defer { schedulingLocalTest = false }
+            do {
+                guard LocalReminderPlan.components(for: date) != nil else { throw LocalReminderError.pastDate }
+                notificationAuthorized = try await scheduler.requestAuthorization()
+                guard notificationAuthorized else {
+                    errorMessage = "Autorisez les notifications Checkup Auto dans Réglages pour recevoir le test."
+                    return
+                }
+                try await scheduler.scheduleTest(at: date)
+                errorMessage = nil
+                localReminderNotice = "Test programmé le " + date.formatted(date: .abbreviated, time: .shortened)
+            } catch {
+                errorMessage = "Test non programmé : " + error.localizedDescription
+            }
+        }
+    }
+
+    func cancelLocalTest() {
+        Task {
+            await scheduler.cancelTest()
+            localReminderNotice = "Test annulé."
         }
     }
 
@@ -184,6 +233,8 @@ final class AppModel: ObservableObject {
                         leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
                     )
                 }
+                await scheduler.cancelTest()
+                localReminderNotice = nil
                 VehicleDeadlineStore.clear()
                 AuthoritativeInventoryStore.clear()
                 #if canImport(ActivityKit)
@@ -207,6 +258,8 @@ final class AppModel: ObservableObject {
 
     func refreshAfterForeground() {
         Task {
+            await refreshNotificationState()
+            await rescheduleAll()
             try? await DeviceRegistrationClient.registerInstallation()
             installationRegistrationSuppressed =
                 InstallationLifecycleState.isAutoRegistrationSuppressed()
@@ -288,9 +341,11 @@ final class AppModel: ObservableObject {
                 } else {
                     await scheduler.remove(
                         vehicle,
-                        leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays))
+                        leadDays: Array(Set(ReminderPlan.defaultLeadDays + mobileConfig.reminders.leadDays)),
+                        includeCustom: false
                     )
                 }
+                try await scheduler.rescheduleCustom(vehicle)
             } catch {
                 errorMessage = "Certains rappels n’ont pas pu être reprogrammés."
             }

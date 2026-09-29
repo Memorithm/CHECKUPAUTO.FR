@@ -5,7 +5,9 @@ struct AddVehicleView: View {
     @State private var plate = ""
     @State private var label = ""
     @State private var dueDate = Date()
-    let onSave: (String, String, Date) -> Void
+    @State private var customReminderEnabled = false
+    @State private var reminderAt = LocalReminderPlan.testDate()
+    let onSave: (String, String, Date, Date?) -> Void
 
     private let paper = Color(red: 0.965, green: 0.970, blue: 0.945)
     private let ink = Color(red: 0.115, green: 0.235, blue: 0.185)
@@ -62,8 +64,20 @@ struct AddVehicleView: View {
                         .tint(accent)
                     }
 
+                    fieldCard {
+                        Toggle("Rappel à une date et une heure précises", isOn: $customReminderEnabled)
+                            .tint(accent)
+                        if customReminderEnabled {
+                            DatePicker("Me rappeler le", selection: $reminderAt, in: Date()...,
+                                       displayedComponents: [.date, .hourAndMinute])
+                            Text("Heure locale de cet iPhone. Ce rappel fonctionne sans Internet et ne change pas la date du contrôle.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     Button {
-                        onSave(plate, label, dueDate)
+                        onSave(plate, label, dueDate, customReminderEnabled ? reminderAt : nil)
                         isPresented = false
                     } label: {
                         HStack {
@@ -76,7 +90,7 @@ struct AddVehicleView: View {
                         .padding(16)
                         .background(accent, in: RoundedRectangle(cornerRadius: 16))
                     }
-                    .disabled(plate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(plate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (customReminderEnabled && reminderAt <= Date()))
                     .opacity(plate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
                 }
                 .padding(20)
