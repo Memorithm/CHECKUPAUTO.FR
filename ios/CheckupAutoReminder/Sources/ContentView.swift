@@ -183,6 +183,8 @@ struct ContentView: View {
                 Text(notice).font(.caption.weight(.semibold)).foregroundStyle(CheckupTheme.accent)
             }
             if model.localActivityTestRunning {
+                Button("Rejouer le trajet") { model.startLocalActivityTest() }
+                    .buttonStyle(.borderedProminent)
                 Button("Arrêter le test Dynamic Island", role: .cancel) { model.stopLocalActivityTest() }
                     .buttonStyle(.bordered)
             } else {
