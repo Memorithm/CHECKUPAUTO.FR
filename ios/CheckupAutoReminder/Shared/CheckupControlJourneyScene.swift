@@ -153,6 +153,7 @@ private struct ControlJourneyTrailer: View {
             Rectangle().fill(mint).frame(width: 128, height: 3).offset(x: 2, y: 39)
             ControlJourneyWheel(rotation: rotation).frame(width: 13, height: 13).offset(x: 74, y: 37)
         }
+        .frame(width: 132, height: 50, alignment: .topLeading)
     }
 }
 

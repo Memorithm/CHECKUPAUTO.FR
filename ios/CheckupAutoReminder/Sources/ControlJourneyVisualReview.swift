@@ -7,6 +7,7 @@ import SwiftUI
 struct ControlJourneyVisualReview: View {
     @State private var seed = 0
     @State private var reviewError: String?
+    @State private var activityStatus = ""
     private let endsAt = Date().addingTimeInterval(120)
 
     var body: some View {
@@ -22,13 +23,18 @@ struct ControlJourneyVisualReview: View {
             .background(.black, in: RoundedRectangle(cornerRadius: 24))
             .padding(.horizontal, 8)
             Text(CheckupControlJourneyMotion.isParked(for: seed) ? "Arrêt devant le centre" : "Trajet en cours")
+            Text(activityStatus).font(.caption).foregroundStyle(.gray)
             if let reviewError { Text(reviewError).font(.caption).foregroundStyle(.red) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 0.965, green: 0.970, blue: 0.945).ignoresSafeArea())
         .task {
             if #available(iOS 26.0, *) {
-                do { _ = try await CheckupControlLiveActivityCoordinator.startLocalTest() }
+                do {
+                    _ = try await CheckupControlLiveActivityCoordinator.startLocalTest()
+                    let activities = Activity<CheckupControlActivityAttributes>.activities
+                    activityStatus = "Activité système : " + (activities.first.map { String(describing: $0.activityState) } ?? "absente")
+                }
                 catch { reviewError = error.localizedDescription }
             }
             for phase in 1...CheckupControlJourneyMotion.arrivalPhase {
