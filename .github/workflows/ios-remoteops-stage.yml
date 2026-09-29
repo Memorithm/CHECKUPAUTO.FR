@@ -1,0 +1,126 @@
+name: Stage pinned iOS 0.3.6 source for RemoteOps
+
+on:
+  push:
+    branches: [ops/stage-ios-036-review]
+    paths: ['.github/workflows/ios-remoteops-stage.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-remoteops-stage-0.3.6
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && github.actor == 'CHECKUPAUTO'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 10
+    env:
+      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
+      CHECKUPAUTO_MAC_USER: tarek
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 35af4bfe2036580cde8c635cc3127ec9bdd94c6e
+          persist-credentials: false
+
+      - name: Verify pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 35af4bfe2036580cde8c635cc3127ec9bdd94c6e
+          test -f ios/CheckupAutoReminder/project.yml
+          test -f ios/CheckupAutoReminder/CheckupAutoReminder.entitlements
+          git status --porcelain
+
+      - name: Verify Mac SSH endpoint
+        run: |
+          set -euo pipefail
+          getent hosts "$CHECKUPAUTO_MAC_HOST" >/dev/null
+          timeout 5 bash -c "</dev/tcp/$CHECKUPAUTO_MAC_HOST/22"
+
+      - name: Resolve authorized Mac SSH identity
+        env:
+          CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          tmp_key="$RUNNER_TEMP/checkupauto-mac-key"
+          auth_file=".ios-mac-auth"
+          rm -f "$tmp_key" "$auth_file" .ios-mac-key
+          umask 077
+
+          verify_key() {
+            candidate="$1"
+            [ -r "$candidate" ] || return 1
+            timeout 3 ssh-keygen -y -f "$candidate" >/dev/null 2>&1 || return 1
+            timeout 8 ssh -i "$candidate" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
+          }
+
+          resolved=""
+          if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
+            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
+            if verify_key "$tmp_key"; then
+              resolved="$tmp_key"
+            else
+              rm -f "$tmp_key"
+            fi
+          fi
+
+          if [ -z "$resolved" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 \
+            -o StrictHostKeyChecking=accept-new \
+            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
+            printf '%s\n' default > "$auth_file"
+          fi
+
+          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
+            for candidate in \
+              /root/.ssh/checkupauto_macmini_ed25519 \
+              "$HOME/.ssh/checkupauto_macmini_ed25519" \
+              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519 \
+              /root/.ssh/remoteops_thor_ed25519 \
+              "$HOME/.ssh/remoteops_thor_ed25519" \
+              /opt/actions-runner/.ssh/remoteops_thor_ed25519 \
+              /root/.ssh/id_ed25519 "$HOME/.ssh/id_ed25519" \
+              /opt/actions-runner/.ssh/id_ed25519 \
+              /root/.ssh/id_rsa "$HOME/.ssh/id_rsa" \
+              /opt/actions-runner/.ssh/id_rsa; do
+              if verify_key "$candidate"; then
+                resolved="$candidate"
+                break
+              fi
+            done
+          fi
+
+          if [ ! -s "$auth_file" ]; then
+            [ -n "$resolved" ] || { echo '::error::No authorized Mac mini SSH identity'; exit 2; }
+            if [ "$resolved" != "$tmp_key" ]; then cp "$resolved" "$tmp_key"; fi
+            chmod 600 "$tmp_key"
+            printf '%s\n' key > "$auth_file"
+            printf '%s\n' "$tmp_key" > .ios-mac-key
+          fi
+
+      - name: Stage exact source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
+          remote_dir="/Users/tarek/CheckupAutoReleases/35af4bfe2036580cde8c635cc3127ec9bdd94c6e"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; umask 077; mkdir -p /Users/tarek/CheckupAutoReleases; mkdir '$remote_dir'"
+          git archive 35af4bfe2036580cde8c635cc3127ec9bdd94c6e ios/CheckupAutoReminder ios_release_runner.py | \
+            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+              "tar -xf - -C '$remote_dir'"
+          echo "CANONICAL_SOURCE_STAGED=35af4bfe2036580cde8c635cc3127ec9bdd94c6e"
+
+      - name: Remove ephemeral SSH identity
+        if: always()
+        run: |
+          if [ -s .ios-mac-key ]; then rm -f "$(cat .ios-mac-key)"; fi
+          rm -f .ios-mac-auth .ios-mac-key
