@@ -45,10 +45,28 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
 
         var trailerMessage: String { trailerHeading + " " + trailerDetail }
 
+        var journeyHeading: String {
+            switch moment {
+            case .tomorrow: return "Votre CT est prévu"
+            case .approaching, .localTest: return "Votre CT arrive"
+            case .acknowledged: return "Rappel confirmé"
+            }
+        }
+
+        var journeyDetail: String {
+            switch moment {
+            case .tomorrow: return "demain"
+            case .approaching, .localTest: return "à échéance"
+            case .acknowledged: return "Bon trajet !"
+            }
+        }
+
+        var journeyMessage: String { journeyHeading + " " + journeyDetail }
+
         var primaryMessage: String {
             switch moment {
             case .tomorrow: return "Contrôle technique demain"
-            case .approaching, .localTest: return "Votre contrôle technique arrive à échéance"
+            case .approaching, .localTest: return "Votre CT arrive à échéance"
             case .acknowledged: return "Bon trajet vers Checkup Auto"
             }
         }
@@ -105,51 +123,37 @@ enum CheckupControlActivityPolicy {
     }
 }
 
-/// Six two-second scene updates: approach, stop, exit, walk, turn, gesture.
-/// Compact car and message share the same trajectory during the approach.
-/// Phase zero resets without animation rather than reversing the whole scene.
-enum CheckupControlConvoyMotion {
-    static let animationDuration: TimeInterval = 1.85
-    static let phaseCount = 6
+/// A single trip: enter from the right, roll left, brake, then remain parked.
+/// Animation endpoints are advanced every two seconds by the local demo.
+enum CheckupControlJourneyMotion {
+    static let animationDuration: TimeInterval = 1.95
+    static let arrivalPhase = 5
 
-    static func phase(for seed: Int) -> Int {
-        (seed % phaseCount + phaseCount) % phaseCount
+    static func phase(for seed: Int) -> Int { min(arrivalPhase, max(0, seed)) }
+    static func progress(for seed: Int) -> Double {
+        [0.0, 0.23, 0.48, 0.72, 0.90, 1.0][phase(for: seed)]
     }
+    static func isParked(for seed: Int) -> Bool { phase(for: seed) == arrivalPhase }
 
-    static func rightToLeftProgress(for seed: Int) -> Double {
-        max(0, Double(2 - phase(for: seed)) / 2)
+    static func layout(trackWidth: Double) -> CheckupControlJourneyLayout {
+        CheckupControlJourneyLayout(trackWidth: max(0, trackWidth))
     }
-
     static func carOffset(for seed: Int, trackWidth: Double) -> Double {
-        let travel = carFacesRight(for: seed) ? max(0, trackWidth) + 28 : max(0, trackWidth - 142)
-        return travel * carProgress(for: seed)
+        let layout = layout(trackWidth: trackWidth)
+        let start = max(layout.stopX, trackWidth - 42 * layout.scale)
+        return start + (layout.stopX - start) * progress(for: seed)
     }
-
-    static func compactOffset(for seed: Int) -> Double {
-        8 * rightToLeftProgress(for: seed) - 4
+    static func wheelRotation(for seed: Int, trackWidth: Double) -> Double {
+        let scale = layout(trackWidth: trackWidth).scale
+        let distance = carOffset(for: seed, trackWidth: trackWidth) - carOffset(for: 0, trackWidth: trackWidth)
+        return distance / (6.5 * scale) * 180 / .pi
     }
+}
 
-    static func animatesTransition(for seed: Int) -> Bool {
-        phase(for: seed) != 0
-    }
-
-    static func characterIsVisible(for seed: Int) -> Bool { phase(for: seed) >= 2 }
-    static func characterFacesCar(for seed: Int) -> Bool { phase(for: seed) >= 4 }
-    static func carFacesRight(for seed: Int) -> Bool { phase(for: seed) >= 3 }
-
-    static func carProgress(for seed: Int) -> Double {
-        [1.0, 0.65, 0.35, 0.58, 0.84, 1.0][phase(for: seed)]
-    }
-
-    static func characterProgress(for seed: Int) -> Double {
-        [0.28, 0.28, 0.28, 0.12, 0.04, 0.04][phase(for: seed)]
-    }
-
-    static func stride(for seed: Int) -> Double {
-        [0.0, 0.0, -0.75, 0.85, 0.0, 0.0][phase(for: seed)]
-    }
-
-    static func gesture(for seed: Int) -> Double {
-        [0.0, 0.0, 0.05, 0.15, 0.45, 1.0][phase(for: seed)]
-    }
+struct CheckupControlJourneyLayout {
+    let trackWidth: Double
+    var scale: Double { min(1.1, max(0.45, (trackWidth - 24) / 280)) }
+    var buildingWidth: Double { 72 * scale }
+    var convoyWidth: Double { 208 * scale }
+    var stopX: Double { 16 + buildingWidth }
 }

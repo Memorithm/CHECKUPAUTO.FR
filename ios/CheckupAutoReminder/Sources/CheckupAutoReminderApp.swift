@@ -8,6 +8,9 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        if CheckupAutoLaunchMode.isJourneyVisualReview {
+            return true
+        }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         let book = UNNotificationAction(
@@ -90,23 +93,52 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
 }
 #endif
 
+enum CheckupAutoLaunchMode {
+    static func isJourneyVisualReview(arguments: [String]) -> Bool {
+        #if DEBUG
+        arguments.contains("--journey-visual-review")
+        #else
+        false
+        #endif
+    }
+
+    static var isJourneyVisualReview: Bool {
+        isJourneyVisualReview(arguments: ProcessInfo.processInfo.arguments)
+    }
+}
+
 @main
 struct CheckupAutoReminderApp: App {
-    @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var model = AppModel()
     #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(CheckupAutoAppDelegate.self) private var appDelegate
     #endif
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(model)
-                .onChange(of: scenePhase) { _, phase in
-                    if phase == .active {
-                        model.refreshAfterForeground()
-                    }
-                }
+            #if DEBUG
+            if CheckupAutoLaunchMode.isJourneyVisualReview {
+                ControlJourneyVisualReview()
+            } else {
+                OperationalRootView()
+            }
+            #else
+            OperationalRootView()
+            #endif
         }
+    }
+}
+
+private struct OperationalRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var model = AppModel()
+
+    var body: some View {
+        ContentView()
+            .environmentObject(model)
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    model.refreshAfterForeground()
+                }
+            }
     }
 }
