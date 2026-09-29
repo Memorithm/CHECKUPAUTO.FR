@@ -68,11 +68,15 @@ enum CheckupControlLiveActivityCoordinator {
     static let localTestDuration: TimeInterval = 120
     static let localTestAnimationInterval = 2
 
-    static func advanceLocalTestAnimation(now: Date = Date()) async {
+    @discardableResult
+    static func advanceLocalTestAnimation(now: Date = Date()) async -> Bool {
+        var foundActiveTest = false
         for activity in Activity<CheckupControlActivityAttributes>.activities
         where activity.attributes.kind == .localTest
             && activity.content.state.appointmentAt > now {
+            foundActiveTest = true
             let current = activity.content.state
+            guard !CheckupControlJourneyMotion.isParked(for: current.animationSeed) else { continue }
             let next = CheckupControlActivityAttributes.ContentState(
                 moment: .localTest,
                 appointmentAt: current.appointmentAt,
@@ -86,6 +90,7 @@ enum CheckupControlLiveActivityCoordinator {
                 )
             )
         }
+        return foundActiveTest
     }
 
     private static let localTestPrefix = "ct.local.test-island."
@@ -108,7 +113,7 @@ enum CheckupControlLiveActivityCoordinator {
         )
         let content = ActivityContent(state: state, staleDate: endsAt, relevanceScore: 100)
         _ = try Activity<CheckupControlActivityAttributes>.request(
-            attributes: attributes, content: content, pushType: nil, style: .standard
+            attributes: attributes, content: content, pushType: nil, style: .transient
         )
         return endsAt
     }

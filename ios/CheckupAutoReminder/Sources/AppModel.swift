@@ -307,7 +307,7 @@ final class AppModel: ObservableObject {
             do {
                 let endsAt = try await CheckupControlLiveActivityCoordinator.startLocalTest()
                 errorMessage = nil
-                localActivityTestNotice = "Rappel lancé : compte à rebours et voiture en mouvement."
+                localActivityTestNotice = "Trajet lancé dans la Dynamic Island agrandie : la voiture rejoint le centre de contrôle technique."
                 localActivityTestTask = Task { [weak self] in
                     while Date() < endsAt {
                         do {
@@ -318,7 +318,7 @@ final class AppModel: ObservableObject {
                             return
                         }
                         guard !Task.isCancelled, Date() < endsAt else { break }
-                        await CheckupControlLiveActivityCoordinator.advanceLocalTestAnimation()
+                        guard await CheckupControlLiveActivityCoordinator.advanceLocalTestAnimation() else { break }
                     }
                     guard !Task.isCancelled else { return }
                     await CheckupControlLiveActivityCoordinator.endLocalTest()

@@ -100,7 +100,17 @@ struct CheckupAutoReminderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--journey-visual-review") {
+                    ControlJourneyVisualReview()
+                } else {
+                    ContentView()
+                }
+                #else
+                ContentView()
+                #endif
+            }
                 .environmentObject(model)
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
