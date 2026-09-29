@@ -1,4 +1,4 @@
-name: Stage pinned iOS source for RemoteOps
+name: Inspect current iOS delivery
 on:
   push:
     paths: ['.github/workflows/ios-remoteops-stage.yml']
@@ -100,20 +100,41 @@ jobs:
             printf '%s\n' key > "$auth_file"
             printf '%s\n' "$tmp_key" > .ios-mac-key
           fi
-      - name: Stage exact committed source
+      - name: Read current release progress without credentials
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 1d5a83fdf173345b75f917643e172f8c71811238
           ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
           if [ "$(cat .ios-mac-auth)" = key ]; then
             ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
           fi
-          remote_dir="/Users/tarek/CheckupAutoReleases/1d5a83fdf173345b75f917643e172f8c71811238"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "umask 077; mkdir -p /Users/tarek/CheckupAutoReleases; mkdir '$remote_dir'"
-          git archive HEAD ios/CheckupAutoReminder ios_release_runner.py |
-            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xf - -C '$remote_dir'"
-          echo "CANONICAL_SOURCE_STAGED=1d5a83fdf173345b75f917643e172f8c71811238"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" 'python3 -' <<'PY'
+          import pathlib, subprocess, plistlib
+          print('RELEASE_PROCESS_STATUS')
+          raw=subprocess.check_output(['ps','-axo','pid,etime,comm'],text=True)
+          for line in raw.splitlines():
+              if any(x in line for x in ['xcodebuild','altool','Transporter','codesign','checkupauto-keychain']):
+                  print(line)
+          for root in pathlib.Path('/tmp').glob('checkupauto-testflight.*'):
+              log=root/'archive.log'
+              if not log.is_file(): continue
+              content=log.read_text(errors='replace')
+              if 'checkupauto-release-36542641812-1/' not in content: continue
+              print('MATCHING_RELEASE',root.name)
+              for name in ['archive.log','export.log']:
+                  p=root/name
+                  if p.is_file():
+                      text=p.read_text(errors='replace')
+                      print(name,'bytes',p.stat().st_size)
+                      for line in text.splitlines():
+                          if '** ARCHIVE ' in line or '** EXPORT ' in line or 'error:' in line or 'Error Domain=' in line:
+                              print(line[:600])
+              for p in (root/'CheckupAutoReminder.xcarchive/Products/Applications').glob('*.app/Info.plist'):
+                  d=plistlib.loads(p.read_bytes())
+                  print('ARCHIVE_VERSION',d.get('CFBundleShortVersionString'),d.get('CFBundleVersion'))
+              for p in (root/'export').glob('*.ipa'):
+                  print('EXPORTED_IPA_BYTES',p.stat().st_size)
+          PY
       - name: Remove ephemeral SSH identity
         if: always()
         run: |
