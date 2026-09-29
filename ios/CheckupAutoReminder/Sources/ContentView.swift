@@ -176,7 +176,7 @@ struct ContentView: View {
             Label("Tester la Dynamic Island", systemImage: "livephoto")
                 .font(.headline)
                 .foregroundStyle(CheckupTheme.ink)
-            Text("Le compte à rebours reste lisible pendant que la voiture avance sur trois positions.")
+            Text("La voiture tire « CT BIENTÔT ! » vers la gauche. Maintenez la Dynamic Island appuyée : le personnage sort, marche puis interpelle la voiture qui s’éloigne.")
                 .font(.caption)
                 .foregroundStyle(CheckupTheme.muted)
             if let notice = model.localActivityTestNotice {
@@ -189,7 +189,7 @@ struct ContentView: View {
                 Button("Démarrer le test Dynamic Island") { model.startLocalActivityTest() }
                     .buttonStyle(.borderedProminent)
             }
-            Text("Durée : 2 minutes. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
+            Text("Durée : 2 minutes. Gardez l’app ouverte pendant le test animé. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)
         }

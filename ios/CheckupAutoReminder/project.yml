@@ -9,8 +9,8 @@ configs:
 settings:
   base:
     SWIFT_VERSION: 5.10
-    CURRENT_PROJECT_VERSION: 7
-    MARKETING_VERSION: 0.3.4
+    CURRENT_PROJECT_VERSION: 8
+    MARKETING_VERSION: 0.3.5
   configs:
     Debug:
       APS_ENVIRONMENT: development
