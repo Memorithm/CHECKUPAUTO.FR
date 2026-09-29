@@ -144,10 +144,10 @@ struct ContentView: View {
 
     private var localReminderSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Tester un rappel", systemImage: "bell.badge")
+            Label("Tester les notifications", systemImage: "bell.badge")
                 .font(.headline)
                 .foregroundStyle(CheckupTheme.ink)
-            Text("Notification locale, même sans Internet. Vous pouvez refaire le test à tout moment.")
+            Text("La popup ci-dessous teste les notifications locales. Le test Dynamic Island est séparé.")
                 .font(.caption)
                 .foregroundStyle(CheckupTheme.muted)
             DatePicker("Date et heure", selection: $testReminderAt, in: Date()...,
@@ -157,7 +157,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(model.schedulingLocalTest || testReminderAt <= Date())
-            Button("Tester dans 2 minutes") {
+            Button("Tester la popup dans 2 minutes") {
                 let date = LocalReminderPlan.testDate()
                 testReminderAt = date
                 model.scheduleLocalTest(at: date)
@@ -172,7 +172,24 @@ struct ContentView: View {
             Button("Annuler le test", role: .cancel) { model.cancelLocalTest() }
                 .font(.caption)
                 .disabled(model.schedulingLocalTest)
-            Text("Le nouveau test remplace le précédent. Le son dépend des réglages de notifications et du mode Concentration de l’iPhone. Ce test ne déclenche pas la Dynamic Island.")
+            Divider()
+            Label("Tester la Dynamic Island", systemImage: "livephoto")
+                .font(.headline)
+                .foregroundStyle(CheckupTheme.ink)
+            Text("Démarre immédiatement une animation de démonstration, sans rendez-vous réel ni connexion au site.")
+                .font(.caption)
+                .foregroundStyle(CheckupTheme.muted)
+            if let notice = model.localActivityTestNotice {
+                Text(notice).font(.caption.weight(.semibold)).foregroundStyle(CheckupTheme.accent)
+            }
+            if model.localActivityTestRunning {
+                Button("Arrêter le test Dynamic Island", role: .cancel) { model.stopLocalActivityTest() }
+                    .buttonStyle(.bordered)
+            } else {
+                Button("Démarrer le test Dynamic Island") { model.startLocalActivityTest() }
+                    .buttonStyle(.borderedProminent)
+            }
+            Text("Durée : 2 minutes. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)
         }

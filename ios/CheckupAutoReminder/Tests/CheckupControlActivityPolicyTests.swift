@@ -2,6 +2,23 @@ import XCTest
 @testable import CheckupAutoReminder
 
 final class CheckupControlActivityPolicyTests: XCTestCase {
+    func testLocalActivityTestIsDistinctFromAppointmentReminders() {
+        let state = CheckupControlActivityAttributes.ContentState(
+            moment: .localTest,
+            appointmentAt: Date(timeIntervalSince1970: 1_790_000_000),
+            animationSeed: 42
+        )
+        let attributes = CheckupControlActivityAttributes(
+            reminderId: "ct.local.test-island.test",
+            kind: .localTest
+        )
+
+        XCTAssertEqual(state.shortLabel, "TEST")
+        XCTAssertEqual(state.primaryMessage, "Test Dynamic Island")
+        XCTAssertEqual(attributes.kind, .localTest)
+        XCTAssertTrue(attributes.reminderId.hasPrefix("ct.local.test-island."))
+    }
+
     func testDayBeforeReminderStartsAt18ParisTime() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Paris")!

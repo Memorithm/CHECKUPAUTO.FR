@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -14,6 +17,9 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var localReminderNotice: String?
     @Published private(set) var schedulingLocalTest = false
+    @Published private(set) var localActivityTestRunning = false
+    @Published private(set) var localActivityTestNotice: String?
+    private var localActivityTestTask: Task<Void, Never>?
     @Published private(set) var claimNotice: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
@@ -257,6 +263,15 @@ final class AppModel: ObservableObject {
     }
 
     func refreshAfterForeground() {
+        #if canImport(ActivityKit)
+        if #available(iOS 26.0, *) {
+            Task {
+                await CheckupControlLiveActivityCoordinator.endExpiredLocalTests()
+                localActivityTestRunning = Activity<CheckupControlActivityAttributes>.activities
+                    .contains { $0.attributes.kind == .localTest }
+            }
+        }
+        #endif
         Task {
             await refreshNotificationState()
             await rescheduleAll()
@@ -277,6 +292,50 @@ final class AppModel: ObservableObject {
         Task {
             await rescheduleAll()
         }
+    }
+
+    func startLocalActivityTest() {
+        #if canImport(ActivityKit)
+        guard #available(iOS 26.0, *) else {
+            errorMessage = "Le test Dynamic Island demande iOS 26 ou une version ultérieure."
+            return
+        }
+        localActivityTestTask?.cancel()
+        localActivityTestRunning = true
+        localActivityTestNotice = nil
+        Task {
+            do {
+                _ = try await CheckupControlLiveActivityCoordinator.startLocalTest()
+                errorMessage = nil
+                localActivityTestNotice = "Test Dynamic Island lancé pour 2 minutes."
+                localActivityTestTask = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(120)) } catch { return }
+                    await CheckupControlLiveActivityCoordinator.endLocalTest()
+                    self?.localActivityTestRunning = false
+                    self?.localActivityTestNotice = "Test Dynamic Island terminé."
+                }
+            } catch {
+                localActivityTestRunning = false
+                errorMessage = error.localizedDescription
+            }
+        }
+        #else
+        errorMessage = "Les Activités en direct ne sont pas disponibles sur cet appareil."
+        #endif
+    }
+
+    func stopLocalActivityTest() {
+        localActivityTestTask?.cancel()
+        localActivityTestTask = nil
+        #if canImport(ActivityKit)
+        if #available(iOS 26.0, *) {
+            Task {
+                await CheckupControlLiveActivityCoordinator.endLocalTest()
+                localActivityTestRunning = false
+                localActivityTestNotice = "Test Dynamic Island arrêté."
+            }
+        }
+        #endif
     }
 
     func acknowledgeControlLiveActivity(reminderId: String?) {
