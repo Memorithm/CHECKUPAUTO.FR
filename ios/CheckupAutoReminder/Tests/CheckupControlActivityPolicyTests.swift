@@ -137,4 +137,22 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testVisualReviewLaunchModeIsExplicitAndDebugOnly() {
+        XCTAssertFalse(CheckupAutoLaunchMode.isJourneyVisualReview(arguments: ["CheckupAutoReminder"]))
+        #if DEBUG
+        XCTAssertTrue(
+            CheckupAutoLaunchMode.isJourneyVisualReview(
+                arguments: ["CheckupAutoReminder", "--journey-visual-review"]
+            )
+        )
+        #else
+        XCTAssertFalse(
+            CheckupAutoLaunchMode.isJourneyVisualReview(
+                arguments: ["CheckupAutoReminder", "--journey-visual-review"]
+            )
+        )
+        #endif
+    }
+
 }
