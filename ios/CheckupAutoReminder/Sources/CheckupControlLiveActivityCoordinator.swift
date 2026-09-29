@@ -66,6 +66,28 @@ enum CheckupControlLiveActivityCoordinator {
     }
 
     static let localTestDuration: TimeInterval = 120
+    static let localTestAnimationInterval = 2
+
+    static func advanceLocalTestAnimation(now: Date = Date()) async {
+        for activity in Activity<CheckupControlActivityAttributes>.activities
+        where activity.attributes.kind == .localTest
+            && activity.content.state.appointmentAt > now {
+            let current = activity.content.state
+            let next = CheckupControlActivityAttributes.ContentState(
+                moment: .localTest,
+                appointmentAt: current.appointmentAt,
+                animationSeed: current.animationSeed + 1
+            )
+            await activity.update(
+                ActivityContent(
+                    state: next,
+                    staleDate: current.appointmentAt,
+                    relevanceScore: 100
+                )
+            )
+        }
+    }
+
     private static let localTestPrefix = "ct.local.test-island."
 
     @discardableResult
