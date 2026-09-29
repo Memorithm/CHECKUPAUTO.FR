@@ -23,14 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 35af4bfe2036580cde8c635cc3127ec9bdd94c6e
+          ref: 4af0605e5163186abc37b8b7fec47e20be0ad276
           persist-credentials: false
 
       - name: Verify pinned source
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 35af4bfe2036580cde8c635cc3127ec9bdd94c6e
+          test "$(git rev-parse HEAD)" = 4af0605e5163186abc37b8b7fec47e20be0ad276
           test -f ios/CheckupAutoReminder/project.yml
           test -f ios/CheckupAutoReminder/CheckupAutoReminder.entitlements
           git status --porcelain
@@ -111,13 +111,13 @@ jobs:
           if [ "$(cat .ios-mac-auth)" = key ]; then
             ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
           fi
-          remote_dir="/Users/tarek/CheckupAutoReleases/35af4bfe2036580cde8c635cc3127ec9bdd94c6e"
+          remote_dir="/Users/tarek/CheckupAutoReleases/4af0605e5163186abc37b8b7fec47e20be0ad276"
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "set -euo pipefail; umask 077; mkdir -p /Users/tarek/CheckupAutoReleases; mkdir '$remote_dir'"
-          git archive 35af4bfe2036580cde8c635cc3127ec9bdd94c6e ios/CheckupAutoReminder ios_release_runner.py | \
+          git archive 4af0605e5163186abc37b8b7fec47e20be0ad276 ios/CheckupAutoReminder ios_release_runner.py | \
             ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
               "tar -xf - -C '$remote_dir'"
-          echo "CANONICAL_SOURCE_STAGED=35af4bfe2036580cde8c635cc3127ec9bdd94c6e"
+          echo "CANONICAL_SOURCE_STAGED=4af0605e5163186abc37b8b7fec47e20be0ad276"
 
       - name: Remove ephemeral SSH identity
         if: always()
