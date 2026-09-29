@@ -191,6 +191,8 @@ private extension CheckupControlActivityAttributes.ContentState {
             .minimumScaleFactor(0.7)
         case .acknowledged:
             Text("✓")
+        case .localTest:
+            Text("TEST")
         }
     }
 }
