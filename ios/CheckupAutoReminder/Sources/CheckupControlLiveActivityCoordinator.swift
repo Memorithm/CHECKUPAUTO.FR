@@ -104,7 +104,7 @@ enum CheckupControlLiveActivityCoordinator {
         let attributes = CheckupControlActivityAttributes(reminderId: reminderId, kind: .localTest)
         let state = CheckupControlActivityAttributes.ContentState(
             moment: .localTest, appointmentAt: endsAt,
-            animationSeed: Int(now.timeIntervalSince1970.rounded())
+            animationSeed: 0
         )
         let content = ActivityContent(state: state, staleDate: endsAt, relevanceScore: 100)
         _ = try Activity<CheckupControlActivityAttributes>.request(

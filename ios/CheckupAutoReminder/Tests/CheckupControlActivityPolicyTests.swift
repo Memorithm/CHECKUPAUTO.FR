@@ -34,6 +34,45 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
         XCTAssertEqual(state(for: .localTest).compactMessage, "CT bientôt")
     }
 
+    func testTrailerCopyMatchesReminderWithoutInventingAppointment() {
+        func state(_ moment: CheckupControlActivityAttributes.ContentState.Moment) -> CheckupControlActivityAttributes.ContentState {
+            .init(moment: moment, appointmentAt: Date(timeIntervalSince1970: 1_790_000_000), animationSeed: 0)
+        }
+        XCTAssertEqual(state(.localTest).trailerMessage, "CT BIENTÔT !")
+        XCTAssertEqual(state(.approaching).trailerMessage, "CT BIENTÔT !")
+        XCTAssertEqual(state(.tomorrow).trailerMessage, "CT DEMAIN !")
+        XCTAssertEqual(state(.acknowledged).trailerMessage, "RAPPEL VU")
+    }
+
+    func testConvoyMovesLeftAndWrapDoesNotAnimateBackwards() {
+        let positions = (0...2).map {
+            CheckupControlConvoyMotion.carOffset(for: $0, trackWidth: 280)
+        }
+        XCTAssertGreaterThan(positions[0], positions[1])
+        XCTAssertGreaterThan(positions[1], positions[2])
+        XCTAssertGreaterThanOrEqual(positions[2], 0)
+        XCTAssertFalse(CheckupControlConvoyMotion.animatesTransition(for: 6))
+        XCTAssertTrue(CheckupControlConvoyMotion.animatesTransition(for: 1))
+        XCTAssertLessThanOrEqual(CheckupControlConvoyMotion.animationDuration, 2)
+        XCTAssertEqual(CheckupControlConvoyMotion.carOffset(for: 0, trackWidth: 100), 0)
+        XCTAssertGreaterThan(CheckupControlConvoyMotion.carOffset(for: 5, trackWidth: 280), 280)
+        for seed in [Int.min, -7, -1, 0, 7, Int.max] {
+            XCTAssertTrue((0..<6).contains(CheckupControlConvoyMotion.phase(for: seed)))
+        }
+    }
+
+    func testCharacterExitsWalksLeftAndTurnsTowardsDepartingCar() {
+        XCTAssertFalse(CheckupControlConvoyMotion.characterIsVisible(for: 1))
+        XCTAssertTrue(CheckupControlConvoyMotion.characterIsVisible(for: 2))
+        XCTAssertLessThan(CheckupControlConvoyMotion.characterProgress(for: 3), CheckupControlConvoyMotion.characterProgress(for: 2))
+        XCTAssertLessThan(CheckupControlConvoyMotion.characterProgress(for: 4), CheckupControlConvoyMotion.characterProgress(for: 3))
+        XCTAssertGreaterThan(CheckupControlConvoyMotion.carProgress(for: 3), CheckupControlConvoyMotion.carProgress(for: 2))
+        XCTAssertGreaterThan(CheckupControlConvoyMotion.carProgress(for: 4), CheckupControlConvoyMotion.carProgress(for: 3))
+        XCTAssertFalse(CheckupControlConvoyMotion.characterFacesCar(for: 3))
+        XCTAssertTrue(CheckupControlConvoyMotion.characterFacesCar(for: 4))
+        XCTAssertGreaterThan(CheckupControlConvoyMotion.gesture(for: 5), CheckupControlConvoyMotion.gesture(for: 4))
+    }
+
     func testDayBeforeReminderStartsAt18ParisTime() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Paris")!
