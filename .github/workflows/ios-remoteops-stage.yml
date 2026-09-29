@@ -62,7 +62,7 @@ jobs:
 
           resolved=""
           if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
-            printf '%s\\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
+            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
             if verify_key "$tmp_key"; then
               resolved="$tmp_key"
             else
@@ -73,7 +73,7 @@ jobs:
           if [ -z "$resolved" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 \
             -o StrictHostKeyChecking=accept-new \
             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
-            printf '%s\\n' default > "$auth_file"
+            printf '%s\n' default > "$auth_file"
           fi
 
           if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
@@ -99,8 +99,8 @@ jobs:
             [ -n "$resolved" ] || { echo '::error::No authorized Mac mini SSH identity'; exit 2; }
             if [ "$resolved" != "$tmp_key" ]; then cp "$resolved" "$tmp_key"; fi
             chmod 600 "$tmp_key"
-            printf '%s\\n' key > "$auth_file"
-            printf '%s\\n' "$tmp_key" > .ios-mac-key
+            printf '%s\n' key > "$auth_file"
+            printf '%s\n' "$tmp_key" > .ios-mac-key
           fi
 
       - name: Stage exact source snapshot
