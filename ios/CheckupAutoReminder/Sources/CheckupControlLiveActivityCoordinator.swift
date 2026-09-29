@@ -65,6 +65,46 @@ enum CheckupControlLiveActivityCoordinator {
         }
     }
 
+    static let localTestDuration: TimeInterval = 120
+    private static let localTestPrefix = "ct.local.test-island."
+
+    @discardableResult
+    static func startLocalTest(now: Date = Date()) async throws -> Date {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            throw LocalActivityTestError.activitiesDisabled
+        }
+        for activity in Activity<CheckupControlActivityAttributes>.activities
+        where activity.attributes.kind == .localTest {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+        let endsAt = now.addingTimeInterval(localTestDuration)
+        let reminderId = localTestPrefix + UUID().uuidString
+        let attributes = CheckupControlActivityAttributes(reminderId: reminderId, kind: .localTest)
+        let state = CheckupControlActivityAttributes.ContentState(
+            moment: .localTest, appointmentAt: endsAt,
+            animationSeed: Int(now.timeIntervalSince1970.rounded())
+        )
+        let content = ActivityContent(state: state, staleDate: endsAt, relevanceScore: 100)
+        _ = try Activity<CheckupControlActivityAttributes>.request(
+            attributes: attributes, content: content, pushType: nil, style: .standard
+        )
+        return endsAt
+    }
+
+    static func endLocalTest() async {
+        for activity in Activity<CheckupControlActivityAttributes>.activities
+        where activity.attributes.kind == .localTest {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
+    static func endExpiredLocalTests(now: Date = Date()) async {
+        for activity in Activity<CheckupControlActivityAttributes>.activities
+        where activity.attributes.kind == .localTest && activity.content.state.appointmentAt <= now {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     static func cancel(reference: UUID) async {
         let prefix = reference.uuidString + "-"
         for activity in Activity<CheckupControlActivityAttributes>.activities
@@ -140,6 +180,14 @@ enum CheckupControlLiveActivityCoordinator {
                 style: .standard
             )
         }
+    }
+}
+
+@available(iOS 26.0, *)
+private enum LocalActivityTestError: LocalizedError {
+    case activitiesDisabled
+    var errorDescription: String? {
+        "Activez les Activités en direct dans Réglages pour afficher le test dans la Dynamic Island."
     }
 }
 

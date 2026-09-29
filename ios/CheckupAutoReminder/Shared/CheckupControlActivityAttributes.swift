@@ -7,6 +7,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             case tomorrow
             case approaching
             case acknowledged
+            case localTest
         }
 
         let moment: Moment
@@ -18,6 +19,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             case .tomorrow: return "CT demain"
             case .approaching: return "CT bientôt"
             case .acknowledged: return "Rappel vu"
+            case .localTest: return "TEST"
             }
         }
 
@@ -26,6 +28,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             case .tomorrow: return "Contrôle technique demain"
             case .approaching: return "Votre contrôle approche"
             case .acknowledged: return "Bon trajet vers Checkup Auto"
+            case .localTest: return "Test Dynamic Island"
             }
         }
     }
@@ -33,6 +36,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
     enum ReminderKind: String, Codable, Hashable {
         case dayBefore
         case dayOf
+        case localTest
     }
 
     let reminderId: String
