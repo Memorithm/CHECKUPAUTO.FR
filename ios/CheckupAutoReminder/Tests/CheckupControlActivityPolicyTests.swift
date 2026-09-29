@@ -13,8 +13,8 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
             kind: .localTest
         )
 
-        XCTAssertEqual(state.shortLabel, "TEST")
-        XCTAssertEqual(state.primaryMessage, "Test Dynamic Island")
+        XCTAssertEqual(state.shortLabel, "Rappel dans 2 min")
+        XCTAssertEqual(state.primaryMessage, "Rappel de contrôle technique")
         XCTAssertEqual(attributes.kind, .localTest)
         XCTAssertTrue(attributes.reminderId.hasPrefix("ct.local.test-island."))
     }

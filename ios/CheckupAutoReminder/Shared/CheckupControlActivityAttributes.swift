@@ -19,7 +19,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             case .tomorrow: return "CT demain"
             case .approaching: return "CT bientôt"
             case .acknowledged: return "Rappel vu"
-            case .localTest: return "TEST"
+            case .localTest: return "Rappel dans 2 min"
             }
         }
 
@@ -28,7 +28,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             case .tomorrow: return "Contrôle technique demain"
             case .approaching: return "Votre contrôle approche"
             case .acknowledged: return "Bon trajet vers Checkup Auto"
-            case .localTest: return "Test Dynamic Island"
+            case .localTest: return "Rappel de contrôle technique"
             }
         }
     }

@@ -305,11 +305,22 @@ final class AppModel: ObservableObject {
         localActivityTestNotice = nil
         Task {
             do {
-                _ = try await CheckupControlLiveActivityCoordinator.startLocalTest()
+                let endsAt = try await CheckupControlLiveActivityCoordinator.startLocalTest()
                 errorMessage = nil
-                localActivityTestNotice = "Test Dynamic Island lancé pour 2 minutes."
+                localActivityTestNotice = "Rappel lancé : compte à rebours et voiture en mouvement."
                 localActivityTestTask = Task { [weak self] in
-                    do { try await Task.sleep(for: .seconds(120)) } catch { return }
+                    while Date() < endsAt {
+                        do {
+                            try await Task.sleep(
+                                for: .seconds(CheckupControlLiveActivityCoordinator.localTestAnimationInterval)
+                            )
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled, Date() < endsAt else { break }
+                        await CheckupControlLiveActivityCoordinator.advanceLocalTestAnimation()
+                    }
+                    guard !Task.isCancelled else { return }
                     await CheckupControlLiveActivityCoordinator.endLocalTest()
                     self?.localActivityTestRunning = false
                     self?.localActivityTestNotice = "Test Dynamic Island terminé."
