@@ -9,7 +9,7 @@ actor ReminderScheduler {
     }
 
     func reschedule(_ vehicle: VehicleDeadline, policy: MobileReminderPolicy) async throws {
-        await remove(vehicle, leadDays: Array(Set(ReminderPlan.defaultLeadDays + policy.leadDays)))
+        await remove(vehicle, leadDays: Array(Set(ReminderPlan.defaultLeadDays + policy.leadDays)), includeCustom: false)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: policy.timezone) ?? .current
         let moments = ReminderPlan.moments(
@@ -86,12 +86,54 @@ actor ReminderScheduler {
         center.removeDeliveredNotifications(withIdentifiers: ids)
     }
 
-    func remove(_ vehicle: VehicleDeadline, leadDays: [Int] = ReminderPlan.defaultLeadDays) async {
-        let ids = leadDays.map {
+    func remove(_ vehicle: VehicleDeadline, leadDays: [Int] = ReminderPlan.defaultLeadDays, includeCustom: Bool = true) async {
+        var ids = leadDays.map {
             identifier(vehicleID: vehicle.id, days: $0)
         }
+        if includeCustom { ids.append(Self.customIdentifier(vehicle.id)) }
         center.removePendingNotificationRequests(withIdentifiers: ids)
         center.removeDeliveredNotifications(withIdentifiers: ids)
+    }
+
+    static let testIdentifier = "ct.local.test"
+
+    static func customIdentifier(_ vehicleID: UUID) -> String {
+        "ct.local.\(vehicleID.uuidString)"
+    }
+
+    static func localRequest(identifier: String, date: Date, body: String, now: Date = Date()) throws -> UNNotificationRequest {
+        guard let components = LocalReminderPlan.components(for: date, now: now) else {
+            throw LocalReminderError.pastDate
+        }
+        let content = UNMutableNotificationContent()
+        content.title = identifier == testIdentifier ? "Test de rappel Checkup Auto" : "Rappel Checkup Auto"
+        content.body = body
+        content.sound = .default
+        return UNNotificationRequest(identifier: identifier, content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false))
+    }
+
+    func rescheduleCustom(_ vehicle: VehicleDeadline) async throws {
+        let id = Self.customIdentifier(vehicle.id)
+        guard let date = vehicle.localReminderAt, LocalReminderPlan.components(for: date) != nil else {
+            center.removePendingNotificationRequests(withIdentifiers: [id])
+            return
+        }
+        let name = vehicle.displayName.isEmpty ? vehicle.registration : vehicle.displayName
+        let request = try Self.localRequest(identifier: id, date: date,
+            body: "\(name) : c’est l’heure du rappel que vous avez choisi.")
+        try await center.add(request)
+    }
+
+    func scheduleTest(at date: Date) async throws {
+        let request = try Self.localRequest(identifier: Self.testIdentifier, date: date,
+            body: "Votre notification locale fonctionne. Ce test ne dépend pas du site Internet.")
+        try await center.add(request)
+    }
+
+    func cancelTest() {
+        center.removePendingNotificationRequests(withIdentifiers: [Self.testIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [Self.testIdentifier])
     }
 
     private func identifier(vehicleID: UUID, days: Int) -> String {
@@ -106,4 +148,9 @@ actor ReminderScheduler {
         let vehicleName = vehicle.displayName.isEmpty ? vehicle.registration : vehicle.displayName
         return "\(vehicleName) : échéance dans \(daysBefore) jour\(daysBefore > 1 ? "s" : ""). Réservez votre contrôle Checkup Auto."
     }
+}
+
+enum LocalReminderError: LocalizedError {
+    case pastDate
+    var errorDescription: String? { "Choisissez une date et une heure à venir." }
 }
