@@ -14,9 +14,24 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(state.shortLabel, "Rappel dans 2 min")
-        XCTAssertEqual(state.primaryMessage, "Rappel de contrôle technique")
+        XCTAssertEqual(state.compactMessage, "CT bientôt")
+        XCTAssertEqual(state.primaryMessage, "Votre contrôle technique arrive à échéance")
         XCTAssertEqual(attributes.kind, .localTest)
         XCTAssertTrue(attributes.reminderId.hasPrefix("ct.local.test-island."))
+    }
+
+    func testCompactReminderLabelMatchesDeadlineState() {
+        func state(for moment: CheckupControlActivityAttributes.ContentState.Moment) -> CheckupControlActivityAttributes.ContentState {
+            CheckupControlActivityAttributes.ContentState(
+                moment: moment,
+                appointmentAt: Date(timeIntervalSince1970: 1_790_000_000),
+                animationSeed: 1
+            )
+        }
+
+        XCTAssertEqual(state(for: .tomorrow).compactMessage, "CT demain")
+        XCTAssertEqual(state(for: .approaching).compactMessage, "CT bientôt")
+        XCTAssertEqual(state(for: .localTest).compactMessage, "CT bientôt")
     }
 
     func testDayBeforeReminderStartsAt18ParisTime() throws {
