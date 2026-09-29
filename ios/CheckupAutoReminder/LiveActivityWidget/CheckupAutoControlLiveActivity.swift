@@ -119,7 +119,7 @@ private struct CarJourneyMark: View {
     }
 
     private var carPosition: CGFloat {
-        let positions: [CGFloat] = compact ? [0, 6, 12] : [0, 16, 32]
+        let positions: [CGFloat] = compact ? [0, 10, 20] : [0, 16, 32]
         return positions[phase]
     }
 
@@ -140,44 +140,22 @@ private struct CarJourneyMark: View {
             Image(systemName: "car.side.fill")
                 .font(.system(size: compact ? 13 : 18, weight: .semibold))
                 .foregroundStyle(Color(red: 0.12, green: 0.48, blue: 0.34))
-                .offset(x: reduceMotion ? (compact ? 6 : 16) : carPosition)
+                .offset(x: reduceMotion ? (compact ? 10 : 16) : carPosition)
                 .animation(
                     reduceMotion ? nil : .easeInOut(duration: 1.7),
                     value: phase
                 )
         }
-        .frame(width: compact ? 34 : 72, height: compact ? 18 : 26)
+        .frame(width: compact ? 44 : 72, height: compact ? 18 : 26)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Voiture en route vers le centre Checkup Auto")
     }
 }
 
 private extension CheckupControlActivityAttributes.ContentState {
-    @ViewBuilder
     var compactStatus: some View {
-        switch moment {
-        case .tomorrow:
-            Text("J-1")
-        case .approaching:
-            Text(
-                timerInterval: min(Date.now, appointmentAt)...appointmentAt,
-                pauseTime: appointmentAt,
-                countsDown: true,
-                showsHours: true
-            )
+        Text(compactMessage)
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
-        case .acknowledged:
-            Text("✓")
-        case .localTest:
-            Text(
-                timerInterval: min(Date.now, appointmentAt)...appointmentAt,
-                pauseTime: appointmentAt,
-                countsDown: true,
-                showsHours: false
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-        }
+            .minimumScaleFactor(0.65)
     }
 }
