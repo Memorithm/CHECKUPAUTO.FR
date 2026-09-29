@@ -176,7 +176,7 @@ struct ContentView: View {
             Label("Tester la Dynamic Island", systemImage: "livephoto")
                 .font(.headline)
                 .foregroundStyle(CheckupTheme.ink)
-            Text("Démarre immédiatement une animation de démonstration, sans rendez-vous réel ni connexion au site.")
+            Text("Le compte à rebours reste lisible pendant que la voiture avance sur trois positions.")
                 .font(.caption)
                 .foregroundStyle(CheckupTheme.muted)
             if let notice = model.localActivityTestNotice {
