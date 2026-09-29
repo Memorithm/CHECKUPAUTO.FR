@@ -29,17 +29,27 @@ struct CheckupAutoControlLiveActivity: Widget {
                     VStack(spacing: 2) {
                         Text(context.state.primaryMessage)
                             .font(.headline)
-                        Text(context.state.moment == .localTest ? "Animation locale de démonstration" : CheckupControlActivityPolicy.cardReminder)
+                        Text(
+                            context.state.moment == .localTest
+                                ? "Animation locale de démonstration"
+                                : CheckupControlActivityPolicy.cardReminder
+                        )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if context.state.moment == .localTest {
-                        Text(timerInterval: min(Date.now, context.state.appointmentAt)...context.state.appointmentAt, pauseTime: context.state.appointmentAt, countsDown: true, showsHours: false)
+                        Text(
+                            timerInterval: min(Date.now, context.state.appointmentAt)...context.state.appointmentAt,
+                            pauseTime: context.state.appointmentAt,
+                            countsDown: true,
+                            showsHours: false
+                        )
                             .font(.caption.monospacedDigit())
                     } else {
-                        Text(context.state.appointmentAt, style: .time).font(.caption.monospacedDigit())
+                        Text(context.state.appointmentAt, style: .time)
+                            .font(.caption.monospacedDigit())
                     }
                 }
             } compactLeading: {
@@ -52,7 +62,11 @@ struct CheckupAutoControlLiveActivity: Widget {
                 Image(systemName: "car.side.fill")
                     .foregroundStyle(.green)
             }
-             .widgetURL(context.attributes.kind == .localTest ? nil : liveActivityURL(context.attributes.reminderId))
+            .widgetURL(
+                context.attributes.kind == .localTest
+                    ? nil
+                    : liveActivityURL(context.attributes.reminderId)
+            )
             .keylineTint(Color(red: 0.12, green: 0.33, blue: 0.26))
         }
     }
@@ -77,7 +91,12 @@ struct CheckupAutoControlLiveActivity: Widget {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if context.state.moment == .localTest {
-                    Text(timerInterval: min(Date.now, context.state.appointmentAt)...context.state.appointmentAt, pauseTime: context.state.appointmentAt, countsDown: true, showsHours: false)
+                    Text(
+                        timerInterval: min(Date.now, context.state.appointmentAt)...context.state.appointmentAt,
+                        pauseTime: context.state.appointmentAt,
+                        countsDown: true,
+                        showsHours: false
+                    )
                         .font(.caption.monospacedDigit())
                 } else {
                     Text(context.state.appointmentAt, format: .dateTime.weekday(.wide).hour().minute())

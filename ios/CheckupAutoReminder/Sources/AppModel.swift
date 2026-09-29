@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
