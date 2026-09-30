@@ -418,7 +418,7 @@ final class AppModel: ObservableObject {
     }
 
     var bookingURL: URL {
-        URL(string: mobileConfig.booking.url) ?? URL(string: "https://rdv.checkupauto.fr/")!
+        MobileAPI.bookingJourneyURL()
     }
 
     var accountURL: URL {

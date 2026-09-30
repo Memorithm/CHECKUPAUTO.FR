@@ -27,6 +27,15 @@ enum MobileAPI {
         return components.url ?? url
     }
 
+    static func bookingJourneyURL(preproduction: Bool = isPreproduction) -> URL {
+        let origin = preproduction ? preproductionBaseURL : productionBaseURL
+        var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
+        components.path = preproduction ? "/payment/test" : "/"
+        components.queryItems = [URLQueryItem(name: "source", value: "ios-app")]
+        components.fragment = preproduction ? nil : "reservation"
+        return components.url!
+    }
+
     static let debugEnvironmentKey = "CHECKUPAUTO_API_BASE_URL"
 
     static func resolvedBaseURL(
