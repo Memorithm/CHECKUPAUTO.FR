@@ -20,6 +20,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var localActivityTestRunning = false
     @Published private(set) var localActivityTestTransitionPending = false
     @Published private(set) var localActivityTestNotice: String?
+    @Published var selectedHorn = CheckupControlHornChoice.current {
+        didSet { selectedHorn.save() }
+    }
     private var localActivityTestTask: Task<Void, Never>?
     @Published private(set) var claimNotice: String?
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
@@ -29,6 +32,7 @@ final class AppModel: ObservableObject {
         InstallationLifecycleState.isAutoRegistrationSuppressed()
 
     private let scheduler = ReminderScheduler()
+    private let hornPreview = CheckupControlHornPreview()
 
     private var useLocalFallback: Bool {
         mobileConfig.notifications.localFallback || !remotePushRegistered
@@ -241,6 +245,7 @@ final class AppModel: ObservableObject {
                     )
                 }
                 await scheduler.cancelTest()
+                await scheduler.cancelIslandHornTest()
                 localReminderNotice = nil
                 VehicleDeadlineStore.clear()
                 AuthoritativeInventoryStore.clear()
@@ -295,6 +300,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func previewControlHorn() {
+        do {
+            try hornPreview.play(choice: selectedHorn)
+            errorMessage = nil
+            localActivityTestNotice = "Écoute du klaxon. Le mode silencieux et le volume des alertes restent ceux de l’iPhone."
+        } catch {
+            errorMessage = "Le klaxon n’a pas pu être lancé : " + error.localizedDescription
+        }
+    }
+
     func startLocalActivityTest() {
         #if canImport(ActivityKit)
         guard #available(iOS 26.0, *) else {
@@ -310,12 +325,22 @@ final class AppModel: ObservableObject {
         localActivityTestTask = Task { [weak self] in
             guard let self else { return }
             do {
+                await self.scheduler.cancelIslandHornTest()
                 let endsAt = try await CheckupControlLiveActivityCoordinator.startLocalTest()
+                let hornNotice: String
+                do {
+                    self.notificationAuthorized = try await self.scheduler.requestAuthorization()
+                    guard self.notificationAuthorized else { throw IslandHornTestError.notificationsDisabled }
+                    try await self.scheduler.scheduleIslandHornTest()
+                    hornNotice = "Klaxon programmé dans cinq secondes."
+                } catch {
+                    hornNotice = "Klaxon non programmé : " + error.localizedDescription
+                }
                 try Task.checkCancellation()
 
                 self.localActivityTestTransitionPending = false
                 self.errorMessage = nil
-                self.localActivityTestNotice = "La voiture et le rappel sont affichés. Maintenez la Dynamic Island pour lire le message complet."
+                self.localActivityTestNotice = "La voiture et le rappel sont affichés. " + hornNotice + " Maintenez la Dynamic Island pour lire le message complet."
 
                 while Date() < endsAt {
                     do {
@@ -330,12 +355,14 @@ final class AppModel: ObservableObject {
                 }
                 guard !Task.isCancelled else { return }
                 self.localActivityTestTransitionPending = true
+                await self.scheduler.cancelIslandHornTest()
                 await CheckupControlLiveActivityCoordinator.endLocalTest()
                 self.localActivityTestTask = nil
                 self.localActivityTestTransitionPending = false
                 self.localActivityTestRunning = false
                 self.localActivityTestNotice = "Test Dynamic Island terminé."
             } catch is CancellationError {
+                await self.scheduler.cancelIslandHornTest()
                 await CheckupControlLiveActivityCoordinator.endLocalTest()
                 self.localActivityTestTransitionPending = false
                 self.localActivityTestRunning = false
@@ -356,10 +383,12 @@ final class AppModel: ObservableObject {
         guard !localActivityTestTransitionPending else { return }
 
         localActivityTestTransitionPending = true
+        let scheduler = self.scheduler
         let taskToCancel = localActivityTestTask
         taskToCancel?.cancel()
         localActivityTestTask = Task { [weak self] in
             await taskToCancel?.value
+            await scheduler.cancelIslandHornTest()
             await CheckupControlLiveActivityCoordinator.endLocalTest()
 
             guard let self else { return }

@@ -1,7 +1,43 @@
+import AVFoundation
+import UserNotifications
 import XCTest
 @testable import CheckupAutoReminder
 
 final class CheckupControlActivityPolicyTests: XCTestCase {
+    func testIslandHornTestUsesOneShortNonRepeatingNotification() throws {
+        let request = ReminderScheduler.islandHornTestRequest(choice: .double)
+        XCTAssertEqual(request.identifier, ReminderScheduler.islandHornTestIdentifier)
+        XCTAssertNotEqual(request.identifier, ReminderScheduler.testIdentifier)
+        XCTAssertEqual(request.content.body, "Pensez à votre contrôle technique")
+        XCTAssertNotNil(request.content.sound)
+        let trigger = try XCTUnwrap(request.trigger as? UNTimeIntervalNotificationTrigger)
+        XCTAssertEqual(trigger.timeInterval, 5)
+        XCTAssertFalse(trigger.repeats)
+    }
+
+    func testHornResourceIsDecodableAndShortEnoughForNotificationSound() throws {
+        for choice in CheckupControlHornChoice.allCases {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: choice.soundName, withExtension: nil))
+            let player = try AVAudioPlayer(contentsOf: url)
+            XCTAssertGreaterThan(player.duration, 0)
+            XCTAssertLessThan(player.duration, 30)
+            XCTAssertEqual(player.numberOfChannels, 1)
+        }
+    }
+
+    func testHornChoiceSurvivesReloadWithoutChangingOtherSettings() throws {
+        let suite = "CheckupAutoHornTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("keep", forKey: "unrelated")
+        XCTAssertEqual(CheckupControlHornChoice.load(defaults: defaults), .short)
+        for choice in CheckupControlHornChoice.allCases {
+            choice.save(defaults: defaults)
+            XCTAssertEqual(CheckupControlHornChoice.load(defaults: defaults), choice)
+        }
+        XCTAssertEqual(defaults.string(forKey: "unrelated"), "keep")
+    }
+
     func testLocalActivityTestIsDistinctFromAppointmentReminders() {
         let state = CheckupControlActivityAttributes.ContentState(
             moment: .localTest,

@@ -95,6 +95,39 @@ actor ReminderScheduler {
         center.removeDeliveredNotifications(withIdentifiers: ids)
     }
 
+    static let islandHornTestIdentifier = "ct.local.test-island.horn"
+    static let islandHornTestDelay: TimeInterval = 5
+
+    static func islandHornTestRequest(choice: CheckupControlHornChoice = .current) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        content.title = "Test du klaxon Checkup Auto"
+        content.body = "Pensez à votre contrôle technique"
+        content.sound = UNNotificationSound(named: UNNotificationSoundName(choice.soundName))
+        return UNNotificationRequest(
+            identifier: islandHornTestIdentifier,
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: islandHornTestDelay, repeats: false)
+        )
+    }
+
+    func scheduleIslandHornTest() async throws {
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
+            throw IslandHornTestError.notificationsDisabled
+        }
+        guard settings.soundSetting == .enabled else { throw IslandHornTestError.soundDisabled }
+        guard Bundle.main.url(forResource: CheckupControlActivityPolicy.hornSoundName, withExtension: nil) != nil else {
+            throw IslandHornTestError.soundMissing
+        }
+        cancelIslandHornTest()
+        try await center.add(Self.islandHornTestRequest())
+    }
+
+    func cancelIslandHornTest() {
+        center.removePendingNotificationRequests(withIdentifiers: [Self.islandHornTestIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [Self.islandHornTestIdentifier])
+    }
+
     static let testIdentifier = "ct.local.test"
 
     static func customIdentifier(_ vehicleID: UUID) -> String {
@@ -153,4 +186,16 @@ actor ReminderScheduler {
 enum LocalReminderError: LocalizedError {
     case pastDate
     var errorDescription: String? { "Choisissez une date et une heure à venir." }
+}
+
+enum IslandHornTestError: LocalizedError {
+    case notificationsDisabled, soundDisabled, soundMissing
+
+    var errorDescription: String? {
+        switch self {
+        case .notificationsDisabled: return "Autorisez les notifications Checkup Auto pour entendre le klaxon."
+        case .soundDisabled: return "Activez les sons des notifications Checkup Auto dans Réglages."
+        case .soundMissing: return "Le fichier du klaxon est absent de l’application."
+        }
+    }
 }
