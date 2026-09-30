@@ -194,6 +194,18 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(model.localActivityTestTransitionPending)
             }
+            Picker("Klaxon", selection: $model.selectedHorn) {
+                ForEach(CheckupControlHornChoice.allCases) { choice in
+                    Text(choice.label).tag(choice)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Choix du klaxon")
+            Button("Écouter le klaxon choisi") { model.previewControlHorn() }
+                .buttonStyle(.bordered)
+            Text("Le klaxon du test est programmé après cinq secondes. Les notifications et leurs sons doivent être autorisés ; le mode silencieux et les réglages Concentration de l’iPhone peuvent empêcher l’alerte sonore.")
+                .font(.caption2)
+                .foregroundStyle(CheckupTheme.muted)
             Text("Le test se termine après environ deux minutes si l’app reste active. Revenez dans l’app pour nettoyer un test expiré. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)

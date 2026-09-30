@@ -7,18 +7,49 @@ struct CheckupControlJourneyScene: View {
     var darkBackground = true
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 6) {
             CheckupControlVehicleImage(presentation: .expanded)
             Text(state.reminderMessage)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(darkBackground ? Color.white : Color(red: 0.10, green: 0.25, blue: 0.20))
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: darkBackground))
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.reminderMessage)
+    }
+}
+
+/// Keep the car and its short reminder in one compact region: the camera
+/// separates compactLeading and compactTrailing in the system presentation.
+struct CheckupControlCompactReminder: View {
+    let state: CheckupControlActivityAttributes.ContentState
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 3) {
+            CheckupControlVehicleImage(presentation: .compact)
+            Text(state.moment == .acknowledged ? "Rappel\nvu" : "Pensez\nau CT")
+                .font(.system(size: 9.5, weight: .bold))
+                .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: true))
+                .multilineTextAlignment(.leading)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .frame(width: 34, alignment: .leading)
+        }
+        .frame(height: 26)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(state.reminderMessage)
+    }
+}
+
+enum CheckupControlReminderStyle {
+    static func color(darkBackground: Bool) -> Color {
+        darkBackground
+            ? Color(red: 1.0, green: 0.76, blue: 0.20)
+            : Color(red: 0.55, green: 0.25, blue: 0.02)
     }
 }
 
@@ -30,8 +61,8 @@ struct CheckupControlVehicleImage: View {
 
         var size: CGSize {
             switch self {
-            case .expanded: return CGSize(width: 120, height: 64)
-            case .compact: return CGSize(width: 52, height: 26)
+            case .expanded: return CGSize(width: 100, height: 56)
+            case .compact: return CGSize(width: 32, height: 26)
             case .minimal: return CGSize(width: 32, height: 24)
             }
         }

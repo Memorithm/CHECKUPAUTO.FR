@@ -51,7 +51,7 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
 
 enum CheckupControlActivityPolicy {
     static let cardReminder = "Pensez à votre carte grise"
-    static let hornSoundName = "checkupauto-horn.wav"
+    static var hornSoundName: String { CheckupControlHornChoice.current.soundName }
     static let dayOfLeadHours = 2
     // ActivityKit currently accepts scheduled starts only inside a bounded future window.
     // Keep a conservative one-day margin and use a persisted background refresh for later starts.

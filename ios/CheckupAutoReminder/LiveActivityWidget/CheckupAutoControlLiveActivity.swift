@@ -56,20 +56,20 @@ struct CheckupAutoControlLiveActivity: Widget {
                     .frame(maxWidth: .infinity)
                 }
             } compactLeading: {
-                CheckupControlVehicleImage(presentation: .compact)
+                CheckupControlCompactReminder(state: context.state)
             } compactTrailing: {
-                Text("Pensez\nau CT")
-                    .font(.system(size: 10, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .accessibilityLabel(context.state.reminderMessage)
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: true))
+                    .frame(width: 12, height: 26)
+                    .accessibilityHidden(true)
             } minimal: {
                 CheckupControlVehicleImage(presentation: .minimal)
             }
             .contentMargins(.horizontal, 8, for: .expanded)
             .contentMargins(.bottom, 6, for: .expanded)
             .widgetURL(context.attributes.kind == .localTest ? nil : liveActivityURL(context.attributes.reminderId))
-            .keylineTint(.mint)
+            .keylineTint(CheckupControlReminderStyle.color(darkBackground: true))
         }
     }
 
