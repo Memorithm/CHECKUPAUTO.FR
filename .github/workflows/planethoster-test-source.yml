@@ -6,12 +6,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: checkupauto-planethoster-source-hosted
+  group: checkupauto-planethoster-source-internal
   cancel-in-progress: false
 jobs:
   source:
     if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && github.actor == 'CHECKUPAUTO'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
