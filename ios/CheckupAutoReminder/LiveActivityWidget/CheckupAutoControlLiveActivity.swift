@@ -39,21 +39,11 @@ struct CheckupAutoControlLiveActivity: Widget {
                         .font(.system(size: 10, weight: .semibold))
                 }
                 DynamicIslandExpandedRegion(.bottom, priority: 1) {
-                    VStack(spacing: 3) {
-                        CheckupControlJourneyScene(state: context.state)
-                            .frame(height: 102)
-                        HStack {
-                            Text(context.state.moment == .localTest
-                                 ? "Démo locale · aucun rendez-vous réel"
-                                 : CheckupControlActivityPolicy.cardReminder)
-                                .font(.system(size: 10))
-                            Spacer(minLength: 4)
-                            activityTime(context.state)
-                        }
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                    }
-                    .frame(maxWidth: .infinity)
+                    // Leave the footer on the lock screen so the expanded
+                    // island can devote its full width and height to one line.
+                    CheckupControlJourneyScene(state: context.state)
+                        .frame(height: 116)
+                        .frame(maxWidth: .infinity)
                 }
             } compactLeading: {
                 CheckupControlCompactReminder(state: context.state)
@@ -93,4 +83,3 @@ struct CheckupAutoControlLiveActivity: Widget {
         return components?.url
     }
 }
-

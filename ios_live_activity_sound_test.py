@@ -1,4 +1,5 @@
 import wave
+import struct
 import unittest
 from pathlib import Path
 
@@ -25,6 +26,16 @@ class IOSLiveActivitySoundTest(unittest.TestCase):
                     duration = sound.getnframes() / sound.getframerate()
                 self.assertGreater(duration, 0.2)
                 self.assertLess(duration, 1.0)
+
+    def test_each_horn_uses_full_pcm_level_without_clipped_samples(self):
+        for name in SOUND_NAMES:
+            with self.subTest(sound=name):
+                with wave.open(str(SOUND_ROOT / name), "rb") as sound:
+                    data = sound.readframes(sound.getnframes())
+                samples = [value[0] for value in struct.iter_unpack("<h", data)]
+                self.assertGreaterEqual(max(map(abs, samples)), 32700)
+                self.assertLess(max(samples), 32767)
+                self.assertGreater(min(samples), -32768)
 
     def test_horn_is_bundled_and_referenced_by_activitykit(self):
         project = PROJECT.read_text()

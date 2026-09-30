@@ -15,7 +15,7 @@ struct ControlJourneyVisualReview: View {
             VStack(spacing: 4) {
                 Text("CHECKUP AUTO · DÉMO LOCALE").font(.caption.bold()).foregroundStyle(.mint)
                 CheckupControlJourneyScene(state: .init(moment: .localTest, appointmentAt: endsAt, animationSeed: 0))
-                    .frame(height: 102)
+                    .frame(height: 116)
                 Text("Aucun rendez-vous réel").font(.caption).foregroundStyle(.gray)
             }
             .padding(8)

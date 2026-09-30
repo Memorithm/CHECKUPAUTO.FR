@@ -10,10 +10,13 @@ struct CheckupControlJourneyScene: View {
         HStack(alignment: .center, spacing: 6) {
             CheckupControlVehicleImage(presentation: .expanded)
             Text(state.reminderMessage)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
+                .fontWidth(.condensed)
                 .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: darkBackground))
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .allowsTightening(true)
+                .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -32,11 +35,11 @@ struct CheckupControlCompactReminder: View {
     var body: some View {
         HStack(alignment: .center, spacing: 2) {
             CheckupControlVehicleImage(presentation: .compact)
-            Text(state.moment == .acknowledged ? "Rappel\nvu" : "Pensez\nau CT")
-                .font(.system(size: 8.5, weight: .bold))
+            Text(state.moment == .acknowledged ? "Vu" : "CT")
+                .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: true))
                 .multilineTextAlignment(.leading)
-                .lineLimit(2)
+                .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .frame(width: 30, alignment: .leading)
         }
@@ -62,7 +65,7 @@ struct CheckupControlVehicleImage: View {
 
         var size: CGSize {
             switch self {
-            case .expanded: return CGSize(width: 100, height: 56)
+            case .expanded: return CGSize(width: 42, height: 34)
             case .compact: return CGSize(width: 26, height: 26)
             case .minimal: return CGSize(width: 32, height: 24)
             }
