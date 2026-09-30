@@ -77,7 +77,7 @@ final class MobileAPITests: XCTestCase {
             XCTAssertNil(url.user)
             XCTAssertNil(url.password)
             XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
-                           [URLQueryItem(name: "source", value: "ios-app")])
+                           [URLQueryItem(name: "utm_source", value: "ios-app")])
         }
     }
 
