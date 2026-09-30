@@ -58,7 +58,11 @@ struct CheckupAutoControlLiveActivity: Widget {
             } compactLeading: {
                 CheckupControlCompactReminder(state: context.state)
             } compactTrailing: {
-                EmptyView()
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: true))
+                    .frame(width: 12, height: 26)
+                    .accessibilityHidden(true)
             } minimal: {
                 CheckupControlVehicleImage(presentation: .minimal)
             }
