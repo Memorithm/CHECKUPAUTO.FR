@@ -25,21 +25,22 @@ struct CheckupControlJourneyScene: View {
 /// Keep the car and its short reminder in one compact region: the camera
 /// separates compactLeading and compactTrailing in the system presentation.
 struct CheckupControlCompactReminder: View {
+    static let compactLeadingWidth: CGFloat = 58
+
     let state: CheckupControlActivityAttributes.ContentState
 
     var body: some View {
-        HStack(alignment: .center, spacing: 3) {
+        HStack(alignment: .center, spacing: 2) {
             CheckupControlVehicleImage(presentation: .compact)
             Text(state.moment == .acknowledged ? "Rappel\nvu" : "Pensez\nau CT")
-                .font(.system(size: 9.5, weight: .bold))
+                .font(.system(size: 8.5, weight: .bold))
                 .foregroundStyle(CheckupControlReminderStyle.color(darkBackground: true))
                 .multilineTextAlignment(.leading)
                 .lineLimit(2)
-                .minimumScaleFactor(0.85)
-                .frame(width: 34, alignment: .leading)
+                .minimumScaleFactor(0.75)
+                .frame(width: 30, alignment: .leading)
         }
-        .frame(height: 26)
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(width: Self.compactLeadingWidth, height: 26)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.reminderMessage)
     }
@@ -62,7 +63,7 @@ struct CheckupControlVehicleImage: View {
         var size: CGSize {
             switch self {
             case .expanded: return CGSize(width: 100, height: 56)
-            case .compact: return CGSize(width: 32, height: 26)
+            case .compact: return CGSize(width: 26, height: 26)
             case .minimal: return CGSize(width: 32, height: 24)
             }
         }

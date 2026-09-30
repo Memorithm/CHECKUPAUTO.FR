@@ -24,6 +24,40 @@ class IOSReleaseRunnerTest(unittest.TestCase):
         self.assertEqual(selected["udid"], "NEW")
         self.assertEqual(selected["destination"], "platform=iOS Simulator,id=NEW")
 
+    def test_dynamic_island_selection_excludes_se_and_16e(self):
+        payload = {
+            "devices": {
+                "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
+                    {"name": "iPhone SE (3rd generation)", "udid": "SE", "isAvailable": True},
+                    {"name": "iPhone 16e", "udid": "16E", "isAvailable": True},
+                    {"name": "iPhone 16 Pro", "udid": "ISLAND", "isAvailable": True},
+                ],
+            }
+        }
+        selected = runner.select_simulator(payload, require_dynamic_island=True)
+        self.assertEqual(selected["udid"], "ISLAND")
+
+    def test_dynamic_island_selection_fails_closed_without_capable_device(self):
+        payload = {
+            "devices": {
+                "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
+                    {"name": "iPhone SE (3rd generation)", "udid": "SE", "isAvailable": True},
+                    {"name": "iPhone 16e", "udid": "16E", "isAvailable": True},
+                ],
+            }
+        }
+        with self.assertRaisesRegex(runner.ReleaseError, "no_available_dynamic_island_simulator"):
+            runner.select_simulator(payload, require_dynamic_island=True)
+
+    def test_dynamic_island_selection_accepts_two_digit_model_numbers(self):
+        for name in ("iPhone 20", "iPhone 20 Pro"):
+            with self.subTest(name=name):
+                payload = {"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-30-0": [
+                    {"name": name, "udid": "TWODIGIT", "isAvailable": True},
+                ]}}
+                selected = runner.select_simulator(payload, require_dynamic_island=True)
+                self.assertEqual(selected["udid"], "TWODIGIT")
+
     def test_no_iphone_simulator_is_rejected(self):
         with self.assertRaisesRegex(runner.ReleaseError, "no_available_iphone_simulator"):
             runner.select_simulator({"devices": {"runtime": [{"name": "iPad", "udid": "X"}]}})
