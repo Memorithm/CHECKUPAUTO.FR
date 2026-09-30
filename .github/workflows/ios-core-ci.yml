@@ -184,6 +184,54 @@ jobs:
           remote_dir="$(cat .ios-remote-dir)"
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
             "set -euo pipefail; export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$PATH\"; destination=\$(cd '$remote_dir' && python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"])'); cd '$remote_dir/ios/CheckupAutoReminder'; xcodegen generate; xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination \"\$destination\" -derivedDataPath '$remote_dir/DerivedData' CODE_SIGNING_ALLOWED=NO"
+
+      - name: Capture the native reminder review
+        run: |
+          set -euo pipefail
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
+          remote_dir="$(cat .ios-remote-dir)"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$PATH\"; cd '$remote_dir'; udid=\$(python3 -c 'import ios_release_runner as r; print(r.discover_simulator()[\"destination\"].split(\"id=\")[-1])'); app='$remote_dir/DerivedData/Build/Products/Debug-iphonesimulator/CheckupAutoReminder.app'; test -f \"\$app/checkupauto-silver-car.png\"; test -f \"\$app/PlugIns/CheckupAutoLiveActivity.appex/checkupauto-silver-car.png\"; xcrun simctl boot \"\$udid\" 2>/dev/null || true; xcrun simctl bootstatus \"\$udid\" -b; xcrun simctl install \"\$udid\" \"\$app\"; xcrun simctl terminate \"\$udid\" fr.checkupauto.reminder 2>/dev/null || true; xcrun simctl launch \"\$udid\" fr.checkupauto.reminder --journey-visual-review; sleep 3; xcrun simctl io \"\$udid\" screenshot '$remote_dir/reminder-review.png'; echo CHECKUPAUTO_NATIVE_REVIEW_PNG_BEGIN; base64 < '$remote_dir/reminder-review.png'; echo CHECKUPAUTO_NATIVE_REVIEW_PNG_END; xcrun simctl terminate \"\$udid\" fr.checkupauto.reminder"
+
+      - name: Persist tested canonical source for RemoteOps delivery
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          if [ "$(cat .ios-mac-auth)" = key ]; then
+            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
+          fi
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          snapshot="/Users/tarek/CheckupAutoReleases/$GITHUB_SHA"
+          incoming="$snapshot.incoming-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; test ! -e '$snapshot'; test ! -L '$snapshot'; test ! -e '$incoming'; test ! -L '/Users/tarek/CheckupAutoReleases'; mkdir -p '/Users/tarek/CheckupAutoReleases'; mkdir '$incoming'"
+          git archive "$GITHUB_SHA" ios/CheckupAutoReminder ios_release_runner.py | \
+            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xf - -C '$incoming'"
+          git ls-tree -r "$GITHUB_SHA" -- ios/CheckupAutoReminder ios_release_runner.py | \
+            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "cat > '$incoming/source-tree.txt'"
+          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
+            "set -euo pipefail; cd '$incoming'; python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          for line in Path('source-tree.txt').read_text().splitlines():
+              header, relative = line.split('\t', 1)
+              mode, kind, expected = header.split()
+              assert mode == '100644' and kind == 'blob'
+              path = Path(relative)
+              assert not path.is_absolute() and '..' not in path.parts
+              assert path.is_file() and not path.is_symlink()
+              data = path.read_bytes()
+              actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              assert actual == expected, relative
+          print('CANONICAL_SNAPSHOT_BLOBS_VERIFIED')
+          PY
+          mv '$incoming' '$snapshot'; echo CANONICAL_SOURCE_STAGED=$GITHUB_SHA"
+
       - name: Clean remote staging directory and ephemeral identity
         if: always()
         run: |

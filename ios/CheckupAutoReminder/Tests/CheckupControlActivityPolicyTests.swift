@@ -15,7 +15,7 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
 
         XCTAssertEqual(state.shortLabel, "Rappel dans 2 min")
         XCTAssertEqual(state.compactMessage, "CT bientôt")
-        XCTAssertEqual(state.primaryMessage, "Votre CT arrive à échéance")
+        XCTAssertEqual(state.primaryMessage, "Pensez à votre contrôle technique")
         XCTAssertEqual(attributes.kind, .localTest)
         XCTAssertTrue(attributes.reminderId.hasPrefix("ct.local.test-island."))
     }
@@ -34,43 +34,25 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
         XCTAssertEqual(state(for: .localTest).compactMessage, "CT bientôt")
     }
 
-    func testTrailerCopyMatchesReminderWithoutInventingAppointment() {
-        func state(_ moment: CheckupControlActivityAttributes.ContentState.Moment) -> CheckupControlActivityAttributes.ContentState {
-            .init(moment: moment, appointmentAt: Date(timeIntervalSince1970: 1_790_000_000), animationSeed: 0)
+    func testFixedReminderCopyDoesNotDependOnLegacyAnimationSeed() {
+        for moment in [CheckupControlActivityAttributes.ContentState.Moment.tomorrow, .approaching, .localTest] {
+            for seed in [Int.min, 0, 5, Int.max] {
+                let state = CheckupControlActivityAttributes.ContentState(
+                    moment: moment, appointmentAt: Date(timeIntervalSince1970: 1_790_000_000), animationSeed: seed
+                )
+                XCTAssertEqual(state.reminderMessage, "Pensez à votre contrôle technique")
+            }
         }
-        XCTAssertEqual(state(.localTest).trailerMessage, "CT BIENTÔT !")
-        XCTAssertEqual(state(.approaching).trailerMessage, "CT BIENTÔT !")
-        XCTAssertEqual(state(.tomorrow).trailerMessage, "CT DEMAIN !")
-        XCTAssertEqual(state(.acknowledged).trailerMessage, "RAPPEL VU")
     }
 
-    func testJourneyTravelsLeftBrakesAndRemainsParked() {
-        for width in [280.0, 320.0, 393.0, 430.0] {
-            let positions = (0...5).map { CheckupControlJourneyMotion.carOffset(for: $0, trackWidth: width) }
-            for index in 1...5 { XCTAssertLessThan(positions[index], positions[index - 1]) }
-            XCTAssertLessThan(positions[4] - positions[5], positions[2] - positions[3])
-            XCTAssertEqual(CheckupControlJourneyMotion.carOffset(for: 120, trackWidth: width), positions[5])
-            let layout = CheckupControlJourneyMotion.layout(trackWidth: width)
-            XCTAssertGreaterThan(positions[5], 8 + layout.buildingWidth)
-            XCTAssertLessThanOrEqual(positions[5] + layout.convoyWidth, width - 4)
-            XCTAssertLessThan(CheckupControlJourneyMotion.wheelRotation(for: 5, trackWidth: width), 0)
-            XCTAssertEqual(CheckupControlJourneyMotion.wheelRotation(for: 120, trackWidth: width), CheckupControlJourneyMotion.wheelRotation(for: 5, trackWidth: width))
+    func testSilverCarIsBundledAndSizedForEveryIslandPresentation() throws {
+        for presentation in CheckupControlVehicleImage.Presentation.allCases {
+            let image = try XCTUnwrap(CheckupControlVehicleImage.image(for: presentation))
+            XCTAssertLessThanOrEqual(image.size.width, presentation.size.width)
+            XCTAssertLessThanOrEqual(image.size.height, presentation.size.height)
+            XCTAssertEqual(image.scale, 3)
+            XCTAssertGreaterThan(image.size.width, 0)
         }
-        XCTAssertFalse(CheckupControlJourneyMotion.isParked(for: 4))
-        XCTAssertTrue(CheckupControlJourneyMotion.isParked(for: 5))
-        XCTAssertEqual(CheckupControlJourneyMotion.phase(for: Int.min), 0)
-        XCTAssertEqual(CheckupControlJourneyMotion.phase(for: Int.max), 5)
-        XCTAssertLessThanOrEqual(CheckupControlJourneyMotion.animationDuration, 2)
-    }
-
-    func testTrailerJourneyCopyMatchesTheActualReminder() {
-        func state(_ moment: CheckupControlActivityAttributes.ContentState.Moment) -> CheckupControlActivityAttributes.ContentState {
-            .init(moment: moment, appointmentAt: Date(timeIntervalSince1970: 1_790_000_000), animationSeed: 0)
-        }
-        XCTAssertEqual(state(.localTest).journeyMessage, "Votre CT arrive à échéance")
-        XCTAssertEqual(state(.approaching).journeyMessage, "Votre CT arrive à échéance")
-        XCTAssertEqual(state(.tomorrow).journeyMessage, "Votre CT est prévu demain")
-        XCTAssertEqual(state(.acknowledged).journeyMessage, "Rappel confirmé Bon trajet !")
     }
 
     func testDayBeforeReminderStartsAt18ParisTime() throws {
@@ -156,3 +138,4 @@ final class CheckupControlActivityPolicyTests: XCTestCase {
     }
 
 }
+

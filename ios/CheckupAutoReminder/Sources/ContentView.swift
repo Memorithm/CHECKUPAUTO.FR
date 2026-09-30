@@ -176,14 +176,14 @@ struct ContentView: View {
             Label("Tester la Dynamic Island", systemImage: "livephoto")
                 .font(.headline)
                 .foregroundStyle(CheckupTheme.ink)
-            Text("La Dynamic Island s’agrandit au lancement : la voiture roule avec sa remorque « Votre CT arrive à échéance », puis s’arrête devant le centre de contrôle technique.")
+            Text("La voiture argentée apparaît dans la Dynamic Island. Maintenez la barre pour lire « Pensez à votre contrôle technique ».")
                 .font(.caption)
                 .foregroundStyle(CheckupTheme.muted)
             if let notice = model.localActivityTestNotice {
                 Text(notice).font(.caption.weight(.semibold)).foregroundStyle(CheckupTheme.accent)
             }
             if model.localActivityTestRunning {
-                Button("Rejouer le trajet") { model.startLocalActivityTest() }
+                Button("Relancer le test") { model.startLocalActivityTest() }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.localActivityTestTransitionPending)
                 Button("Arrêter le test Dynamic Island", role: .cancel) { model.stopLocalActivityTest() }
@@ -194,7 +194,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(model.localActivityTestTransitionPending)
             }
-            Text("Le trajet dure environ 10 secondes, puis la voiture reste garée. Gardez l’app ouverte : refermer l’Island ou quitter l’app termine cette démo. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
+            Text("Le test dure deux minutes. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)
         }
@@ -658,3 +658,4 @@ struct ContentView: View {
     ContentView()
         .environmentObject(AppModel())
 }
+
