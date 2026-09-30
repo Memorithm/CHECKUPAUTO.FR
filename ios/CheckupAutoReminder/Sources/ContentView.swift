@@ -61,6 +61,10 @@ struct ContentView: View {
 
                     localReminderSection
                     quickActions
+                    Text(MobileAPI.isPreproduction
+                         ? "Réservation et paiement de test : aucun débit bancaire réel."
+                         : "Réservez dans l’app. Le paiement s’effectue sur la page sécurisée du prestataire bancaire.")
+                        .font(.caption).foregroundStyle(CheckupTheme.muted)
                     nextControlCard
                     loyaltySection
                     vehicleSection

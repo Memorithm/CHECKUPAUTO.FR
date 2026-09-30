@@ -8,7 +8,7 @@ struct InAppBrowserView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> SFSafariViewController {
         let configuration = SFSafariViewController.Configuration()
         configuration.entersReaderIfAvailable = false
-        configuration.barCollapsingEnabled = true
+        configuration.barCollapsingEnabled = false
         let controller = SFSafariViewController(url: url, configuration: configuration)
         controller.dismissButtonStyle = .close
         controller.preferredControlTintColor = UIColor(

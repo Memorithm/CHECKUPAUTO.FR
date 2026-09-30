@@ -77,11 +77,7 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
             return
         }
         Task {
-            let config = (try? await MobileBootstrapClient.fetch()) ?? .fallback
-            guard let url = URL(string: config.booking.url) else {
-                completionHandler()
-                return
-            }
+            let url = MobileAPI.bookingJourneyURL()
             await MainActor.run {
                 UIApplication.shared.open(url, options: [:]) { _ in
                     completionHandler()

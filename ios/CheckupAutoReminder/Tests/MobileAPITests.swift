@@ -62,6 +62,25 @@ final class MobileAPITests: XCTestCase {
         }
     }
 
+    func testBookingJourneyUsesHTTPSOwnOriginAndSeparatesSandbox() {
+        let production = MobileAPI.bookingJourneyURL(preproduction: false)
+        XCTAssertEqual(production.scheme, "https")
+        XCTAssertEqual(production.host, "www.checkupauto.fr")
+        XCTAssertEqual(production.path, "/")
+        XCTAssertEqual(production.fragment, "reservation")
+        let test = MobileAPI.bookingJourneyURL(preproduction: true)
+        XCTAssertEqual(test.scheme, "https")
+        XCTAssertEqual(test.host, MobileAPI.preproductionBaseURL.host)
+        XCTAssertEqual(test.path, "/payment/test")
+        XCTAssertNil(test.fragment)
+        for url in [production, test] {
+            XCTAssertNil(url.user)
+            XCTAssertNil(url.password)
+            XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+                           [URLQueryItem(name: "utm_source", value: "app:ios")])
+        }
+    }
+
     func testEndpointComposition() {
         let base = URL(string: "https://preview.example.test")!
         XCTAssertEqual(
