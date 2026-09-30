@@ -31,7 +31,7 @@ enum MobileAPI {
         let origin = preproduction ? preproductionBaseURL : productionBaseURL
         var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
         components.path = preproduction ? "/payment/test" : "/"
-        components.queryItems = [URLQueryItem(name: "source", value: "ios-app")]
+        components.queryItems = [URLQueryItem(name: "utm_source", value: "ios-app")]
         components.fragment = preproduction ? nil : "reservation"
         return components.url!
     }
