@@ -6,27 +6,81 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: checkupauto-planethoster-source
+  group: checkupauto-planethoster-source-hosted
   cancel-in-progress: false
 jobs:
   source:
     if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && github.actor == 'CHECKUPAUTO'
-    runs-on: [self-hosted, macOS, ARM64, remoteops, mac-mini]
+    runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: e70151e1c48331b4d54b9e5a56d7ed5560874ae3
           persist-credentials: false
-      - name: Stage exact source archive for RemoteOps
+      - name: Archive and verify the exact source revision
         shell: bash
         run: |
           set -euo pipefail
-          test "$(hostname)" = Mac-mini-de-tarek.local
           test "$(git rev-parse HEAD)" = e70151e1c48331b4d54b9e5a56d7ed5560874ae3
           umask 077
-          root=/Users/tarek/CheckupAutoWebReleases/e70151e1c48331b4d54b9e5a56d7ed5560874ae3
-          mkdir -p "$root"
-          git archive --format=tar HEAD > "$root/source.tar.incoming"
-          mv "$root/source.tar.incoming" "$root/source.tar"
-          shasum -a 256 "$root/source.tar"
+          bundle_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-source-e70151.XXXXXX")"
+          printf 'CHECKUPAUTO_BUNDLE_DIR=%s\n' "$bundle_dir" >> "$GITHUB_ENV"
+          git archive --format=tar HEAD > "$bundle_dir/source.tar"
+          python3 - "$bundle_dir" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import shutil
+          import sys
+          import tarfile
+
+          output = Path(sys.argv[1])
+          expected = {
+              "3d/blend/CyberCheckVehicle_Photo3D.blend": ("bb0ddbb3104866549b749e7a5aebf6b34c260d75", 1419632),
+              "assets/3d/CyberCheckVehicle_Photo3D.glb": ("41c1f4bbc968eeb96c7de83245eb36a9793c62fc", 1221768),
+              "ios/CheckupAutoReminder/LiveActivityResources/checkupauto-silver-car.png": ("b269714c81ac0f341a62058ecefe821a2feddacb", 1447446),
+          }
+          files = []
+          with tarfile.open(output / "source.tar", "r:") as archive:
+              for relative, (expected_sha, expected_size) in expected.items():
+                  content = Path(relative).read_bytes()
+                  actual_sha = hashlib.sha1(b"blob " + str(len(content)).encode("ascii") + b"\0" + content).hexdigest()
+                  if actual_sha != expected_sha or len(content) != expected_size:
+                      raise RuntimeError("source blob verification failed: " + relative)
+                  member = archive.getmember(relative)
+                  archived = archive.extractfile(member)
+                  if not member.isfile() or archived is None or archived.read() != content:
+                      raise RuntimeError("archive blob verification failed: " + relative)
+                  target = output / "binaries" / relative
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(relative, target)
+                  target.chmod(0o600)
+                  files.append({
+                      "path": relative,
+                      "gitBlobSha": actual_sha,
+                      "size": len(content),
+                      "sha256": hashlib.sha256(content).hexdigest(),
+                  })
+          archive_digest = hashlib.sha256((output / "source.tar").read_bytes()).hexdigest()
+          manifest = {
+              "schemaVersion": 1,
+              "repository": "Memorithm/CHECKUPAUTO.FR",
+              "sourceCommit": "e70151e1c48331b4d54b9e5a56d7ed5560874ae3",
+              "archiveSha256": archive_digest,
+              "verified": True,
+              "binaries": files,
+          }
+          (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          (output / "SHA256SUMS").write_text(archive_digest + "  source.tar\n")
+          print(json.dumps({"sourceCommit": manifest["sourceCommit"], "archiveSha256": archive_digest, "verifiedBinaries": len(files)}))
+          PY
+      - name: Upload verified source and binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checkupauto-source-e70151e1c48331b4d54b9e5a56d7ed5560874ae3
+          path: ${{ env.CHECKUPAUTO_BUNDLE_DIR }}
+          archive: true
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 6
