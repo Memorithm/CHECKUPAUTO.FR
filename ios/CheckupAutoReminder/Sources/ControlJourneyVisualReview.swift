@@ -35,7 +35,7 @@ struct ControlJourneyVisualReview: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 0.965, green: 0.970, blue: 0.945).ignoresSafeArea())
         .task {
-            if #available(iOS 26.0, *) {
+            if #available(iOS 17.0, *) {
                 do {
                     _ = try await CheckupControlLiveActivityCoordinator.startLocalTest()
                     let activities = Activity<CheckupControlActivityAttributes>.activities

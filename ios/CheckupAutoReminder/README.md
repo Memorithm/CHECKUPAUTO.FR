@@ -57,20 +57,20 @@ open CheckupAutoReminder.xcodeproj
 
 Dans Xcode, sélectionner l’équipe Apple de signature, puis exécuter d’abord les tests sur un simulateur iPhone avant le test sur un iPhone physique.
 
-Pour tester une build Debug contre un environnement CheckupAuto temporaire sans modifier le code, définir la variable d’environnement du scheme CHECKUPAUTO_API_BASE_URL avec une origine HTTPS de test. Seules les origines HTTPS propres sont acceptées (sans identifiants, chemin, query string ni fragment). En Release, cette variable est ignorée et l’API reste verrouillée sur https://www.checkupauto.fr.
+Pour tester une build Debug contre un environnement CheckupAuto temporaire sans modifier le code, définir la variable d’environnement du scheme CHECKUPAUTO_API_BASE_URL avec une origine HTTPS de test. Seules les origines HTTPS propres sont acceptées (sans identifiants, chemin, query string ni fragment). En Release, cette variable est ignorée. La configuration signée `CheckupAutoEnvironment` sélectionne production (par défaut) ou preproduction (origine HTTPS fixe). RemoteOps doit vérifier cette valeur dans l’app et le widget avant l’envoi TestFlight. Les identités, secrets, véhicules et portefeuilles sont séparés par environnement. La réservation externe reste un service réel : ne pas créer de rendez-vous de test sur ce fournisseur.
 
 Le projet demande iOS 17 ou supérieur et ne dépend d’aucune bibliothèque tierce à l’exécution.
 
 Sans Xcode complet, le Mac mini peut néanmoins valider le noyau déterministe du planificateur avec les Command Line Tools :
 
 ```bash
-swiftc Sources/Models.swift Tests/ReminderPlanSmoke.swift -o /tmp/reminder-plan-smoke
+swiftc Sources/MobileAPI.swift Sources/Models.swift Tests/ReminderPlanSmoke.swift -o /tmp/reminder-plan-smoke
 /tmp/reminder-plan-smoke
 
 swiftc Sources/MobileBootstrap.swift Tests/MobileBootstrapSmoke.swift -o /tmp/mobile-bootstrap-smoke
 /tmp/mobile-bootstrap-smoke
 
-swiftc Sources/Models.swift Sources/DeviceRegistration.swift Sources/MobileDeadlineSync.swift Tests/MobileDeadlineSyncSmoke.swift -o /tmp/mobile-deadline-sync-smoke
+swiftc Sources/MobileAPI.swift Sources/Models.swift Sources/DeviceRegistration.swift Sources/MobileDeadlineSync.swift Tests/MobileDeadlineSyncSmoke.swift -o /tmp/mobile-deadline-sync-smoke
 /tmp/mobile-deadline-sync-smoke
 ```
 

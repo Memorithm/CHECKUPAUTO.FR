@@ -157,12 +157,12 @@ final class ReferralWalletClaimTests: XCTestCase {
     }
 
     func testGenericClaimLinkResolvesWalletAndVehicleTrustDomains() throws {
-        let walletURL = URL(string: "https://www.checkupauto.fr/app/claim#token=\(walletToken)")!
+        let walletURL = URL(string: "\(MobileAPI.currentBaseURL.absoluteString)/app/claim#token=\(walletToken)")!
         let wallet = try MobileClaimLink.claim(from: walletURL)
         XCTAssertEqual(wallet, MobileClaim(kind: .referralWallet, token: walletToken))
         XCTAssertThrowsError(try VehicleClaimLink.token(from: walletURL))
 
-        let vehicleURL = URL(string: "https://www.checkupauto.fr/app/claim#token=\(vehicleToken)")!
+        let vehicleURL = URL(string: "\(MobileAPI.currentBaseURL.absoluteString)/app/claim#token=\(vehicleToken)")!
         let vehicle = try MobileClaimLink.claim(from: vehicleURL)
         XCTAssertEqual(vehicle, MobileClaim(kind: .vehicle, token: vehicleToken))
         XCTAssertEqual(try VehicleClaimLink.token(from: vehicleURL), vehicleToken)
@@ -173,7 +173,7 @@ final class ReferralWalletClaimTests: XCTestCase {
             from: URL(string: "https://example.com/app/claim#token=\(walletToken)")!
         ))
         XCTAssertThrowsError(try MobileClaimLink.claim(
-            from: URL(string: "https://www.checkupauto.fr/app/claim?token=\(walletToken)")!
+            from: URL(string: "\(MobileAPI.currentBaseURL.absoluteString)/app/claim?token=\(walletToken)")!
         ))
     }
 

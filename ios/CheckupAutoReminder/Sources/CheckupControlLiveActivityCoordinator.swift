@@ -2,7 +2,7 @@ import ActivityKit
 import BackgroundTasks
 import Foundation
 
-@available(iOS 26.0, *)
+@available(iOS 17.0, *)
 enum CheckupControlLiveActivityCoordinator {
     static func schedule(
         appointmentAt: Date,
@@ -92,7 +92,7 @@ enum CheckupControlLiveActivityCoordinator {
         )
         let content = ActivityContent(state: state, staleDate: endsAt, relevanceScore: 100)
         _ = try Activity<CheckupControlActivityAttributes>.request(
-            attributes: attributes, content: content, pushType: nil, style: .standard
+            attributes: attributes, content: content, pushType: nil
         )
         return endsAt
     }
@@ -170,6 +170,7 @@ enum CheckupControlLiveActivityCoordinator {
             sound: .named(CheckupControlActivityPolicy.hornSoundName)
         )
         if requestedStart > now {
+            guard #available(iOS 26.0, *) else { return }
             _ = try Activity<CheckupControlActivityAttributes>.request(
                 attributes: attributes,
                 content: content,
@@ -182,14 +183,13 @@ enum CheckupControlLiveActivityCoordinator {
             _ = try Activity<CheckupControlActivityAttributes>.request(
                 attributes: attributes,
                 content: content,
-                pushType: nil,
-                style: .standard
+                pushType: nil
             )
         }
     }
 }
 
-@available(iOS 26.0, *)
+@available(iOS 17.0, *)
 private enum LocalActivityTestError: LocalizedError {
     case activitiesDisabled
     var errorDescription: String? {
@@ -197,9 +197,9 @@ private enum LocalActivityTestError: LocalizedError {
     }
 }
 
-@available(iOS 26.0, *)
+@available(iOS 17.0, *)
 private enum Acknowledgements {
-    private static let key = "checkupauto.live-activity.acknowledged.v1"
+    private static let key = MobileAPI.storageKey("checkupauto.live-activity.acknowledged.v1")
 
     static func contains(_ reminderId: String, defaults: UserDefaults = .standard) -> Bool {
         (defaults.stringArray(forKey: key) ?? []).contains(reminderId)
@@ -221,7 +221,7 @@ private enum Acknowledgements {
 }
 
 
-@available(iOS 26.0, *)
+@available(iOS 17.0, *)
 enum CheckupControlLiveActivityRetryScheduler {
     static let taskIdentifier = "fr.checkupauto.reminder.live-activity-refresh"
 

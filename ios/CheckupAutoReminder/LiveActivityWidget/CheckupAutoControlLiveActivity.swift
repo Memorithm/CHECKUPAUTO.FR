@@ -75,7 +75,7 @@ struct CheckupAutoControlLiveActivity: Widget {
     }
 
     private func liveActivityURL(_ reminderId: String) -> URL? {
-        var components = URLComponents(string: "https://www.checkupauto.fr/app/live")
+        var components = URLComponents(url: MobileAPI.endpoint("/app/live"), resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "source", value: "dynamic-island"),
             URLQueryItem(name: "reminder", value: reminderId),

@@ -55,7 +55,7 @@ enum ReminderPlan {
 }
 
 enum VehicleDeadlineStore {
-    static let storageKey = "checkupauto.vehicle.deadlines.v1"
+    static let storageKey = MobileAPI.storageKey("checkupauto.vehicle.deadlines.v1")
 
     static func load(defaults: UserDefaults = .standard) -> [VehicleDeadline] {
         guard let data = defaults.data(forKey: storageKey),

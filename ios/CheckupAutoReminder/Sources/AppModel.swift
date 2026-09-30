@@ -250,7 +250,7 @@ final class AppModel: ObservableObject {
                 VehicleDeadlineStore.clear()
                 AuthoritativeInventoryStore.clear()
                 #if canImport(ActivityKit)
-                if #available(iOS 26.0, *) {
+                if #available(iOS 17.0, *) {
                     await CheckupControlLiveActivityCoordinator.clearAll()
                 }
                 #endif
@@ -270,7 +270,7 @@ final class AppModel: ObservableObject {
 
     func refreshAfterForeground() {
         #if canImport(ActivityKit)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 17.0, *) {
             Task {
                 await CheckupControlLiveActivityCoordinator.endExpiredLocalTests()
                 localActivityTestRunning = Activity<CheckupControlActivityAttributes>.activities
@@ -312,8 +312,8 @@ final class AppModel: ObservableObject {
 
     func startLocalActivityTest() {
         #if canImport(ActivityKit)
-        guard #available(iOS 26.0, *) else {
-            errorMessage = "Le test Dynamic Island demande iOS 26 ou une version ultérieure."
+        guard #available(iOS 17.0, *) else {
+            errorMessage = "Le test Dynamic Island demande iOS 17 ou une version ultérieure."
             return
         }
         guard !localActivityTestTransitionPending else { return }
@@ -379,7 +379,7 @@ final class AppModel: ObservableObject {
 
     func stopLocalActivityTest() {
         #if canImport(ActivityKit)
-        guard #available(iOS 26.0, *) else { return }
+        guard #available(iOS 17.0, *) else { return }
         guard !localActivityTestTransitionPending else { return }
 
         localActivityTestTransitionPending = true
@@ -402,7 +402,7 @@ final class AppModel: ObservableObject {
 
     func acknowledgeControlLiveActivity(reminderId: String?) {
         #if canImport(ActivityKit)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 17.0, *) {
             Task {
                 await CheckupControlLiveActivityCoordinator.acknowledge(reminderId: reminderId)
             }
@@ -422,13 +422,13 @@ final class AppModel: ObservableObject {
     }
 
     var accountURL: URL {
-        URL(string: mobileConfig.account?.url ?? MobileBootstrap.fallback.account?.url ?? "https://www.checkupauto.fr/compte")
-            ?? URL(string: "https://www.checkupauto.fr/compte")!
+        MobileAPI.websiteURL(URL(string: mobileConfig.account?.url ?? MobileBootstrap.fallback.account?.url ?? "https://www.checkupauto.fr/compte")
+            ?? URL(string: "https://www.checkupauto.fr/compte")!)
     }
 
     var reportScanURL: URL {
-        URL(string: mobileConfig.account?.reportScanUrl ?? MobileBootstrap.fallback.account?.reportScanUrl ?? "https://www.checkupauto.fr/compte#ct-report")
-            ?? URL(string: "https://www.checkupauto.fr/compte#ct-report")!
+        MobileAPI.websiteURL(URL(string: mobileConfig.account?.reportScanUrl ?? MobileBootstrap.fallback.account?.reportScanUrl ?? "https://www.checkupauto.fr/compte#ct-report")
+            ?? URL(string: "https://www.checkupauto.fr/compte#ct-report")!)
     }
 
     var nextControlDueDate: Date? {
@@ -513,7 +513,7 @@ final class AppModel: ObservableObject {
                     )
                 )
                 #if canImport(ActivityKit)
-                if #available(iOS 26.0, *), let reference = vehicle.bindingUUID {
+                if #available(iOS 17.0, *), let reference = vehicle.bindingUUID {
                     await CheckupControlLiveActivityCoordinator.cancel(reference: reference)
                 }
                 #endif
@@ -543,7 +543,7 @@ final class AppModel: ObservableObject {
 
     private func scheduleControlLiveActivities() async {
         #if canImport(ActivityKit)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 17.0, *) {
             var retryFailed = false
             for vehicle in authoritativeVehicles {
                 guard let reference = vehicle.bindingUUID else { continue }
