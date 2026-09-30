@@ -177,7 +177,7 @@ class Handler(SimpleHTTPRequestHandler):
   self.send_header('Referrer-Policy',getattr(self,'_referrer_policy','strict-origin-when-cross-origin')); self.send_header('Cross-Origin-Opener-Policy','same-origin')
   self.send_header('Cross-Origin-Resource-Policy','same-site'); self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=(self)')
   nonce=getattr(self,'_csp_nonce',''); nonce_src=(" 'nonce-"+nonce+"'") if nonce else ''
-  self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
+  self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
   self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
   response_path=urlparse(self.path).path
   if response_path.startswith('/admin') or response_path.startswith('/payment/test') or response_path.startswith('/auth/customer/') or response_path in {'/app/claim','/compte'}: self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
