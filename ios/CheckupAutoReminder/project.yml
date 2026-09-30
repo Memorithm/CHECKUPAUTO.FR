@@ -9,8 +9,8 @@ configs:
 settings:
   base:
     SWIFT_VERSION: 5.10
-    CURRENT_PROJECT_VERSION: 11
-    MARKETING_VERSION: 0.3.8
+    CURRENT_PROJECT_VERSION: 12
+    MARKETING_VERSION: 0.3.9
   configs:
     Debug:
       APS_ENVIRONMENT: development
@@ -89,4 +89,3 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder.tests
         GENERATE_INFOPLIST_FILE: YES
-
