@@ -18,7 +18,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var localReminderNotice: String?
     @Published private(set) var schedulingLocalTest = false
     @Published private(set) var localActivityTestRunning = false
-    @Published private(set) var localActivityTestStarting = false
+    @Published private(set) var localActivityTestTransitionPending = false
     @Published private(set) var localActivityTestNotice: String?
     private var localActivityTestTask: Task<Void, Never>?
     @Published private(set) var claimNotice: String?
@@ -301,10 +301,10 @@ final class AppModel: ObservableObject {
             errorMessage = "Le test Dynamic Island demande iOS 26 ou une version ultérieure."
             return
         }
-        guard !localActivityTestStarting else { return }
+        guard !localActivityTestTransitionPending else { return }
 
         localActivityTestTask?.cancel()
-        localActivityTestStarting = true
+        localActivityTestTransitionPending = true
         localActivityTestRunning = true
         localActivityTestNotice = nil
         localActivityTestTask = Task { [weak self] in
@@ -313,7 +313,7 @@ final class AppModel: ObservableObject {
                 let endsAt = try await CheckupControlLiveActivityCoordinator.startLocalTest()
                 try Task.checkCancellation()
 
-                self.localActivityTestStarting = false
+                self.localActivityTestTransitionPending = false
                 self.errorMessage = nil
                 self.localActivityTestNotice = "Trajet lancé dans la Dynamic Island agrandie : la voiture rejoint le centre de contrôle technique."
 
@@ -334,10 +334,10 @@ final class AppModel: ObservableObject {
                 self.localActivityTestNotice = "Test Dynamic Island terminé."
             } catch is CancellationError {
                 await CheckupControlLiveActivityCoordinator.endLocalTest()
-                self.localActivityTestStarting = false
+                self.localActivityTestTransitionPending = false
                 self.localActivityTestRunning = false
             } catch {
-                self.localActivityTestStarting = false
+                self.localActivityTestTransitionPending = false
                 self.localActivityTestRunning = false
                 self.errorMessage = error.localizedDescription
             }
@@ -348,16 +348,22 @@ final class AppModel: ObservableObject {
     }
 
     func stopLocalActivityTest() {
-        localActivityTestTask?.cancel()
-        localActivityTestTask = nil
-        localActivityTestStarting = false
         #if canImport(ActivityKit)
-        if #available(iOS 26.0, *) {
-            Task {
-                await CheckupControlLiveActivityCoordinator.endLocalTest()
-                localActivityTestRunning = false
-                localActivityTestNotice = "Test Dynamic Island arrêté."
-            }
+        guard #available(iOS 26.0, *) else { return }
+        guard !localActivityTestTransitionPending else { return }
+
+        localActivityTestTransitionPending = true
+        let taskToCancel = localActivityTestTask
+        taskToCancel?.cancel()
+        localActivityTestTask = Task { [weak self] in
+            await taskToCancel?.value
+            await CheckupControlLiveActivityCoordinator.endLocalTest()
+
+            guard let self else { return }
+            self.localActivityTestTask = nil
+            self.localActivityTestTransitionPending = false
+            self.localActivityTestRunning = false
+            self.localActivityTestNotice = "Test Dynamic Island arrêté."
         }
         #endif
     }
