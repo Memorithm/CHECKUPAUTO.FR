@@ -88,7 +88,13 @@ def _runtime_version(runtime: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.split(r"[-.]", match.group(1)))
 
 
-def select_simulator(payload: dict) -> dict:
+def _supports_dynamic_island(name: str) -> bool:
+    if name == "iPhone Air" or re.fullmatch(r"iPhone 14 Pro(?: Max)?", name):
+        return True
+    return re.fullmatch(r"iPhone (?:1[5-9]|[2-9]\\d)(?: Pro(?: Max)?| Plus)?", name) is not None
+
+
+def select_simulator(payload: dict, *, require_dynamic_island: bool = False) -> dict:
     candidates: list[tuple[tuple[int, ...], str, str, str]] = []
     for runtime, devices in (payload.get("devices") or {}).items():
         version = _runtime_version(str(runtime))
@@ -96,10 +102,12 @@ def select_simulator(payload: dict) -> dict:
             name = str(device.get("name") or "")
             udid = str(device.get("udid") or "")
             available = device.get("isAvailable", True)
-            if available and udid and name.startswith("iPhone"):
+            supported = not require_dynamic_island or _supports_dynamic_island(name)
+            if available and udid and name.startswith("iPhone") and supported:
                 candidates.append((version, name, udid, str(runtime)))
     if not candidates:
-        raise ReleaseError("no_available_iphone_simulator")
+        reason = "no_available_dynamic_island_simulator" if require_dynamic_island else "no_available_iphone_simulator"
+        raise ReleaseError(reason)
     candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
     version, name, udid, runtime = candidates[0]
     return {
@@ -111,13 +119,13 @@ def select_simulator(payload: dict) -> dict:
     }
 
 
-def discover_simulator() -> dict:
+def discover_simulator(*, require_dynamic_island: bool = False) -> dict:
     raw = _run([_require_tool("xcrun"), "simctl", "list", "devices", "available", "--json"], capture=True)
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ReleaseError("invalid_simctl_json") from exc
-    return select_simulator(payload)
+    return select_simulator(payload, require_dynamic_island=require_dynamic_island)
 
 
 def parse_build_settings(text: str) -> dict[str, str]:
