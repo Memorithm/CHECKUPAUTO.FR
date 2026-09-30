@@ -24,14 +24,14 @@ WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 COOKIE_NAME="checkupauto_customer"
 
 
-def _cookie(handler) -> str:
+def _cookie(handler, name=COOKIE_NAME) -> str:
     raw=str(handler.headers.get("Cookie") or "")
     jar=SimpleCookie()
     try:
         jar.load(raw)
     except Exception:
         return ""
-    morsel=jar.get(COOKIE_NAME)
+    morsel=jar.get(name)
     return str(morsel.value) if morsel else ""
 
 
@@ -46,7 +46,19 @@ def _account(handler):
         return "",None
 
 
-def _send_cookie_redirect(handler, location: str, session: dict):
+def _flow_cookie_name(provider: str) -> str:
+    return "__Host-checkupauto_oidc_"+provider
+
+
+def _flow_cookie(provider: str, binding: str="", *, clear=False) -> str:
+    # Apple's cross-site form_post callback needs SameSite=None; all cookies
+    # remain host-only, Secure and HttpOnly.
+    same_site="None" if provider=="apple" else "Lax"
+    max_age=0 if clear else customer_oidc.FLOW_TTL_MINUTES*60
+    return f"{_flow_cookie_name(provider)}={binding}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite={same_site}"
+
+
+def _send_cookie_redirect(handler, location: str, session: dict, provider: str):
     token=str(session["token"])
     max_age=int(session["maxAge"])
     handler.send_response(303)
@@ -57,6 +69,7 @@ def _send_cookie_redirect(handler, location: str, session: dict):
         f"{COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax",
     )
     handler.send_header("Content-Length","0")
+    handler.send_header("Set-Cookie",_flow_cookie(provider,clear=True))
     handler.end_headers()
 
 
@@ -107,7 +120,7 @@ p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-co
 @media(max-width:720px){{.providers{{grid-template-columns:1fr}}}}
 </style></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a href="/">Retour au site</a></div>
 <section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>Votre véhicule, dans la durée.</h1>
-<p>Retrouvez vos échéances, votre fidélité et bientôt l’analyse de vos rapports de contrôle technique dans un seul espace.</p>
+<p>Retrouvez votre fidélité et l’analyse de vos rapports de contrôle technique dans un seul espace.</p>
 {note}<div class="providers">{providers}</div>
 <div class="trust">Connexion fédérée uniquement · aucun mot de passe CheckupAuto à mémoriser · session sécurisée et limitée dans le temps.</div>
 </section></main></body></html>""".encode("utf-8")
@@ -122,7 +135,7 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     company=html.escape(str(account["companyName"]))
     siret=html.escape(str(account["siret"]))
     loyalty=account["loyalty"]
-    providers=" · ".join(html.escape(str(p).title()) for p in account["providers"]) or "—"
+    providers=" · ".join(html.escape(customer_oidc.PROVIDERS.get(str(p),{}).get("label",str(p).title())) for p in account["providers"]) or "—"
     balance=f'{int(loyalty["balanceCents"])/100:.2f} €'
     pending=f'{int(loyalty["pendingCents"])/100:.2f} €'
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
@@ -150,7 +163,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
-<section class="panel"><div class="eyebrow">MES VÉHICULES</div><h2>Suivi centralisé</h2><p>Les véhicules liés à votre historique Mercure et à l’application iOS seront regroupés ici.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
+<section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="https://rdv.checkupauto.fr/" rel="noreferrer">Réserver ou consulter mes rendez-vous sur le planning actuel →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
 <section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="report-actions"><button id="walletToApp" class="primary" type="button">Rattacher à l’app iOS</button></div><div id="walletToAppStatus" class="report-status" role="status" aria-live="polite"></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
@@ -227,8 +240,14 @@ def handle(handler) -> bool:
     if command=="GET" and re.fullmatch(r"/auth/customer/(google|apple|microsoft)",path):
         provider=path.rsplit("/",1)[-1]
         try:
-            target=customer_oidc.begin(provider,_browser_origin(handler))
-            handler.send_redirect(target,302)
+            binding=secrets.token_urlsafe(32)
+            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding)
+            handler.send_response(302)
+            handler.send_header("Location",target)
+            handler.send_header("Cache-Control","no-store")
+            handler.send_header("Set-Cookie",_flow_cookie(provider,binding))
+            handler.send_header("Content-Length","0")
+            handler.end_headers()
         except customer_oidc.CustomerOIDCError:
             handler.send_bytes(_login_page("Ce fournisseur de connexion n’est pas encore configuré."),"text/html; charset=utf-8",503,"no-store")
         return True
@@ -238,19 +257,28 @@ def handle(handler) -> bool:
         provider=callback.group(1)
         try:
             if command=="POST":
-                form=handler._read_form()
-                params={k:[v] for k,v in form.items()}
+                if provider!="apple" or str(handler.headers.get("Content-Type") or "").split(";",1)[0].lower()!="application/x-www-form-urlencoded":
+                    raise customer_oidc.CustomerOIDCError("customer_oidc_callback_invalid")
+                length=int(handler.headers.get("Content-Length") or "0")
+                if not 0<length<=16384:
+                    raise customer_oidc.CustomerOIDCError("customer_oidc_callback_invalid")
+                params=parse_qs(handler.rfile.read(length).decode("utf-8"),keep_blank_values=True,max_num_fields=20)
             else:
-                params=parse_qs(parsed.query,keep_blank_values=True)
+                if provider=="apple" or len(parsed.query)>16384:
+                    raise customer_oidc.CustomerOIDCError("customer_oidc_callback_invalid")
+                params=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=20)
             error=(params.get("error") or [""])[0]
             if error:
                 raise customer_oidc.CustomerOIDCError("customer_oidc_provider_error")
+            if len(params.get("state",[]))!=1 or len(params.get("code",[]))!=1:
+                raise customer_oidc.CustomerOIDCError("customer_oidc_callback_invalid")
             state=(params.get("state") or [""])[0]
             code=(params.get("code") or [""])[0]
-            result=customer_oidc.complete(provider,state,code)
-            _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"])
+            result=customer_oidc.complete(provider,state,code,
+                browser_binding=_cookie(handler,_flow_cookie_name(provider)),origin=_browser_origin(handler))
+            _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"],provider)
         except Exception:
-            handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez."),"text/html; charset=utf-8",400,"no-store")
+            handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",{"Set-Cookie":_flow_cookie(provider,clear=True)})
         return True
 
     report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)
@@ -387,7 +415,7 @@ def handle(handler) -> bool:
                 handler.send_json({"ok":False,"error":"customer_payload_invalid"},400)
                 return True
             customer_accounts.close_session(token)
-            handler.send_json({"ok":True})
+            handler.send_json({"ok":True},headers={"Set-Cookie":f"{COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"})
             return True
 
         try:

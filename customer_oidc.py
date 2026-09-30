@@ -45,8 +45,7 @@ PROVIDERS = {
     },
     "microsoft": {
         "label": "Microsoft / Hotmail",
-        "issuerPrefix": "https://login.microsoftonline.com/",
-        "issuerSuffix": "/v2.0",
+        "issuer": "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0",
         "authorize": "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
         "token": "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
         "jwks": "https://login.microsoftonline.com/consumers/discovery/v2.0/keys",
@@ -151,6 +150,7 @@ def _connect() -> sqlite3.Connection:
 
 def init_db() -> None:
     with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
         db.execute(
             """CREATE TABLE IF NOT EXISTS customer_oidc_flow(
               state_hash TEXT PRIMARY KEY,
@@ -159,9 +159,13 @@ def init_db() -> None:
               verifier TEXT NOT NULL,
               redirect_uri TEXT NOT NULL,
               created_at TEXT NOT NULL,
-              expires_at TEXT NOT NULL
+              expires_at TEXT NOT NULL,
+              browser_hash TEXT NOT NULL DEFAULT ''
             )"""
         )
+        columns = {row[1] for row in db.execute("PRAGMA table_info(customer_oidc_flow)")}
+        if "browser_hash" not in columns:
+            db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN browser_hash TEXT NOT NULL DEFAULT ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_customer_oidc_expiry ON customer_oidc_flow(expires_at)")
     try:
         _flow_path().chmod(0o600)
@@ -173,9 +177,16 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
-def begin(provider: object, origin: object) -> str:
+def _browser_hash(binding: object) -> str:
+    if not isinstance(binding, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", binding):
+        raise CustomerOIDCError("customer_oidc_browser_invalid")
+    return hashlib.sha256(binding.encode("ascii")).hexdigest()
+
+
+def begin(provider: object, origin: object, *, browser_binding: str) -> str:
     provider = _provider(provider)
     origin = _origin(origin)
+    browser_hash = _browser_hash(browser_binding)
     cfg = _provider_config(provider)
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -189,8 +200,8 @@ def begin(provider: object, origin: object) -> str:
         db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now.isoformat(timespec="seconds"),))
         db.execute(
             """INSERT INTO customer_oidc_flow(
-                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at
-               ) VALUES(?,?,?,?,?,?,?)""",
+                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash
+               ) VALUES(?,?,?,?,?,?,?,?)""",
             (
                 hashlib.sha256(state.encode()).hexdigest(),
                 provider,
@@ -199,6 +210,7 @@ def begin(provider: object, origin: object) -> str:
                 redirect_uri,
                 now.isoformat(timespec="seconds"),
                 expires.isoformat(timespec="seconds"),
+                browser_hash,
             ),
         )
     meta = PROVIDERS[provider]
@@ -216,7 +228,9 @@ def begin(provider: object, origin: object) -> str:
     return meta["authorize"] + "?" + urlencode(params)
 
 
-def _consume_flow(provider: str, state: object) -> dict:
+def _consume_flow(provider: str, state: object, *, browser_binding: str, origin: str) -> dict:
+    browser_hash = _browser_hash(browser_binding)
+    redirect_uri = f"{_origin(origin)}/auth/customer/{provider}/callback"
     state = str(state or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", state):
         raise CustomerOIDCError("customer_oidc_state_invalid")
@@ -231,6 +245,8 @@ def _consume_flow(provider: str, state: object) -> dict:
         ).fetchone()
         if not row:
             raise CustomerOIDCError("customer_oidc_state_invalid")
+        if not hmac.compare_digest(row["browser_hash"], browser_hash) or not hmac.compare_digest(row["redirect_uri"], redirect_uri):
+            raise CustomerOIDCError("customer_oidc_browser_invalid")
         db.execute("DELETE FROM customer_oidc_flow WHERE state_hash=?", (state_hash,))
     expires = dt.datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
     if now >= expires:
@@ -252,11 +268,11 @@ def _decode_part(raw: str) -> dict:
 
 
 def _issuer_valid(provider: str, issuer: object) -> bool:
-    issuer = str(issuer or "")
-    meta = PROVIDERS[provider]
-    if "issuer" in meta:
-        return hmac.compare_digest(issuer, meta["issuer"])
-    return issuer.startswith(meta["issuerPrefix"]) and issuer.endswith(meta["issuerSuffix"])
+    if not isinstance(issuer, str):
+        return False
+    if provider == "google":
+        return issuer in {"https://accounts.google.com", "accounts.google.com"}
+    return issuer == PROVIDERS[provider]["issuer"]
 
 
 def _jwk_key(jwk: dict):
@@ -309,24 +325,38 @@ def _verify_id_token(provider: str, raw: object, *, client_id: str, nonce: str, 
 
     now = int(_now().timestamp())
     aud = claims.get("aud")
-    audience_ok = hmac.compare_digest(str(aud), client_id) if isinstance(aud, str) else client_id in (aud or [])
+    audience_ok = (
+        isinstance(aud, str) and aud == client_id
+        or isinstance(aud, list) and bool(aud) and all(isinstance(a, str) for a in aud) and client_id in aud
+    )
+    azp = claims.get("azp")
+    authorized_party_ok = (
+        (azp is None or azp == client_id)
+        and (not isinstance(aud, list) or len(aud) <= 1 or azp == client_id)
+    )
+    issued_at = claims.get("iat")
+    not_before = claims.get("nbf", now)
     if (
         not _issuer_valid(provider, claims.get("iss"))
         or not audience_ok
-        or not isinstance(claims.get("exp"), int)
+        or not authorized_party_ok
+        or type(claims.get("exp")) is not int
         or claims["exp"] <= now
-        or not hmac.compare_digest(str(claims.get("nonce") or ""), nonce)
+        or type(issued_at) is not int or issued_at > now + 60
+        or type(not_before) is not int or not_before > now + 60
+        or not isinstance(claims.get("nonce"), str) or claims["nonce"] != nonce
+        or not isinstance(claims.get("sub"), str) or not 1 <= len(claims["sub"]) <= 512
     ):
         raise CustomerOIDCError("customer_oidc_token_invalid")
     return claims
 
 
-def complete(provider: object, state: object, code: object, *, poster=None, jwks_fetcher=None) -> dict:
+def complete(provider: object, state: object, code: object, *, browser_binding: str, origin: str, poster=None, jwks_fetcher=None) -> dict:
     provider = _provider(provider)
     code = str(code or "").strip()
     if not code or len(code) > 4096:
         raise CustomerOIDCError("customer_oidc_code_invalid")
-    flow = _consume_flow(provider, state)
+    flow = _consume_flow(provider, state, browser_binding=browser_binding, origin=origin)
     cfg = _provider_config(provider)
     post = poster or httpx.post
     try:

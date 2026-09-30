@@ -46,7 +46,7 @@ class Handler:
     def send_header(self,name,value):
         self._headers.append((name,value))
     def end_headers(self):
-        self.response={"status":self._status,"headers":dict(self._headers)}
+        self.response={"status":self._status,"headers":dict(self._headers),"cookies":[v for k,v in self._headers if k=="Set-Cookie"]}
 
 
 class CustomerHttpTest(unittest.TestCase):
@@ -114,22 +114,51 @@ class CustomerHttpTest(unittest.TestCase):
         with patch.object(http.customer_oidc,"begin",return_value="https://accounts.example/auth?state=x") as begin:
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],302)
-        self.assertEqual(h.response["location"],"https://accounts.example/auth?state=x")
-        begin.assert_called_once_with("google","https://stage.example")
+        self.assertEqual(h.response["headers"]["Location"],"https://accounts.example/auth?state=x")
+        binding=h.response["cookies"][0].split("=",1)[1].split(";",1)[0]
+        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding)
+        self.assertIn("__Host-checkupauto_oidc_google=",h.response["cookies"][0])
+        self.assertIn("HttpOnly; Secure; SameSite=Lax",h.response["cookies"][0])
 
     def test_oidc_callback_sets_secure_httponly_session_cookie(self):
-        h=Handler("/auth/customer/google/callback?state=s&code=c")
+        h=Handler("/auth/customer/google/callback?state=s&code=c",headers={"Cookie":"__Host-checkupauto_oidc_google="+"b"*43})
         with patch.object(http.customer_oidc,"complete",return_value={
             "account":self.account(),
             "session":{"token":"opaque-session-token","maxAge":43200},
-        }):
+        }) as complete:
             self.assertTrue(http.handle(h))
+        complete.assert_called_once_with("google","s","c",browser_binding="b"*43,origin="https://stage.example")
         self.assertEqual(h.response["status"],303)
-        cookie=h.response["headers"]["Set-Cookie"]
+        cookie=h.response["cookies"][0]
         self.assertIn("HttpOnly",cookie)
         self.assertIn("Secure",cookie)
         self.assertIn("SameSite=Lax",cookie)
         self.assertNotIn("client@example.test",cookie)
+
+    def test_apple_flow_cookie_supports_cross_site_form_post(self):
+        h=Handler("/auth/customer/apple")
+        with patch.object(http.customer_oidc,"begin",return_value="https://appleid.apple.com/auth/authorize"):
+            http.handle(h)
+        self.assertIn("__Host-checkupauto_oidc_apple=",h.response["cookies"][0])
+        self.assertIn("HttpOnly; Secure; SameSite=None",h.response["cookies"][0])
+
+    def test_callback_rejects_duplicate_state_and_clears_flow_cookie(self):
+        h=Handler("/auth/customer/google/callback?state=a&state=b&code=c")
+        with patch.object(http.customer_oidc,"complete") as complete:
+            http.handle(h)
+        self.assertEqual(h.response["status"],400)
+        complete.assert_not_called()
+        self.assertIn("Max-Age=0",h.response["headers"]["Set-Cookie"])
+
+    def test_apple_post_rejects_duplicate_state_before_token_exchange(self):
+        raw=b'state=a&state=b&code=c'
+        h=Handler("/auth/customer/apple/callback","POST",headers={
+            "Content-Type":"application/x-www-form-urlencoded","Content-Length":str(len(raw))})
+        h.rfile=io.BytesIO(raw)
+        with patch.object(http.customer_oidc,"complete") as complete:
+            http.handle(h)
+        self.assertEqual(h.response["status"],400)
+        complete.assert_not_called()
 
     def test_profile_mutation_requires_same_origin_session_and_csrf(self):
         h=Handler("/api/customer/profile","POST",{
@@ -255,3 +284,4 @@ class CustomerHttpTest(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
