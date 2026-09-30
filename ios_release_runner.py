@@ -91,7 +91,7 @@ def _runtime_version(runtime: str) -> tuple[int, ...]:
 def _supports_dynamic_island(name: str) -> bool:
     if name == "iPhone Air" or re.fullmatch(r"iPhone 14 Pro(?: Max)?", name):
         return True
-    return re.fullmatch(r"iPhone (?:1[5-9]|[2-9]\\d)(?: Pro(?: Max)?| Plus)?", name) is not None
+    return re.fullmatch(r"iPhone (?:1[5-9]|[2-9]\d)(?: Pro(?: Max)?| Plus)?", name) is not None
 
 
 def select_simulator(payload: dict, *, require_dynamic_island: bool = False) -> dict:
