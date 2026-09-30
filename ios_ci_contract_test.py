@@ -47,9 +47,12 @@ class IOSCIContractTest(unittest.TestCase):
     def test_xcode_ci_reuses_release_runner_simulator_discovery(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("tar -czf - ios/CheckupAutoReminder ios_release_runner.py", text)
-        self.assertIn("r.discover_simulator()", text)
-        self.assertIn('-destination \\"\\$destination\\"', text)
+        self.assertIn("r.discover_simulator(require_dynamic_island=True)", text)
+        self.assertIn("platform=iOS Simulator,id=", text)
         self.assertNotIn("platform=iOS Simulator,name=iPhone", text)
+        self.assertIn("OWNED_CI_SIMULATOR=", text)
+        self.assertIn("SIMULATOR_OWNERSHIP_MISMATCH", text)
+        self.assertIn("['xcrun', 'simctl', 'delete', udid]", text)
 
 
 if __name__ == "__main__":
