@@ -5,24 +5,23 @@ import SwiftUI
 /// Diagnostic launch route for recording the real SwiftUI scene and system island.
 /// It never loads a customer vehicle or creates a real appointment.
 struct ControlJourneyVisualReview: View {
-    @State private var seed = 0
     @State private var reviewError: String?
     @State private var activityStatus = ""
     private let endsAt = Date().addingTimeInterval(120)
 
     var body: some View {
         VStack(spacing: 24) {
-            Text("Vérification du trajet Checkup Auto").font(.headline)
+            Text("Vérification du rappel Checkup Auto").font(.headline)
             VStack(spacing: 4) {
                 Text("CHECKUP AUTO · DÉMO LOCALE").font(.caption.bold()).foregroundStyle(.mint)
-                CheckupControlJourneyScene(state: .init(moment: .localTest, appointmentAt: endsAt, animationSeed: seed))
+                CheckupControlJourneyScene(state: .init(moment: .localTest, appointmentAt: endsAt, animationSeed: 0))
                     .frame(height: 102)
                 Text("Aucun rendez-vous réel").font(.caption).foregroundStyle(.gray)
             }
             .padding(8)
             .background(.black, in: RoundedRectangle(cornerRadius: 24))
             .padding(.horizontal, 8)
-            Text(CheckupControlJourneyMotion.isParked(for: seed) ? "Arrêt devant le centre" : "Trajet en cours")
+
             Text(activityStatus).font(.caption).foregroundStyle(.gray)
             if let reviewError { Text(reviewError).font(.caption).foregroundStyle(.red) }
         }
@@ -36,13 +35,6 @@ struct ControlJourneyVisualReview: View {
                     activityStatus = "Activité système : " + (activities.first.map { String(describing: $0.activityState) } ?? "absente")
                 }
                 catch { reviewError = error.localizedDescription }
-            }
-            for phase in 1...CheckupControlJourneyMotion.arrivalPhase {
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
-                seed = phase
-                if #available(iOS 26.0, *) {
-                    await CheckupControlLiveActivityCoordinator.advanceLocalTestAnimation()
-                }
             }
         }
     }

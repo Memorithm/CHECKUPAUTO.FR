@@ -315,18 +315,18 @@ final class AppModel: ObservableObject {
 
                 self.localActivityTestTransitionPending = false
                 self.errorMessage = nil
-                self.localActivityTestNotice = "Trajet lancé dans la Dynamic Island agrandie : la voiture rejoint le centre de contrôle technique."
+                self.localActivityTestNotice = "La voiture et le rappel sont affichés. Maintenez la Dynamic Island pour lire le message complet."
 
                 while Date() < endsAt {
                     do {
                         try await Task.sleep(
-                            for: .seconds(CheckupControlLiveActivityCoordinator.localTestAnimationInterval)
+                            for: .seconds(2)
                         )
                     } catch {
                         return
                     }
                     guard !Task.isCancelled, Date() < endsAt else { break }
-                    guard await CheckupControlLiveActivityCoordinator.advanceLocalTestAnimation() else { break }
+                    guard CheckupControlLiveActivityCoordinator.hasActiveLocalTest() else { break }
                 }
                 guard !Task.isCancelled else { return }
                 self.localActivityTestTransitionPending = true
@@ -592,3 +592,4 @@ final class AppModel: ObservableObject {
         VehicleDeadlineStore.save(vehicles)
     }
 }
+

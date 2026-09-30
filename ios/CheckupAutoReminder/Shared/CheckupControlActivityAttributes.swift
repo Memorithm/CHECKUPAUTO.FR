@@ -31,45 +31,12 @@ struct CheckupControlActivityAttributes: ActivityAttributes {
             }
         }
 
-        var trailerHeading: String {
-            moment == .acknowledged ? "RAPPEL" : "CT"
+        var reminderMessage: String {
+            moment == .acknowledged ? "Rappel confirmé" : "Pensez à votre contrôle technique"
         }
 
-        var trailerDetail: String {
-            switch moment {
-            case .tomorrow: return "DEMAIN !"
-            case .approaching, .localTest: return "BIENTÔT !"
-            case .acknowledged: return "VU"
-            }
-        }
+        var primaryMessage: String { reminderMessage }
 
-        var trailerMessage: String { trailerHeading + " " + trailerDetail }
-
-        var journeyHeading: String {
-            switch moment {
-            case .tomorrow: return "Votre CT est prévu"
-            case .approaching, .localTest: return "Votre CT arrive"
-            case .acknowledged: return "Rappel confirmé"
-            }
-        }
-
-        var journeyDetail: String {
-            switch moment {
-            case .tomorrow: return "demain"
-            case .approaching, .localTest: return "à échéance"
-            case .acknowledged: return "Bon trajet !"
-            }
-        }
-
-        var journeyMessage: String { journeyHeading + " " + journeyDetail }
-
-        var primaryMessage: String {
-            switch moment {
-            case .tomorrow: return "Contrôle technique demain"
-            case .approaching, .localTest: return "Votre CT arrive à échéance"
-            case .acknowledged: return "Bon trajet vers Checkup Auto"
-            }
-        }
     }
 
     enum ReminderKind: String, Codable, Hashable {
@@ -123,37 +90,3 @@ enum CheckupControlActivityPolicy {
     }
 }
 
-/// A single trip: enter from the right, roll left, brake, then remain parked.
-/// Animation endpoints are advanced every two seconds by the local demo.
-enum CheckupControlJourneyMotion {
-    static let animationDuration: TimeInterval = 1.95
-    static let arrivalPhase = 5
-
-    static func phase(for seed: Int) -> Int { min(arrivalPhase, max(0, seed)) }
-    static func progress(for seed: Int) -> Double {
-        [0.0, 0.23, 0.48, 0.72, 0.90, 1.0][phase(for: seed)]
-    }
-    static func isParked(for seed: Int) -> Bool { phase(for: seed) == arrivalPhase }
-
-    static func layout(trackWidth: Double) -> CheckupControlJourneyLayout {
-        CheckupControlJourneyLayout(trackWidth: max(0, trackWidth))
-    }
-    static func carOffset(for seed: Int, trackWidth: Double) -> Double {
-        let layout = layout(trackWidth: trackWidth)
-        let start = max(layout.stopX, trackWidth - 42 * layout.scale)
-        return start + (layout.stopX - start) * progress(for: seed)
-    }
-    static func wheelRotation(for seed: Int, trackWidth: Double) -> Double {
-        let scale = layout(trackWidth: trackWidth).scale
-        let distance = carOffset(for: seed, trackWidth: trackWidth) - carOffset(for: 0, trackWidth: trackWidth)
-        return distance / (6.5 * scale) * 180 / .pi
-    }
-}
-
-struct CheckupControlJourneyLayout {
-    let trackWidth: Double
-    var scale: Double { min(1.1, max(0.45, (trackWidth - 24) / 280)) }
-    var buildingWidth: Double { 72 * scale }
-    var convoyWidth: Double { 208 * scale }
-    var stopX: Double { 16 + buildingWidth }
-}

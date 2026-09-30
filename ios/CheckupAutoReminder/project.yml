@@ -9,8 +9,8 @@ configs:
 settings:
   base:
     SWIFT_VERSION: 5.10
-    CURRENT_PROJECT_VERSION: 9
-    MARKETING_VERSION: 0.3.6
+    CURRENT_PROJECT_VERSION: 10
+    MARKETING_VERSION: 0.3.7
   configs:
     Debug:
       APS_ENVIRONMENT: development
@@ -23,6 +23,8 @@ targets:
     sources:
       - Sources
       - Shared
+      - path: LiveActivityResources
+        buildPhase: resources
       - path: Resources
         buildPhase: resources
     dependencies:
@@ -52,6 +54,8 @@ targets:
     sources:
       - LiveActivityWidget
       - Shared
+      - path: LiveActivityResources
+        buildPhase: resources
     info:
       path: LiveActivityWidget/Info.plist
       properties:
@@ -85,3 +89,4 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.checkupauto.reminder.tests
         GENERATE_INFOPLIST_FILE: YES
+

@@ -56,17 +56,15 @@ struct CheckupAutoControlLiveActivity: Widget {
                     .frame(maxWidth: .infinity)
                 }
             } compactLeading: {
-                CompactControlConvoy(state: context.state)
+                CheckupControlVehicleImage(presentation: .compact)
             } compactTrailing: {
-                VStack(spacing: 0) {
-                    Text("CT").font(.system(size: 10, weight: .heavy, design: .rounded))
-                    Text(context.state.trailerDetail)
-                        .font(.system(size: 8, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white)
-                .accessibilityLabel(context.state.journeyMessage)
+                Text("Pensez\nau CT")
+                    .font(.system(size: 10, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white)
+                    .accessibilityLabel(context.state.reminderMessage)
             } minimal: {
-                Image(systemName: "car.side.fill").foregroundStyle(.mint)
+                CheckupControlVehicleImage(presentation: .minimal)
             }
             .contentMargins(.horizontal, 8, for: .expanded)
             .contentMargins(.bottom, 6, for: .expanded)
@@ -96,21 +94,3 @@ struct CheckupAutoControlLiveActivity: Widget {
     }
 }
 
-private struct CompactControlConvoy: View {
-    let state: CheckupControlActivityAttributes.ContentState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.isLuminanceReduced) private var luminanceReduced
-
-    var body: some View {
-        HStack(spacing: 1) {
-            Image(systemName: "car.side.fill").font(.system(size: 14)).scaleEffect(x: -1, y: 1)
-            Capsule().frame(width: 3, height: 1)
-            RoundedRectangle(cornerRadius: 2).frame(width: 12, height: 8)
-        }
-        .foregroundStyle(.mint)
-        .offset(x: reduceMotion || luminanceReduced ? 0 : 6 - 12 * CheckupControlJourneyMotion.progress(for: state.animationSeed))
-        .frame(width: 48, height: 25)
-        .animation(reduceMotion || luminanceReduced ? nil : .linear(duration: 1.95), value: state.animationSeed)
-        .accessibilityLabel("Voiture avec remorque vers le centre de contrôle technique")
-    }
-}
