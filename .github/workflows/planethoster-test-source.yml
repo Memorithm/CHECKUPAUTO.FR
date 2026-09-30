@@ -1,0 +1,32 @@
+name: PlanetHoster test source bundle
+on:
+  push:
+    branches: ['agent/planethoster-test-source']
+    paths: ['.github/workflows/planethoster-test-source.yml']
+permissions:
+  contents: read
+concurrency:
+  group: checkupauto-planethoster-source
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && github.actor == 'CHECKUPAUTO'
+    runs-on: [self-hosted, macOS, ARM64, remoteops, mac-mini]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e70151e1c48331b4d54b9e5a56d7ed5560874ae3
+          persist-credentials: false
+      - name: Stage exact source archive for RemoteOps
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(hostname)" = Mac-mini-de-tarek.local
+          test "$(git rev-parse HEAD)" = e70151e1c48331b4d54b9e5a56d7ed5560874ae3
+          umask 077
+          root=/Users/tarek/CheckupAutoWebReleases/e70151e1c48331b4d54b9e5a56d7ed5560874ae3
+          mkdir -p "$root"
+          git archive --format=tar HEAD > "$root/source.tar.incoming"
+          mv "$root/source.tar.incoming" "$root/source.tar"
+          shasum -a 256 "$root/source.tar"
