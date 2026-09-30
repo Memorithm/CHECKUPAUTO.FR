@@ -43,7 +43,7 @@ struct DeviceUnregistrationRequest: Codable, Equatable, Sendable {
 }
 
 enum InstallationLifecycleState {
-    static let autoRegistrationSuppressedKey = "checkupauto.installation.autoregister.suppressed.v1"
+    static let autoRegistrationSuppressedKey = MobileAPI.storageKey("checkupauto.installation.autoregister.suppressed.v1")
 
     static func isAutoRegistrationSuppressed(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: autoRegistrationSuppressedKey)
@@ -65,7 +65,7 @@ enum InstallationLifecycleState {
 }
 
 enum DeviceRegistrationState {
-    static let defaultsKey = "checkupauto.remote-push.registered.v1"
+    static let defaultsKey = MobileAPI.storageKey("checkupauto.remote-push.registered.v1")
     static let changedNotification = Notification.Name("CheckupAutoRemotePushRegistrationChanged")
 
     static func isRegistered(defaults: UserDefaults = .standard) -> Bool {
@@ -93,7 +93,7 @@ enum DeviceRegistrationError: Error {
 }
 
 enum DeviceRegistrationIdentity {
-    private static let service = "fr.checkupauto.reminder.push"
+    private static let service = MobileAPI.storageKey("fr.checkupauto.reminder.push")
     static let accounts = ["installation-id", "registration-secret"]
 
     static func loadExisting() -> (installationId: String, secret: String)? {

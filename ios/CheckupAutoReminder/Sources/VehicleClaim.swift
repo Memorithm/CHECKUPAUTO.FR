@@ -88,7 +88,9 @@ enum VehicleClaimToken {
 enum MobileClaimLink {
     static func token(from url: URL) throws -> String {
         guard url.scheme?.lowercased() == "https",
-              url.host?.lowercased() == "www.checkupauto.fr",
+              url.host?.lowercased() == MobileAPI.currentBaseURL.host,
+              url.port == MobileAPI.currentBaseURL.port,
+              url.user == nil, url.password == nil,
               url.path == "/app/claim",
               url.query == nil,
               let fragment = url.fragment,

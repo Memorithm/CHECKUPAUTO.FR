@@ -151,7 +151,7 @@ enum AuthoritativeInventoryReconciliation {
 }
 
 enum AuthoritativeInventoryStore {
-    static let storageKey = "checkupauto.authoritative.inventory.v1"
+    static let storageKey = MobileAPI.storageKey("checkupauto.authoritative.inventory.v1")
 
     static func load(defaults: UserDefaults = .standard) -> [AuthoritativeVehicleDeadline] {
         guard let data = defaults.data(forKey: storageKey),

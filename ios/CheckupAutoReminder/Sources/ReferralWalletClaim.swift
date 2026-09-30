@@ -134,7 +134,7 @@ enum ReferralWalletClaimError: Error {
 }
 
 enum ReferralWalletSnapshotStore {
-    private static let service = "fr.checkupauto.reminder.referral-wallet"
+    private static let service = MobileAPI.storageKey("fr.checkupauto.reminder.referral-wallet")
     private static let account = "verified-snapshot-v1"
 
     static func load() -> ReferralWalletVerifiedSnapshot? {

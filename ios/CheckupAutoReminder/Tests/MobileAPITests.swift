@@ -34,6 +34,34 @@ final class MobileAPITests: XCTestCase {
         }
     }
 
+    func testSignedEnvironmentIsAllowlistedAndProcessOverrideCannotChangeRelease() {
+        XCTAssertEqual(MobileAPI.packagedBaseURL(environment: nil), MobileAPI.productionBaseURL)
+        XCTAssertEqual(MobileAPI.packagedBaseURL(environment: "production"), MobileAPI.productionBaseURL)
+        XCTAssertEqual(MobileAPI.packagedBaseURL(environment: "https://attacker.test"), MobileAPI.productionBaseURL)
+        XCTAssertEqual(MobileAPI.packagedBaseURL(environment: "preproduction"), MobileAPI.preproductionBaseURL)
+        XCTAssertEqual(MobileAPI.resolvedBaseURL(
+            environment: [MobileAPI.debugEnvironmentKey: "https://attacker.test"],
+            allowOverride: false, packagedEnvironment: "preproduction"
+        ), MobileAPI.preproductionBaseURL)
+        XCTAssertEqual(MobileAPI.resolvedBaseURL(
+            environment: [MobileAPI.debugEnvironmentKey: "http://invalid.test"],
+            allowOverride: true, packagedEnvironment: "preproduction"
+        ), MobileAPI.preproductionBaseURL)
+    }
+
+    func testPreproductionSeparatesStorageAndPreservesAccountRoutes() {
+        XCTAssertEqual(MobileAPI.storageKey("identity", preproduction: false), "identity")
+        XCTAssertEqual(MobileAPI.storageKey("identity", preproduction: true), "identity.preproduction")
+        let account = URL(string: "https://www.checkupauto.fr/compte?source=app#ct-report")!
+        XCTAssertEqual(MobileAPI.websiteURL(account, preproduction: true).absoluteString,
+                       "https://stage.179.198.210.187.sslip.io/compte?source=app#ct-report")
+        XCTAssertEqual(MobileAPI.websiteURL(account, preproduction: false), account)
+        for raw in ["https://rdv.checkupauto.fr/", "https://user:secret@www.checkupauto.fr/compte", "https://www.checkupauto.fr:8443/compte"] {
+            let url = URL(string: raw)!
+            XCTAssertEqual(MobileAPI.websiteURL(url, preproduction: true), url)
+        }
+    }
+
     func testEndpointComposition() {
         let base = URL(string: "https://preview.example.test")!
         XCTAssertEqual(

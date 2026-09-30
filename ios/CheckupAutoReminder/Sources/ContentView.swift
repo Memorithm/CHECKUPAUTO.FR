@@ -22,12 +22,30 @@ struct ContentView: View {
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
     @State private var browserDestination: BrowserDestination?
+    @State private var preproductionClaimLink = ""
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     hero
+                    if MobileAPI.isPreproduction {
+                        statusCard(title: "Préproduction — environnement de test", systemImage: "wrench.and.screwdriver.fill", tint: .orange)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Rattacher un véhicule ou une cagnotte de test").font(.headline)
+                            Text("Copiez le lien de rattachement depuis votre compte de test, puis collez-le ici.").font(.subheadline)
+                            SecureField("Lien de rattachement", text: $preproductionClaimLink)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                            Button("Rattacher à cet iPhone") {
+                                let link = preproductionClaimLink.trimmingCharacters(in: .whitespacesAndNewlines)
+                                preproductionClaimLink = ""
+                                if let url = URL(string: link) {
+                                    model.consumeMobileClaim(url: url)
+                                }
+                            }.disabled(preproductionClaimLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }.padding(16).background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 18))
+                    }
 
                     if !model.notificationAuthorized || model.installationRegistrationSuppressed {
                         notificationCard
@@ -86,7 +104,7 @@ struct ContentView: View {
                 }
             }
             .onOpenURL { url in
-                if url.host == "www.checkupauto.fr" && url.path == "/app/live" {
+                if url.scheme == "https" && url.host == MobileAPI.currentBaseURL.host && url.port == MobileAPI.currentBaseURL.port && url.user == nil && url.password == nil && url.path == "/app/live" {
                     let reminderId = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                         .queryItems?
                         .first(where: { $0.name == "reminder" })?
@@ -206,7 +224,7 @@ struct ContentView: View {
             Text("Le klaxon du test est programmé après cinq secondes. Les notifications et leurs sons doivent être autorisés ; le mode silencieux et les réglages Concentration de l’iPhone peuvent empêcher l’alerte sonore.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)
-            Text("Le test se termine après environ deux minutes si l’app reste active. Revenez dans l’app pour nettoyer un test expiré. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
+            Text("Le test se termine après environ deux minutes si l’app reste active. Revenez dans l’app pour nettoyer un test expiré. Nécessite un iPhone compatible, iOS 17 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)
         }

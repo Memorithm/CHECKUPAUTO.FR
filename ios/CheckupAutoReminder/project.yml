@@ -9,8 +9,9 @@ configs:
 settings:
   base:
     SWIFT_VERSION: 5.10
-    CURRENT_PROJECT_VERSION: 12
-    MARKETING_VERSION: 0.3.9
+    CURRENT_PROJECT_VERSION: 13
+    MARKETING_VERSION: 0.3.10
+    CHECKUPAUTO_ENVIRONMENT: production
   configs:
     Debug:
       APS_ENVIRONMENT: development
@@ -33,6 +34,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        CheckupAutoEnvironment: "$(CHECKUPAUTO_ENVIRONMENT)"
         CFBundleDisplayName: Checkup Auto
         NSSupportsLiveActivities: true
         BGTaskSchedulerPermittedIdentifiers:
@@ -53,12 +55,14 @@ targets:
     platform: iOS
     sources:
       - LiveActivityWidget
+      - Sources/MobileAPI.swift
       - Shared
       - path: LiveActivityResources
         buildPhase: resources
     info:
       path: LiveActivityWidget/Info.plist
       properties:
+        CheckupAutoEnvironment: "$(CHECKUPAUTO_ENVIRONMENT)"
         CFBundleDisplayName: Checkup Auto Live
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension

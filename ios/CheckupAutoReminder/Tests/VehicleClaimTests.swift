@@ -31,13 +31,13 @@ final class VehicleClaimTests: XCTestCase {
     }
 
     func testClaimLinkRequiresCheckupAutoHttpsAndFragmentToken() throws {
-        let valid = URL(string: "https://www.checkupauto.fr/app/claim#token=\(token)")!
+        let valid = URL(string: "\(MobileAPI.currentBaseURL.absoluteString)/app/claim#token=\(token)")!
         XCTAssertEqual(try VehicleClaimLink.token(from: valid), token)
 
-        let wallet = URL(string: "https://www.checkupauto.fr/app/claim#token=\(walletToken)")!
+        let wallet = URL(string: "\(MobileAPI.currentBaseURL.absoluteString)/app/claim#token=\(walletToken)")!
         XCTAssertThrowsError(try VehicleClaimLink.token(from: wallet))
 
-        let queryToken = URL(string: "https://www.checkupauto.fr/app/claim?token=\(token)")!
+        let queryToken = URL(string: "\(MobileAPI.currentBaseURL.absoluteString)/app/claim?token=\(token)")!
         XCTAssertThrowsError(try VehicleClaimLink.token(from: queryToken))
 
         let wrongHost = URL(string: "https://example.com/app/claim#token=\(token)")!
@@ -45,6 +45,17 @@ final class VehicleClaimTests: XCTestCase {
 
         let clearText = URL(string: "http://www.checkupauto.fr/app/claim#token=\(token)")!
         XCTAssertThrowsError(try VehicleClaimLink.token(from: clearText))
+    }
+
+    func testClaimsRejectCredentialsAndCrossEnvironmentOrigins() {
+        let host = MobileAPI.currentBaseURL.host!
+        for raw in [
+            "https://user:secret@\(host)/app/claim#token=\(token)",
+            "https://\(host):8443/app/claim#token=\(token)",
+            "\((MobileAPI.isPreproduction ? MobileAPI.productionBaseURL : MobileAPI.preproductionBaseURL).absoluteString)/app/claim#token=\(token)"
+        ] {
+            XCTAssertThrowsError(try MobileClaimLink.token(from: URL(string: raw)!))
+        }
     }
 
     func testClaimResponseRequiresOpaqueBindingUuid() throws {

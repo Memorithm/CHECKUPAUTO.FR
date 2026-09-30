@@ -2,11 +2,37 @@ import Foundation
 
 enum MobileAPI {
     static let productionBaseURL = URL(string: "https://www.checkupauto.fr")!
+    static let preproductionBaseURL = URL(string: "https://stage.179.198.210.187.sslip.io")!
+    static let environmentInfoKey = "CheckupAutoEnvironment"
+
+    static func packagedBaseURL(environment: String?) -> URL {
+        environment == "preproduction" ? preproductionBaseURL : productionBaseURL
+    }
+
+    static var isPreproduction: Bool {
+        Bundle.main.object(forInfoDictionaryKey: environmentInfoKey) as? String == "preproduction"
+    }
+
+    static func storageKey(_ key: String, preproduction: Bool = isPreproduction) -> String {
+        preproduction ? key + ".preproduction" : key
+    }
+
+    static func websiteURL(_ url: URL, preproduction: Bool = isPreproduction) -> URL {
+        guard preproduction,
+              url.scheme == "https",
+              ["www.checkupauto.fr", "checkupauto.fr"].contains(url.host?.lowercased() ?? ""),
+              url.user == nil, url.password == nil, url.port == nil,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.host = preproductionBaseURL.host
+        return components.url ?? url
+    }
+
     static let debugEnvironmentKey = "CHECKUPAUTO_API_BASE_URL"
 
     static func resolvedBaseURL(
         environment: [String: String],
-        allowOverride: Bool
+        allowOverride: Bool,
+        packagedEnvironment: String? = nil
     ) -> URL {
         guard allowOverride,
               let raw = environment[debugEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -19,7 +45,7 @@ enum MobileAPI {
               candidate.query == nil,
               candidate.fragment == nil,
               candidate.path.isEmpty || candidate.path == "/" else {
-            return productionBaseURL
+            return packagedBaseURL(environment: packagedEnvironment)
         }
         return candidate
     }
@@ -28,10 +54,11 @@ enum MobileAPI {
         #if DEBUG
         return resolvedBaseURL(
             environment: ProcessInfo.processInfo.environment,
-            allowOverride: true
+            allowOverride: true,
+            packagedEnvironment: Bundle.main.object(forInfoDictionaryKey: environmentInfoKey) as? String
         )
         #else
-        return productionBaseURL
+        return packagedBaseURL(environment: Bundle.main.object(forInfoDictionaryKey: environmentInfoKey) as? String)
         #endif
     }
 
