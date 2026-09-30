@@ -185,11 +185,14 @@ struct ContentView: View {
             if model.localActivityTestRunning {
                 Button("Rejouer le trajet") { model.startLocalActivityTest() }
                     .buttonStyle(.borderedProminent)
+                    .disabled(model.localActivityTestTransitionPending)
                 Button("Arrêter le test Dynamic Island", role: .cancel) { model.stopLocalActivityTest() }
                     .buttonStyle(.bordered)
+                    .disabled(model.localActivityTestTransitionPending)
             } else {
                 Button("Démarrer le test Dynamic Island") { model.startLocalActivityTest() }
                     .buttonStyle(.borderedProminent)
+                    .disabled(model.localActivityTestTransitionPending)
             }
             Text("Le trajet dure environ 10 secondes, puis la voiture reste garée. Gardez l’app ouverte : refermer l’Island ou quitter l’app termine cette démo. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
