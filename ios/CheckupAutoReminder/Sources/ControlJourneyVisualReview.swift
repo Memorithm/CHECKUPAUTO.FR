@@ -22,6 +22,13 @@ struct ControlJourneyVisualReview: View {
             .background(.black, in: RoundedRectangle(cornerRadius: 24))
             .padding(.horizontal, 8)
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Présentation compacte").font(.caption).foregroundStyle(.gray)
+                CheckupControlCompactReminder(state: .init(moment: .localTest, appointmentAt: endsAt, animationSeed: 0))
+                    .padding(8)
+                    .background(.black, in: Capsule())
+            }
+
             Text(activityStatus).font(.caption).foregroundStyle(.gray)
             if let reviewError { Text(reviewError).font(.caption).foregroundStyle(.red) }
         }
