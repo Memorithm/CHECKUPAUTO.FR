@@ -194,7 +194,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(model.localActivityTestTransitionPending)
             }
-            Text("Le test dure deux minutes. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
+            Text("Le test se termine après environ deux minutes si l’app reste active. Revenez dans l’app pour nettoyer un test expiré. Nécessite un iPhone compatible, iOS 26 ou ultérieur, et les Activités en direct activées.")
                 .font(.caption2)
                 .foregroundStyle(CheckupTheme.muted)
         }
@@ -658,4 +658,3 @@ struct ContentView: View {
     ContentView()
         .environmentObject(AppModel())
 }
-
