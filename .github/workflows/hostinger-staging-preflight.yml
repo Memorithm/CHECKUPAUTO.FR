@@ -9,6 +9,7 @@ on:
       - 'admin_server_runtime_test.py'
       - 'deploy/hostinger/**'
       - 'hostinger_staging_*_test.py'
+      - 'public_redirect_test.py'
       - '.github/workflows/hostinger-staging-*.yml'
 
 permissions:
@@ -36,7 +37,8 @@ jobs:
             admin_server_runtime_test.py \
             hostinger_staging_tls_readiness_test.py \
             hostinger_staging_control_plane_test.py \
-            hostinger_staging_deployment_provenance_test.py
+            hostinger_staging_deployment_provenance_test.py \
+            public_redirect_test.py
       - name: Validate Docker compose model
         shell: bash
         env:
@@ -47,4 +49,6 @@ jobs:
           docker compose -f deploy/hostinger/docker-compose.yml config >/tmp/checkupauto-hostinger-compose.yml
           grep -q 'checkupauto-staging-web' /tmp/checkupauto-hostinger-compose.yml
           grep -q 'stage.179.198.210.187.sslip.io' /tmp/checkupauto-hostinger-compose.yml
+          docker compose -f deploy/hostinger/public-redirect.compose.yml config >/tmp/checkupauto-public-redirect-compose.yml
           echo "HOSTINGER_STAGING_PREFLIGHT_OK"
+

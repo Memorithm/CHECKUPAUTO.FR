@@ -17,9 +17,7 @@ services:
       - traefik.http.services.checkupauto-public-redirect.loadbalancer.server.port=8080
       - traefik.http.routers.checkupauto-public-redirect-http.rule=Host(`checkupauto.fr`) || Host(`www.checkupauto.fr`)
       - traefik.http.routers.checkupauto-public-redirect-http.entrypoints=http
-      - traefik.http.routers.checkupauto-public-redirect-http.middlewares=checkupauto-public-https
-      - traefik.http.middlewares.checkupauto-public-https.redirectscheme.scheme=https
-      - traefik.http.middlewares.checkupauto-public-https.redirectscheme.permanent=false
+      - traefik.http.routers.checkupauto-public-redirect-http.service=checkupauto-public-redirect
       - traefik.http.routers.checkupauto-public-redirect.rule=Host(`checkupauto.fr`) || Host(`www.checkupauto.fr`)
       - traefik.http.routers.checkupauto-public-redirect.entrypoints=https
       - traefik.http.routers.checkupauto-public-redirect.tls=true

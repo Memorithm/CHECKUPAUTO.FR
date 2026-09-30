@@ -10,7 +10,7 @@ Le nouvel espace client comprend le profil particulier/professionnel, la cagnott
 
 ## Connexions Google et Microsoft / Hotmail / Outlook
 
-Chaque connexion utilise un état à usage unique, un nonce, PKCE et un cookie de navigateur `__Host-`, Secure et HttpOnly. Le retour doit arriver sur l'origine qui a initié la connexion. Google/Microsoft utilisent SameSite=Lax ; Apple utilise SameSite=None pour son retour form_post. Les jetons sont vérifiés par signature, audience, émetteur et dates. Microsoft accepte les comptes personnels du tenant consommateur uniquement.
+Chaque connexion utilise un état à usage unique, un nonce, PKCE et un cookie de navigateur `__Host-` propre à chaque état, Secure et HttpOnly. Le retour doit arriver sur l'origine qui a initié la connexion. Google/Microsoft utilisent SameSite=Lax ; Apple utilise SameSite=None pour son retour form_post. Les jetons sont vérifiés par signature, audience, émetteur et dates. Microsoft accepte les comptes personnels du tenant consommateur uniquement.
 
 Ces connecteurs servent à l'identification. Ils ne demandent pas d'accès aux boîtes Gmail, Hotmail ou Outlook.
 
@@ -37,7 +37,7 @@ Résolution publique Google DNS observée ; elle ne remplace pas un export inté
 | `www` CNAME | checkupauto.fr | Conserver |
 | `rdv` A | 185.124.200.66, TTL 3600 | Conserver le planning actuel |
 | `rdv2` | NXDOMAIN | Créer ultérieurement après protection des essais |
-| MX | priorité 0, mail.checkupauto.fr | Conserver et vérifier la dépendance du nom mail |
+| MX | priorité 0, mail.checkupauto.fr ; A indépendant 185.221.181.53 | Conserver |
 | AAAA principal / RDV | Aucun observé | Ne pas ajouter avant validation IPv6 |
 | CAA principal | Aucun observé | Vérifier la zone et la politique ACME avant émission |
 
@@ -46,6 +46,8 @@ Ne pas remplacer les NS par ceux du nouvel hébergeur : les changements web peuv
 ## Façade publique temporaire
 
 `deploy/hostinger/public-redirect.compose.yml` définit un service distinct sur le réseau Coolify, pour `checkupauto.fr` et `www.checkupauto.fr`. Il redirige en HTTP 302 vers `https://rdv.checkupauto.fr/`, sans transmettre chemins, requêtes ni références. Les chemins sensibles et POST reçoivent 404. Les URLs ne sont pas journalisées. La redirection est temporaire et non mise en cache.
+
+Les routeurs HTTP et HTTPS passent tous deux par le même contrôle des méthodes et chemins ; aucune redirection de schéma ne précède ce contrôle.
 
 Le service utilise le résolveur ACME Let's Encrypt déjà utilisé par la préproduction. La configuration seule ne prouve pas qu'un certificat a été émis. Pour éviter toute alerte pendant la bascule, pré-émettre un certificat valide avec DNS-01 via le contrôle de la zone, ou faire servir le défi HTTP-01 par l'ancien hébergeur vers le nouveau, puis vérifier la chaîne et les deux noms via l'adresse du nouveau serveur avant changement DNS. Ne jamais désactiver la validation TLS.
 

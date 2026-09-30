@@ -46,19 +46,21 @@ def _account(handler):
         return "",None
 
 
-def _flow_cookie_name(provider: str) -> str:
-    return "__Host-checkupauto_oidc_"+provider
+def _flow_cookie_name(provider: str, state: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state):
+        raise customer_oidc.CustomerOIDCError("customer_oidc_state_invalid")
+    return "__Host-checkupauto_oidc_"+provider+"_"+state
 
 
-def _flow_cookie(provider: str, binding: str="", *, clear=False) -> str:
+def _flow_cookie(provider: str, state: str, binding: str="", *, clear=False) -> str:
     # Apple's cross-site form_post callback needs SameSite=None; all cookies
     # remain host-only, Secure and HttpOnly.
     same_site="None" if provider=="apple" else "Lax"
     max_age=0 if clear else customer_oidc.FLOW_TTL_MINUTES*60
-    return f"{_flow_cookie_name(provider)}={binding}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite={same_site}"
+    return f"{_flow_cookie_name(provider,state)}={binding}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite={same_site}"
 
 
-def _send_cookie_redirect(handler, location: str, session: dict, provider: str):
+def _send_cookie_redirect(handler, location: str, session: dict, provider: str, state: str):
     token=str(session["token"])
     max_age=int(session["maxAge"])
     handler.send_response(303)
@@ -69,7 +71,7 @@ def _send_cookie_redirect(handler, location: str, session: dict, provider: str):
         f"{COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax",
     )
     handler.send_header("Content-Length","0")
-    handler.send_header("Set-Cookie",_flow_cookie(provider,clear=True))
+    handler.send_header("Set-Cookie",_flow_cookie(provider,state,clear=True))
     handler.end_headers()
 
 
@@ -242,10 +244,11 @@ def handle(handler) -> bool:
         try:
             binding=secrets.token_urlsafe(32)
             target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding)
+            state=parse_qs(urlsplit(target).query)["state"][0]
             handler.send_response(302)
             handler.send_header("Location",target)
             handler.send_header("Cache-Control","no-store")
-            handler.send_header("Set-Cookie",_flow_cookie(provider,binding))
+            handler.send_header("Set-Cookie",_flow_cookie(provider,state,binding))
             handler.send_header("Content-Length","0")
             handler.end_headers()
         except customer_oidc.CustomerOIDCError:
@@ -255,6 +258,7 @@ def handle(handler) -> bool:
     callback=re.fullmatch(r"/auth/customer/(google|apple|microsoft)/callback",path)
     if callback and command in {"GET","POST"}:
         provider=callback.group(1)
+        state=""
         try:
             if command=="POST":
                 if provider!="apple" or str(handler.headers.get("Content-Type") or "").split(";",1)[0].lower()!="application/x-www-form-urlencoded":
@@ -275,10 +279,11 @@ def handle(handler) -> bool:
             state=(params.get("state") or [""])[0]
             code=(params.get("code") or [""])[0]
             result=customer_oidc.complete(provider,state,code,
-                browser_binding=_cookie(handler,_flow_cookie_name(provider)),origin=_browser_origin(handler))
-            _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"],provider)
+                browser_binding=_cookie(handler,_flow_cookie_name(provider,state)),origin=_browser_origin(handler))
+            _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"],provider,state)
         except Exception:
-            handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",{"Set-Cookie":_flow_cookie(provider,clear=True)})
+            headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
+            handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
         return True
 
     report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)
