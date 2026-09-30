@@ -17,12 +17,6 @@ on:
         required: true
         type: string
 
-  workflow_run:
-    workflows:
-      - Security CI
-    types:
-      - completed
-
 permissions:
   actions: read
   contents: read
@@ -33,14 +27,8 @@ concurrency:
 
 jobs:
   staging:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main'
-      )
+    # Legacy target: explicit manual operation only. Hostinger is controlled by RemoteOps.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 20
     env:

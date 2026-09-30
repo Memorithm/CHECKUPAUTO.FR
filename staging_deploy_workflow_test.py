@@ -35,16 +35,12 @@ class StagingDeployWorkflowTest(unittest.TestCase):
         self.assertIn('run.get("conclusion") == "success"', text)
         self.assertNotIn("signature-verified", text)
 
-    def test_green_main_security_run_updates_staging_exact_sha(self):
+    def test_legacy_planethoster_deployment_requires_manual_request(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("workflow_run:", text)
-        self.assertIn("- Security CI", text)
-        self.assertIn("github.event.workflow_run.conclusion == 'success'", text)
-        self.assertIn("github.event.workflow_run.event == 'push'", text)
-        self.assertIn("github.event.workflow_run.head_branch == 'main'", text)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.action || 'update'", text)
-        self.assertIn("github.event.workflow_run.head_sha", text)
-        self.assertIn("github.event_name == 'workflow_run'", text)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertNotIn("\n  workflow_run:\n", text)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", text)
+        self.assertIn("Hostinger is controlled by RemoteOps", text)
 
     def test_admin_password_is_runner_local_not_repository_secret(self):
         text = WORKFLOW.read_text(encoding="utf-8")
