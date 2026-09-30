@@ -329,7 +329,10 @@ final class AppModel: ObservableObject {
                     guard await CheckupControlLiveActivityCoordinator.advanceLocalTestAnimation() else { break }
                 }
                 guard !Task.isCancelled else { return }
+                self.localActivityTestTransitionPending = true
                 await CheckupControlLiveActivityCoordinator.endLocalTest()
+                self.localActivityTestTask = nil
+                self.localActivityTestTransitionPending = false
                 self.localActivityTestRunning = false
                 self.localActivityTestNotice = "Test Dynamic Island terminé."
             } catch is CancellationError {
