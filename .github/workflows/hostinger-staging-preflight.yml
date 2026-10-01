@@ -19,7 +19,7 @@ jobs:
   verify:
     # This is a software-only preflight. Real Hostinger deployment remains
     # owned by RemoteOps and is not exercised by pull requests.
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

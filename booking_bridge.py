@@ -252,11 +252,21 @@ def _checkout_requirements(token):
     }
 
 
+class BookingTermsUnavailable(RuntimeError):
+    """Checkout must remain closed until approved terms are published."""
+
+
+def require_published_terms():
+    terms = compliance.published_document("terms")
+    if not terms:
+        raise BookingTermsUnavailable("CGV non publiées")
+    return terms
+
+
 def auto_submit_html(token, service, nonce=""):
     prestation=mercure_prestation(service)
     if not prestation: return None
-    terms=compliance.published_document("terms")
-    if not terms: raise RuntimeError("CGV non publiées")
+    terms=require_published_terms()
     cct=browser_token(token)
     action='https://rdv.checkupauto.fr/prendre_rdv?ccid='+token+'&cct='+cct
     parts=prestation.split('|')

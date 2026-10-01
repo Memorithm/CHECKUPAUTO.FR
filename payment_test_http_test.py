@@ -19,6 +19,12 @@ class Handler:
         }
         self.response=None
         self._csp_nonce=""
+        self.operator=True
+        self.mfa_valid=True
+    def authorized(self): return self.operator
+    def require_auth(self): self.send_json({"ok":False,"error":"authentication_required"},401)
+    def _mfa_session_valid(self): return self.mfa_valid
+    def require_mfa(self): self.send_json({"ok":False,"error":"two_factor_required"},403)
     def _admin_origin_ok(self): return True
     def _read_json(self):
         return json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -29,6 +35,41 @@ class Handler:
 
 
 class PaymentTestHttpTest(unittest.TestCase):
+    def setUp(self):
+        self.mfa=patch.object(http.admin_mfa,"configured",return_value=False)
+        self.mfa.start()
+        self.addCleanup(self.mfa.stop)
+
+    def test_anonymous_operator_pages_and_actions_are_denied_before_domain_call(self):
+        for path in (http.PAGE_ROUTE,http.PROVIDER_ROUTE):
+            h=Handler(path);h.operator=False
+            with patch.object(http.lab,"enabled",return_value=True):
+                self.assertTrue(http.handle(h))
+            self.assertEqual(h.response["status"],401)
+        actions=(http.SESSION_ROUTE,http.CREATE_ROUTE,http.PREPARE_PAYLINE_ROUTE,http.RESULT_ROUTE,http.STATUS_ROUTE,http.REMOVE_ROUTE)
+        methods=("create_session","create_reservation","prepare_payline_checkout","apply_result","status","remove")
+        for path,method in zip(actions,methods):
+            h=Handler(path,"POST");h.operator=False
+            with patch.object(http.lab,"enabled",return_value=True),patch.object(http.lab,method) as operation:
+                self.assertTrue(http.handle(h))
+            self.assertEqual(h.response["status"],403)
+            self.assertEqual(h.response["json"]["error"],"payment_test_forbidden")
+            operation.assert_not_called()
+
+    def test_configured_mfa_is_required_before_issuing_a_test_session(self):
+        h=Handler(http.SESSION_ROUTE,"POST");h.mfa_valid=False
+        with patch.object(http.lab,"enabled",return_value=True),patch.object(http.admin_mfa,"configured",return_value=True),patch.object(http.lab,"create_session") as create:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],403)
+        create.assert_not_called()
+
+    def test_operator_with_valid_mfa_can_get_a_test_session(self):
+        h=Handler(http.SESSION_ROUTE,"POST")
+        with patch.object(http.lab,"enabled",return_value=True),patch.object(http.admin_mfa,"configured",return_value=True),patch.object(http.lab,"create_session",return_value={"ok":True,"token":"operator-test-token"}) as create:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],201)
+        create.assert_called_once()
+
     def test_pages_are_hidden_when_test_mode_disabled(self):
         h=Handler(http.PAGE_ROUTE)
         with patch.object(http.lab,"enabled",return_value=False):

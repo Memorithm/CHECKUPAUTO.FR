@@ -26,12 +26,20 @@ class AdminPublicErrorSanitizationTest(unittest.TestCase):
             ("  if path=='/api/geo/coverage':", "  if path=='/api/geo/quote':", 'geo_coverage_unavailable'),
             ("  if path=='/api/geo/quote':", "  if path=='/api/booking/availability':", 'geo_quote_unavailable'),
             ("  if path=='/api/booking/availability':", "  if path=='/go/app':", 'booking_availability_unavailable'),
-            ("  if path=='/go/booking':", "  if path.startswith('/api/admin/mercure/'):", 'booking_request_failed'),
             ("  if path=='/api/mobile/bootstrap':", "  if path=='/api/admin/config':", 'mobile_bootstrap_unavailable'),
         ]
         for start, end, code in cases:
             with self.subTest(code=code):
                 self._assert_bounded(start, end, code)
+
+    def test_booking_navigation_failure_uses_safe_html_not_api_json(self):
+        block = self._block("  if path=='/go/booking':", "  if path.startswith('/api/admin/mercure/'):")
+        self.assertIn('booking_page.unavailable_html', block)
+        self.assertIn("'text/html; charset=utf-8',503", block)
+        self.assertIn('except booking.BookingTermsUnavailable:', block)
+        self.assertNotIn('self.send_json(', block)
+        self.assertNotIn('str(exc)', block)
+        self.assertNotIn("'detail'", block)
 
     def test_public_post_unexpected_failures_use_bounded_codes(self):
         post = self.source.find(' def do_POST(self):')

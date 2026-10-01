@@ -1,12 +1,20 @@
 # Accès clients et migration CheckupAuto
 
-## État vérifié le 30 septembre 2026
+## Préproduction au 1er octobre 2026
+
+Le site de test est installé sur PlanetHoster à `https://test.checkupauto.fr`. Le déploiement source `8afc0e3fd0818eaf67fdc4077be98d3305bdd08a` et la restauration privée de la session Mercure sont vérifiés par RemoteOps (PR #129). Les CGV de substitution `test-2026-10-01` et leur menu d’import sont disponibles.
+
+La réservation doit conserver son parcours dans CheckupAuto ; Mercure sera chargé du paiement lorsque cette capacité sera activée et son interface vérifiée. L’inspection publique du 1er octobre montre `isPaiementLigne=false` et uniquement « Valider et payer en centre ». Un paramètre `iframe` dans le code Mercure ne prouve ni le fonctionnement du paiement intégré ni une confirmation serveur supportée. Aucun paiement réel n’est activé ici.
+
+L’espace client propose le planning CheckupAuto pour une nouvelle réservation et un lien séparé pour consulter les rendez-vous Mercure. Les identités et historiques des deux services ne sont pas fusionnés par e-mail.
+
+## Audit historique du 30 septembre 2026
 
 Le planning `https://rdv.checkupauto.fr/` répond et reste le service public de réservation. Le nouveau site fonctionne en préproduction sur `https://stage.179.198.210.187.sslip.io`.
 
 L'API publique `/api/customer/providers` de la préproduction indique que Google, Apple et Microsoft ne sont pas configurés. Les parcours et le formulaire d'administration existent ; une connexion réelle n'est pas validée tant que les identifiants des applications fournisseurs ne sont pas installés.
 
-Le nouvel espace client comprend le profil particulier/professionnel, la cagnotte et le parrainage, le rattachement du portefeuille à l'application iOS, l'import/analyse des procès-verbaux et leur téléchargement/suppression. Le lien de réservation mène explicitement au planning actuel. Les comptes et historiques Mercure ne sont pas fusionnés automatiquement par adresse e-mail.
+Le nouvel espace client comprend le profil particulier/professionnel, la cagnotte et le parrainage, le rattachement du portefeuille à l'application iOS, l'import/analyse des procès-verbaux et leur téléchargement/suppression. Ce constat concerne l’audit historique ; le lien de nouvelle réservation mène désormais au planning CheckupAuto. Les comptes et historiques Mercure ne sont pas fusionnés automatiquement par adresse e-mail.
 
 ## Connexions Google et Microsoft / Hotmail / Outlook
 
@@ -18,7 +26,7 @@ Créer ou utiliser les applications OAuth dans Google Cloud et Microsoft Entra. 
 
 | Fournisseur | URI de préproduction |
 |---|---|
-| Google | `https://stage.179.198.210.187.sslip.io/auth/customer/google/callback` |
+| Google | `https://test.checkupauto.fr/auth/customer/google/callback` |
 | Microsoft | `https://stage.179.198.210.187.sslip.io/auth/customer/microsoft/callback` |
 | Apple | `https://stage.179.198.210.187.sslip.io/auth/customer/apple/callback` |
 
@@ -59,4 +67,4 @@ Le planning actuel est hébergé séparément : déplacer son DNS vers le VPS ne
 
 Avant de créer `rdv2.checkupauto.fr`, prévoir une protection d'accès effective (liste d'adresses autorisées ou passerelle d'authentification) ; noindex seul ne protège pas les essais. Choisir une origine définitive pour les callbacks OAuth et Payline, mettre à jour leurs listes autorisées et tester l'application iOS sur cette origine. Une authentification Basic globale doit être évaluée pour sa compatibilité avec l'application et les callbacks bancaires avant activation.
 
-Les tests de paiement actuels utilisent le simulateur ; ils ne valident pas encore un échange bancaire Payline réel. Les paiements réels restent désactivés. Le contrat et les clés de bac à sable Payline restent nécessaires avant une recette bancaire complète.
+Les tests de paiement actuels utilisent le simulateur ; ils ne valident pas encore un échange bancaire Payline réel. Les paiements réels restent désactivés. Le connecteur Payline direct est une capacité sandbox distincte. La nouvelle cible produit délègue le paiement à Mercure ; elle nécessite son activation et une interface documentée, sans recopier ses identifiants commerçant dans CheckupAuto.

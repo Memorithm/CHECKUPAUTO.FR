@@ -15,6 +15,7 @@ from urllib.parse import quote
 import analytics_store as analytics
 import booking_bridge as booking
 import booking_test
+import mercure_admin_client as mercure_admin
 import compliance_store as compliance
 import payment_checkout as checkout
 import payment_payline as payline
@@ -117,6 +118,8 @@ def demo_status() -> dict:
 
 def create_session() -> dict:
     _require_enabled()
+    if not mercure_admin.session_status().get("connected"):
+        raise PaymentTestError("payment_test_mercure_session_required")
     session=booking_test.create_session()
     return {
         "ok": True,
