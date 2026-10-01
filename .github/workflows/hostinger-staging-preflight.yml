@@ -9,6 +9,7 @@ on:
       - 'admin_server_runtime_test.py'
       - 'deploy/hostinger/**'
       - 'hostinger_staging_*_test.py'
+      - 'public_redirect_test.py'
       - '.github/workflows/hostinger-staging-*.yml'
 
 permissions:
@@ -16,15 +17,19 @@ permissions:
 
 jobs:
   verify:
-    # RemoteOps is the control plane for the real Hostinger deployment. This
-    # repository preflight must stay runnable with CHECKUPAUTO.FR's own runner
-    # rather than depending on a runner registration scoped to RemoteOps.
+    # This is a software-only preflight. Real Hostinger deployment remains
+    # owned by RemoteOps and is not exercised by pull requests.
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Python syntax and runtime contract
         shell: bash
         run: |
@@ -36,7 +41,8 @@ jobs:
             admin_server_runtime_test.py \
             hostinger_staging_tls_readiness_test.py \
             hostinger_staging_control_plane_test.py \
-            hostinger_staging_deployment_provenance_test.py
+            hostinger_staging_deployment_provenance_test.py \
+            public_redirect_test.py
       - name: Validate Docker compose model
         shell: bash
         env:
@@ -47,4 +53,5 @@ jobs:
           docker compose -f deploy/hostinger/docker-compose.yml config >/tmp/checkupauto-hostinger-compose.yml
           grep -q 'checkupauto-staging-web' /tmp/checkupauto-hostinger-compose.yml
           grep -q 'stage.179.198.210.187.sslip.io' /tmp/checkupauto-hostinger-compose.yml
+          docker compose -f deploy/hostinger/public-redirect.compose.yml config >/tmp/checkupauto-public-redirect-compose.yml
           echo "HOSTINGER_STAGING_PREFLIGHT_OK"
