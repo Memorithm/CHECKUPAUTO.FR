@@ -21,6 +21,18 @@ class PaymentTestLabTest(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 lab.create_session()
 
+    def test_missing_mercure_session_creates_no_local_test_session(self):
+        with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"1"},clear=False),patch.object(lab.mercure_admin,"session_status",return_value={"connected":False}),patch.object(lab.booking_test,"create_session") as create:
+            with self.assertRaisesRegex(lab.PaymentTestError,"^payment_test_mercure_session_required$"):
+                lab.create_session()
+        create.assert_not_called()
+
+    def test_connected_mercure_session_allows_operator_test_session(self):
+        with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"1"},clear=False),patch.object(lab.mercure_admin,"session_status",return_value={"connected":True}),patch.object(lab.booking_test,"create_session",return_value={"token":"test-token","expiresAt":"test-expiry"}) as create,patch.object(lab,"_payline_demo_status",return_value={"configured":False}):
+            result=lab.create_session()
+        self.assertEqual(result["token"],"test-token")
+        create.assert_called_once()
+
     def test_test_terms_are_synthetic_and_only_seeded_when_test_mode_enabled(self):
         with patch.dict(os.environ,{"CYBERCHECK_PAYMENT_TEST_ENABLED":"0"},clear=False), \
              patch.object(lab.compliance,"published_document",return_value=None):

@@ -15,6 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - name: Check tracked files for secrets
@@ -27,11 +28,21 @@ jobs:
           .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Prepare isolated runtime data
         run: |
-          runtime_dir="$(mktemp -d "$RUNNER_TEMP/checkupauto-security-ci.XXXXXX")"
+          test -d /dev/shm && test -w /dev/shm
+          runtime_dir="$(mktemp -d /dev/shm/checkupauto-security-ci.XXXXXX)"
           chmod 700 "$runtime_dir"
-          printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
+          mkdir -m 700 "$runtime_dir/data" "$runtime_dir/private" "$runtime_dir/security" "$runtime_dir/integrity" "$runtime_dir/tmp"
+          printf '%s\n' 'ci-only-fixture-password' > "$runtime_dir/private/admin-password"
+          chmod 600 "$runtime_dir/private/admin-password"
+          printf 'CYBERCHECK_CI_RUNTIME_ROOT=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
+          printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir/data" >> "$GITHUB_ENV"
+          printf 'CYBERCHECK_PRIVATE_DIR=%s\n' "$runtime_dir/private" >> "$GITHUB_ENV"
+          printf 'CYBERCHECK_SECURITY_DIR=%s\n' "$runtime_dir/security" >> "$GITHUB_ENV"
+          printf 'CYBERCHECK_INTEGRITY_DIR=%s\n' "$runtime_dir/integrity" >> "$GITHUB_ENV"
+          printf 'TMPDIR=%s\n' "$runtime_dir/tmp" >> "$GITHUB_ENV"
       - name: Run Python unit tests
-        run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
+        run: |
+          .ci-venv/bin/python -c "import faulthandler,unittest; faulthandler.dump_traceback_later(120,repeat=True); unittest.main(module=None,argv=['unittest','discover','-v','-p','*_test.py'])"
       - name: Verify CGV file imports
         run: node --test admin/terms-file.test.js
       - name: Check JavaScript syntax
@@ -45,7 +56,7 @@ jobs:
       - name: Clean isolated runtime data
         if: always()
         run: |
-          if [ -n "${CYBERCHECK_DATA_DIR:-}" ]; then
-            rm -rf "$CYBERCHECK_DATA_DIR"
+          if [ -n "${CYBERCHECK_CI_RUNTIME_ROOT:-}" ]; then
+            case "$CYBERCHECK_CI_RUNTIME_ROOT" in /dev/shm/checkupauto-security-ci.*) rm -rf "$CYBERCHECK_CI_RUNTIME_ROOT" ;; *) exit 1 ;; esac
           fi
 

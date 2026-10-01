@@ -7,6 +7,7 @@ import secrets
 from urllib.parse import urlsplit
 
 import payment_test_lab as lab
+import admin_mfa
 
 DEMO_ROUTE="/demo"
 PAGE_ROUTE="/payment/test"
@@ -18,6 +19,19 @@ PREPARE_PAYLINE_ROUTE="/api/payment-test/prepare-payline"
 RESULT_ROUTE="/api/payment-test/result"
 STATUS_ROUTE="/api/payment-test/status"
 REMOVE_ROUTE="/api/payment-test/remove"
+
+
+def _operator_allowed(handler):
+    if not handler.authorized():
+        if handler.command == "POST":
+            handler.send_json({"ok":False,"error":"payment_test_forbidden"},403)
+        else:
+            handler.require_auth()
+        return False
+    if admin_mfa.configured() and not handler._mfa_session_valid():
+        handler.require_mfa()
+        return False
+    return True
 
 
 def _json(handler, fn, *, created=False):
@@ -107,7 +121,7 @@ button.secondary{{background:#e8eee9;color:#17372b}}button:disabled{{opacity:.5;
 .warn{{background:#fff3d7;color:#664b00}}small{{color:#66776e}}@media(max-width:680px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body><main><a href="/">← Checkup Auto</a>
 <div class="card"><small>STAGING · PAIEMENT SANDBOX UNIQUEMENT</small><h1>Test réservation + paiement</h1>
-<p>Ce parcours crée un vrai rendez-vous <strong>synthétique</strong> dans Mercure. Vous pouvez ensuite utiliser soit le simulateur intégral CheckupAuto, soit le vrai checkout Payline / Monext d’homologation lorsque la configuration API sandbox est installée.</p></div>
+<p><a href="/admin/#mercure">Connecter Mercure dans l’administration</a></p><p>Ce parcours crée un vrai rendez-vous <strong>synthétique</strong> dans Mercure. Vous pouvez ensuite utiliser soit le simulateur intégral CheckupAuto, soit le vrai checkout Payline / Monext d’homologation lorsque la configuration API sandbox est installée.</p></div>
 <div class="card">
 <div class="grid">
 <label>Prestation<select id="service"><option value="technical">Contrôle technique · 80 €</option><option value="fitted">Véhicule aménagé · 90 €</option></select></label>
@@ -132,7 +146,7 @@ const tomorrow=new Date(Date.now()+86400000);date.value=tomorrow.toISOString().s
 const post=async(url,payload)=>{{const r=await fetch(url,{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(payload)}});const d=await r.json().catch(()=>({{}}));if(!r.ok)throw new Error(d.error||'request_failed');return d;}};
 const refreshCreate=()=>{{const ready=!!(token&&selected&&terms.checked&&immediate.checked);create.disabled=!ready;realPayline.disabled=!(ready&&paylineReady)}};
 terms.addEventListener('change',refreshCreate);immediate.addEventListener('change',refreshCreate);
-(async()=>{{try{{const d=await post('{SESSION_ROUTE}',{{}});token=d.token;paylineReady=!!(d.paylineSandbox?.configured&&d.paylineSandbox?.configurationValid);paylineState.textContent=paylineReady?'Payline sandbox configuré : le parcours d’homologation réel est disponible.':'Payline sandbox non configuré : le simulateur reste disponible. Le vrai doWebPayment sera activé automatiquement après installation des identifiants de test.';paylineState.classList.toggle('warn',!paylineReady);status.textContent='Session prête. Choisissez une date et un créneau.';refreshCreate();}}catch(e){{status.textContent='Impossible de créer la session test : '+e.message;}}}})();
+(async()=>{{try{{const d=await post('{SESSION_ROUTE}',{{}});token=d.token;paylineReady=!!(d.paylineSandbox?.configured&&d.paylineSandbox?.configurationValid);paylineState.textContent=paylineReady?'Payline sandbox configuré : le parcours d’homologation réel est disponible.':'Payline sandbox non configuré : le simulateur reste disponible. Le vrai doWebPayment sera activé automatiquement après installation des identifiants de test.';paylineState.classList.toggle('warn',!paylineReady);status.textContent='Session prête. Choisissez une date et un créneau.';refreshCreate();}}catch(e){{status.textContent=e.message==='payment_test_mercure_session_required'?'Connectez Mercure dans l’administration avant de commencer ce test.':'Impossible de créer la session test : '+e.message;}}}})();
 const previous=sessionStorage.getItem('checkupautoPaymentTestToken')||'';if(previous){{cleanupPrevious.hidden=false;cleanupPrevious.addEventListener('click',async()=>{{cleanupPrevious.disabled=true;try{{await post('{REMOVE_ROUTE}',{{token:previous}});sessionStorage.removeItem('checkupautoPaymentTestToken');cleanupPrevious.hidden=true;status.textContent='Rendez-vous test précédent supprimé de Mercure.';}}catch(e){{status.textContent='Nettoyage précédent impossible : '+e.message;cleanupPrevious.disabled=false;}}}});}}
 load.addEventListener('click',async()=>{{selected='';refreshCreate();slots.replaceChildren();status.textContent='Lecture des disponibilités Mercure…';
  try{{const r=await fetch('/api/booking/availability?service='+encodeURIComponent(service.value)+'&date='+encodeURIComponent(date.value),{{cache:'no-store'}});const d=await r.json();if(!r.ok)throw new Error(d.error||'availability_failed');
@@ -184,6 +198,14 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+    protected_pages={PAGE_ROUTE,PROVIDER_ROUTE}
+    protected_actions={SESSION_ROUTE,CREATE_ROUTE,PREPARE_PAYLINE_ROUTE,RESULT_ROUTE,STATUS_ROUTE,REMOVE_ROUTE}
+    if (command=="GET" and path in protected_pages) or (command=="POST" and path in protected_actions):
+        if not lab.enabled():
+            handler.send_json({"ok":False,"error":"not_found"},404)
+            return True
+        if not _operator_allowed(handler):
+            return True
     if command=="GET" and path==DEMO_ROUTE:
         return _demo_page(handler)
     if command=="GET" and path==DEMO_STATUS_ROUTE:

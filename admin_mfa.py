@@ -19,7 +19,7 @@ import qrcode
 from qrcode.image.svg import SvgPathImage
 
 
-COOKIE_NAME = "CyberCheckAdmin2FA"
+COOKIE_NAME = "CyberCheckAdmin2FAV2"
 SESSION_TTL_SECONDS = 8 * 3600
 PENDING_TTL_SECONDS = 15 * 60
 TOTP_PERIOD_SECONDS = 30
@@ -441,14 +441,14 @@ def session_cookie(token: str, *, max_age: int = SESSION_TTL_SECONDS) -> str:
     if not token or any(ch in token for ch in "\r\n;"):
         raise ValueError("token de session 2FA invalide")
     return (
-        f"{COOKIE_NAME}={token}; Path=/api/admin; Max-Age={int(max_age)}; "
+        f"{COOKIE_NAME}={token}; Path=/; Max-Age={int(max_age)}; "
         "HttpOnly; Secure; SameSite=Strict"
     )
 
 
 def clear_session_cookie() -> str:
     return (
-        f"{COOKIE_NAME}=; Path=/api/admin; Max-Age=0; "
+        f"{COOKIE_NAME}=; Path=/; Max-Age=0; "
         "HttpOnly; Secure; SameSite=Strict"
     )
 

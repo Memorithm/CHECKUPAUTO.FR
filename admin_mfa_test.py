@@ -1,5 +1,8 @@
 import base64
 import json
+from email.message import Message
+from http.cookiejar import CookieJar
+from urllib.request import Request
 import os
 from pathlib import Path
 import tempfile
@@ -140,9 +143,30 @@ class AdminMFATest(unittest.TestCase):
         self.assertIn("HttpOnly", cookie)
         self.assertIn("Secure", cookie)
         self.assertIn("SameSite=Strict", cookie)
-        self.assertIn("Path=/api/admin", cookie)
+        self.assertIn("Path=/;", cookie)
+        self.assertIn("Path=/;", mfa.clear_session_cookie())
         token = mfa.token_from_cookie(cookie)
         self.assertEqual(token, enrolled["sessionToken"])
+
+    def test_browser_sends_mfa_cookie_to_admin_and_payment_routes(self):
+        headers = Message()
+        headers.add_header("Set-Cookie", mfa.session_cookie("signed-test-token"))
+        response = mock.Mock()
+        response.info.return_value = headers
+        jar = CookieJar()
+        jar.extract_cookies(response, Request("https://test.checkupauto.fr/api/admin/mfa/verify"))
+        for path in ("/api/admin/status", "/payment/test", "/api/payment-test/session"):
+            request = Request("https://test.checkupauto.fr" + path)
+            jar.add_cookie_header(request)
+            self.assertEqual(mfa.token_from_cookie(request.get_header("Cookie")), "signed-test-token")
+        headers.replace_header("Set-Cookie", mfa.clear_session_cookie())
+        jar.extract_cookies(response, Request("https://test.checkupauto.fr/api/admin/mfa/logout"))
+        self.assertEqual(list(jar), [])
+
+    def test_legacy_narrow_cookie_cannot_shadow_current_session(self):
+        header = "CyberCheckAdmin2FA=old-session; " + mfa.COOKIE_NAME + "=current-session"
+        self.assertEqual(mfa.token_from_cookie(header), "current-session")
+        self.assertEqual(mfa.token_from_cookie("CyberCheckAdmin2FA=old-session"), "")
 
     def test_expired_pending_enrollment_is_destroyed(self):
         started = mfa.begin_enrollment(now=1000)
