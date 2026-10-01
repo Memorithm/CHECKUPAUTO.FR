@@ -44,6 +44,25 @@ class IOSCIContractTest(unittest.TestCase):
         self.assertIn('export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"', text)
         self.assertIn("'set -euo pipefail; export PATH=", text)
 
+    def test_live_preproduction_probe_uses_planethoster(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr'", text)
+        self.assertNotIn("https://stage.179.198.210.187.sslip.io", text)
+
+    def test_client_preproduction_does_not_open_admin_payment_lab(self):
+        source = (ROOT / "ios/CheckupAutoReminder/Sources/MobileAPI.swift").read_text()
+        self.assertIn('preproductionBaseURL = URL(string: "https://test.checkupauto.fr")!', source)
+        self.assertIn('productionBaseURL = URL(string: "https://www.checkupauto.fr")!', source)
+        self.assertNotIn("/payment/test", source)
+        self.assertIn('components.fragment = "reservation"', source)
+        self.assertIn('key + ".preproduction"', source)
+
+    def test_documented_provider_callbacks_use_the_same_test_origin(self):
+        text = (ROOT / "docs/customer-access-and-domain-migration.md").read_text()
+        for provider in ("google", "microsoft", "apple"):
+            self.assertIn(f"https://test.checkupauto.fr/auth/customer/{provider}/callback", text)
+            self.assertNotIn(f"https://stage.179.198.210.187.sslip.io/auth/customer/{provider}/callback", text)
+
     def test_xcode_ci_reuses_release_runner_simulator_discovery(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("tar -czf - ios/CheckupAutoReminder ios_release_runner.py", text)
