@@ -314,6 +314,20 @@ $('#complianceSaveIdentity')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/settings',payload);await load();setMessage('Identité légale enregistrée.')}catch(e){setMessage(e.message,true)}
 });
 $('#complianceDocType')?.addEventListener('change',e=>{e.target.dataset.current=e.target.value;fillDocument(e.target.value)});
+$('#complianceTermsFile')?.addEventListener('change',async e=>{
+ const file=e.target.files?.[0];if(!file)return;
+ try{
+  if(!snapshot)throw new Error('Attendez le chargement des documents avant de réessayer.');
+  if(file.size>200000)throw new Error('Le fichier dépasse 200 Ko.');
+  const body=window.CheckupAutoTermsFile.decode(file.name,await file.arrayBuffer());
+  $('#complianceDocType').dataset.current='terms';fillDocument('terms');
+  $('#complianceDocVersion').value='import-'+Date.now();
+  $('#complianceDocTitle').value='Conditions générales de vente';
+  $('#complianceDocBody').value=body;
+  $('#complianceDocState').textContent='Import à relire · non enregistré';
+  setMessage('CGV importées dans l’éditeur. Relisez le texte avant de l’enregistrer ou de le publier.');
+ }catch(error){setMessage(error.message,true)}finally{e.target.value=''}
+});
 async function saveDoc(action){
  try{
   const payload={type:$('#complianceDocType').value,version:$('#complianceDocVersion').value,title:$('#complianceDocTitle').value,body:$('#complianceDocBody').value,action:action};

@@ -32,6 +32,8 @@ jobs:
           printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
       - name: Run Python unit tests
         run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
+      - name: Verify CGV file imports
+        run: node --test admin/terms-file.test.js
       - name: Check JavaScript syntax
         run: |
           while IFS= read -r file; do
@@ -46,3 +48,4 @@ jobs:
           if [ -n "${CYBERCHECK_DATA_DIR:-}" ]; then
             rm -rf "$CYBERCHECK_DATA_DIR"
           fi
+

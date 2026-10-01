@@ -1,0 +1,21 @@
+CGV DE SUBSTITUTION — ENVIRONNEMENT DE TEST UNIQUEMENT
+
+Version test-2026-10-01. Ce texte provisoire sert à vérifier le fonctionnement technique de test.checkupauto.fr. Il ne constitue pas les CGV commerciales définitives de CheckupAuto et ne doit pas être utilisé pour des réservations réelles.
+
+1. Objet des essais
+Le parcours permet de tester la sélection d'une prestation, la consultation des disponibilités, la présentation des conditions, leur acceptation et les échanges techniques du processus de réservation.
+
+2. Utilisateurs et données
+Les essais sont réservés à l'équipe de test. Utiliser uniquement des données fictives, sans identité de client réel ni coordonnées de paiement réelles. Un essai auprès du fournisseur de rendez-vous peut créer une entrée : utiliser un créneau de test expressément autorisé.
+
+3. Prix et paiement
+Les montants affichés servent aux scénarios techniques. Aucun encaissement réel n'est autorisé au titre de ces conditions de test. Utiliser uniquement les fonctions de simulation ou un environnement de paiement de test configuré pour cet usage.
+
+4. Confirmation, modification et annulation
+Une confirmation dans cet environnement est une preuve technique de fonctionnement, sans engagement de réaliser une prestation réelle. Les rendez-vous fictifs doivent être identifiés et supprimés selon la procédure de test prévue.
+
+5. Acceptation et retrait
+L'acceptation de ce texte sert à vérifier l'enregistrement de la version et de son empreinte. Les formulaires de modification, d'annulation ou de rétractation sont évalués comme des fonctionnalités de test.
+
+6. Remplacement avant ouverture commerciale
+L'administrateur doit importer, relire puis publier les CGV définitives avant toute utilisation commerciale. Ce document n'atteste pas la conformité juridique du site et ne remplace ni les mentions légales ni la politique de confidentialité.
