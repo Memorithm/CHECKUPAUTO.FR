@@ -7,6 +7,7 @@ import secrets
 from urllib.parse import urlsplit
 
 import payment_test_lab as lab
+import admin_mfa
 
 DEMO_ROUTE="/demo"
 PAGE_ROUTE="/payment/test"
@@ -18,6 +19,16 @@ PREPARE_PAYLINE_ROUTE="/api/payment-test/prepare-payline"
 RESULT_ROUTE="/api/payment-test/result"
 STATUS_ROUTE="/api/payment-test/status"
 REMOVE_ROUTE="/api/payment-test/remove"
+
+
+def _operator_allowed(handler):
+    if not handler.authorized():
+        handler.require_auth()
+        return False
+    if admin_mfa.configured() and not handler._mfa_session_valid():
+        handler.require_mfa()
+        return False
+    return True
 
 
 def _json(handler, fn, *, created=False):
@@ -184,6 +195,14 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+    protected_pages={PAGE_ROUTE,PROVIDER_ROUTE}
+    protected_actions={SESSION_ROUTE,CREATE_ROUTE,PREPARE_PAYLINE_ROUTE,RESULT_ROUTE,STATUS_ROUTE,REMOVE_ROUTE}
+    if (command=="GET" and path in protected_pages) or (command=="POST" and path in protected_actions):
+        if not lab.enabled():
+            handler.send_json({"ok":False,"error":"not_found"},404)
+            return True
+        if not _operator_allowed(handler):
+            return True
     if command=="GET" and path==DEMO_ROUTE:
         return _demo_page(handler)
     if command=="GET" and path==DEMO_STATUS_ROUTE:
