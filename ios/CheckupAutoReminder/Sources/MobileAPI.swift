@@ -2,7 +2,7 @@ import Foundation
 
 enum MobileAPI {
     static let productionBaseURL = URL(string: "https://www.checkupauto.fr")!
-    static let preproductionBaseURL = URL(string: "https://stage.179.198.210.187.sslip.io")!
+    static let preproductionBaseURL = URL(string: "https://test.checkupauto.fr")!
     static let environmentInfoKey = "CheckupAutoEnvironment"
 
     static func packagedBaseURL(environment: String?) -> URL {
@@ -30,9 +30,9 @@ enum MobileAPI {
     static func bookingJourneyURL(preproduction: Bool = isPreproduction) -> URL {
         let origin = preproduction ? preproductionBaseURL : productionBaseURL
         var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
-        components.path = preproduction ? "/payment/test" : "/"
+        components.path = "/"
         components.queryItems = [URLQueryItem(name: "utm_source", value: "app:ios")]
-        components.fragment = preproduction ? nil : "reservation"
+        components.fragment = "reservation"
         return components.url!
     }
 

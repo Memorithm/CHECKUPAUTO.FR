@@ -2,7 +2,7 @@
 
 ## Préproduction au 1er octobre 2026
 
-Le site de test est installé sur PlanetHoster à `https://test.checkupauto.fr`. Le déploiement source `8afc0e3fd0818eaf67fdc4077be98d3305bdd08a` et la restauration privée de la session Mercure sont vérifiés par RemoteOps (PR #129). Les CGV de substitution `test-2026-10-01` et leur menu d’import sont disponibles.
+Le site de test est installé sur PlanetHoster à `https://test.checkupauto.fr`. Le déploiement source `d9edb1e7dea1397dae239bb58f4639ad0ba3c166` est vérifié par RemoteOps (PR #130), après la restauration privée de la session Mercure (PR #129). Les CGV de substitution `test-2026-10-01` et leur menu d’import sont disponibles.
 
 La réservation doit conserver son parcours dans CheckupAuto ; Mercure sera chargé du paiement lorsque cette capacité sera activée et son interface vérifiée. L’inspection publique du 1er octobre montre `isPaiementLigne=false` et uniquement « Valider et payer en centre ». Un paramètre `iframe` dans le code Mercure ne prouve ni le fonctionnement du paiement intégré ni une confirmation serveur supportée. Aucun paiement réel n’est activé ici.
 
@@ -27,12 +27,20 @@ Créer ou utiliser les applications OAuth dans Google Cloud et Microsoft Entra. 
 | Fournisseur | URI de préproduction |
 |---|---|
 | Google | `https://test.checkupauto.fr/auth/customer/google/callback` |
-| Microsoft | `https://stage.179.198.210.187.sslip.io/auth/customer/microsoft/callback` |
-| Apple | `https://stage.179.198.210.187.sslip.io/auth/customer/apple/callback` |
+| Microsoft | `https://test.checkupauto.fr/auth/customer/microsoft/callback` |
+| Apple | `https://test.checkupauto.fr/auth/customer/apple/callback` |
 
 Installer les clientId/clientSecret via `/admin/customers.html`, protégé par la session administrateur, MFA et CSRF. Les secrets restent dans le fichier privé `customer/oidc.json`, mode 0600 ; ne jamais les ajouter à Git ni aux journaux. Apple exige un secret signé valide et son renouvellement.
 
 Après configuration, vérifier séparément : consentement réel, retour au même navigateur, session, déconnexion, refus/annulation, et absence d'accès au compte avec un autre fournisseur partageant l'e-mail. Si le fournisseur n'émet pas une adresse e-mail utilisable, afficher un échec sans créer de compte incomplet.
+
+## Application iOS et espace client
+
+Une build signée avec `CHECKUPAUTO_ENVIRONMENT=preproduction` utilise désormais `https://test.checkupauto.fr` pour l’API, le compte client et le planning public `/?utm_source=app:ios#reservation`. Elle n’ouvre plus le laboratoire administrateur `/payment/test` depuis le bouton de réservation. La production reste sur `https://www.checkupauto.fr` ; modifier la cible de préproduction ne bascule ni le site public ni une build déjà installée.
+
+L’espace client s’ouvre dans le navigateur intégré Safari (`SFSafariViewController`) et utilise les connecteurs web Google, Microsoft personnel/Hotmail et Apple. Il n’existe pas encore de connexion native distincte à ces trois fournisseurs. La configuration privée des fournisseurs et une validation réelle de chaque connexion restent nécessaires ; les clés APNs/App Store Connect ne sont pas des identifiants OAuth clients.
+
+La séparation des données locales production/préproduction et le refus de réinscription automatique après désinscription sont conservés. Le contrôle CI de l’API réelle utilise lui aussi PlanetHoster. Ces changements source ne prouvent pas à eux seuls qu’une nouvelle build a été distribuée sur TestFlight.
 
 ## DNS : état et cible
 

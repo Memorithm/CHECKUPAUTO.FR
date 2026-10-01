@@ -54,7 +54,7 @@ final class MobileAPITests: XCTestCase {
         XCTAssertEqual(MobileAPI.storageKey("identity", preproduction: true), "identity.preproduction")
         let account = URL(string: "https://www.checkupauto.fr/compte?source=app#ct-report")!
         XCTAssertEqual(MobileAPI.websiteURL(account, preproduction: true).absoluteString,
-                       "https://stage.179.198.210.187.sslip.io/compte?source=app#ct-report")
+                       "https://test.checkupauto.fr/compte?source=app#ct-report")
         XCTAssertEqual(MobileAPI.websiteURL(account, preproduction: false), account)
         for raw in ["https://rdv.checkupauto.fr/", "https://user:secret@www.checkupauto.fr/compte", "https://www.checkupauto.fr:8443/compte"] {
             let url = URL(string: raw)!
@@ -62,7 +62,7 @@ final class MobileAPITests: XCTestCase {
         }
     }
 
-    func testBookingJourneyUsesHTTPSOwnOriginAndSeparatesSandbox() {
+    func testBookingJourneyUsesPublicPlannerOnEachHTTPSOrigin() {
         let production = MobileAPI.bookingJourneyURL(preproduction: false)
         XCTAssertEqual(production.scheme, "https")
         XCTAssertEqual(production.host, "www.checkupauto.fr")
@@ -70,15 +70,29 @@ final class MobileAPITests: XCTestCase {
         XCTAssertEqual(production.fragment, "reservation")
         let test = MobileAPI.bookingJourneyURL(preproduction: true)
         XCTAssertEqual(test.scheme, "https")
-        XCTAssertEqual(test.host, MobileAPI.preproductionBaseURL.host)
-        XCTAssertEqual(test.path, "/payment/test")
-        XCTAssertNil(test.fragment)
+        XCTAssertEqual(test.host, "test.checkupauto.fr")
+        XCTAssertEqual(test.path, "/")
+        XCTAssertEqual(test.fragment, "reservation")
         for url in [production, test] {
             XCTAssertNil(url.user)
             XCTAssertNil(url.password)
             XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
                            [URLQueryItem(name: "utm_source", value: "app:ios")])
         }
+    }
+
+    func testAccountAndProviderPathsStayOnPlanetHosterInPreproduction() {
+        for path in ["/compte", "/compte/ct-report", "/auth/customer/google/callback",
+                     "/auth/customer/microsoft/callback", "/auth/customer/apple/callback"] {
+            let production = URL(string: "https://www.checkupauto.fr" + path)!
+            let test = MobileAPI.websiteURL(production, preproduction: true)
+            XCTAssertEqual(test.scheme, "https")
+            XCTAssertEqual(test.host, "test.checkupauto.fr")
+            XCTAssertEqual(test.path, path)
+            XCTAssertEqual(MobileAPI.websiteURL(test, preproduction: true), test)
+            XCTAssertEqual(MobileAPI.websiteURL(production, preproduction: false), production)
+        }
+        XCTAssertEqual(MobileAPI.preproductionBaseURL.absoluteString, "https://test.checkupauto.fr")
     }
 
     func testEndpointComposition() {
