@@ -52,7 +52,8 @@ class PaymentTestHttpTest(unittest.TestCase):
             h=Handler(path,"POST");h.operator=False
             with patch.object(http.lab,"enabled",return_value=True),patch.object(http.lab,method) as operation:
                 self.assertTrue(http.handle(h))
-            self.assertEqual(h.response["status"],401)
+            self.assertEqual(h.response["status"],403)
+            self.assertEqual(h.response["json"]["error"],"payment_test_forbidden")
             operation.assert_not_called()
 
     def test_configured_mfa_is_required_before_issuing_a_test_session(self):

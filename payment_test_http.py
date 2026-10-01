@@ -23,7 +23,10 @@ REMOVE_ROUTE="/api/payment-test/remove"
 
 def _operator_allowed(handler):
     if not handler.authorized():
-        handler.require_auth()
+        if handler.command == "POST":
+            handler.send_json({"ok":False,"error":"payment_test_forbidden"},403)
+        else:
+            handler.require_auth()
         return False
     if admin_mfa.configured() and not handler._mfa_session_valid():
         handler.require_mfa()
