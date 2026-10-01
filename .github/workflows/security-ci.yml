@@ -15,6 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - name: Check tracked files for secrets
@@ -31,7 +32,8 @@ jobs:
           chmod 700 "$runtime_dir"
           printf 'CYBERCHECK_DATA_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
       - name: Run Python unit tests
-        run: .ci-venv/bin/python -m unittest discover -p '*_test.py'
+        run: |
+          .ci-venv/bin/python -c "import faulthandler,unittest; faulthandler.dump_traceback_later(120,repeat=True); unittest.main(module=None,argv=['unittest','discover','-v','-p','*_test.py'])"
       - name: Verify CGV file imports
         run: node --test admin/terms-file.test.js
       - name: Check JavaScript syntax
