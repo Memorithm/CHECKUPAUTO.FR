@@ -7,6 +7,7 @@ import gsc_client as gsc
 import analytics_store as analytics
 import app_download as app_download
 import booking_bridge as booking
+import booking_page
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
@@ -453,6 +454,7 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception: pass
    return self.send_redirect(ios['targetUrl'])
   if path=='/go/booking':
+   c={}
    try:
     c=load_config(); q=parse_qs(parsed.query)
     params={k:(v[0] if v else '') for k,v in q.items()}; service=params.get('service','')
@@ -460,9 +462,13 @@ class Handler(SimpleHTTPRequestHandler):
      phone=esc(c['business']['phone']); tel=re.sub(r'[^+\d]','',c['business']['phone'])
      doc=f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Réservation par téléphone</title><style>body{{font-family:system-ui;background:#f5f6f1;color:#111;padding:32px}}main{{max-width:620px;margin:auto}}a{{display:inline-block;padding:14px 20px;border-radius:999px;background:#111;color:#fff;text-decoration:none}}</style></head><body><main><h1>Cette prestation se réserve par téléphone.</h1><p>La réservation en ligne est limitée aux contrôles à 80 € et 90 €.</p><a href="tel:{tel}">Appeler le centre · {phone}</a></main></body></html>'''.encode()
      return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
+    booking.require_published_terms()
     result=booking.create_intent(params,c['business']['bookingUrl']); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce; doc=booking.auto_submit_html(result['token'],service,nonce)
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
-   except Exception: return self.send_json({'ok':False,'error':'booking_request_failed'},400)
+   except booking.BookingTermsUnavailable:
+    return self.send_bytes(booking_page.unavailable_html(terms_missing=True,phone=(c.get('business') or {}).get('phone','')),'text/html; charset=utf-8',503,cache='no-store')
+   except Exception:
+    return self.send_bytes(booking_page.unavailable_html(phone=(c.get('business') or {}).get('phone','')),'text/html; charset=utf-8',503,cache='no-store')
   if path.startswith('/api/admin/mercure/'):
    if not self.authorized(): return self.require_auth()
    try:
