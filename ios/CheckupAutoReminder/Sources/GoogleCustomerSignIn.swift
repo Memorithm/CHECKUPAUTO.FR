@@ -6,17 +6,19 @@ final class GoogleCustomerSignIn: NSObject, ASWebAuthenticationPresentationConte
     private var session: ASWebAuthenticationSession?
 
     func start() async throws {
-        let url = MobileAPI.endpoint("/auth/customer/google")
+        var components = URLComponents(url: MobileAPI.endpoint("/auth/customer/google"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "mobile_callback", value: "checkupauto://auth/google")]
+        let url = components.url!
         try await withCheckedThrowingContinuation { continuation in
-            let auth = ASWebAuthenticationSession(url: url, callbackURLScheme: nil) { callback, error in
+            let auth = ASWebAuthenticationSession(url: url, callbackURLScheme: "checkupauto") { callback, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
                 }
                 guard let callback,
-                      callback.scheme == "https",
-                      callback.host == MobileAPI.currentBaseURL.host,
-                      callback.path == "/compte" else {
+                      callback.scheme == "checkupauto",
+                      callback.host == "auth",
+                      callback.path == "/google" else {
                     continuation.resume(throwing: URLError(.userAuthenticationRequired))
                     return
                 }
