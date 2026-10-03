@@ -119,7 +119,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],302)
         self.assertEqual(h.response["headers"]["Location"],"https://accounts.example/auth?state=sssssssssssssssssssssssssssssssssssssssssss")
         binding=h.response["cookies"][0].split("=",1)[1].split(";",1)[0]
-        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding)
+        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding,mobile=False)
         self.assertIn("__Host-checkupauto_oidc_google_sssssssssssssssssssssssssssssssssssssssssss=",h.response["cookies"][0])
         self.assertIn("HttpOnly; Secure; SameSite=Lax",h.response["cookies"][0])
 
