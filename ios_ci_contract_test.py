@@ -7,7 +7,9 @@ WORKFLOW=ROOT/".github"/"workflows"/"ios-core-ci.yml"
 class IOSCIContractTest(unittest.TestCase):
     def test_native_mac_runner_labels_are_required(self):
         text=WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("runs-on: [self-hosted, macOS, ARM64, checkupauto, ios]",text)
+        self.assertIn("runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]",text)
+        self.assertIn("runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]",text)
+        self.assertIn("needs: swift",text)
 
     def test_ci_no_longer_relays_through_ssh(self):
         text=WORKFLOW.read_text(encoding="utf-8")
