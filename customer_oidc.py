@@ -368,15 +368,14 @@ def verify_native_apple_identity(id_token: object, *, client_id: object, nonce: 
     claims_preview = _decode_part(parts[1])
     token_nonce = claims_preview.get("nonce")
     expected_nonce = str(nonce or "").strip()
-    if not expected_nonce:
-        if not isinstance(token_nonce, str) or not token_nonce:
-            raise CustomerOIDCError("customer_oidc_token_invalid")
-        expected_nonce = token_nonce
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", expected_nonce):
+        raise CustomerOIDCError("customer_oidc_nonce_invalid")
+    expected_token_nonce = hashlib.sha256(expected_nonce.encode("ascii")).hexdigest()
     return _verify_id_token(
         "apple",
         token,
         client_id=audience,
-        nonce=expected_nonce,
+        nonce=expected_token_nonce,
         fetcher=jwks_fetcher,
     )
 
