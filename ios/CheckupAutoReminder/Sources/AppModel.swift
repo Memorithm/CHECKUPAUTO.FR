@@ -36,6 +36,7 @@ final class AppModel: ObservableObject {
 
     private let scheduler = ReminderScheduler()
     private let hornPreview = CheckupControlHornPreview()
+    private let googleCustomerSignIn = GoogleCustomerSignIn()
 
     private var useLocalFallback: Bool {
         mobileConfig.notifications.localFallback || !remotePushRegistered
@@ -87,6 +88,19 @@ final class AppModel: ObservableObject {
             } catch {
                 customerSignedIn = false
                 errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
+            }
+        }
+    }
+
+    func signInWithGoogle() {
+        Task {
+            do {
+                try await googleCustomerSignIn.start()
+                customerSignedIn = CustomerSessionKeychain.load() != nil
+                guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+                errorMessage = nil
+            } catch {
+                errorMessage = "La connexion avec Google n’a pas pu être finalisée."
             }
         }
     }

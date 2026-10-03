@@ -185,6 +185,9 @@ struct ContentView: View {
                 }
                 .signInWithAppleButtonStyle(.black)
                 .frame(height: 48)
+                Button("Continuer avec Google") { model.signInWithGoogle() }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, minHeight: 48)
                 Text("Votre identifiant Apple sert à retrouver votre compte Checkup Auto. Aucun mot de passe Apple n’est transmis à Checkup Auto.")
                     .font(.caption)
                     .foregroundStyle(CheckupTheme.muted)
