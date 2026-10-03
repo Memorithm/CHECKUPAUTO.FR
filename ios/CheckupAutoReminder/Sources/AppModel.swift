@@ -1,4 +1,5 @@
 import Foundation
+import AuthenticationServices
 import SwiftUI
 import UserNotifications
 #if canImport(ActivityKit)
@@ -28,6 +29,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
     @Published private(set) var deletingAllData = false
+    @Published private(set) var customerSignedIn = CustomerSessionKeychain.load() != nil
     @Published private(set) var installationRegistrationSuppressed =
         InstallationLifecycleState.isAutoRegistrationSuppressed()
 
@@ -59,6 +61,33 @@ final class AppModel: ObservableObject {
             await rescheduleAll()
             await syncRemoteDeadlines()
         }
+    }
+
+    func prepareAppleSignIn(_ request: ASAuthorizationAppleIDRequest) {
+        request.requestedScopes = [.fullName, .email]
+    }
+
+    func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        Task {
+            do {
+                let authorization = try result.get()
+                guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                    throw URLError(.userAuthenticationRequired)
+                }
+                let payload = try AppleSignInCredentialMapper.payload(from: credential)
+                _ = try await AppleSignInClient.authenticate(payload)
+                customerSignedIn = true
+                errorMessage = nil
+            } catch {
+                customerSignedIn = false
+                errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
+            }
+        }
+    }
+
+    func signOutCustomer() {
+        CustomerSessionKeychain.clear()
+        customerSignedIn = false
     }
 
     func requestNotifications() {
