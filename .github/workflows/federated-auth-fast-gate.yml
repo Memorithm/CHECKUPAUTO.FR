@@ -1,0 +1,31 @@
+name: Federated Auth Fast Gate
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'customer_*.py'
+      - 'mobile_auth_ticket*.py'
+      - 'ios/CheckupAutoReminder/**'
+      - 'ios_federated_auth_contract_test.py'
+  push:
+    branches: [main]
+    paths:
+      - 'customer_*.py'
+      - 'mobile_auth_ticket*.py'
+      - 'ios/CheckupAutoReminder/**'
+      - 'ios_federated_auth_contract_test.py'
+permissions:
+  contents: read
+jobs:
+  auth-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install pytest httpx cryptography
+      - name: Run federated auth tests
+        run: |
+          pytest -q customer_oidc_test.py customer_oidc_native_apple_test.py mobile_auth_ticket_test.py ios_federated_auth_contract_test.py
