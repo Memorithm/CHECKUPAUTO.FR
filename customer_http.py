@@ -246,7 +246,8 @@ def handle(handler) -> bool:
         provider=path.rsplit("/",1)[-1]
         try:
             binding=secrets.token_urlsafe(32)
-            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding)
+            mobile=(provider=="google" and (parse_qs(parsed.query).get("mobile") or [""])[0]=="1")
+            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding,mobile=mobile)
             state=parse_qs(urlsplit(target).query)["state"][0]
             handler.send_response(302)
             handler.send_header("Location",target)
@@ -283,7 +284,11 @@ def handle(handler) -> bool:
             code=(params.get("code") or [""])[0]
             result=customer_oidc.complete(provider,state,code,
                 browser_binding=_cookie(handler,_flow_cookie_name(provider,state)),origin=_browser_origin(handler))
-            _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"],provider,state)
+            if provider=="google" and result.get("mobile"):
+                ticket=mobile_auth_ticket.issue(result["session"]["token"])
+                handler.send_redirect("checkupauto://auth/google?ticket="+quote(ticket,safe=""),303)
+            else:
+                _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"],provider,state)
         except Exception:
             headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
