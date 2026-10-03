@@ -441,4 +441,4 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
         email_verified=True,
     )
     session = customer_accounts.issue_session(account["accountId"])
-    return {"account": account, "session": session}
+    return {"account": account, "session": session, "mobile": bool(flow.get("mobile",0))}
