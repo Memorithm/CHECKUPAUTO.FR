@@ -1,5 +1,6 @@
 import AuthenticationServices
 import Foundation
+import CryptoKit
 
 struct AppleSignInCredentialPayload: Codable, Equatable {
     let authorizationCode: String
@@ -8,6 +9,7 @@ struct AppleSignInCredentialPayload: Codable, Equatable {
     let givenName: String?
     let familyName: String?
     let email: String?
+    let nonce: String
 }
 
 enum AppleSignInError: LocalizedError {
@@ -23,7 +25,7 @@ enum AppleSignInError: LocalizedError {
 }
 
 enum AppleSignInCredentialMapper {
-    static func payload(from credential: ASAuthorizationAppleIDCredential) throws -> AppleSignInCredentialPayload {
+    static func payload(from credential: ASAuthorizationAppleIDCredential, nonce: String) throws -> AppleSignInCredentialPayload {
         guard let codeData = credential.authorizationCode,
               let code = String(data: codeData, encoding: .utf8),
               !code.isEmpty else { throw AppleSignInError.missingAuthorizationCode }
@@ -36,7 +38,8 @@ enum AppleSignInCredentialMapper {
             userIdentifier: credential.user,
             givenName: credential.fullName?.givenName,
             familyName: credential.fullName?.familyName,
-            email: credential.email
+            email: credential.email,
+            nonce: nonce
         )
     }
 }
@@ -46,6 +49,16 @@ struct AppleSignInSessionResponse: Decodable {
     let accountId: String
     let sessionToken: String
     let expiresAt: String
+}
+
+enum AppleSignInNonce {
+    static func make() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    static func sha256(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 enum AppleSignInClient {
