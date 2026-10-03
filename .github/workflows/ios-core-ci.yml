@@ -24,11 +24,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  swift-and-xcode:
+  swift:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios]
+    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -58,9 +58,19 @@ jobs:
           set -euo pipefail
           swiftc -D DEBUG Sources/MobileAPI.swift Sources/MobileBootstrap.swift Monitoring/LiveStagingBootstrapSmoke.swift -o /tmp/checkupauto-live-staging
           CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging
+  xcode:
+    needs: swift
+    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - name: Generate project and run simulator tests
         working-directory: ios/CheckupAutoReminder
         run: |
           set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           xcodegen generate
           xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16 Pro' CODE_SIGNING_ALLOWED=NO
