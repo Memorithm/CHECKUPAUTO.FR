@@ -21,6 +21,7 @@ LOGOUT_ROUTE="/api/customer/logout"
 REPORTS_ROUTE="/api/customer/reports"
 REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
+MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 COOKIE_NAME="checkupauto_customer"
 
 
@@ -284,6 +285,43 @@ def handle(handler) -> bool:
         except Exception:
             headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
+        return True
+
+    if path==MOBILE_APPLE_AUTH_ROUTE:
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        try:
+            payload=_json_body(handler)
+            allowed={"identityToken","authorizationCode","userIdentifier","givenName","familyName","email","nonce"}
+            if not set(payload).issubset(allowed) or not {"identityToken","authorizationCode","userIdentifier"}.issubset(payload):
+                raise ValueError
+            claims=customer_oidc.verify_native_apple_identity(
+                payload.get("identityToken"),
+                client_id="fr.checkupauto.reminder",
+                nonce=payload.get("nonce") or "",
+            )
+            subject=str(claims.get("sub") or "")
+            if not hmac.compare_digest(subject,str(payload.get("userIdentifier") or "")):
+                raise customer_oidc.CustomerOIDCError("customer_oidc_subject_mismatch")
+            email=str(claims.get("email") or payload.get("email") or "")
+            if str(claims.get("email_verified") or "").lower() not in {"true","1"} or not email:
+                raise customer_oidc.CustomerOIDCError("customer_oidc_email_unverified")
+            name=" ".join(x for x in [str(payload.get("givenName") or "").strip(),str(payload.get("familyName") or "").strip()] if x)
+            if not name:
+                name=email.split("@",1)[0][:120] or "Client Checkup Auto"
+            account=customer_accounts.create_from_verified_identity(
+                "apple",subject,email,name,email_verified=True
+            )
+            session=customer_accounts.issue_session(account["accountId"])
+            handler.send_json({
+                "ok":True,
+                "accountId":account["accountId"],
+                "sessionToken":session["token"],
+                "expiresAt":session["expiresAt"],
+            })
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_apple_auth_failed"},401)
         return True
 
     report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)
