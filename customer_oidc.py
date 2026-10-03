@@ -160,12 +160,15 @@ def init_db() -> None:
               redirect_uri TEXT NOT NULL,
               created_at TEXT NOT NULL,
               expires_at TEXT NOT NULL,
-              browser_hash TEXT NOT NULL DEFAULT ''
+              browser_hash TEXT NOT NULL DEFAULT '',
+              mobile INTEGER NOT NULL DEFAULT 0
             )"""
         )
         columns = {row[1] for row in db.execute("PRAGMA table_info(customer_oidc_flow)")}
         if "browser_hash" not in columns:
             db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN browser_hash TEXT NOT NULL DEFAULT ''")
+        if "mobile" not in columns:
+            db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0")
         db.execute("CREATE INDEX IF NOT EXISTS idx_customer_oidc_expiry ON customer_oidc_flow(expires_at)")
     try:
         _flow_path().chmod(0o600)
@@ -183,7 +186,7 @@ def _browser_hash(binding: object) -> str:
     return hashlib.sha256(binding.encode("ascii")).hexdigest()
 
 
-def begin(provider: object, origin: object, *, browser_binding: str) -> str:
+def begin(provider: object, origin: object, *, browser_binding: str, mobile: bool=False) -> str:
     provider = _provider(provider)
     origin = _origin(origin)
     browser_hash = _browser_hash(browser_binding)
@@ -200,8 +203,8 @@ def begin(provider: object, origin: object, *, browser_binding: str) -> str:
         db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now.isoformat(timespec="seconds"),))
         db.execute(
             """INSERT INTO customer_oidc_flow(
-                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash
-               ) VALUES(?,?,?,?,?,?,?,?)""",
+                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash,mobile
+               ) VALUES(?,?,?,?,?,?,?,?,?)""",
             (
                 hashlib.sha256(state.encode()).hexdigest(),
                 provider,
@@ -211,6 +214,7 @@ def begin(provider: object, origin: object, *, browser_binding: str) -> str:
                 now.isoformat(timespec="seconds"),
                 expires.isoformat(timespec="seconds"),
                 browser_hash,
+                1 if mobile else 0,
             ),
         )
     meta = PROVIDERS[provider]
@@ -437,4 +441,4 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
         email_verified=True,
     )
     session = customer_accounts.issue_session(account["accountId"])
-    return {"account": account, "session": session}
+    return {"account": account, "session": session, "mobile": bool(flow.get("mobile",0))}
