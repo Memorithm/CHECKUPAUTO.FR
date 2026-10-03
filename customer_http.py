@@ -12,6 +12,7 @@ import customer_accounts
 import customer_ct_reports
 import customer_oidc
 import referral_wallet_claims
+import mobile_auth_ticket
 
 ACCOUNT_ROUTE="/compte"
 PROVIDERS_ROUTE="/api/customer/providers"
@@ -22,6 +23,7 @@ REPORTS_ROUTE="/api/customer/reports"
 REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
+MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
 COOKIE_NAME="checkupauto_customer"
 
 
@@ -285,6 +287,21 @@ def handle(handler) -> bool:
         except Exception:
             headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
+        return True
+
+    if path==MOBILE_AUTH_EXCHANGE_ROUTE:
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        try:
+            payload=_json_body(handler)
+            if set(payload)!={"ticket"}:
+                raise ValueError
+            session_token=mobile_auth_ticket.consume(payload.get("ticket"))
+            account_id=customer_accounts.authenticate_session(session_token)
+            handler.send_json({"ok":True,"accountId":account_id,"sessionToken":session_token})
+        except Exception:
+            handler.send_json({"ok":False,"error":"mobile_auth_ticket_invalid"},401)
         return True
 
     if path==MOBILE_APPLE_AUTH_ROUTE:
