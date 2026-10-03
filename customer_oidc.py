@@ -351,6 +351,36 @@ def _verify_id_token(provider: str, raw: object, *, client_id: str, nonce: str, 
     return claims
 
 
+def verify_native_apple_identity(id_token: object, *, client_id: object, nonce: object = "", jwks_fetcher=None) -> dict:
+    """Verify a native Sign in with Apple identity token.
+
+    The native iOS App ID is a distinct audience from the web Services ID.
+    This helper deliberately performs verification only; HTTP/session policy
+    remains outside the cryptographic primitive.
+    """
+    audience = str(client_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9.-]{3,255}", audience):
+        raise CustomerOIDCError("customer_oidc_client_id_invalid")
+    token = str(id_token or "").strip()
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise CustomerOIDCError("customer_oidc_token_invalid")
+    claims_preview = _decode_part(parts[1])
+    token_nonce = claims_preview.get("nonce")
+    expected_nonce = str(nonce or "").strip()
+    if not expected_nonce:
+        if not isinstance(token_nonce, str) or not token_nonce:
+            raise CustomerOIDCError("customer_oidc_token_invalid")
+        expected_nonce = token_nonce
+    return _verify_id_token(
+        "apple",
+        token,
+        client_id=audience,
+        nonce=expected_nonce,
+        fetcher=jwks_fetcher,
+    )
+
+
 def complete(provider: object, state: object, code: object, *, browser_binding: str, origin: str, poster=None, jwks_fetcher=None) -> dict:
     provider = _provider(provider)
     code = str(code or "").strip()
