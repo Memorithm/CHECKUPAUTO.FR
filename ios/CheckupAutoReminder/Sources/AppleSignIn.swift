@@ -41,15 +41,28 @@ enum AppleSignInCredentialMapper {
     }
 }
 
+struct AppleSignInSessionResponse: Decodable {
+    let ok: Bool
+    let accountId: String
+    let sessionToken: String
+    let expiresAt: String
+}
+
 enum AppleSignInClient {
-    static func authenticate(_ payload: AppleSignInCredentialPayload) async throws {
+    static func authenticate(_ payload: AppleSignInCredentialPayload) async throws -> AppleSignInSessionResponse {
         var request = URLRequest(url: MobileAPI.endpoint("/api/mobile/auth/apple"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(payload)
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.userAuthenticationRequired)
         }
+        let session = try JSONDecoder().decode(AppleSignInSessionResponse.self, from: data)
+        guard session.ok, !session.sessionToken.isEmpty else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        try CustomerSessionKeychain.save(session.sessionToken)
+        return session
     }
 }
