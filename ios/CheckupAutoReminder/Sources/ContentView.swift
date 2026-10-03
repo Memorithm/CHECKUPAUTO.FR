@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 private enum CheckupTheme {
     static let paper = Color(red: 0.965, green: 0.970, blue: 0.945)
@@ -29,6 +30,7 @@ struct ContentView: View {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     hero
+                    appleAccountCard
                     if MobileAPI.isPreproduction {
                         statusCard(title: "Préproduction — environnement de test", systemImage: "wrench.and.screwdriver.fill", tint: .orange)
                         VStack(alignment: .leading, spacing: 12) {
@@ -162,6 +164,35 @@ struct ContentView: View {
             }
         }
         .tint(CheckupTheme.accent)
+    }
+
+    private var appleAccountCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Compte Checkup Auto", systemImage: "person.crop.circle.badge.checkmark")
+                .font(.headline)
+                .foregroundStyle(CheckupTheme.ink)
+            if model.customerSignedIn {
+                Text("Connecté avec Apple")
+                    .font(.subheadline)
+                    .foregroundStyle(CheckupTheme.muted)
+                Button("Se déconnecter", role: .cancel) { model.signOutCustomer() }
+                    .buttonStyle(.bordered)
+            } else {
+                SignInWithAppleButton(.continue) { request in
+                    model.prepareAppleSignIn(request)
+                } onCompletion: { result in
+                    model.completeAppleSignIn(result)
+                }
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 48)
+                Text("Votre identifiant Apple sert à retrouver votre compte Checkup Auto. Aucun mot de passe Apple n’est transmis à Checkup Auto.")
+                    .font(.caption)
+                    .foregroundStyle(CheckupTheme.muted)
+            }
+        }
+        .padding(20)
+        .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
     }
 
     private var localReminderSection: some View {
