@@ -37,6 +37,10 @@ targets:
         CheckupAutoEnvironment: "$(CHECKUPAUTO_ENVIRONMENT)"
         CFBundleDisplayName: Checkup Auto
         NSSupportsLiveActivities: true
+        CFBundleURLTypes:
+          - CFBundleURLName: fr.checkupauto.reminder.auth
+            CFBundleURLSchemes:
+              - checkupauto
         BGTaskSchedulerPermittedIdentifiers:
           - fr.checkupauto.reminder.live-activity-refresh
         UIBackgroundModes:

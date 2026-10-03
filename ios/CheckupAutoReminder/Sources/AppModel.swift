@@ -1,4 +1,5 @@
 import Foundation
+import AuthenticationServices
 import SwiftUI
 import UserNotifications
 #if canImport(ActivityKit)
@@ -28,11 +29,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
     @Published private(set) var deletingAllData = false
+    @Published private(set) var customerSignedIn = CustomerSessionKeychain.load() != nil
+    private var appleSignInNonce: String?
     @Published private(set) var installationRegistrationSuppressed =
         InstallationLifecycleState.isAutoRegistrationSuppressed()
 
     private let scheduler = ReminderScheduler()
     private let hornPreview = CheckupControlHornPreview()
+    private let googleCustomerSignIn = GoogleCustomerSignIn()
 
     private var useLocalFallback: Bool {
         mobileConfig.notifications.localFallback || !remotePushRegistered
@@ -59,6 +63,51 @@ final class AppModel: ObservableObject {
             await rescheduleAll()
             await syncRemoteDeadlines()
         }
+    }
+
+    func prepareAppleSignIn(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = AppleSignInNonce.make()
+        appleSignInNonce = nonce
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = AppleSignInNonce.sha256(nonce)
+    }
+
+    func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        Task {
+            do {
+                let authorization = try result.get()
+                guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                    throw URLError(.userAuthenticationRequired)
+                }
+                guard let nonce = appleSignInNonce else { throw URLError(.userAuthenticationRequired) }
+                appleSignInNonce = nil
+                let payload = try AppleSignInCredentialMapper.payload(from: credential, nonce: nonce)
+                _ = try await AppleSignInClient.authenticate(payload)
+                customerSignedIn = true
+                errorMessage = nil
+            } catch {
+                customerSignedIn = false
+                errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
+            }
+        }
+    }
+
+    func signInWithGoogle() {
+        Task {
+            do {
+                try await googleCustomerSignIn.start()
+                customerSignedIn = CustomerSessionKeychain.load() != nil
+                guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+                errorMessage = nil
+            } catch {
+                errorMessage = "La connexion avec Google n’a pas pu être finalisée."
+            }
+        }
+    }
+
+    func signOutCustomer() {
+        CustomerSessionKeychain.clear()
+        customerSignedIn = false
     }
 
     func requestNotifications() {

@@ -24,273 +24,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  swift-and-xcode:
+  swift:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]
     timeout-minutes: 30
-    env:
-      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
-      CHECKUPAUTO_MAC_USER: tarek
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Verify Mac SSH endpoint
+
+
+
+
+      - name: Verify Apple toolchain
         run: |
           set -euo pipefail
-          getent hosts "$CHECKUPAUTO_MAC_HOST" >/dev/null || {
-            echo '::error::Mac mini hostname is not resolvable from the internal runner'
-            exit 2
-          }
-          timeout 5 bash -c "</dev/tcp/$CHECKUPAUTO_MAC_HOST/22" || {
-            echo '::error::Mac mini SSH port 22 is not reachable from the internal runner'
-            exit 2
-          }
-      - name: Resolve authorized Mac SSH identity
-        env:
-          CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
+          sw_vers
+          xcodebuild -version
+          xcodegen --version
+          swift --version
+      - name: Run Swift package tests
+        working-directory: ios/CheckupAutoReminder
         run: |
           set -euo pipefail
-          tmp_key="$RUNNER_TEMP/checkupauto-mac-key"
-          auth_file=".ios-mac-auth"
-          rm -f "$tmp_key" "$auth_file" .ios-mac-key
-          umask 077
-
-          verify_key() {
-            candidate="$1"
-            [ -r "$candidate" ] || return 1
-            timeout 3 ssh-keygen -y -f "$candidate" >/dev/null 2>&1 || return 1
-            timeout 8 ssh -i "$candidate" -o BatchMode=yes -o IdentitiesOnly=yes \
-              -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
-              "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
-          }
-
-          resolved=""
-          if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
-            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$tmp_key"
-            if verify_key "$tmp_key"; then
-              resolved="$tmp_key"
-            else
-              echo '::warning::Configured CHECKUPAUTO_MAC_SSH_KEY is not authorized; trying runner-provisioned identities'
-              rm -f "$tmp_key"
-            fi
-          fi
-
-          if [ -z "$resolved" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5 \
-            -o StrictHostKeyChecking=accept-new \
-            "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
-            printf '%s\n' default > "$auth_file"
-          fi
-
-          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
-            for candidate in \
-              /root/.ssh/checkupauto_macmini_ed25519 \
-              "$HOME/.ssh/checkupauto_macmini_ed25519" \
-              /opt/actions-runner/.ssh/checkupauto_macmini_ed25519 \
-              /root/.ssh/remoteops_thor_ed25519 \
-              "$HOME/.ssh/remoteops_thor_ed25519" \
-              /opt/actions-runner/.ssh/remoteops_thor_ed25519 \
-              /root/.ssh/id_ed25519 \
-              "$HOME/.ssh/id_ed25519" \
-              /opt/actions-runner/.ssh/id_ed25519 \
-              /root/.ssh/id_rsa \
-              "$HOME/.ssh/id_rsa" \
-              /opt/actions-runner/.ssh/id_rsa; do
-              if verify_key "$candidate"; then
-                resolved="$candidate"
-                break
-              fi
-            done
-          fi
-
-          if [ ! -s "$auth_file" ] && [ -z "$resolved" ]; then
-            while IFS= read -r candidate; do
-              if verify_key "$candidate"; then
-                resolved="$candidate"
-                break
-              fi
-            done < <(
-              find /root/.ssh "$HOME/.ssh" /opt/actions-runner/.ssh /home \
-                -maxdepth 4 -type f -readable -print 2>/dev/null | sort -u || true
-            )
-          fi
-
-          if [ ! -s "$auth_file" ]; then
-            if [ -z "$resolved" ]; then
-              echo '::error::No authorized Mac mini SSH identity is available on the internal runner'
-              exit 2
-            fi
-            if [ "$resolved" != "$tmp_key" ]; then
-              cp "$resolved" "$tmp_key"
-            fi
-            chmod 600 "$tmp_key"
-            printf '%s\n' key > "$auth_file"
-            printf '%s\n' "$tmp_key" > .ios-mac-key
-          fi
-      - name: Verify remote Apple toolchain
+          swift package resolve
+          swift test --parallel
+      - name: Verify live staging API contract
+        working-directory: ios/CheckupAutoReminder
         run: |
           set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            'set -euo pipefail; export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; sw_vers; xcodebuild -version; xcodegen --version; swift --version'
-      - name: Stage exact iOS source on Mac mini
+          swiftc -D DEBUG Sources/MobileAPI.swift Sources/MobileBootstrap.swift Monitoring/LiveStagingBootstrapSmoke.swift -o /tmp/checkupauto-live-staging
+          CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging
+  xcode:
+    needs: swift
+    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Generate project and run simulator tests
+        working-directory: ios/CheckupAutoReminder
         run: |
           set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          remote_dir="/tmp/checkupauto-ios-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          printf '%s\n' "$remote_dir" > .ios-remote-dir
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "rm -rf '$remote_dir' && mkdir -p '$remote_dir'"
-          tar -czf - ios/CheckupAutoReminder ios_release_runner.py | \
-            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-              "tar -xzf - -C '$remote_dir'"
-      - name: Run Swift package tests on Mac mini
-        run: |
-          set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          remote_dir="$(cat .ios-remote-dir)"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "cd '$remote_dir/ios/CheckupAutoReminder' && swift package resolve && swift test --parallel"
-      - name: Verify live staging API with the iOS client contract
-        run: |
-          set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          remote_dir="$(cat .ios-remote-dir)"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; cd '$remote_dir/ios/CheckupAutoReminder'; swiftc -D DEBUG Sources/MobileAPI.swift Sources/MobileBootstrap.swift Monitoring/LiveStagingBootstrapSmoke.swift -o '$remote_dir/live-staging-bootstrap'; CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' '$remote_dir/live-staging-bootstrap'"
-
-      - name: Generate Xcode project and run iOS simulator tests
-        run: |
-          set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          remote_dir="$(cat .ios-remote-dir)"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "cd '$remote_dir' && PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH python3 - '$GITHUB_RUN_ID' '$GITHUB_RUN_ATTEMPT'" <<'PYTHON'
-          import json, re, subprocess, sys, uuid
-          from pathlib import Path
-          import ios_release_runner as r
-          run_id, attempt = sys.argv[1:]
-          assert re.fullmatch(r"[0-9]+", run_id) and re.fullmatch(r"[0-9]+", attempt)
-          template = r.discover_simulator(require_dynamic_island=True)
-          types = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devicetypes', '--json']))
-          matches = [d['identifier'] for d in types['devicetypes'] if d['name'] == template['name']]
-          assert len(matches) == 1, 'SIMULATOR_DEVICE_TYPE_AMBIGUOUS'
-          name = 'CheckupAuto-CI-' + run_id + '-' + attempt
-          udid = subprocess.check_output(['xcrun', 'simctl', 'create', name, matches[0], template['runtime']], text=True).strip()
-          uuid.UUID(udid)
-          Path('.ios-simulator-udid').write_text(udid)
-          print('OWNED_CI_SIMULATOR=' + udid, flush=True)
-          subprocess.run(['xcrun', 'simctl', 'boot', udid], check=True, timeout=60)
-          subprocess.run(['xcrun', 'simctl', 'bootstatus', udid, '-b'], check=True, timeout=120)
-          project = Path('ios/CheckupAutoReminder')
-          subprocess.run(['xcodegen', 'generate'], cwd=project, check=True)
-          subprocess.run(['xcodebuild', 'test', '-project', 'CheckupAutoReminder.xcodeproj',
-                          '-scheme', 'CheckupAutoReminder', '-configuration', 'Debug',
-                          '-destination', 'platform=iOS Simulator,id=' + udid,
-                          '-derivedDataPath', str(Path.cwd() / 'DerivedData'),
-                          'CODE_SIGNING_ALLOWED=NO'], cwd=project, check=True)
-          PYTHON
-
-      - name: Capture the native reminder review
-        run: |
-          set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          remote_dir="$(cat .ios-remote-dir)"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; export PATH=\"/opt/homebrew/bin:/usr/local/bin:\$PATH\"; cd '$remote_dir'; udid=\$(cat .ios-simulator-udid); app='$remote_dir/DerivedData/Build/Products/Debug-iphonesimulator/CheckupAutoReminder.app'; test -f \"\$app/checkupauto-silver-car.png\"; test -f \"\$app/PlugIns/CheckupAutoLiveActivity.appex/checkupauto-silver-car.png\"; xcrun simctl boot \"\$udid\" 2>/dev/null || true; xcrun simctl bootstatus \"\$udid\" -b; xcrun simctl install \"\$udid\" \"\$app\"; xcrun simctl terminate \"\$udid\" fr.checkupauto.reminder 2>/dev/null || true; xcrun simctl launch \"\$udid\" fr.checkupauto.reminder --journey-visual-review; sleep 3; xcrun simctl io \"\$udid\" screenshot '$remote_dir/reminder-review.png'; echo CHECKUPAUTO_NATIVE_REVIEW_PNG_BEGIN; base64 < '$remote_dir/reminder-review.png'; echo CHECKUPAUTO_NATIVE_REVIEW_PNG_END; xcrun simctl launch \"\$udid\" com.apple.Preferences; sleep 3; xcrun simctl io \"\$udid\" screenshot '$remote_dir/compact-island.png'; echo CHECKUPAUTO_COMPACT_ISLAND_PNG_BEGIN; base64 < '$remote_dir/compact-island.png'; echo CHECKUPAUTO_COMPACT_ISLAND_PNG_END; xcrun simctl terminate \"\$udid\" fr.checkupauto.reminder; xcrun simctl terminate \"\$udid\" com.apple.Preferences"
-
-      - name: Persist tested canonical source for RemoteOps delivery
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-          if [ "$(cat .ios-mac-auth)" = key ]; then
-            ssh_args+=(-i "$(cat .ios-mac-key)" -o IdentitiesOnly=yes)
-          fi
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test -z "$(git status --porcelain --untracked-files=no)"
-          snapshot="/Users/tarek/CheckupAutoReleases/$GITHUB_SHA"
-          incoming="$snapshot.incoming-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; test ! -e '$snapshot'; test ! -L '$snapshot'; test ! -e '$incoming'; test ! -L '/Users/tarek/CheckupAutoReleases'; mkdir -p '/Users/tarek/CheckupAutoReleases'; mkdir '$incoming'"
-          git archive "$GITHUB_SHA" ios/CheckupAutoReminder ios_release_runner.py | \
-            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "tar -xf - -C '$incoming'"
-          git ls-tree -r "$GITHUB_SHA" -- ios/CheckupAutoReminder ios_release_runner.py | \
-            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" "cat > '$incoming/source-tree.txt'"
-          ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-            "set -euo pipefail; cd '$incoming'; python3 - <<'PY'
-          import hashlib
-          from pathlib import Path
-          for line in Path('source-tree.txt').read_text().splitlines():
-              header, relative = line.split('\t', 1)
-              mode, kind, expected = header.split()
-              assert mode == '100644' and kind == 'blob'
-              path = Path(relative)
-              assert not path.is_absolute() and '..' not in path.parts
-              assert path.is_file() and not path.is_symlink()
-              data = path.read_bytes()
-              actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
-              assert actual == expected, relative
-          print('CANONICAL_SNAPSHOT_BLOBS_VERIFIED')
-          PY
-          mv '$incoming' '$snapshot'; echo CANONICAL_SOURCE_STAGED=$GITHUB_SHA"
-
-      - name: Clean remote staging directory and ephemeral identity
-        if: always()
-        run: |
-          set -u
-          key=""
-          if [ -s .ios-mac-key ]; then
-            key="$(cat .ios-mac-key)"
-          fi
-          if [ -s .ios-mac-auth ] && [ -s .ios-remote-dir ]; then
-            ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
-            if [ "$(cat .ios-mac-auth)" = key ] && [ -n "$key" ]; then
-              ssh_args+=(-i "$key" -o IdentitiesOnly=yes)
-            fi
-            remote_dir="$(cat .ios-remote-dir)"
-            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-              "cd '$remote_dir' && python3 - '$GITHUB_RUN_ID' '$GITHUB_RUN_ATTEMPT'" <<'PYTHON' || true
-          import json, re, subprocess, sys, uuid
-          from pathlib import Path
-          run_id, attempt = sys.argv[1:]
-          assert re.fullmatch(r"[0-9]+", run_id) and re.fullmatch(r"[0-9]+", attempt)
-          marker = Path('.ios-simulator-udid')
-          if marker.exists():
-              udid = marker.read_text().strip()
-              uuid.UUID(udid)
-              name = 'CheckupAuto-CI-' + run_id + '-' + attempt
-              devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', '--json']))
-              owned = [d for items in devices['devices'].values() for d in items if d['udid'].lower() == udid.lower()]
-              assert len(owned) == 1 and owned[0]['name'] == name, 'SIMULATOR_OWNERSHIP_MISMATCH'
-              subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=False, timeout=60)
-              subprocess.run(['xcrun', 'simctl', 'delete', udid], check=True, timeout=60)
-          PYTHON
-            ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" \
-              "rm -rf '$remote_dir'" || true
-          fi
-          if [ -n "$key" ]; then
-            rm -f "$key"
-          fi
-          rm -f .ios-mac-key .ios-remote-dir .ios-mac-auth
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          xcodegen generate
+          xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16 Pro' CODE_SIGNING_ALLOWED=NO
