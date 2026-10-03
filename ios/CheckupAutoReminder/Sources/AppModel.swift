@@ -30,6 +30,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
     @Published private(set) var deletingAllData = false
     @Published private(set) var customerSignedIn = CustomerSessionKeychain.load() != nil
+    private var appleSignInNonce: String?
     @Published private(set) var installationRegistrationSuppressed =
         InstallationLifecycleState.isAutoRegistrationSuppressed()
 
@@ -64,7 +65,10 @@ final class AppModel: ObservableObject {
     }
 
     func prepareAppleSignIn(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = AppleSignInNonce.make()
+        appleSignInNonce = nonce
         request.requestedScopes = [.fullName, .email]
+        request.nonce = AppleSignInNonce.sha256(nonce)
     }
 
     func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) {
@@ -74,7 +78,9 @@ final class AppModel: ObservableObject {
                 guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
                     throw URLError(.userAuthenticationRequired)
                 }
-                let payload = try AppleSignInCredentialMapper.payload(from: credential)
+                guard let nonce = appleSignInNonce else { throw URLError(.userAuthenticationRequired) }
+                appleSignInNonce = nil
+                let payload = try AppleSignInCredentialMapper.payload(from: credential, nonce: nonce)
                 _ = try await AppleSignInClient.authenticate(payload)
                 customerSignedIn = true
                 errorMessage = nil
