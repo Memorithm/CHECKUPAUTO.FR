@@ -219,6 +219,19 @@ jobs:
           if after.returncode!=0:
               raise SystemExit("post-seed compliance snapshot failed")
           after_state=json.loads(after.stdout.strip())
+          detail=subprocess.run(
+              [
+                  str(venv_python),
+                  str(release/"scripts/checkupauto-compliance-147-snapshot.py"),
+                  "--db",str(db),
+              ],
+              cwd=release,env=env,text=True,capture_output=True,timeout=90,check=False,
+          )
+          if detail.returncode!=0:
+              raise SystemExit("bounded compliance detail snapshot failed")
+          detail_state=json.loads(detail.stdout.strip())
+          if detail_state.get("schema")!="checkupauto.compliance-147-bounded-snapshot/v1":
+              raise SystemExit("bounded compliance detail snapshot invalid")
           out={
               "schema":"checkupauto.compliance-147-runtime-baseline/v1",
               "state":seed_state,
@@ -227,4 +240,5 @@ jobs:
               "summary":after_state,
           }
           print("CHECKUPAUTO_COMPLIANCE_147="+json.dumps(out,sort_keys=True,separators=(",",":")))
+          print("CHECKUPAUTO_COMPLIANCE_147_DETAIL="+json.dumps(detail_state,sort_keys=True,separators=(",",":")))
           PY
