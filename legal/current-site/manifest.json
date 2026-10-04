@@ -1,0 +1,24 @@
+{
+  "schema": "checkupauto.current-site-legal-addenda/v1",
+  "capturedAt": "2026-10-04",
+  "facts": {
+    "companyRegistry": "https://annuaire-entreprises.data.gouv.fr/entreprise/check-up-auto-811945435",
+    "publicReservationContact": "https://rdv.checkupauto.fr/",
+    "planetHosterContact": "https://www.planethoster.com/fr/Contact",
+    "appleImplementation": [
+      "ios/CheckupAutoReminder/Sources/AppleSignIn.swift",
+      "customer_http.py"
+    ],
+    "googleImplementation": [
+      "ios/CheckupAutoReminder/Sources/GoogleCustomerSignIn.swift",
+      "customer_http.py"
+    ],
+    "iosSessionStorage": "ios/CheckupAutoReminder/Sources/CustomerSessionKeychain.swift",
+    "siteConfiguration": "data/site-config.json"
+  },
+  "addenda": {
+    "legal_notice": "legal/current-site/mentions-complement.md",
+    "privacy": "legal/current-site/confidentialite-complement.md",
+    "cookies": "legal/current-site/cookies-complement.md"
+  }
+}
