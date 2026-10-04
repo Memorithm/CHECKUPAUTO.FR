@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 import compliance_operations as operations
 import compliance_register_attestation as register_attestation
 import processing_risk_review as risk_review
+import legacy_legal_baseline
 
 
 def _payload(path: str) -> dict:
@@ -86,6 +87,12 @@ def main() -> int:
     activity.add_argument("json_file")
     processor = sub.add_parser("upsert-processor")
     processor.add_argument("json_file")
+    legacy = sub.add_parser("publish-legacy-legal-baseline")
+    legacy.add_argument(
+        "--confirm",
+        required=True,
+        help="Confirmation explicite: PUBLISH-LEGACY-RDV-BASELINE",
+    )
     args = parser.parse_args()
     db = Path(args.db) if args.db else None
 
@@ -125,6 +132,10 @@ def main() -> int:
         _print(operations.upsert_processing_activity(_payload(args.json_file), db))
     elif args.command == "upsert-processor":
         _print(operations.upsert_processor(_payload(args.json_file), db))
+    elif args.command == "publish-legacy-legal-baseline":
+        if args.confirm != "PUBLISH-LEGACY-RDV-BASELINE":
+            parser.error("--confirm doit valoir PUBLISH-LEGACY-RDV-BASELINE")
+        _print(legacy_legal_baseline.publish_to_store(db))
     return 0
 
 
