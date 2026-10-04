@@ -37,6 +37,7 @@ import deployment_admin as deployment_admin
 import admin_mfa as admin_mfa
 import site_config_store as site_config_store
 import compliance_store as compliance
+import legacy_legal_baseline
 import compliance_admin as compliance_admin
 import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
@@ -115,19 +116,35 @@ def render_legal_document(doc,c):
  body=''.join(chunks)
  published=esc(doc.get('publishedAt') or '')
  version=esc(doc.get('version') or '')
- if doc.get('legacyBaseline'):
-  captured=esc(doc.get('legacyCapturedAt') or '')
+ inherited=bool(doc.get('legacyBaseline')) or version.startswith('legacy-rdv-') or version.startswith('mercureweb-2022-legacy')
+ if inherited:
+  captured=esc(doc.get('legacyCapturedAt') or '2026-10-04')
   sources=[str(x) for x in doc.get('legacySources') or [] if str(x).startswith('https://rdv.checkupauto.fr/')]
   source_text=' · source active historique : '+esc(sources[0]) if sources else ''
   meta=f'Baseline repris du site de réservation actif · capture {captured}{source_text}'
+  note=('<div class="legacy-note"><strong>Continuité documentaire.</strong> '
+        'Le texte historique ci-dessous est conservé sans réécriture de fond. '
+        'Les mentions AutoBilan-Systems/KALANDA décrivent le service rdv.checkupauto.fr. '
+        'Un complément distinct précise, lorsqu\'il existe, le périmètre du nouveau site et de l\'application.</div>')
+  supplement=legacy_legal_baseline.current_scope_addendum(str(doc.get('type') or ''))
+  supplement_html=''
+  if supplement:
+   supplement_chunks=[]
+   for paragraph in str(supplement.get('body') or '').split('\n\n'):
+    paragraph=paragraph.strip()
+    if paragraph:
+     supplement_chunks.append('<p>'+esc(paragraph).replace('\n','<br>')+'</p>')
+   supplement_html='<section class="current-scope"><h2>Complément nouveau site / application</h2>'+''.join(supplement_chunks)+'</section>'
  else:
   meta=f'Version {version} · publiée {published}'
+  note=''
+  supplement_html=''
  return (f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
    f'<meta name="robots" content="{robots}"><link rel="canonical" href="{esc(canonical)}"><title>{title} | Checkup Auto</title>'
    '<style>body{font-family:system-ui;margin:0;background:#f6f7f3;color:#17372b}main{max-width:860px;margin:auto;padding:48px 22px 80px}'
    'a{color:#1f5845}h1{font-size:clamp(36px,6vw,68px);letter-spacing:-.04em;margin:28px 0}p{line-height:1.75;color:#40584d}'
-   '.meta{padding:14px 16px;background:#fff;border:1px solid #dbe1d8;border-radius:12px;font-size:12px;color:#66776e}</style></head>'
-   f'<body><main><a href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">{meta}</div>{body}</main></body></html>').encode()
+   '.meta,.legacy-note,.current-scope{padding:14px 16px;background:#fff;border:1px solid #dbe1d8;border-radius:12px;font-size:12px;color:#66776e;margin:14px 0}.current-scope h2{font:600 22px system-ui;margin:4px 0 12px;color:#17372b}.current-scope p{font-size:14px}</style></head>'
+   f'<body><main><a href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">{meta}</div>{note}{body}{supplement_html}</main></body></html>').encode()
 
 def configure_internal_proxy(token):
  raw=str(token or '').strip()
