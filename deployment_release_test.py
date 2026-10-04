@@ -223,6 +223,18 @@ class DeploymentReleaseTest(unittest.TestCase):
         compile(marker_python, "<embedded-marker>", "exec")
         self.assertIn(' + "\\n"', marker_python)
 
+    def test_remote_stage_upgrades_bootstrap_tools_before_application_requirements(self):
+        bundle=release.build_release_bundle(self.repo,self.sha)
+        script=release.remote_stage_script(self.target(),bundle)
+        pip_pin="pip=="+release._BOOTSTRAP_PIP_VERSION
+        setuptools_pin="setuptools=="+release._BOOTSTRAP_SETUPTOOLS_VERSION
+        self.assertIn(pip_pin,script)
+        self.assertIn(setuptools_pin,script)
+        self.assertIn("CHECKUPAUTO_BOOTSTRAP_VERSIONS",script)
+        self.assertLess(script.index(pip_pin),script.index('-r "$candidate/requirements.txt"'))
+        self.assertEqual(release._BOOTSTRAP_PIP_VERSION,"26.2.1")
+        self.assertEqual(release._BOOTSTRAP_SETUPTOOLS_VERSION,"84.0.0")
+
     def test_parse_stage_output_requires_exact_sha(self):
         bundle = release.build_release_bundle(self.repo, self.sha)
         result = release._parse_stage_output(
