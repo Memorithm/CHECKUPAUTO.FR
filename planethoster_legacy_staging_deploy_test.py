@@ -65,6 +65,14 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn("/opt/alt/python312/bin/python3",run.call_args.kwargs["input"])
         self.assertIn("checkupauto-test-application/passenger_wsgi.py",run.call_args.kwargs["input"])
 
+    def test_activation_compliance_snapshot_uses_release_virtualenv(self):
+        text=m._activation_program("9"*40)
+        self.assertIn('[str(release / ".venv/bin/python"), "-c", compliance_code]',text)
+        self.assertIn('cwd=release',text)
+        self.assertIn('env=env',text)
+        self.assertIn('"compliance snapshot failed"',text)
+        self.assertNotIn('sys.path.insert(0, str(release))\n    import compliance_admin',text)
+
     def test_activation_progress_is_bounded(self):
         text=m._activation_program("c"*40)
         for step in ("preflight","backup","import","switch","restart","http_verify","compliance","rollback"):
