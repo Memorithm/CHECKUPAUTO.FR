@@ -29,6 +29,15 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertNotIn('.htaccess',text)
         self.assertNotIn('admin-password',text)
 
+    def test_activation_http_verification_pins_origin_but_keeps_tls_hostname(self):
+        text=m._activation_program("f"*40)
+        self.assertIn('origin_ip = "185.221.181.53"', text)
+        self.assertIn('socket.create_connection((origin_ip, 443)', text)
+        self.assertIn('context.wrap_socket(raw, server_hostname=domain)', text)
+        self.assertIn('"Host: " + domain', text)
+        self.assertIn('origin_get("/api/app/status"', text)
+        self.assertNotIn('request.urlopen("https://" + domain + "/api/app/status"', text)
+
     def test_activation_checks_all_legal_routes_and_phase2(self):
         text=m._activation_program("b"*40)
         for path in ("/mentions-legales","/confidentialite","/cookies","/cgv","/retractation"):
