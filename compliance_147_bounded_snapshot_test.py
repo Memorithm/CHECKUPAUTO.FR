@@ -50,11 +50,11 @@ class Compliance147BoundedSnapshotTest(unittest.TestCase):
     def test_terms_evidence_reports_only_aggregate_match_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             db=Path(tmp)/"compliance.sqlite3"
-            compliance_store.upsert_document({
+            compliance_store.save_document({
                 "type":"terms",
                 "version":"v1",
                 "title":"CGV",
-                "body":"Conditions générales complètes.",
+                "body":"Conditions générales complètes applicables au contrôle technique, à la réservation et à l’exécution de la prestation.",
                 "action":"publish",
             },db)
             doc=compliance_store.published_document("terms",db)
