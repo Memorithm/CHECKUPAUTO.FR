@@ -1,0 +1,219 @@
+name: Compliance 147 staging runtime baseline
+
+on:
+  push:
+    branches:
+      - ops/compliance-147-runtime-baseline
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-compliance-147-runtime-baseline
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.ref == 'refs/heads/ops/compliance-147-runtime-baseline' &&
+      github.actor == 'CHECKUPAUTO'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 10
+    env:
+      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
+      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+      STAGING_HOST: nodels49-eu.n0c.com
+      STAGING_PORT: "5022"
+      STAGING_USER: eqcrhuya
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import json,os,urllib.request
+          req=urllib.request.Request(
+              os.environ["GH_API"].rstrip("/")+"/repos/"+os.environ["GH_REPOSITORY"]+"/branches/main",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(req,timeout=15) as response:
+              current=(json.load(response).get("commit") or {}).get("sha")
+          if current != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("ops branch is not exact current main")
+          print("CURRENT_MAIN_VERIFIED="+current)
+          PY
+      - name: Verify dedicated PlanetHoster SSH material
+        run: |
+          set -euo pipefail
+          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+      - name: Seed missing compliance registers with backup and bounded evidence
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$STAGING_KEY" \
+            -p "$STAGING_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$STAGING_KNOWN_HOSTS" \
+            "$STAGING_USER@$STAGING_HOST" \
+            /opt/alt/python312/bin/python3 - "$EXPECTED_SHA" <<'PY'
+          from __future__ import annotations
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+          import sqlite3
+          import subprocess
+          import sys
+
+          expected=sys.argv[1]
+          if len(expected)!=40 or any(ch not in "0123456789abcdef" for ch in expected):
+              raise SystemExit("expected revision invalid")
+
+          home=Path.home().resolve()
+          root=(home/".checkupauto-test").resolve()
+          releases=(root/"releases").resolve()
+          current=root/"current"
+          if not current.is_symlink():
+              raise SystemExit("managed current release missing")
+          release=current.resolve(strict=True)
+          if releases not in release.parents or release.name!=expected:
+              raise SystemExit("runtime revision does not match current main")
+
+          shared=(root/"shared").resolve()
+          data=(shared/"data").resolve()
+          private=(shared/"private").resolve()
+          db=(data/"compliance.sqlite3").resolve()
+          if not db.is_file() or db.is_symlink() or data not in db.parents:
+              raise SystemExit("runtime compliance database invalid")
+          if not (release/"scripts/checkupauto-compliance-seed-baseline.py").is_file():
+              raise SystemExit("runtime compliance seed unavailable")
+          venv_python=release/".venv/bin/python"
+          if not venv_python.is_file():
+              raise SystemExit("runtime virtualenv unavailable")
+
+          env=os.environ.copy()
+          env.update({
+              "CYBERCHECK_DATA_DIR":str(data),
+              "CYBERCHECK_PRIVATE_DIR":str(private),
+              "CYBERCHECK_SECURITY_DIR":str((shared/"security").resolve()),
+              "CYBERCHECK_INTEGRITY_DIR":str((shared/"integrity").resolve()),
+              "CYBERCHECK_SITE_CONFIG_PATH":str(data/"site-config.json"),
+              "CYBERCHECK_MOBILE_PUSH_ENABLED":"0",
+          })
+
+          summary_code=r"""
+          import json
+          import compliance_admin
+          snapshot=compliance_admin.snapshot()
+          s=snapshot.get("summary") or {}
+          out={
+            "activeActivityCount":int((snapshot.get("operations") or {}).get("summary",{}).get("activeActivityCount") or 0),
+            "activeProcessorCount":int((snapshot.get("operations") or {}).get("summary",{}).get("activeProcessorCount") or 0),
+            "operationalBlockerTypes":sorted({str(x.get("type") or "") for x in s.get("operationalBlockers") or [] if isinstance(x,dict)}),
+            "operationalRegisterAttestationCurrent":bool(s.get("operationalRegisterAttestationCurrent")),
+            "processingRiskReviewsReady":bool(s.get("processingRiskReviewsReady")),
+            "identityComplete":bool(s.get("identityComplete")),
+            "publishedDocuments":int(s.get("publishedDocuments") or 0),
+            "requiredDocuments":int(s.get("requiredDocuments") or 0),
+            "checkoutAcceptanceBound":bool(s.get("checkoutAcceptanceBound")),
+            "withdrawalFunctionBound":bool(s.get("withdrawalFunctionBound")),
+            "dataSubjectExecutionBound":bool(s.get("dataSubjectExecutionBound")),
+            "retentionEnforcementBound":bool(s.get("retentionEnforcementBound")),
+            "overdueRightsRequests":int(s.get("overdueRightsRequests") or 0),
+            "overdueIncidentNotifications":int(s.get("overdueIncidentNotifications") or 0),
+            "rightsCompletionGlobalCoverage":bool(s.get("rightsCompletionGlobalCoverage")),
+            "mercureProviderCoverageAttested":bool(s.get("mercureProviderCoverageAttested")),
+            "marketingConsentBound":bool(s.get("marketingConsentBound")),
+            "marketingCampaignsBound":bool(s.get("marketingCampaignsBound")),
+            "localPrivacyInventoryComplete":bool(s.get("localPrivacyInventoryComplete")),
+            "localPrivacyKnownExecutionCoverageComplete":bool(s.get("localPrivacyKnownExecutionCoverageComplete")),
+            "localPrivacyUnresolvedStoreCount":int(s.get("localPrivacyUnresolvedStoreCount") or 0),
+            "phase2Blockers":list(s.get("phase2Blockers") or []),
+            "phase2CoverageReady":bool(s.get("phase2CoverageReady")),
+            "readyForPublicContracting":bool(s.get("readyForPublicContracting")),
+          }
+          print(json.dumps(out,sort_keys=True,separators=(",",":")))
+          """
+
+          before=subprocess.run(
+              [str(venv_python),"-c",summary_code],
+              cwd=release,env=env,text=True,capture_output=True,timeout=90,check=False,
+          )
+          if before.returncode!=0:
+              raise SystemExit("pre-seed compliance snapshot failed")
+          before_state=json.loads(before.stdout.strip())
+          initialized=before_state["activeActivityCount"]>0 or before_state["activeProcessorCount"]>0
+
+          backup_created=False
+          seed_state="already_initialized"
+          if not initialized:
+              backup_dir=private/"compliance-backups"
+              backup_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
+              os.chmod(backup_dir,0o700)
+              stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+              backup=backup_dir/("compliance-before-runtime-baseline-"+stamp+".sqlite3")
+              source=sqlite3.connect("file:"+str(db)+"?mode=ro",uri=True,timeout=10)
+              target=sqlite3.connect(backup,timeout=10)
+              try:
+                  source.backup(target)
+              finally:
+                  target.close()
+                  source.close()
+              os.chmod(backup,0o600)
+              backup_created=True
+
+              seeded=subprocess.run(
+                  [
+                      str(venv_python),
+                      str(release/"scripts/checkupauto-compliance-seed-baseline.py"),
+                      "--db",str(db),
+                      "--confirm","APPLY-REVIEWED-COMPLIANCE-BASELINE",
+                  ],
+                  cwd=release,env=env,text=True,capture_output=True,timeout=90,check=False,
+              )
+              if seeded.returncode!=0:
+                  raise SystemExit("compliance runtime baseline seed failed")
+              seed_result=json.loads(seeded.stdout.strip())
+              if (
+                  seed_result.get("activityCount")!=5
+                  or seed_result.get("processorCount")!=2
+                  or seed_result.get("externalEvidencePending") is not True
+                  or seed_result.get("blockerTypes")!=["processor_dpa_pending"]
+              ):
+                  raise SystemExit("compliance runtime baseline result unexpected")
+              seed_state="seeded"
+
+          after=subprocess.run(
+              [str(venv_python),"-c",summary_code],
+              cwd=release,env=env,text=True,capture_output=True,timeout=90,check=False,
+          )
+          if after.returncode!=0:
+              raise SystemExit("post-seed compliance snapshot failed")
+          after_state=json.loads(after.stdout.strip())
+          out={
+              "schema":"checkupauto.compliance-147-runtime-baseline/v1",
+              "state":seed_state,
+              "runtimeSha":expected,
+              "backupCreated":backup_created,
+              "summary":after_state,
+          }
+          print("CHECKUPAUTO_COMPLIANCE_147="+json.dumps(out,sort_keys=True,separators=(",",":")))
+          PY
