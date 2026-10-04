@@ -39,13 +39,15 @@ def _activation_program(sha: str) -> str:
         raise ValueError("SHA invalide")
     return r'''from __future__ import annotations
 import datetime
+import http.client
 import json
 import os
 from pathlib import Path
+import socket
+import ssl
 import subprocess
 import sys
 import time
-from urllib import request
 
 SHA = __SHA__
 home = Path.home().resolve()
@@ -57,6 +59,7 @@ shared = (private / "shared").resolve()
 app = (home / "checkupauto-test-application").resolve()
 restart = app / "tmp/restart.txt"
 domain = "test.checkupauto.fr"
+origin_ip = "185.221.181.53"
 
 
 def fail(message):
@@ -65,6 +68,31 @@ def fail(message):
 
 def under(path, parent):
     return path == parent or parent in path.parents
+
+
+def origin_get(path, *, limit):
+    if not str(path).startswith("/"):
+        fail("invalid verification path")
+    context = ssl.create_default_context()
+    raw = socket.create_connection((origin_ip, 443), timeout=10)
+    tls = context.wrap_socket(raw, server_hostname=domain)
+    try:
+        request_bytes = (
+            "GET " + path + " HTTP/1.1\r\n"
+            "Host: " + domain + "\r\n"
+            "User-Agent: CheckupAuto-DeployVerify/1\r\n"
+            "Accept: text/html,application/json\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode("ascii")
+        tls.sendall(request_bytes)
+        response = http.client.HTTPResponse(tls)
+        response.begin()
+        body = response.read(limit + 1)
+        if len(body) > limit:
+            fail("verification response too large")
+        return int(response.status), body
+    finally:
+        tls.close()
 
 
 def marker(path):
@@ -182,15 +210,14 @@ try:
     last_error = "unavailable"
     for attempt in range(20):
         try:
-            with request.urlopen("https://" + domain + "/api/app/status", timeout=10) as response:
-                if response.status != 200:
-                    fail("app status invalid")
-                response.read(200000)
+            status, _status_body = origin_get("/api/app/status", limit=200000)
+            if status != 200:
+                fail("app status invalid")
             for path, version in legal.items():
-                with request.urlopen("https://" + domain + path, timeout=10) as response:
-                    if response.status != 200:
-                        fail("legal page status invalid")
-                    body = response.read(300000).decode("utf-8", errors="strict")
+                status, raw_body = origin_get(path, limit=300000)
+                if status != 200:
+                    fail("legal page status invalid")
+                body = raw_body.decode("utf-8", errors="strict")
                 if "Document juridique non publi" in body:
                     fail("unpublished legal placeholder")
                 if version not in body:
