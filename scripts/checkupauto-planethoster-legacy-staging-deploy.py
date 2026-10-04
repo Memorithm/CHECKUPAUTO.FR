@@ -31,6 +31,7 @@ TARGET = {
 }
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _RESULT_PREFIX = "CHECKUPAUTO_LEGACY_ADAPTER_DEPLOY="
+_ACTIVATION_STEP_PREFIX = "CHECKUPAUTO_ACTIVATION_STEP="
 
 
 def _activation_program(sha: str) -> str:
@@ -90,6 +91,7 @@ if not private.is_dir() or not releases.is_dir() or not shared.is_dir():
 if not release.is_dir() or not under(release, releases):
     fail("staged release missing")
 marker(release)
+print("__ACTIVATION_STEP_PREFIX__preflight", flush=True)
 if not (release / ".venv/bin/python").is_file():
     fail("staged Python missing")
 if not (release / "passenger_wsgi.py").is_file():
@@ -120,6 +122,7 @@ env.update({
     "CYBERCHECK_PAYMENT_TEST_ENABLED": "1",
 })
 
+print("__ACTIVATION_STEP_PREFIX__backup", flush=True)
 backup = subprocess.run(
     [
         str(release / ".venv/bin/python"),
@@ -139,6 +142,7 @@ backup = subprocess.run(
 if backup.returncode != 0:
     fail("pre-activation backup failed")
 
+print("__ACTIVATION_STEP_PREFIX__import", flush=True)
 probe = subprocess.run(
     [str(release / ".venv/bin/python"), "-c", "import admin_server,compliance_admin; print('IMPORT_OK')"],
     cwd=release,
@@ -160,10 +164,13 @@ os.symlink(release, incoming)
 
 switched = False
 try:
+    print("__ACTIVATION_STEP_PREFIX__switch", flush=True)
     os.replace(incoming, current)
     switched = True
+    print("__ACTIVATION_STEP_PREFIX__restart", flush=True)
     touch_restart()
 
+    print("__ACTIVATION_STEP_PREFIX__http_verify", flush=True)
     legal = {
         "/mentions-legales": "legacy-rdv-2026-10-04",
         "/confidentialite": "legacy-rdv-2026-10-04",
@@ -197,6 +204,7 @@ try:
     if len(observed) != len(legal):
         fail("post-activation HTTP verification failed: " + last_error)
 
+    print("__ACTIVATION_STEP_PREFIX__compliance", flush=True)
     sys.path.insert(0, str(release))
     import compliance_admin
     snapshot = compliance_admin.snapshot()
@@ -219,6 +227,7 @@ try:
     }, sort_keys=True, separators=(",", ":")))
 except Exception:
     if switched:
+        print("__ACTIVATION_STEP_PREFIX__rollback", flush=True)
         rollback = private / (".rollback-" + str(os.getpid()))
         try:
             rollback.unlink()
@@ -228,7 +237,7 @@ except Exception:
         os.replace(rollback, current)
         touch_restart()
     raise
-'''.replace("__SHA__", repr(sha)).replace("__PREFIX__", repr(_RESULT_PREFIX))
+'''.replace("__SHA__", repr(sha)).replace("__PREFIX__", repr(_RESULT_PREFIX)).replace("__ACTIVATION_STEP_PREFIX__", _ACTIVATION_STEP_PREFIX)
 
 
 def _qualify_n0c_legacy_runtime(target, known_hosts: str, credential, capabilities, *, timeout: int = 30):
@@ -257,6 +266,20 @@ printf 'passenger_adapter=1\n'
     if not python_line or not adapter_ok:
         raise RuntimeError("runtime N0C historique incomplet")
     return replace(capabilities, python_version=python_line, passenger=True)
+
+
+def _last_activation_step(output: str) -> str:
+    allowed = {
+        "preflight", "backup", "import", "switch", "restart",
+        "http_verify", "compliance", "rollback",
+    }
+    last = ""
+    for line in str(output or "").splitlines():
+        if line.startswith(_ACTIVATION_STEP_PREFIX):
+            candidate = line[len(_ACTIVATION_STEP_PREFIX):].strip()
+            if candidate in allowed:
+                last = candidate
+    return last or "unknown"
 
 
 def _parse_result(stdout: str) -> dict:
@@ -313,7 +336,9 @@ def deploy(sha: str, key: str, known_hosts: str) -> dict:
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError("activation legacy échouée")
+        raise RuntimeError(
+            "activation legacy échouée:" + _last_activation_step(result.stdout)
+        )
     return _parse_result(result.stdout)
 
 
