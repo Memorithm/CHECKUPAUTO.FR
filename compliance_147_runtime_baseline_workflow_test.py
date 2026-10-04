@@ -10,7 +10,7 @@ class Compliance147RuntimeBaselineWorkflowTest(unittest.TestCase):
 
     def test_trigger_is_narrow_and_requires_exact_current_main(self):
         self.assertIn("ops/compliance-147-runtime-baseline",self.text)
-        self.assertIn("github.actor == 'CHECKUPAUTO'",self.text)
+        self.assertNotIn("github.actor ==",self.text)
         self.assertIn("ops branch is not exact current main",self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"',self.text)
 
@@ -26,6 +26,8 @@ class Compliance147RuntimeBaselineWorkflowTest(unittest.TestCase):
         self.assertIn("runtime revision does not match current main",self.text)
         self.assertIn("compliance-before-runtime-baseline-",self.text)
         self.assertIn("source.backup(target)",self.text)
+        self.assertIn("backup_source.backup(runtime_target)",self.text)
+        self.assertIn("backup restored",self.text)
         self.assertIn("already_initialized",self.text)
         self.assertIn("APPLY-REVIEWED-COMPLIANCE-BASELINE",self.text)
         self.assertIn('seed_result.get("blockerTypes")!=["processor_dpa_pending"]',self.text)
