@@ -13,7 +13,7 @@ class PublicLegalHttpContractTest(unittest.TestCase):
         self.assertIn("if path in compliance.SLUG_TO_DOCUMENT:", block)
         self.assertIn("self.send_header('Content-Type','text/html; charset=utf-8')", block)
         self.assertIn("self.send_header('Content-Disposition','inline')", block)
-        self.assertIn("'go/booking'", block.replace("/go/booking", "go/booking"))
+        self.assertIn("'/go/booking'", block)
 
     def test_legal_get_responses_are_inline_html_not_json_downloads(self):
         start = self.source.index("  if path in compliance.SLUG_TO_DOCUMENT:")
