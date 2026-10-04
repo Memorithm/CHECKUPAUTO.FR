@@ -82,6 +82,12 @@ class DeploymentTransportTest(unittest.TestCase):
         self.assertNotIn("password", script.lower())
         self.assertNotIn("admin-password", script)
 
+    def test_planethoster_probe_uses_observed_n0c_python_and_passenger_adapter(self):
+        script = transport.remote_probe_script(self.target())
+        self.assertIn("/opt/alt/python312/bin/python3", script)
+        self.assertIn("$HOME/checkupauto-test-application/passenger_wsgi.py", script)
+        self.assertIn("passenger=1", script)
+
     def test_parse_probe_returns_typed_capabilities(self):
         report = transport.parse_probe(
             """CHECKUPAUTO_PROBE_V1
