@@ -14,6 +14,7 @@ import mobile_claim_delivery
 import notification_broker
 import notification_preflight
 import payment_payline_private
+import payment_mode
 import public_surface_provenance
 import referral_engine
 import referral_integrity_audit
@@ -490,56 +491,86 @@ def status(config: dict, seo_health: dict | None = None) -> dict:
             },
         ))
 
-    payment_required = str(os.environ.get("CYBERCHECK_PAYMENT_REQUIRED", "0")).strip().lower() in {"1","true","yes","on"}
-    payment, payment_error = _safe("payment", payment_payline_private.status)
-    if payment_error:
-        components.append(_failed("payment", "Paiement Payline / Monext", payment_required, payment_error))
-    else:
-        configured = bool(payment.get("configured"))
-        configuration_valid = bool(payment.get("configurationValid"))
-        credentials_verified = bool(payment.get("credentialsVerified"))
-        contract_verified = bool(payment.get("contractBindingVerified"))
-        checkout_bound = bool(payment.get("checkoutBound"))
-        callbacks_bound = bool(payment.get("callbacksBound"))
-        live_enabled = bool(payment.get("livePaymentsEnabled"))
-        if not payment_required:
-            payment_state = "ready"
-            payment_detail = "Encaissement en ligne non requis par la configuration de cet environnement"
-        elif not configured or not configuration_valid:
-            payment_state = "configuration_required"
-            payment_detail = "Configuration privée Payline / Monext à installer hors Git"
-        elif not credentials_verified or not contract_verified:
-            payment_state = "blocked_external"
-            payment_detail = "Homologation Monext à vérifier avec les identifiants et le contrat marchand"
-        elif not checkout_bound or not callbacks_bound:
-            payment_state = "degraded"
-            payment_detail = "Chaîne checkout ou callbacks bancaires incomplète"
-        elif not live_enabled:
-            payment_state = "blocked_external"
-            payment_detail = "Homologation prête mais encaissement réel non activé"
-        else:
-            payment_state = "ready"
-            payment_detail = "Paiement Payline / Monext prêt pour l’encaissement"
+    payment_architecture = payment_mode.status(config)
+    delegated_payment = (
+        payment_architecture.get("mode") == payment_mode.MERCUREWEB_DELEGATED
+        and payment_architecture.get("delegated") is True
+        and payment_architecture.get("valid") is True
+    )
+    payment_required = (
+        str(os.environ.get("CYBERCHECK_PAYMENT_REQUIRED", "0")).strip().lower()
+        in {"1","true","yes","on"}
+        and not delegated_payment
+    )
+    if delegated_payment:
         components.append(_component(
             "payment",
-            "Paiement Payline / Monext",
-            payment_state,
-            payment_detail,
-            critical=payment_required,
+            "Paiement MercureWeb",
+            "ready",
+            "Réservation et paiement délégués au parcours MercureWeb actif",
+            critical=False,
             metrics={
-                "required": payment_required,
-                "environment": payment.get("environment"),
-                "configured": configured,
-                "configurationValid": configuration_valid,
-                "credentialsVerified": credentials_verified,
-                "contractBindingVerified": contract_verified,
-                "transportImplemented": bool(payment.get("transportImplemented")),
-                "checkoutBound": checkout_bound,
-                "callbacksBound": callbacks_bound,
-                "livePaymentsEnabled": live_enabled,
-                "blockingReasons": list(payment.get("blockingReasons") or [])[:10],
+                "required": False,
+                "mode": payment_mode.MERCUREWEB_DELEGATED,
+                "delegated": True,
+                "configurationValid": True,
+                "checkoutBound": True,
+                "callbacksBound": True,
+                "livePaymentsEnabled": False,
             },
         ))
+    else:
+        payment, payment_error = _safe("payment", payment_payline_private.status)
+        if payment_error:
+            components.append(_failed("payment", "Paiement Payline / Monext", payment_required, payment_error))
+        else:
+            configured = bool(payment.get("configured"))
+            configuration_valid = bool(payment.get("configurationValid"))
+            credentials_verified = bool(payment.get("credentialsVerified"))
+            contract_verified = bool(payment.get("contractBindingVerified"))
+            checkout_bound = bool(payment.get("checkoutBound"))
+            callbacks_bound = bool(payment.get("callbacksBound"))
+            live_enabled = bool(payment.get("livePaymentsEnabled"))
+            if not payment_required:
+                payment_state = "ready"
+                payment_detail = "Encaissement en ligne non requis par la configuration de cet environnement"
+            elif not configured or not configuration_valid:
+                payment_state = "configuration_required"
+                payment_detail = "Configuration privée Payline / Monext à installer hors Git"
+            elif not credentials_verified or not contract_verified:
+                payment_state = "blocked_external"
+                payment_detail = "Homologation Monext à vérifier avec les identifiants et le contrat marchand"
+            elif not checkout_bound or not callbacks_bound:
+                payment_state = "degraded"
+                payment_detail = "Chaîne checkout ou callbacks bancaires incomplète"
+            elif not live_enabled:
+                payment_state = "blocked_external"
+                payment_detail = "Homologation prête mais encaissement réel non activé"
+            else:
+                payment_state = "ready"
+                payment_detail = "Paiement Payline / Monext prêt pour l’encaissement"
+            components.append(_component(
+                "payment",
+                "Paiement Payline / Monext",
+                payment_state,
+                payment_detail,
+                critical=payment_required,
+                metrics={
+                    "required": payment_required,
+                    "mode": payment_mode.PAYLINE,
+                    "delegated": False,
+                    "environment": payment.get("environment"),
+                    "configured": configured,
+                    "configurationValid": configuration_valid,
+                    "credentialsVerified": credentials_verified,
+                    "contractBindingVerified": contract_verified,
+                    "transportImplemented": bool(payment.get("transportImplemented")),
+                    "checkoutBound": checkout_bound,
+                    "callbacksBound": callbacks_bound,
+                    "livePaymentsEnabled": live_enabled,
+                    "blockingReasons": list(payment.get("blockingReasons") or [])[:10],
+                },
+            ))
 
     reminder, error = _safe("reminder", reminder_dispatch.status)
     if error:
