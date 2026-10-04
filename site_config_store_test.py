@@ -42,6 +42,37 @@ class SiteConfigStoreTest(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o777, 0o640)
             self.assertEqual(list(target.parent.glob("site-config.*.json")), [])
 
+    def test_save_accepts_exact_mercureweb_delegation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"site-config.json"
+            config={
+                "seo":{"canonicalUrl":"https://www.checkupauto.fr/"},
+                "business":{
+                    "bookingMode":"mercureweb-delegated",
+                    "bookingUrl":"https://rdv.checkupauto.fr/",
+                },
+            }
+            store.save(config,runtime_path=target)
+            self.assertEqual(store.load(runtime_path=target)["business"]["bookingMode"],"mercureweb-delegated")
+
+    def test_save_rejects_foreign_or_insecure_delegated_booking_origin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"site-config.json"
+            for url in (
+                "http://rdv.checkupauto.fr/",
+                "https://example.com/",
+                "https://rdv.checkupauto.fr.evil.test/",
+                "https://user@rdv.checkupauto.fr/",
+                "https://rdv.checkupauto.fr/?x=1",
+            ):
+                with self.subTest(url=url):
+                    config={
+                        "seo":{"canonicalUrl":"https://www.checkupauto.fr/"},
+                        "business":{"bookingMode":"mercureweb-delegated","bookingUrl":url},
+                    }
+                    with self.assertRaisesRegex(ValueError,"MercureWeb"):
+                        store.save(config,runtime_path=target)
+
     def test_save_accepts_production_canonical_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "site-config.json"
