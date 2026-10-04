@@ -76,7 +76,7 @@ def healthy_patches():
 
 
 class ProductionReadinessTest(unittest.TestCase):
-    def _run_with(self, patches, seo=SEO_READY):
+    def _run_with(self, patches, seo=SEO_READY, config=CONFIG):
         audit_patcher = mock.patch.object(readiness.referral_integrity_audit, "status", return_value={
             "ok": True, "state": "ready", "issues": 0, "metrics": {"accountsInDebt": 0},
         })
@@ -85,7 +85,7 @@ class ProductionReadinessTest(unittest.TestCase):
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)
-        return readiness.status(CONFIG, seo)
+        return readiness.status(config, seo)
 
     def test_all_ready_is_launch_ready(self):
         result = self._run_with(healthy_patches())
