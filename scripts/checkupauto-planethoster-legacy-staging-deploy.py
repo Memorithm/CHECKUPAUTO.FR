@@ -277,7 +277,7 @@ def _last_activation_step(output: str) -> str:
     for line in str(output or "").splitlines():
         if line.startswith(_ACTIVATION_STEP_PREFIX):
             candidate = line[len(_ACTIVATION_STEP_PREFIX):].strip()
-            if candidate in allowed:
+            if candidate in allowed and candidate != "rollback":
                 last = candidate
     return last or "unknown"
 
