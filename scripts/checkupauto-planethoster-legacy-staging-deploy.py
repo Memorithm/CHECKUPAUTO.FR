@@ -232,10 +232,44 @@ try:
         fail("post-activation HTTP verification failed: " + last_error)
 
     print("__ACTIVATION_STEP_PREFIX__compliance", flush=True)
-    sys.path.insert(0, str(release))
-    import compliance_admin
-    snapshot = compliance_admin.snapshot()
-    summary = snapshot.get("summary") or {}
+    compliance_code = r"""
+import json
+import compliance_admin
+summary=(compliance_admin.snapshot().get("summary") or {})
+out={
+    "phase2CoverageReady":bool(summary.get("phase2CoverageReady")),
+    "readyForPublicContracting":bool(summary.get("readyForPublicContracting")),
+    "phase2Blockers":[str(x) for x in summary.get("phase2Blockers") or []],
+    "operationalBlockerTypes":[
+        str(row.get("type") or "")
+        for row in summary.get("operationalBlockers") or []
+        if isinstance(row,dict)
+    ],
+}
+print(json.dumps(out,sort_keys=True,separators=(",",":")))
+"""
+    compliance_probe = subprocess.run(
+        [str(release / ".venv/bin/python"), "-c", compliance_code],
+        cwd=release,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    if compliance_probe.returncode != 0:
+        fail("compliance snapshot failed")
+    try:
+        summary = json.loads(compliance_probe.stdout.strip())
+    except Exception:
+        fail("compliance snapshot invalid")
+    if set(summary) != {
+        "phase2CoverageReady",
+        "readyForPublicContracting",
+        "phase2Blockers",
+        "operationalBlockerTypes",
+    }:
+        fail("compliance snapshot schema invalid")
 
     print(__PREFIX__ + json.dumps({
         "ok": True,
@@ -246,11 +280,7 @@ try:
         "phase2CoverageReady": bool(summary.get("phase2CoverageReady")),
         "readyForPublicContracting": bool(summary.get("readyForPublicContracting")),
         "phase2Blockers": list(summary.get("phase2Blockers") or []),
-        "operationalBlockerTypes": [
-            str(row.get("type") or "")
-            for row in summary.get("operationalBlockers") or []
-            if isinstance(row, dict)
-        ],
+        "operationalBlockerTypes": list(summary.get("operationalBlockerTypes") or []),
     }, sort_keys=True, separators=(",", ":")))
 except Exception:
     if switched:
