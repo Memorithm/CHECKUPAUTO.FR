@@ -266,7 +266,9 @@ class Handler(SimpleHTTPRequestHandler):
  def do_HEAD(self):
   if not self._guard(): return
   path=urlparse(self.path).path
-  dynamic={'/','/index.html','/app','/demo','/compte','/payment/test','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/mentions-legales','/confidentialite','/cookies','/cgv','/retractation','/contact'}
+  if path in compliance.SLUG_TO_DOCUMENT:
+   self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Disposition','inline'); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
+  dynamic={'/','/index.html','/app','/demo','/compte','/payment/test','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/contact','/go/booking'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
@@ -547,10 +549,10 @@ class Handler(SimpleHTTPRequestHandler):
    doc=compliance.public_document_for_path(path)
    if path=='/retractation':
     cfg=load_config(); origin=canonical_origin(cfg['seo']['canonicalUrl'])
-    return self.send_bytes(withdrawals.render_page(doc,canonical_origin=origin,indexing_enabled=bool(cfg['seo'].get('indexingEnabled'))),'text/html; charset=utf-8',cache='no-cache')
+    return self.send_bytes(withdrawals.render_page(doc,canonical_origin=origin,indexing_enabled=bool(cfg['seo'].get('indexingEnabled'))),'text/html; charset=utf-8',cache='no-cache',headers={'Content-Disposition':'inline'})
    if not doc:
     return self.send_bytes(b'Document juridique non publie','text/plain; charset=utf-8',404,'no-store')
-   return self.send_bytes(render_legal_document(doc,load_config()),'text/html; charset=utf-8',cache='no-cache')
+   return self.send_bytes(render_legal_document(doc,load_config()),'text/html; charset=utf-8',cache='no-cache',headers={'Content-Disposition':'inline'})
   if path=='/zone-tarifs':
    return self.send_bytes(build_geo_pricing_page(load_config()),'text/html; charset=utf-8',cache='no-cache')
   if path=='/app/claim':
