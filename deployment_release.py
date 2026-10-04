@@ -17,6 +17,7 @@ from deployment_center import CapabilityReport, DeploymentTarget, assess
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _STAGE_OK_PREFIX = "CHECKUPAUTO_STAGE_OK="
 _STAGE_PATH_PREFIX = "CHECKUPAUTO_STAGE_PATH="
+_STAGE_STEP_PREFIX = "CHECKUPAUTO_STAGE_STEP="
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,7 @@ def remote_stage_script(target: DeploymentTarget, bundle: ReleaseBundle) -> str:
         "__ARCHIVE_PAYLOAD__": base64.b64encode(bundle.archive).decode("ascii"),
         "__STAGE_OK_PREFIX__": _STAGE_OK_PREFIX,
         "__STAGE_PATH_PREFIX__": _STAGE_PATH_PREFIX,
+        "__STAGE_STEP_PREFIX__": _STAGE_STEP_PREFIX,
     }
     script = """set -eu
 umask 077
@@ -155,11 +157,13 @@ checkupauto_python=__REMOTE_PYTHON__
 case "$root" in /*|*../*|../*|*'/..') echo 'invalid private root' >&2; exit 20 ;; esac
 private_root="$HOME/$root"
 releases="$private_root/releases"
+printf '__STAGE_STEP_PREFIX__layout\n'
 release="$releases/$sha"
 shared="$private_root/shared"
 mkdir -p "$releases" "$shared/data" "$shared/private" "$shared/security" "$shared/integrity" "$shared/logs"
 chmod 700 "$private_root" "$releases" "$shared" "$shared/data" "$shared/private" "$shared/security" "$shared/integrity" "$shared/logs"
 if [ -e "$release" ]; then
+  printf '__STAGE_STEP_PREFIX__existing_release\n'
   "$checkupauto_python" - "$release" "$sha" "$expected_digest" <<'CHECKUPAUTO_VERIFY_EXISTING'
 from __future__ import annotations
 import json
@@ -183,10 +187,12 @@ fi
 incoming="$releases/.incoming-$sha-$$"
 trap 'rm -rf "$incoming"' EXIT HUP INT TERM
 mkdir "$incoming"
+printf '__STAGE_STEP_PREFIX__archive_transfer\n'
 cat > "$incoming/archive.b64" <<'CHECKUPAUTO_ARCHIVE'
 __ARCHIVE_PAYLOAD__
 CHECKUPAUTO_ARCHIVE
 mkdir "$incoming/release"
+printf '__STAGE_STEP_PREFIX__archive_extract\n'
 "$checkupauto_python" - "$incoming/archive.b64" "$incoming/release" "$expected_digest" <<'CHECKUPAUTO_EXTRACT'
 from __future__ import annotations
 import base64
@@ -240,9 +246,13 @@ candidate="$incoming/release"
 [ -f "$candidate/passenger_wsgi.py" ] || { echo 'Passenger entrypoint missing from release' >&2; exit 22; }
 [ -f "$candidate/scripts/checkupauto-shared-tick.py" ] || { echo 'shared scheduler missing from release' >&2; exit 23; }
 [ -f "$candidate/scripts/checkupauto-update-safety.py" ] || { echo 'update safety helper missing from release' >&2; exit 24; }
+printf '__STAGE_STEP_PREFIX__venv\n'
 "$checkupauto_python" -m venv "$candidate/.venv"
+printf '__STAGE_STEP_PREFIX__dependencies\n'
 "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
+printf '__STAGE_STEP_PREFIX__compile\n'
 "$candidate/.venv/bin/python" -m compileall -q "$candidate"
+printf '__STAGE_STEP_PREFIX__marker\n'
 "$checkupauto_python" - "$candidate/.checkupauto-release.json" "$sha" "$expected_digest" <<'CHECKUPAUTO_MARK'
 from __future__ import annotations
 import json
@@ -259,6 +269,7 @@ payload = {
 path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
 os.chmod(path, 0o600)
 CHECKUPAUTO_MARK
+printf '__STAGE_STEP_PREFIX__commit\n'
 mv "$candidate" "$release"
 printf '__STAGE_OK_PREFIX__%s\n' "$sha"
 printf '__STAGE_PATH_PREFIX__%s\n' "$release"
@@ -283,6 +294,20 @@ def _parse_stage_output(output: str, bundle: ReleaseBundle) -> StageResult:
         archive_sha256=bundle.sha256,
         file_count=bundle.file_count,
     )
+
+
+def _last_stage_step(output: str) -> str:
+    allowed = {
+        "layout", "existing_release", "archive_transfer", "archive_extract",
+        "venv", "dependencies", "compile", "marker", "commit",
+    }
+    last = ""
+    for line in str(output or "").splitlines():
+        if line.startswith(_STAGE_STEP_PREFIX):
+            candidate = line[len(_STAGE_STEP_PREFIX):].strip()
+            if candidate in allowed:
+                last = candidate
+    return last or "unknown"
 
 
 def stage_release(
@@ -319,5 +344,6 @@ def stage_release(
             check=False,
         )
     if result.returncode != 0:
-        raise RuntimeError("staging distant de la release impossible")
+        step = _last_stage_step(result.stdout)
+        raise RuntimeError("staging distant de la release impossible:" + step)
     return _parse_stage_output(result.stdout, bundle)
