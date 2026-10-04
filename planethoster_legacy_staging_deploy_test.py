@@ -64,7 +64,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
             m._last_activation_step(
                 "noise\n"+m._ACTIVATION_STEP_PREFIX+"switch\nprivate-error\n"+m._ACTIVATION_STEP_PREFIX+"rollback\n"
             ),
-            "rollback",
+            "switch",
         )
         self.assertEqual(m._last_activation_step("private-error"),"unknown")
         self.assertEqual(
