@@ -70,7 +70,7 @@ class DeploymentUpdateTest(unittest.TestCase):
 
     def test_generic_remote_state_requires_supported_python(self):
         generic = center.validate_target({
-            "provider": "hostinger-vps",
+            "provider": "generic-ssh",
             "host": "ssh.example.net",
             "username": "checkup",
             "domain": "www.checkupauto.fr",
