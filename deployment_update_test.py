@@ -56,12 +56,23 @@ class DeploymentUpdateTest(unittest.TestCase):
         self.assertIn(".checkupauto", script)
         self.assertIn(".checkupauto-release.json", script)
         self.assertIn("current.resolve", script)
-        self.assertIn("command -v python3", script)
-        self.assertIn("/opt/alt/python312/bin/python3", script)
-        self.assertIn('"$checkupauto_python" -', script)
+        self.assertTrue(script.startswith("/opt/alt/python312/bin/python3 - <<'CHECKUPAUTO_UPDATE_STATE'"))
+        self.assertNotIn("command -v python3", script)
         self.assertNotIn("rmtree(", script)
         self.assertNotIn("unlink(", script)
         self.assertNotIn("write_text(", script)
+
+    def test_non_n0c_remote_state_keeps_generic_python3(self):
+        target = center.validate_target({
+            "provider": "hostinger-vps",
+            "host": "vps.example.net",
+            "username": "root",
+            "domain": "stage.example.net",
+            "rootPath": "/srv/checkupauto",
+            "authMode": "key",
+        })
+        script = updates.remote_state_script(target)
+        self.assertTrue(script.startswith("python3 - <<'CHECKUPAUTO_UPDATE_STATE'"))
 
     def test_parse_remote_state_validates_active_release(self):
         state = updates._parse_remote_state(self.encoded_state())
