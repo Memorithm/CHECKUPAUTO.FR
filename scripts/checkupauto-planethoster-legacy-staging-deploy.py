@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -230,6 +231,34 @@ except Exception:
 '''.replace("__SHA__", repr(sha)).replace("__PREFIX__", repr(_RESULT_PREFIX))
 
 
+def _qualify_n0c_legacy_runtime(target, known_hosts: str, credential, capabilities, *, timeout: int = 30):
+    args = deployment_transport.ssh_arguments(target, known_hosts, credential)
+    script = r'''set -eu
+py=/opt/alt/python312/bin/python3
+adapter="$HOME/checkupauto-test-application/passenger_wsgi.py"
+test -x "$py"
+test -f "$adapter"
+"$py" --version
+printf 'passenger_adapter=1\n'
+'''
+    result = subprocess.run(
+        [*args, "sh", "-s"],
+        input=script,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("runtime N0C historique non vérifiable")
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    python_line = next((line for line in lines if line.startswith("Python ")), "")
+    adapter_ok = "passenger_adapter=1" in lines
+    if not python_line or not adapter_ok:
+        raise RuntimeError("runtime N0C historique incomplet")
+    return replace(capabilities, python_version=python_line, passenger=True)
+
+
 def _parse_result(stdout: str) -> dict:
     for line in str(stdout or "").splitlines():
         if line.startswith(_RESULT_PREFIX):
@@ -252,6 +281,10 @@ def deploy(sha: str, key: str, known_hosts: str) -> dict:
         shared_host_tick=(ROOT / "scripts/checkupauto-shared-tick.py").is_file(),
         timeout=30,
     )
+    if target.provider == "planethoster-n0c":
+        capabilities = _qualify_n0c_legacy_runtime(
+            target, known_hosts, credential, capabilities, timeout=30
+        )
     readiness = deployment_center.assess(target, capabilities)
     if not readiness.get("ok"):
         raise RuntimeError("cible PlanetHoster non prête: " + ",".join(readiness.get("blockers") or []))
