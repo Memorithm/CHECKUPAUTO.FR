@@ -50,8 +50,10 @@ jobs:
           CHECKUPAUTO_IMAGE_TAG: preflight
         run: |
           set -euo pipefail
-          docker compose -f deploy/hostinger/docker-compose.yml config >/tmp/checkupauto-hostinger-compose.yml
-          grep -q 'checkupauto-staging-web' /tmp/checkupauto-hostinger-compose.yml
-          grep -q 'stage.179.198.210.187.sslip.io' /tmp/checkupauto-hostinger-compose.yml
-          docker compose -f deploy/hostinger/public-redirect.compose.yml config >/tmp/checkupauto-public-redirect-compose.yml
+          compose_model="$RUNNER_TEMP/checkupauto-hostinger-compose.yml"
+          redirect_model="$RUNNER_TEMP/checkupauto-public-redirect-compose.yml"
+          docker compose -f deploy/hostinger/docker-compose.yml config >"$compose_model"
+          grep -q 'checkupauto-staging-web' "$compose_model"
+          grep -q 'stage.179.198.210.187.sslip.io' "$compose_model"
+          docker compose -f deploy/hostinger/public-redirect.compose.yml config >"$redirect_model"
           echo "HOSTINGER_STAGING_PREFLIGHT_OK"
