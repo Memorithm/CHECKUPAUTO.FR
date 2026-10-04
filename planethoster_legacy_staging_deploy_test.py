@@ -56,6 +56,22 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn("/opt/alt/python312/bin/python3",run.call_args.kwargs["input"])
         self.assertIn("checkupauto-test-application/passenger_wsgi.py",run.call_args.kwargs["input"])
 
+    def test_activation_progress_is_bounded(self):
+        text=m._activation_program("c"*40)
+        for step in ("preflight","backup","import","switch","restart","http_verify","compliance","rollback"):
+            self.assertIn(m._ACTIVATION_STEP_PREFIX+step,text)
+        self.assertEqual(
+            m._last_activation_step(
+                "noise\n"+m._ACTIVATION_STEP_PREFIX+"switch\nprivate-error\n"+m._ACTIVATION_STEP_PREFIX+"rollback\n"
+            ),
+            "rollback",
+        )
+        self.assertEqual(m._last_activation_step("private-error"),"unknown")
+        self.assertEqual(
+            m._last_activation_step(m._ACTIVATION_STEP_PREFIX+"/home/private"),
+            "unknown",
+        )
+
     def test_invalid_sha_is_rejected(self):
         with self.assertRaises(ValueError):
             m._activation_program("bad")
