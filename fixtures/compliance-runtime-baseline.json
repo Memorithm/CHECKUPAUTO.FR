@@ -1,0 +1,271 @@
+{
+  "schema": "checkupauto.compliance-runtime-baseline/v1",
+  "reviewDate": "2026-10-04",
+  "reviewDueAt": "2027-04-04",
+  "processingActivities": [
+    {
+      "id": "customer_identity_accounts",
+      "name": "Comptes clients et authentification fédérée",
+      "role": "controller",
+      "purposes": [
+        "Créer et sécuriser l’espace client",
+        "Authentifier le client via Apple ou Google",
+        "Maintenir une session CheckupAuto limitée dans le temps"
+      ],
+      "dataCategories": [
+        "identité fournisseur",
+        "nom",
+        "adresse e-mail",
+        "identifiant de compte",
+        "jeton de session"
+      ],
+      "dataSubjects": [
+        "clients et prospects créant un compte"
+      ],
+      "legalBases": [
+        "exécution du contrat ou mesures précontractuelles",
+        "intérêt légitime de sécurisation du compte"
+      ],
+      "recipients": [
+        "personnel habilité CHECK UP AUTO",
+        "fournisseurs d’identité choisis par l’utilisateur"
+      ],
+      "transfers": [],
+      "retention": "Selon les politiques de compte, session et droits applicables ; les jetons de session sont temporaires et révocables.",
+      "securityControls": [
+        "OIDC state/nonce/PKCE",
+        "validation cryptographique des jetons",
+        "cookies Secure HttpOnly",
+        "Keychain iOS",
+        "journalisation bornée"
+      ],
+      "systems": [
+        "CheckupAuto Web",
+        "CheckupAuto iOS",
+        "Apple Sign in",
+        "Google OIDC"
+      ],
+      "owner": "CHECK UP AUTO - Responsable conformité",
+      "riskLevel": "standard",
+      "dpiaStatus": "not_required",
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    },
+    {
+      "id": "booking_payment_mercure",
+      "name": "Réservation, paiement et exécution du contrôle technique",
+      "role": "controller",
+      "purposes": [
+        "Réserver un contrôle technique",
+        "Transmettre la réservation au système Mercure",
+        "Gérer le paiement et la preuve contractuelle",
+        "Exécuter les obligations réglementaires du contrôle technique"
+      ],
+      "dataCategories": [
+        "identité",
+        "coordonnées",
+        "données véhicule",
+        "rendez-vous",
+        "référence contractuelle",
+        "état de paiement"
+      ],
+      "dataSubjects": [
+        "clients du centre",
+        "propriétaires ou présentateurs de véhicules"
+      ],
+      "legalBases": [
+        "exécution du contrat",
+        "obligation légale liée au contrôle technique"
+      ],
+      "recipients": [
+        "personnel habilité CHECK UP AUTO",
+        "AutoBilan-Systems / Mercure",
+        "prestataire de paiement lorsque applicable",
+        "autorités lorsque la réglementation l’impose"
+      ],
+      "transfers": [],
+      "retention": "Selon les obligations réglementaires du contrôle technique, la preuve contractuelle et les politiques de conservation validées dans Compliance Center.",
+      "securityControls": [
+        "séparation faits Mercure / conseils CheckupAuto",
+        "accès authentifié",
+        "paiement délégué",
+        "audit des consentements CGV",
+        "pas de PDF Mercure livré au client"
+      ],
+      "systems": [
+        "CheckupAuto",
+        "MercureVL",
+        "MercureWeb",
+        "paiement"
+      ],
+      "owner": "CHECK UP AUTO - Responsable conformité",
+      "riskLevel": "standard",
+      "dpiaStatus": "not_required",
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    },
+    {
+      "id": "customer_inspection_summary",
+      "name": "Synthèse client du contrôle technique",
+      "role": "controller",
+      "purposes": [
+        "Restituer au client authentifié les faits de son contrôle",
+        "Fournir des explications CheckupAuto distinctes des données officielles Mercure"
+      ],
+      "dataCategories": [
+        "résultats de contrôle technique",
+        "données véhicule minimisées",
+        "références client et rendez-vous"
+      ],
+      "dataSubjects": [
+        "clients ayant réalisé un contrôle technique"
+      ],
+      "legalBases": [
+        "exécution du contrat",
+        "intérêt légitime d’accompagnement du client"
+      ],
+      "recipients": [
+        "client authentifié concerné",
+        "personnel habilité CHECK UP AUTO"
+      ],
+      "transfers": [],
+      "retention": "Copie applicative minimisée selon la politique de conservation ; le procès-verbal PDF Mercure n’est pas distribué par CheckupAuto.",
+      "securityControls": [
+        "contrôle d’appartenance côté serveur",
+        "minimisation des champs",
+        "chiffrement des copies applicatives lorsque configuré",
+        "interdiction de livraison du PDF Mercure",
+        "disclaimer séparant conseil et diagnostic"
+      ],
+      "systems": [
+        "CheckupAuto espace client",
+        "passerelle Mercure"
+      ],
+      "owner": "CHECK UP AUTO - Responsable conformité",
+      "riskLevel": "standard",
+      "dpiaStatus": "not_required",
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    },
+    {
+      "id": "notifications_marketing",
+      "name": "Rappels transactionnels et communications marketing",
+      "role": "controller",
+      "purposes": [
+        "Envoyer les rappels liés au rendez-vous et au contrôle",
+        "Envoyer des communications marketing uniquement avec consentement explicite par canal"
+      ],
+      "dataCategories": [
+        "adresse e-mail",
+        "identifiant d’installation",
+        "préférences et preuve de consentement",
+        "état de livraison pseudonymisé"
+      ],
+      "dataSubjects": [
+        "clients et prospects ayant fourni un canal de contact"
+      ],
+      "legalBases": [
+        "exécution du contrat pour les notifications transactionnelles",
+        "consentement pour les communications marketing"
+      ],
+      "recipients": [
+        "personnel habilité CHECK UP AUTO",
+        "prestataires de transport de notification configurés"
+      ],
+      "transfers": [],
+      "retention": "Preuves de consentement et états de livraison selon les politiques de conservation configurées ; suppression/opposition appliquée aux retries marketing.",
+      "securityControls": [
+        "séparation transactionnel/marketing",
+        "consentement positif versionné",
+        "suppression privacy fail-closed",
+        "identifiants de livraison hachés"
+      ],
+      "systems": [
+        "NotificationBroker",
+        "ReminderEngine",
+        "CheckupAuto Web",
+        "CheckupAuto iOS"
+      ],
+      "owner": "CHECK UP AUTO - Responsable conformité",
+      "riskLevel": "standard",
+      "dpiaStatus": "not_required",
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    },
+    {
+      "id": "compliance_rights_withdrawal",
+      "name": "Conformité, droits RGPD et rétractation",
+      "role": "controller",
+      "purposes": [
+        "Traiter les demandes de droits",
+        "Conserver les preuves de conformité nécessaires",
+        "Recevoir et accuser les déclarations de rétractation"
+      ],
+      "dataCategories": [
+        "identité de demandeur vérifiée",
+        "référence de contrat",
+        "preuve de consentement",
+        "preuve de rétractation",
+        "empreintes de preuves et audits"
+      ],
+      "dataSubjects": [
+        "clients, prospects et demandeurs de droits"
+      ],
+      "legalBases": [
+        "obligation légale",
+        "défense des droits en justice lorsqu’applicable"
+      ],
+      "recipients": [
+        "personnel habilité CHECK UP AUTO",
+        "autorités compétentes lorsqu’une obligation l’impose"
+      ],
+      "transfers": [],
+      "retention": "Selon les politiques de conservation juridiquement validées dans Compliance Center ; purge physique lorsque la politique applicable l’autorise.",
+      "securityControls": [
+        "audit par SHA-256",
+        "plans DSAR fail-closed",
+        "minimisation des identifiants",
+        "MFA administration",
+        "rétractation avec accusé durable"
+      ],
+      "systems": [
+        "Compliance Center",
+        "rights dispatcher",
+        "withdrawal service"
+      ],
+      "owner": "CHECK UP AUTO - Responsable conformité",
+      "riskLevel": "standard",
+      "dpiaStatus": "not_required",
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    }
+  ],
+  "processors": [
+    {
+      "id": "autobilan_mercure",
+      "name": "AutoBilan-Systems / Mercure",
+      "service": "Planning MercureWeb, logiciel Mercure et traitements nécessaires à la réservation et au contrôle technique",
+      "dpaStatus": "pending",
+      "hostingLocation": "France selon les mentions publiques actives de MercureWeb ; périmètre contractuel en cours de confirmation",
+      "transferRequired": false,
+      "transferMechanism": "",
+      "subprocessors": [
+        "KALANDA - hébergeur déclaré dans les mentions publiques actives MercureWeb ; périmètre contractuel en cours de confirmation"
+      ],
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    },
+    {
+      "id": "planethoster",
+      "name": "PlanetHoster",
+      "service": "Hébergement du nouveau site CheckupAuto et environnement de test",
+      "dpaStatus": "pending",
+      "hostingLocation": "Infrastructure PlanetHoster/N0C utilisée par CheckupAuto ; localisation contractuelle et accès support à confirmer dans le DPA",
+      "transferRequired": false,
+      "transferMechanism": "",
+      "subprocessors": [],
+      "reviewDueAt": "2027-04-04",
+      "status": "active"
+    }
+  ]
+}
