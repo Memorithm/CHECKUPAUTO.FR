@@ -33,7 +33,7 @@ class CurrentSiteLegalAddendaTest(unittest.TestCase):
         self.assertIn("1 rue Niépce", body)
         self.assertIn("Tarek Zekriti", body)
         self.assertIn("PlanetHoster", body)
-        self.assertIn("ne vaut pas attestation d’un médiateur", body)
+        self.assertIn("ne vaut pas attestation d'un médiateur", body)
 
     def test_privacy_addendum_describes_actual_federated_and_ios_boundaries(self):
         body = legacy_legal_baseline.current_scope_addendum("privacy")["body"]
