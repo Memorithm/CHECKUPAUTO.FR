@@ -100,6 +100,24 @@ class ProductionReadinessTest(unittest.TestCase):
         self.assertEqual(result["counts"]["ready"], len(result["components"]))
         self.assertTrue(all(item["remediation"] is None for item in result["components"]))
 
+    def test_mercureweb_delegated_payment_is_ready_even_when_legacy_env_requires_payment(self):
+        config={
+            "seo":{"canonicalUrl":"https://www.checkupauto.fr/"},
+            "business":{
+                "bookingMode":"mercureweb-delegated",
+                "bookingUrl":"https://rdv.checkupauto.fr/",
+            },
+        }
+        with mock.patch.dict(readiness.os.environ, {"CYBERCHECK_PAYMENT_REQUIRED":"1"}, clear=False):
+            result=self._run_with(healthy_patches(), config=config)
+        payment=next(item for item in result["components"] if item["id"]=="payment")
+        self.assertEqual(payment["state"],"ready")
+        self.assertFalse(payment["critical"])
+        self.assertFalse(payment["metrics"]["required"])
+        self.assertTrue(payment["metrics"]["delegated"])
+        self.assertEqual(payment["metrics"]["mode"],"mercureweb-delegated")
+        self.assertNotIn("payment",result["criticalBlockers"])
+
     def test_payment_is_visible_but_not_blocking_when_not_required(self):
         with mock.patch.dict(readiness.os.environ, {"CYBERCHECK_PAYMENT_REQUIRED":"0"}, clear=False):
             result = self._run_with(healthy_patches())
