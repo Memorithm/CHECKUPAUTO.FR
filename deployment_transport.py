@@ -96,7 +96,10 @@ def ssh_arguments(
 def remote_probe_script(target: DeploymentTarget) -> str:
     root = shlex.quote(target.root_path)
     web_root = shlex.quote(target.web_root_path)
-    runtime_probe = """{runtime_probe}"""
+    runtime_probe = """python_value="$(python3 --version 2>&1 || true)"
+node_value="$(node --version 2>&1 || true)"
+if command -v passenger-config >/dev/null 2>&1 || command -v passenger >/dev/null 2>&1; then passenger=1; else passenger=0; fi
+"""
     if target.provider == "planethoster-n0c":
         runtime_probe = """python_value="$(python3 --version 2>&1 || true)"
 if [ -z "$python_value" ] && [ -x /opt/alt/python312/bin/python3 ]; then
@@ -119,10 +122,7 @@ probe_parent="$root"
 if [ ! -d "$probe_parent" ]; then
   probe_parent="$(dirname "$root")"
 fi
-python_value="$(python3 --version 2>&1 || true)"
-node_value="$(node --version 2>&1 || true)"
-if command -v passenger-config >/dev/null 2>&1 || command -v passenger >/dev/null 2>&1; then passenger=1; else passenger=0; fi
-if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemd=1; else systemd=0; fi
+{runtime_probe}if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemd=1; else systemd=0; fi
 if command -v crontab >/dev/null 2>&1; then cron=1; else cron=0; fi
 if [ -d "$root" ]; then
   if [ -w "$root" ]; then writable=1; else writable=0; fi
