@@ -132,8 +132,14 @@ def remote_stage_script(target: DeploymentTarget, bundle: ReleaseBundle) -> str:
         raise ValueError("empreinte d archive invalide")
     if bundle.file_count < 1:
         raise ValueError("archive de release vide")
+    remote_python = (
+        "/opt/alt/python312/bin/python3"
+        if target.provider == "planethoster-n0c"
+        else "python3"
+    )
     replacements = {
         "__PRIVATE_ROOT__": shlex.quote(target.root_path),
+        "__REMOTE_PYTHON__": shlex.quote(remote_python),
         "__RELEASE_SHA__": sha,
         "__ARCHIVE_DIGEST__": shlex.quote(bundle.sha256),
         "__ARCHIVE_PAYLOAD__": base64.b64encode(bundle.archive).decode("ascii"),
@@ -145,6 +151,7 @@ umask 077
 root=__PRIVATE_ROOT__
 sha=__RELEASE_SHA__
 expected_digest=__ARCHIVE_DIGEST__
+checkupauto_python=__REMOTE_PYTHON__
 case "$root" in /*|*../*|../*|*'/..') echo 'invalid private root' >&2; exit 20 ;; esac
 private_root="$HOME/$root"
 releases="$private_root/releases"
@@ -153,7 +160,7 @@ shared="$private_root/shared"
 mkdir -p "$releases" "$shared/data" "$shared/private" "$shared/security" "$shared/integrity" "$shared/logs"
 chmod 700 "$private_root" "$releases" "$shared" "$shared/data" "$shared/private" "$shared/security" "$shared/integrity" "$shared/logs"
 if [ -e "$release" ]; then
-  python3 - "$release" "$sha" "$expected_digest" <<'CHECKUPAUTO_VERIFY_EXISTING'
+  "$checkupauto_python" - "$release" "$sha" "$expected_digest" <<'CHECKUPAUTO_VERIFY_EXISTING'
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -180,7 +187,7 @@ cat > "$incoming/archive.b64" <<'CHECKUPAUTO_ARCHIVE'
 __ARCHIVE_PAYLOAD__
 CHECKUPAUTO_ARCHIVE
 mkdir "$incoming/release"
-python3 - "$incoming/archive.b64" "$incoming/release" "$expected_digest" <<'CHECKUPAUTO_EXTRACT'
+"$checkupauto_python" - "$incoming/archive.b64" "$incoming/release" "$expected_digest" <<'CHECKUPAUTO_EXTRACT'
 from __future__ import annotations
 import base64
 import hashlib
@@ -233,10 +240,10 @@ candidate="$incoming/release"
 [ -f "$candidate/passenger_wsgi.py" ] || { echo 'Passenger entrypoint missing from release' >&2; exit 22; }
 [ -f "$candidate/scripts/checkupauto-shared-tick.py" ] || { echo 'shared scheduler missing from release' >&2; exit 23; }
 [ -f "$candidate/scripts/checkupauto-update-safety.py" ] || { echo 'update safety helper missing from release' >&2; exit 24; }
-python3 -m venv "$candidate/.venv"
+"$checkupauto_python" -m venv "$candidate/.venv"
 "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
 "$candidate/.venv/bin/python" -m compileall -q "$candidate"
-python3 - "$candidate/.checkupauto-release.json" "$sha" "$expected_digest" <<'CHECKUPAUTO_MARK'
+"$checkupauto_python" - "$candidate/.checkupauto-release.json" "$sha" "$expected_digest" <<'CHECKUPAUTO_MARK'
 from __future__ import annotations
 import json
 import os
