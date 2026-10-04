@@ -214,6 +214,15 @@ class DeploymentReleaseTest(unittest.TestCase):
             "unknown",
         )
 
+    def test_embedded_marker_python_remains_syntactically_valid(self):
+        bundle = release.build_release_bundle(self.repo, self.sha)
+        script = release.remote_stage_script(self.target(), bundle)
+        start = script.index("<<'CHECKUPAUTO_MARK'\n") + len("<<'CHECKUPAUTO_MARK'\n")
+        end = script.index("\nCHECKUPAUTO_MARK", start)
+        marker_python = script[start:end]
+        compile(marker_python, "<embedded-marker>", "exec")
+        self.assertIn(' + "\\n"', marker_python)
+
     def test_parse_stage_output_requires_exact_sha(self):
         bundle = release.build_release_bundle(self.repo, self.sha)
         result = release._parse_stage_output(
