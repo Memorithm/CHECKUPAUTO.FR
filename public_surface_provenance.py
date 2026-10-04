@@ -98,11 +98,11 @@ def runtime_evidence(git_state: dict) -> dict:
 def deployment_artifact_evidence(approved_sha: str) -> dict:
     """Return minimal provenance for an immutable RemoteOps-approved git archive.
 
-    Hostinger releases are created from ``git archive <approved SHA>`` rather
-    than a live checkout, so there is intentionally no ``.git`` directory in
-    the deployed image.  The release directory name is therefore the trusted
-    immutable revision input.  Invalid revisions fail closed and never claim
-    a clean/verified deployment.
+    Archive-based releases are created from ``git archive <approved SHA>``
+    rather than a live checkout, so there is intentionally no ``.git``
+    directory in the deployed image. The deployment layer validates the
+    revision before this helper is called. Invalid revisions fail closed and
+    never claim a clean/verified deployment.
     """
     sha = str(approved_sha or "").strip()
     verified = _SHA_RE.fullmatch(sha) is not None

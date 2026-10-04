@@ -213,6 +213,24 @@ try:
             status, _status_body = origin_get("/api/app/status", limit=200000)
             if status != 200:
                 fail("app status invalid")
+            provenance_status, provenance_body = origin_get("/api/public/deployment-provenance", limit=4096)
+            if provenance_status != 200:
+                fail("deployment provenance status invalid")
+            try:
+                provenance = json.loads(provenance_body.decode("utf-8"))
+            except Exception:
+                fail("deployment provenance invalid")
+            if (
+                provenance.get("schemaVersion") != 1
+                or provenance.get("surface") != "checkupauto-cybercheck"
+                or provenance.get("purpose") != "public-deployment-provenance"
+                or provenance.get("verified") is not True
+                or provenance.get("state") != "verified"
+                or provenance.get("gitSha") != SHA
+                or provenance.get("branch") != "main"
+                or provenance.get("clean") is not True
+            ):
+                fail("deployment provenance mismatch")
             for path, version in legal.items():
                 status, raw_body = origin_get(path, limit=300000)
                 if status != 200:

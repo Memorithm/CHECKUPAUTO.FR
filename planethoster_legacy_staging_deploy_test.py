@@ -36,6 +36,9 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn('context.wrap_socket(raw, server_hostname=domain)', text)
         self.assertIn('"Host: " + domain', text)
         self.assertIn('origin_get("/api/app/status"', text)
+        self.assertIn('origin_get("/api/public/deployment-provenance"', text)
+        self.assertIn('provenance.get("gitSha") != SHA', text)
+        self.assertIn('"deployment provenance mismatch"', text)
         self.assertNotIn('request.urlopen("https://" + domain + "/api/app/status"', text)
 
     def test_activation_checks_all_legal_routes_and_phase2(self):
