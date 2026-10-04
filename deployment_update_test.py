@@ -63,6 +63,22 @@ class DeploymentUpdateTest(unittest.TestCase):
         self.assertNotIn("unlink(", script)
         self.assertNotIn("write_text(", script)
 
+    def test_planethoster_remote_state_prefers_alt_python_over_legacy_system_python(self):
+        script = updates.remote_state_script(self.target)
+        self.assertLess(script.index("/opt/alt/python312/bin/python3"), script.index("command -v python3"))
+        self.assertIn("sys.version_info >= (3,11)", script)
+
+    def test_generic_remote_state_requires_supported_python(self):
+        generic = center.validate_target({
+            "provider": "generic-ssh",
+            "host": "ssh.example.net",
+            "username": "checkup",
+            "domain": "www.checkupauto.fr",
+        })
+        script = updates.remote_state_script(generic)
+        self.assertNotIn("/opt/alt/python312/bin/python3", script)
+        self.assertIn("sys.version_info >= (3,11)", script)
+
     def test_parse_remote_state_validates_active_release(self):
         state = updates._parse_remote_state(self.encoded_state())
         self.assertTrue(state.installed)
