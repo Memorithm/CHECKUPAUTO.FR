@@ -1,0 +1,66 @@
+name: PlanetHoster test.checkupauto.fr deploy
+
+on:
+  workflow_run:
+    workflows: ["Security CI"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checkupauto-planethoster-test-current-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 25
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
+      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          python3 - <<'PY'
+          import json,os,urllib.request
+          sha=os.environ["RELEASE_SHA"]
+          req=urllib.request.Request(
+              os.environ["GH_API"].rstrip("/")+"/repos/"+os.environ["GH_REPOSITORY"]+"/branches/main",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(req,timeout=15) as response:
+              current=(json.load(response).get("commit") or {}).get("sha")
+          if current != sha:
+              raise SystemExit("Security CI SHA is no longer current main; stale deployment refused")
+          print("CURRENT_MAIN_VERIFIED="+sha)
+          PY
+      - name: Verify dedicated PlanetHoster SSH material
+        run: |
+          set -euo pipefail
+          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+      - name: Deploy exact green main through legacy Passenger adapter
+        run: |
+          set -euo pipefail
+          python3 scripts/checkupauto-planethoster-legacy-staging-deploy.py             --sha "$RELEASE_SHA"             --identity-file "$STAGING_KEY"             --known-hosts "$STAGING_KNOWN_HOSTS"
