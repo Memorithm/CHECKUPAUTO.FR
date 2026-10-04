@@ -69,7 +69,8 @@ class BookingContractAcceptanceTest(unittest.TestCase):
         self.assertNotIn('id="terms" type="checkbox" checked', page)
         self.assertIn('id="continue" type="submit" disabled', page)
         self.assertIn("/api/booking/accept-terms", page)
-        self.assertIn("/cgv", page)
+        self.assertIn('<a href="/cgv">conditions générales de vente</a>', page)
+        self.assertNotIn('href="/cgv" target="_blank"', page)
         self.assertIn("Modifier mon choix", page)
 
     def test_early_performance_acknowledgement_is_required_server_side(self):
