@@ -105,7 +105,7 @@ class PublicDeploymentProvenanceTest(unittest.TestCase):
                 "sha": SHA,
                 "archiveSha256": "a" * 64,
                 "verified": True,
-            }) + "\\n", encoding="utf-8")
+            }) + "\n", encoding="utf-8")
             with mock.patch.object(passenger_wsgi, "_ROOT", release_root), \
                  mock.patch.object(passenger_wsgi, "_runtime_git_state", return_value={
                      "available": False, "head": "", "branch": "", "dirty": None,
