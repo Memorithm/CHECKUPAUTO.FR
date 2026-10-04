@@ -89,6 +89,15 @@ class LegacyStagingDeployTest(unittest.TestCase):
             "unknown",
         )
 
+    def test_http_verify_diagnostics_are_bounded(self):
+        text=m._activation_program("1"*40)
+        self.assertIn(m._VERIFY_PREFIX+"app_status:",text)
+        for label in ("legal_notice","privacy","cookies","terms","withdrawal"):
+            self.assertIn(m._VERIFY_PREFIX+label+":",text)
+        source=SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("allowed_labels",source)
+        self.assertNotIn("raw_body.decode", source[source.find("if result.returncode != 0:"):])
+
     def test_invalid_sha_is_rejected(self):
         with self.assertRaises(ValueError):
             m._activation_program("bad")
