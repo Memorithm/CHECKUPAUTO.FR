@@ -197,6 +197,23 @@ class DeploymentReleaseTest(unittest.TestCase):
         self.assertIn("checkupauto_python=python3", script)
         self.assertNotIn("/opt/alt/python312/bin/python3", script)
 
+    def test_stage_progress_is_bounded_and_failure_step_is_sanitized(self):
+        bundle = release.build_release_bundle(self.repo, self.sha)
+        script = release.remote_stage_script(self.target(), bundle)
+        for step in ("layout","archive_transfer","archive_extract","venv","dependencies","compile","marker","commit"):
+            self.assertIn("CHECKUPAUTO_STAGE_STEP=" + step, script)
+        self.assertEqual(
+            release._last_stage_step(
+                "noise\nCHECKUPAUTO_STAGE_STEP=venv\nsecret-error\nCHECKUPAUTO_STAGE_STEP=dependencies\n"
+            ),
+            "dependencies",
+        )
+        self.assertEqual(release._last_stage_step("secret-error"), "unknown")
+        self.assertEqual(
+            release._last_stage_step("CHECKUPAUTO_STAGE_STEP=/home/private/path"),
+            "unknown",
+        )
+
     def test_parse_stage_output_requires_exact_sha(self):
         bundle = release.build_release_bundle(self.repo, self.sha)
         result = release._parse_stage_output(
