@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BASE = ROOT / "legal" / "legacy-rdv"
 MANIFEST = BASE / "manifest.json"
+CURRENT_BASE = ROOT / "legal" / "current-site"
+CURRENT_MANIFEST = CURRENT_BASE / "manifest.json"
 
 META = {
     "legal_notice": {
@@ -146,4 +148,26 @@ def publish_to_store(db_path=None) -> dict:
         "missingDocuments": list(summary.get("missingDocuments") or []),
         "readyForPublicContracting": bool(summary.get("readyForPublicContracting")),
         "legalConformityAttested": False,
+    }
+
+
+def current_scope_addendum(doc_type: str) -> dict | None:
+    if not CURRENT_MANIFEST.is_file():
+        return None
+    manifest = json.loads(CURRENT_MANIFEST.read_text(encoding="utf-8"))
+    if manifest.get("schema") != "checkupauto.current-site-legal-addenda/v1":
+        raise RuntimeError("current-site legal addendum manifest schema invalid")
+    rel = str((manifest.get("addenda") or {}).get(doc_type) or "")
+    if not rel:
+        return None
+    target = (ROOT / rel).resolve()
+    if target.parent != CURRENT_BASE.resolve() or not target.is_file() or target.is_symlink():
+        raise RuntimeError("current-site legal addendum invalid")
+    body = _plain(target.read_text(encoding="utf-8"))
+    if len(body) < 80:
+        raise RuntimeError("current-site legal addendum body invalid")
+    return {
+        "body": body,
+        "contentHash": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "capturedAt": str(manifest.get("capturedAt") or ""),
     }
