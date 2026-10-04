@@ -16,8 +16,7 @@ jobs:
   seed:
     if: >-
       github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
-      github.ref == 'refs/heads/ops/compliance-147-runtime-baseline' &&
-      github.actor == 'CHECKUPAUTO'
+      github.ref == 'refs/heads/ops/compliance-147-runtime-baseline'
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 10
     env:
@@ -100,8 +99,11 @@ jobs:
           shared=(root/"shared").resolve()
           data=(shared/"data").resolve()
           private=(shared/"private").resolve()
-          db=(data/"compliance.sqlite3").resolve()
-          if not db.is_file() or db.is_symlink() or data not in db.parents:
+          db_path=data/"compliance.sqlite3"
+          if not db_path.is_file() or db_path.is_symlink():
+              raise SystemExit("runtime compliance database invalid")
+          db=db_path.resolve()
+          if data not in db.parents:
               raise SystemExit("runtime compliance database invalid")
           if not (release/"scripts/checkupauto-compliance-seed-baseline.py").is_file():
               raise SystemExit("runtime compliance seed unavailable")
@@ -189,16 +191,25 @@ jobs:
                   ],
                   cwd=release,env=env,text=True,capture_output=True,timeout=90,check=False,
               )
-              if seeded.returncode!=0:
-                  raise SystemExit("compliance runtime baseline seed failed")
-              seed_result=json.loads(seeded.stdout.strip())
-              if (
-                  seed_result.get("activityCount")!=5
-                  or seed_result.get("processorCount")!=2
-                  or seed_result.get("externalEvidencePending") is not True
-                  or seed_result.get("blockerTypes")!=["processor_dpa_pending"]
-              ):
-                  raise SystemExit("compliance runtime baseline result unexpected")
+              try:
+                  seed_result=json.loads(seeded.stdout.strip()) if seeded.returncode==0 else {}
+                  seed_ok=(
+                      seed_result.get("activityCount")==5
+                      and seed_result.get("processorCount")==2
+                      and seed_result.get("externalEvidencePending") is True
+                      and seed_result.get("blockerTypes")==["processor_dpa_pending"]
+                  )
+              except Exception:
+                  seed_ok=False
+              if not seed_ok:
+                  backup_source=sqlite3.connect("file:"+str(backup)+"?mode=ro",uri=True,timeout=10)
+                  runtime_target=sqlite3.connect(db,timeout=10)
+                  try:
+                      backup_source.backup(runtime_target)
+                  finally:
+                      runtime_target.close()
+                      backup_source.close()
+                  raise SystemExit("compliance runtime baseline seed failed and backup restored")
               seed_state="seeded"
 
           after=subprocess.run(
