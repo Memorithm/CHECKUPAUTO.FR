@@ -8,6 +8,8 @@ import os
 import re
 import sqlite3
 import uuid
+
+import legacy_legal_baseline
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -365,9 +367,33 @@ def published_document(doc_type: str, db_path: Path | str | None = None) -> dict
     return _document_row(row) if row else None
 
 
+def _test_or_placeholder_document(row: dict | None) -> bool:
+    if not row:
+        return False
+    version = str(row.get("version") or "").strip().casefold()
+    title = str(row.get("title") or "").strip().casefold()
+    body = str(row.get("body") or "").strip().casefold()
+    if re.match(r"^(test|draft|demo|provisoire)(?:[._-]|$)", version):
+        return True
+    markers = (
+        "test uniquement",
+        "environnement de test uniquement",
+        "cgv provisoires",
+        "cgv de substitution",
+        "document juridique non publie",
+        "document juridique non publié",
+    )
+    return any(marker in title or marker in body for marker in markers)
+
+
 def public_document_for_path(path: str, db_path: Path | str | None = None) -> dict | None:
     doc_type = SLUG_TO_DOCUMENT.get(str(path or ""))
-    return published_document(doc_type, db_path) if doc_type else None
+    if not doc_type:
+        return None
+    current = published_document(doc_type, db_path)
+    if current and not _test_or_placeholder_document(current):
+        return current
+    return legacy_legal_baseline.document(doc_type) or current
 
 
 def upsert_cookie(payload: dict, db_path: Path | str | None = None) -> dict:
@@ -850,7 +876,11 @@ def checkout_acceptance_capability() -> dict:
 def summary(db_path: Path | str | None = None) -> dict:
     cfg = settings(db_path)
     docs = documents(db_path)
-    published = {row["type"] for row in docs if row["status"] == "published"}
+    published = {
+        row["type"]
+        for row in docs
+        if row["status"] == "published" and not _test_or_placeholder_document(row)
+    }
     missing_identity = [key for key in REQUIRED_IDENTITY_FIELDS if not str(cfg.get(key) or "").strip()]
     rights = rights_requests(db_path)
     incident_rows = incidents(db_path)
