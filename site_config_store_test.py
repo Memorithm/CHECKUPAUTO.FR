@@ -16,7 +16,7 @@ class SiteConfigStoreTest(unittest.TestCase):
             runtime = root / "runtime.json"
             default.write_text(json.dumps({"source": "default"}))
             self.assertEqual(
-                site_config_store.load(runtime_path=runtime, default_path=default),
+                site_config_site_config_store.load(runtime_path=runtime, default_path=default),
                 {"source": "default"},
             )
 
@@ -28,7 +28,7 @@ class SiteConfigStoreTest(unittest.TestCase):
             default.write_text(json.dumps({"source": "default"}))
             runtime.write_text(json.dumps({"source": "runtime"}))
             self.assertEqual(
-                site_config_store.load(runtime_path=runtime, default_path=default),
+                site_config_site_config_store.load(runtime_path=runtime, default_path=default),
                 {"source": "runtime"},
             )
 
@@ -36,7 +36,7 @@ class SiteConfigStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             target = root / "data" / "site-config.json"
-            result = site_config_store.save({"version": 9}, runtime_path=target)
+            result = site_config_site_config_store.save({"version": 9}, runtime_path=target)
             self.assertEqual(result, target)
             self.assertEqual(json.loads(target.read_text()), {"version": 9})
             self.assertEqual(target.stat().st_mode & 0o777, 0o640)
@@ -52,8 +52,8 @@ class SiteConfigStoreTest(unittest.TestCase):
                     "bookingUrl":"https://rdv.checkupauto.fr/",
                 },
             }
-            store.save(config,runtime_path=target)
-            self.assertEqual(store.load(runtime_path=target)["business"]["bookingMode"],"mercureweb-delegated")
+            site_config_store.save(config,runtime_path=target)
+            self.assertEqual(site_config_store.load(runtime_path=target)["business"]["bookingMode"],"mercureweb-delegated")
 
     def test_save_rejects_foreign_or_insecure_delegated_booking_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,13 +71,13 @@ class SiteConfigStoreTest(unittest.TestCase):
                         "business":{"bookingMode":"mercureweb-delegated","bookingUrl":url},
                     }
                     with self.assertRaisesRegex(ValueError,"MercureWeb"):
-                        store.save(config,runtime_path=target)
+                        site_config_store.save(config,runtime_path=target)
 
     def test_save_accepts_production_canonical_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "site-config.json"
             config = {"seo": {"canonicalUrl": "https://www.checkupauto.fr/"}}
-            site_config_store.save(config, runtime_path=target)
+            site_config_site_config_store.save(config, runtime_path=target)
             self.assertEqual(json.loads(target.read_text()), config)
 
     def test_save_rejects_foreign_or_insecure_canonical_origin(self):
@@ -96,7 +96,7 @@ class SiteConfigStoreTest(unittest.TestCase):
             for value in invalid:
                 with self.subTest(value=value):
                     with self.assertRaises(ValueError):
-                        site_config_store.save(
+                        site_config_site_config_store.save(
                             {"seo": {"canonicalUrl": value}},
                             runtime_path=target,
                         )
