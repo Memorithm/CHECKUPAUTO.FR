@@ -66,8 +66,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
         stage.return_value=mock.Mock(sha=sha)
         ssh_args.return_value=["ssh","target"]
         run.return_value=subprocess.CompletedProcess([],0,stdout=m._RESULT_PREFIX+json.dumps({"ok":True,"state":"activated","sha":sha}),stderr="")
-        with mock.patch.object(m.ROOT,"__class__",m.ROOT.__class__):
-            result=m.deploy(sha,"/tmp/key","/tmp/hosts")
+        result=m.deploy(sha,"/tmp/key","/tmp/hosts")
         self.assertEqual(result["state"],"activated")
         stage.assert_called_once()
         run.assert_called_once()
