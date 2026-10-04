@@ -1,5 +1,7 @@
 import io
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 from urllib import error
@@ -93,6 +95,51 @@ class PublicDeploymentProvenanceTest(unittest.TestCase):
         self.assertEqual(provenance.runtime_evidence({**state, "branch": "feature"})["state"], "wrong_branch")
         self.assertEqual(provenance.runtime_evidence({**state, "head": "short"})["state"], "invalid_git_sha")
         self.assertEqual(provenance.runtime_evidence({"available": False})["state"], "git_unavailable")
+
+    def test_archive_release_marker_supplies_runtime_provenance_without_git_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            release_root = Path(tmp) / SHA
+            release_root.mkdir()
+            (release_root / ".checkupauto-release.json").write_text(json.dumps({
+                "schemaVersion": 1,
+                "sha": SHA,
+                "archiveSha256": "a" * 64,
+                "verified": True,
+            }) + "\\n", encoding="utf-8")
+            with mock.patch.object(passenger_wsgi, "_ROOT", release_root), \
+                 mock.patch.object(passenger_wsgi, "_runtime_git_state", return_value={
+                     "available": False, "head": "", "branch": "", "dirty": None,
+                 }), \
+                 mock.patch.object(passenger_wsgi, "_PROVENANCE_CACHE", (0.0, b"")):
+                payload = json.loads(passenger_wsgi._public_provenance_body())
+        self.assertTrue(payload["verified"])
+        self.assertEqual(payload["state"], "verified")
+        self.assertEqual(payload["gitSha"], SHA)
+        self.assertEqual(payload["branch"], "main")
+        self.assertTrue(payload["clean"])
+        self.assertEqual(payload["source"], "remoteops-approved-git-archive")
+
+    def test_archive_release_marker_fails_closed_when_directory_or_digest_is_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            release_root = Path(tmp) / OTHER_SHA
+            release_root.mkdir()
+            marker = release_root / ".checkupauto-release.json"
+            marker.write_text(json.dumps({
+                "schemaVersion": 1,
+                "sha": SHA,
+                "archiveSha256": "a" * 64,
+                "verified": True,
+            }), encoding="utf-8")
+            with mock.patch.object(passenger_wsgi, "_ROOT", release_root):
+                self.assertEqual(passenger_wsgi._runtime_release_marker_sha(), "")
+            marker.write_text(json.dumps({
+                "schemaVersion": 1,
+                "sha": OTHER_SHA,
+                "archiveSha256": "bad",
+                "verified": True,
+            }), encoding="utf-8")
+            with mock.patch.object(passenger_wsgi, "_ROOT", release_root):
+                self.assertEqual(passenger_wsgi._runtime_release_marker_sha(), "")
 
     def test_deployment_probe_requires_exact_expected_sha_main_and_clean(self):
         opener = _Opener(_Response(_payload()))
