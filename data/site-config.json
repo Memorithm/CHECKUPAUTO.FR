@@ -11,7 +11,8 @@
   "business": {
     "phone": "01 86 04 63 64",
     "address": "1E rue Niépce · Les Mureaux",
-    "bookingUrl": "https://rdv.checkupauto.fr/"
+    "bookingUrl": "https://rdv.checkupauto.fr/",
+    "bookingMode": "mercureweb-delegated"
   },
   "hero": {
     "kicker": "■ CONTRE-VISITE OFFERTE · CONTRÔLE TECHNIQUE AUX MUREAUX"
@@ -19,15 +20,15 @@
   "services": {
     "technical": {
       "label": "Contrôle technique",
-      "price": 80.0
+      "price": 80
     },
     "fitted": {
       "label": "Véhicule aménagé",
-      "price": 90.0
+      "price": 90
     },
     "pollution": {
       "label": "Visite pollution",
-      "price": 30.0
+      "price": 30
     }
   },
   "seo": {
@@ -94,27 +95,27 @@
     "peugeot208": {
       "label": "208",
       "service": "technical",
-      "price": 80.0
+      "price": 80
     },
     "suv4x4": {
       "label": "4×4",
       "service": "technical",
-      "price": 80.0
+      "price": 80
     },
     "utility": {
       "label": "Utilitaire",
       "service": "technical",
-      "price": 80.0
+      "price": 80
     },
     "ambulance": {
       "label": "Ambulance",
       "service": "fitted",
-      "price": 90.0
+      "price": 90
     },
     "foodtruck": {
       "label": "Foodtruck",
       "service": "fitted",
-      "price": 90.0
+      "price": 90
     }
   }
 }

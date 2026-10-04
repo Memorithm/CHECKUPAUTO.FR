@@ -59,6 +59,13 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         }, clear=False)
         self.env.start()
         self.addCleanup(self.env.stop)
+        self.payment_mode = patch.object(
+            routes.payment_mode,
+            "status",
+            return_value={"mode":"payline","valid":True,"delegated":False,"bookingUrl":""},
+        )
+        self.payment_mode.start()
+        self.addCleanup(self.payment_mode.stop)
         self.store = core.SandboxJournal(routes.journal_path())
         quote = core.Quote("appointment-1", "technical", 8000, "b" * 64)
         created = self.store.create(quote, "payline")
@@ -186,6 +193,35 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         self.assertNotIn(b"accessKey",body)
         self.assertNotIn(b"contractNumber",body)
         self.assertIn("noindex",handler.response["headers"]["X-Robots-Tag"])
+
+    def test_delegated_mode_disables_new_payline_checkout_and_start(self):
+        delegated={"mode":"mercureweb-delegated","valid":True,"delegated":True,"bookingUrl":"https://rdv.checkupauto.fr/"}
+        checkout_page=Handler(routes.CHECKOUT_ROUTE)
+        start_handler=Handler(
+            routes.START_ROUTE,
+            command="POST",
+            payload={"ccid":"ccid-fixture","cct":"cct-fixture"},
+        )
+        with patch.object(routes.payment_mode,"status",return_value=delegated), \
+             patch.object(routes.checkout,"start_payline_for_browser") as start:
+            self.assertTrue(routes.handle(checkout_page))
+            self.assertTrue(routes.handle(start_handler))
+        self.assertEqual(checkout_page.response["status"],404)
+        self.assertIn("noindex",checkout_page.response["headers"]["X-Robots-Tag"])
+        self.assertEqual(start_handler.response["status"],409)
+        self.assertEqual(start_handler.response["json"]["error"],"payment_delegated_to_mercureweb")
+        start.assert_not_called()
+
+    def test_delegated_mode_keeps_historical_payline_return_reconciliation(self):
+        delegated={"mode":"mercureweb-delegated","valid":True,"delegated":True,"bookingUrl":"https://rdv.checkupauto.fr/"}
+        handler=Handler("/payment/payline/return?paymentId="+self.intent.payment_id)
+        with patch.object(routes.payment_mode,"status",return_value=delegated), \
+             patch.object(private_config,"load",return_value=object()), \
+             patch.object(routes.payline,"refresh",return_value=self.verified()) as refresh:
+            self.assertTrue(routes.handle(handler))
+        self.assertEqual(handler.response["status"],200)
+        self.assertEqual(self.store.get(self.intent.payment_id).state,"captured")
+        refresh.assert_called_once()
 
     def test_public_start_route_accepts_only_server_bound_browser_identity(self):
         handler=Handler(
