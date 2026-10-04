@@ -266,7 +266,7 @@ payload = {
     "archiveSha256": sys.argv[3],
     "verified": True,
 }
-path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+path.write_text(json.dumps(payload, sort_keys=True) + "\\n", encoding="utf-8")
 os.chmod(path, 0o600)
 CHECKUPAUTO_MARK
 printf '__STAGE_STEP_PREFIX__commit\n'
