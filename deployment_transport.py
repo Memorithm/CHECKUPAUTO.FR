@@ -101,9 +101,12 @@ node_value="$(node --version 2>&1 || true)"
 if command -v passenger-config >/dev/null 2>&1 || command -v passenger >/dev/null 2>&1; then passenger=1; else passenger=0; fi
 """
     if target.provider == "planethoster-n0c":
-        runtime_probe = """python_value="$(python3 --version 2>&1 || true)"
-if [ -z "$python_value" ] && [ -x /opt/alt/python312/bin/python3 ]; then
+        runtime_probe = """if command -v python3 >/dev/null 2>&1; then
+  python_value="$(python3 --version 2>&1 || true)"
+elif [ -x /opt/alt/python312/bin/python3 ]; then
   python_value="$(/opt/alt/python312/bin/python3 --version 2>&1 || true)"
+else
+  python_value=""
 fi
 node_value="$(node --version 2>&1 || true)"
 if command -v passenger-config >/dev/null 2>&1 || command -v passenger >/dev/null 2>&1; then
