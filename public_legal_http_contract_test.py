@@ -16,7 +16,8 @@ class PublicLegalHttpContractTest(unittest.TestCase):
         self.assertIn("'/go/booking'", block)
 
     def test_legal_get_responses_are_inline_html_not_json_downloads(self):
-        start = self.source.index("  if path in compliance.SLUG_TO_DOCUMENT:")
+        get_start = self.source.index(" def do_GET(self):")
+        start = self.source.index("  if path in compliance.SLUG_TO_DOCUMENT:", get_start)
         end = self.source.index("  if path=='/zone-tarifs':", start)
         block = self.source[start:end]
         self.assertGreaterEqual(block.count("'text/html; charset=utf-8'"), 2)
