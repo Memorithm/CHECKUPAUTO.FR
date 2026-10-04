@@ -25,6 +25,7 @@ WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
 COOKIE_NAME="checkupauto_customer"
+PUBLIC_PROVIDER_IDS=("google","apple")
 
 
 def _cookie(handler, name=COOKIE_NAME) -> str:
@@ -90,9 +91,13 @@ def _clear_cookie(handler, location="/compte"):
     handler.end_headers()
 
 
+def _public_provider_status() -> list[dict]:
+    return [provider for provider in customer_oidc.provider_status() if provider["id"] in PUBLIC_PROVIDER_IDS]
+
+
 def _providers_html() -> str:
     rows=[]
-    for provider in customer_oidc.provider_status():
+    for provider in _public_provider_status():
         if provider["configured"]:
             rows.append(
                 f'<a class="sso" href="/auth/customer/{html.escape(provider["id"])}">'
@@ -119,7 +124,7 @@ main{{width:min(940px,calc(100% - 32px));margin:auto;padding:38px 0 70px}}a{{col
 .top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}}.brand{{font-weight:750;letter-spacing:-.03em}}
 .card{{background:#fff;border:1px solid var(--line);padding:clamp(28px,6vw,58px);box-shadow:0 28px 80px rgba(31,84,67,.08)}}
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(46px,7vw,76px)/.98 Georgia,serif;letter-spacing:-.05em;margin:16px 0 20px}}
-p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:30px}}
+p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:30px}}
 .sso{{border:1px solid var(--line);padding:15px 17px;background:#fbfcfa;font-weight:700;text-align:center}}.sso:hover{{border-color:#9ab1a2}}
 .sso.disabled{{opacity:.48}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}
 @media(max-width:720px){{.providers{{grid-template-columns:1fr}}}}
@@ -239,10 +244,10 @@ def handle(handler) -> bool:
         return True
 
     if command=="GET" and path==PROVIDERS_ROUTE:
-        handler.send_json({"ok":True,"providers":customer_oidc.provider_status()})
+        handler.send_json({"ok":True,"providers":_public_provider_status()})
         return True
 
-    if command=="GET" and re.fullmatch(r"/auth/customer/(google|apple|microsoft)",path):
+    if command=="GET" and re.fullmatch(r"/auth/customer/(google|apple)",path):
         provider=path.rsplit("/",1)[-1]
         try:
             binding=secrets.token_urlsafe(32)
@@ -259,7 +264,7 @@ def handle(handler) -> bool:
             handler.send_bytes(_login_page("Ce fournisseur de connexion n’est pas encore configuré."),"text/html; charset=utf-8",503,"no-store")
         return True
 
-    callback=re.fullmatch(r"/auth/customer/(google|apple|microsoft)/callback",path)
+    callback=re.fullmatch(r"/auth/customer/(google|apple)/callback",path)
     if callback and command in {"GET","POST"}:
         provider=callback.group(1)
         state=""

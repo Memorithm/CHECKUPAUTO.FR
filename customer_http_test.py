@@ -60,7 +60,7 @@ class CustomerHttpTest(unittest.TestCase):
             "createdAt":"2026-09-25T00:00:00+00:00","updatedAt":"2026-09-25T00:00:00+00:00",
         }
 
-    def test_login_page_lists_only_provider_status_without_secrets(self):
+    def test_login_page_lists_only_active_public_providers_without_secrets(self):
         h=Handler("/compte")
         with patch.object(http,"_account",return_value=("",None)), \
              patch.object(http.customer_oidc,"provider_status",return_value=[
@@ -73,8 +73,25 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],200)
         self.assertIn("Continuer avec Google",body)
         self.assertIn("Apple · bientôt disponible",body)
-        self.assertIn("Microsoft / Hotmail",body)
+        self.assertNotIn("Microsoft / Hotmail",body)
         self.assertNotIn("clientSecret",body)
+
+    def test_public_provider_api_omits_retired_microsoft_provider(self):
+        h=Handler("/api/customer/providers")
+        with patch.object(http.customer_oidc,"provider_status",return_value=[
+            {"id":"google","label":"Google","configured":True},
+            {"id":"apple","label":"Apple","configured":False},
+            {"id":"microsoft","label":"Microsoft / Hotmail","configured":True},
+        ]):
+            self.assertTrue(http.handle(h))
+        self.assertEqual([row["id"] for row in h.response["json"]["providers"]],["google","apple"])
+
+    def test_retired_microsoft_customer_auth_route_is_not_public(self):
+        h=Handler("/auth/customer/microsoft")
+        with patch.object(http.customer_oidc,"begin") as begin:
+            self.assertFalse(http.handle(h))
+        self.assertIsNone(h.response)
+        begin.assert_not_called()
 
     def test_dashboard_uses_csp_nonce_and_server_loyalty_snapshot(self):
         h=Handler("/compte")

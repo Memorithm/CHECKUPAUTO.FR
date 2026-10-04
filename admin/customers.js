@@ -4,14 +4,15 @@
  let snapshot=null,busy=false;
  const message=(text,error=false)=>{$('#oidcMessage').textContent=text;$('#oidcMessage').classList.toggle('error',error);};
  const setBusy=value=>{busy=value;document.querySelectorAll('#oidcProviders input,#oidcProviders button,#oidcReload').forEach(el=>{el.disabled=value;});};
+ const managedProviders=new Set(['google','apple']);
  function help(provider){
   if(provider==='apple')return 'Apple : utilisez le Services ID comme Client ID. Le Client Secret est le JWT signé généré avec votre clé Sign in with Apple.';
-  if(provider==='microsoft')return 'Microsoft / Hotmail : application Entra ID autorisant les comptes Microsoft personnels.';
   return 'Google : application OAuth Web avec le callback ci-dessus autorisé.';
  }
  function render(data){
   snapshot=data;const root=$('#oidcProviders');root.replaceChildren();
   for(const row of data.providers){
+   if(!managedProviders.has(row.id))continue;
    const card=document.createElement('article');card.className='oidc-card';card.dataset.provider=row.id;
    const title=document.createElement('h3');title.textContent=row.label;
    const state=document.createElement('span');state.className='oidc-state '+(row.configured?'ready':'missing');state.textContent=row.configured?'CONFIGURÉ':'À CONFIGURER';
