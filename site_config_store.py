@@ -56,8 +56,39 @@ def _validate_public_canonical(config: dict) -> None:
         raise ValueError("seo.canonicalUrl must use the CheckupAuto production origin")
 
 
+def _validate_booking_mode(config: dict) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("site config must be an object")
+    business=config.get("business")
+    if not isinstance(business,dict):
+        return
+    mode=str(business.get("bookingMode") or "payline").strip().lower()
+    if mode not in {"payline","mercureweb-delegated"}:
+        raise ValueError("business.bookingMode invalid")
+    if mode!="mercureweb-delegated":
+        return
+    raw=str(business.get("bookingUrl") or "").strip()
+    try:
+        parsed=urlparse(raw)
+        valid=(
+            parsed.scheme=="https"
+            and (parsed.hostname or "").lower()=="rdv.checkupauto.fr"
+            and parsed.port in (None,443)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.path in ("","/")
+        )
+    except (TypeError,ValueError):
+        valid=False
+    if not valid:
+        raise ValueError("delegated MercureWeb bookingUrl invalid")
+
+
 def save(config: dict, *, runtime_path: Path | None = None) -> Path:
     _validate_public_canonical(config)
+    _validate_booking_mode(config)
     target = Path(runtime_path) if runtime_path is not None else runtime_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix="site-config.", suffix=".json", dir=str(target.parent))
