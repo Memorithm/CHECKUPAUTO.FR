@@ -32,6 +32,8 @@ class Compliance147RuntimeBaselineWorkflowTest(unittest.TestCase):
         self.assertIn("APPLY-REVIEWED-COMPLIANCE-BASELINE",self.text)
         self.assertIn('seed_result.get("blockerTypes")==["processor_dpa_pending"]',self.text)
         self.assertIn("CHECKUPAUTO_COMPLIANCE_147=",self.text)
+        self.assertIn("checkupauto-compliance-147-snapshot.py",self.text)
+        self.assertIn("CHECKUPAUTO_COMPLIANCE_147_DETAIL=",self.text)
         self.assertNotIn("cat compliance.sqlite3",self.text)
 
 if __name__=="__main__":
