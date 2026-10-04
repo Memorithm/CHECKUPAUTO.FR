@@ -38,6 +38,24 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn("compliance_admin.snapshot()",text)
         self.assertIn("phase2Blockers",text)
 
+    @mock.patch.object(m.deployment_transport,"ssh_arguments",return_value=["ssh","target"])
+    @mock.patch.object(m.subprocess,"run")
+    def test_explicit_n0c_runtime_qualification_requires_alt_python_and_adapter(self,run,_ssh):
+        capabilities=mock.Mock(python_version="",passenger=False)
+        run.return_value=subprocess.CompletedProcess(
+            [],0,stdout="Python 3.12.12\npassenger_adapter=1\n",stderr=""
+        )
+        result=m._qualify_n0c_legacy_runtime(
+            m.deployment_center.validate_target(m.TARGET),
+            "/tmp/hosts",
+            m.deployment_transport.SSHCredential(identity_file="/tmp/key"),
+            capabilities,
+        )
+        self.assertEqual(result.python_version,"Python 3.12.12")
+        self.assertTrue(result.passenger)
+        self.assertIn("/opt/alt/python312/bin/python3",run.call_args.kwargs["input"])
+        self.assertIn("checkupauto-test-application/passenger_wsgi.py",run.call_args.kwargs["input"])
+
     def test_invalid_sha_is_rejected(self):
         with self.assertRaises(ValueError):
             m._activation_program("bad")
@@ -65,12 +83,15 @@ class LegacyStagingDeployTest(unittest.TestCase):
         status.return_value={"state":"update_available"}
         stage.return_value=mock.Mock(sha=sha)
         ssh_args.return_value=["ssh","target"]
-        run.return_value=subprocess.CompletedProcess([],0,stdout=m._RESULT_PREFIX+json.dumps({"ok":True,"state":"activated","sha":sha}),stderr="")
+        run.side_effect=[
+            subprocess.CompletedProcess([],0,stdout="Python 3.12.12\npassenger_adapter=1\n",stderr=""),
+            subprocess.CompletedProcess([],0,stdout=m._RESULT_PREFIX+json.dumps({"ok":True,"state":"activated","sha":sha}),stderr=""),
+        ]
         result=m.deploy(sha,"/tmp/key","/tmp/hosts")
         self.assertEqual(result["state"],"activated")
         stage.assert_called_once()
-        run.assert_called_once()
-        self.assertIn("/opt/alt/python312/bin/python3",run.call_args.args[0])
+        self.assertEqual(run.call_count,2)
+        self.assertIn("/opt/alt/python312/bin/python3",run.call_args_list[1].args[0])
 
     @mock.patch.object(m.deployment_update,"update_status",return_value={"state":"diverged"})
     @mock.patch.object(m.deployment_transport,"probe_target",return_value=mock.Mock())
