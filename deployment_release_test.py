@@ -171,12 +171,31 @@ class DeploymentReleaseTest(unittest.TestCase):
         self.assertIn("base64.b64decode", script)
         self.assertIn("digest mismatch", script)
         self.assertIn("unsupported archive member", script)
-        self.assertIn("python3 -m venv", script)
+        self.assertIn('checkupauto_python=/opt/alt/python312/bin/python3', script)
+        self.assertIn('"$checkupauto_python" -m venv', script)
+        self.assertIn('"$checkupauto_python" - "$incoming/archive.b64"', script)
+        self.assertIn('"$checkupauto_python" - "$candidate/.checkupauto-release.json"', script)
+        self.assertNotIn("python3 -m venv", script)
         self.assertIn("compileall -q", script)
         self.assertIn("checkupauto-update-safety.py", script)
         self.assertIn("mv \"$candidate\" \"$release\"", script)
         self.assertNotIn("public_html/shared", script)
         self.assertNotIn("sudo ", script)
+
+    def test_generic_stage_keeps_generic_python_command(self):
+        target = center.validate_target({
+            "provider": "planethoster-cpanel",
+            "host": "ssh.example.net",
+            "username": "checkup",
+            "domain": "www.checkupauto.fr",
+            "rootPath": ".checkupauto-cpanel",
+            "webRootPath": "public_html",
+            "authMode": "key",
+        })
+        bundle = release.build_release_bundle(self.repo, self.sha)
+        script = release.remote_stage_script(target, bundle)
+        self.assertIn("checkupauto_python=python3", script)
+        self.assertNotIn("/opt/alt/python312/bin/python3", script)
 
     def test_parse_stage_output_requires_exact_sha(self):
         bundle = release.build_release_bundle(self.repo, self.sha)
