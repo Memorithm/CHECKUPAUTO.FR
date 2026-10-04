@@ -54,14 +54,23 @@ def remote_state_script(target: DeploymentTarget) -> str:
     root = _safe_private_root(target.root_path)
     root_json = json.dumps(root)
     prefix_json = json.dumps(_STATE_PREFIX)
-    return f"""if command -v python3 >/dev/null 2>&1; then
-  checkupauto_python=python3
-elif [ -x /opt/alt/python312/bin/python3 ]; then
+    if target.provider == "planethoster-n0c":
+        python_select = """if [ -x /opt/alt/python312/bin/python3 ]; then
   checkupauto_python=/opt/alt/python312/bin/python3
+elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)' >/dev/null 2>&1; then
+  checkupauto_python=python3
 else
   exit 127
 fi
-"$checkupauto_python" - <<'CHECKUPAUTO_UPDATE_STATE'
+"""
+    else:
+        python_select = """if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)' >/dev/null 2>&1; then
+  checkupauto_python=python3
+else
+  exit 127
+fi
+"""
+    return f"""{python_select}"$checkupauto_python" - <<'CHECKUPAUTO_UPDATE_STATE'
 from __future__ import annotations
 import base64
 import json
