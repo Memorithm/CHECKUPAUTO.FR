@@ -84,6 +84,7 @@ class DeploymentTransportTest(unittest.TestCase):
 
     def test_planethoster_probe_uses_observed_n0c_python_and_passenger_adapter(self):
         script = transport.remote_probe_script(self.target())
+        self.assertIn("command -v python3", script)
         self.assertIn("/opt/alt/python312/bin/python3", script)
         self.assertIn("$HOME/checkupauto-test-application/passenger_wsgi.py", script)
         self.assertIn("passenger=1", script)
