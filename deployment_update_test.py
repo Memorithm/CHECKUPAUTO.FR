@@ -64,7 +64,7 @@ class DeploymentUpdateTest(unittest.TestCase):
 
     def test_non_n0c_remote_state_keeps_generic_python3(self):
         target = center.validate_target({
-            "provider": "hostinger-vps",
+            "provider": "generic-ssh",
             "host": "vps.example.net",
             "username": "root",
             "domain": "stage.example.net",
