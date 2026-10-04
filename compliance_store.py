@@ -316,8 +316,8 @@ def save_document(payload: dict, db_path: Path | str | None = None) -> dict:
             "SELECT status FROM legal_documents WHERE document_type=? AND version=?",
             (doc_type, version),
         ).fetchone()
-        if existing and existing["status"] == "published":
-            raise ValueError("une version publiée est immuable")
+        if existing and existing["status"] in {"published", "retired"}:
+            raise ValueError("une version déjà publiée est immuable")
         db.execute(
             """INSERT INTO legal_documents(document_type,version,title,body,content_hash,status,created_at,published_at)
                VALUES(?,?,?,?,?,'draft',?,'')
