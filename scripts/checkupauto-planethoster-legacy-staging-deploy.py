@@ -239,22 +239,97 @@ def _parse_result(stdout: str) -> dict:
     raise RuntimeError("réponse activation legacy invalide")
 
 
+def _legacy_capability_probe(target, known_hosts: str, credential) -> dict:
+    """Probe the already-running N0C/Passenger layout without assuming shell PATH."""
+    args = deployment_transport.ssh_arguments(target, known_hosts, credential)
+    script = r'''set -eu
+root="$HOME/.checkupauto-test"
+app="$HOME/checkupauto-test-application"
+python=/opt/alt/python312/bin/python3
+test -x "$python"
+"$python" --version >/dev/null 2>&1
+test -d "$root"
+test -w "$root"
+test -d "$root/releases"
+test -d "$root/shared"
+test -d "$app"
+test -f "$app/passenger_wsgi.py"
+test -d "$app/tmp"
+test -w "$app/tmp"
+probe="$root/.legacy-capability-$"
+mkdir "$probe"
+trap 'rm -rf "$probe"' EXIT HUP INT TERM
+: > "$probe/source"
+ln -s source "$probe/link"
+test -L "$probe/link"
+disk="$(df -Pm "$root" | awk 'NR==2 {print $4}')"
+case "$disk" in ''|*[!0-9]*) exit 31 ;; esac
+printf 'CHECKUPAUTO_LEGACY_CAPABILITY_V1\n'
+printf 'python_path=%s\n' "$python"
+printf 'passenger_adapter=1\n'
+printf 'writable_root=1\n'
+printf 'writable_restart=1\n'
+printf 'symlink=1\n'
+printf 'free_disk_mb=%s\n' "$disk"
+'''
+    result = subprocess.run(
+        [*args, "sh", "-s"],
+        input=script,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("diagnostic legacy PlanetHoster impossible")
+    values = {}
+    lines = result.stdout.splitlines()
+    if not lines or lines[0].strip() != "CHECKUPAUTO_LEGACY_CAPABILITY_V1":
+        raise RuntimeError("diagnostic legacy PlanetHoster invalide")
+    for line in lines[1:]:
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    required = {
+        "python_path",
+        "passenger_adapter",
+        "writable_root",
+        "writable_restart",
+        "symlink",
+        "free_disk_mb",
+    }
+    if not required.issubset(values):
+        raise RuntimeError("diagnostic legacy PlanetHoster incomplet")
+    try:
+        disk = int(values["free_disk_mb"])
+    except ValueError as exc:
+        raise RuntimeError("espace disque legacy invalide") from exc
+    ok = (
+        values["python_path"] == "/opt/alt/python312/bin/python3"
+        and values["passenger_adapter"] == "1"
+        and values["writable_root"] == "1"
+        and values["writable_restart"] == "1"
+        and values["symlink"] == "1"
+        and disk >= 1024
+    )
+    if not ok:
+        raise RuntimeError("cible PlanetHoster legacy non prête")
+    return {
+        "pythonPath": values["python_path"],
+        "passengerAdapter": True,
+        "writableRoot": True,
+        "writableRestart": True,
+        "symlink": True,
+        "freeDiskMb": disk,
+    }
+
+
 def deploy(sha: str, key: str, known_hosts: str) -> dict:
     if not _SHA.fullmatch(sha):
         raise ValueError("SHA invalide")
     target = deployment_center.validate_target(TARGET)
     credential = deployment_transport.SSHCredential(identity_file=key)
-    capabilities = deployment_transport.probe_target(
-        target,
-        known_hosts,
-        credential,
-        passenger_wsgi_adapter=(ROOT / "passenger_wsgi.py").is_file(),
-        shared_host_tick=(ROOT / "scripts/checkupauto-shared-tick.py").is_file(),
-        timeout=30,
-    )
-    readiness = deployment_center.assess(target, capabilities)
-    if not readiness.get("ok"):
-        raise RuntimeError("cible PlanetHoster non prête: " + ",".join(readiness.get("blockers") or []))
+    capabilities = _legacy_capability_probe(target, known_hosts, credential)
 
     state = deployment_update.update_status(
         target, known_hosts, credential, sha, ROOT, timeout=30
@@ -264,9 +339,23 @@ def deploy(sha: str, key: str, known_hosts: str) -> dict:
     if state.get("state") != "update_available":
         raise RuntimeError("mise à jour refusée: " + str(state.get("state") or "unknown"))
 
-    staged = deployment_release.stage_release(
-        target, capabilities, known_hosts, credential, ROOT, sha, timeout=900
+    # stage_release calls the generic readiness gate, whose shell-PATH Passenger
+    # assumptions do not describe this already-running N0C legacy adapter.
+    # Build and stage the exact bundle using the verified legacy capability boundary.
+    bundle = deployment_release.build_release_bundle(ROOT, sha)
+    stage_script = deployment_release.remote_stage_script(target, bundle)
+    args = deployment_transport.ssh_arguments(target, known_hosts, credential)
+    staged_run = subprocess.run(
+        [*args, "sh", "-s"],
+        input=stage_script,
+        text=True,
+        capture_output=True,
+        timeout=900,
+        check=False,
     )
+    if staged_run.returncode != 0:
+        raise RuntimeError("staging distant de la release impossible")
+    staged = deployment_release._parse_stage_output(staged_run.stdout, bundle)
     if staged.sha != sha:
         raise RuntimeError("release staged incohérente")
 
