@@ -16,6 +16,8 @@ from urllib.parse import parse_qs, urlsplit
 import payment_payline as payline
 import payment_checkout as checkout
 import payment_payline_private as private_config
+import payment_mode
+import site_config_store
 from payment_core import PaymentError, SandboxJournal
 
 RETURN_ROUTE = "/payment/payline/return"
@@ -323,6 +325,23 @@ def _start(handler) -> bool:
 
 def handle(handler) -> bool:
     parsed = urlsplit(handler.path)
+    try:
+        delegated = payment_mode.status(site_config_store.load()).get("delegated") is True
+    except Exception:
+        delegated = False
+    if delegated and parsed.path in {START_ROUTE, CHECKOUT_ROUTE}:
+        if getattr(handler, "command", "") == "POST" and parsed.path == START_ROUTE:
+            handler.send_json({"ok": False, "error": "payment_delegated_to_mercureweb"}, 409)
+            return True
+        if getattr(handler, "command", "") == "GET" and parsed.path == CHECKOUT_ROUTE:
+            handler.send_bytes(
+                b"Payment delegated to MercureWeb",
+                "text/plain; charset=utf-8",
+                404,
+                "no-store",
+                {"X-Robots-Tag": "noindex, nofollow, noarchive"},
+            )
+            return True
     if getattr(handler, "command", "") == "POST" and parsed.path == START_ROUTE:
         return _start(handler)
     if getattr(handler, "command", "") != "GET":
