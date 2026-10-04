@@ -96,3 +96,54 @@ def document(doc_type: str) -> dict | None:
 
 def all_documents() -> dict[str, dict]:
     return {kind: document(kind) for kind in META}
+
+
+def publish_to_store(db_path=None) -> dict:
+    """Publish the captured legacy baseline without replacing a real current publication.
+
+    A missing document or an explicitly test/draft/provisional publication may
+    be replaced by the captured active reservation-site baseline. A non-test
+    runtime publication remains authoritative and is never overwritten here.
+    Returned rows contain metadata only; legal document bodies are not echoed.
+    """
+    import compliance_store
+
+    results = []
+    for kind in META:
+        baseline = document(kind)
+        current = compliance_store.published_document(kind, db_path)
+        if current and not compliance_store._test_or_placeholder_document(current):
+            same = (
+                str(current.get("version") or "") == baseline["version"]
+                and str(current.get("contentHash") or "") == baseline["contentHash"]
+            )
+            results.append({
+                "type": kind,
+                "action": "already_current" if same else "preserved_current_publication",
+                "version": str(current.get("version") or ""),
+                "contentHash": str(current.get("contentHash") or ""),
+            })
+            continue
+        saved = compliance_store.save_document({
+            "type": kind,
+            "version": baseline["version"],
+            "title": baseline["title"],
+            "body": baseline["body"],
+            "action": "publish",
+        }, db_path)
+        results.append({
+            "type": kind,
+            "action": "published_legacy_baseline",
+            "version": str(saved.get("version") or ""),
+            "contentHash": str(saved.get("contentHash") or ""),
+        })
+    summary = compliance_store.summary(db_path)
+    return {
+        "schema": "checkupauto.legacy-legal-publication/v1",
+        "results": results,
+        "publishedDocuments": int(summary.get("publishedDocuments") or 0),
+        "requiredDocuments": int(summary.get("requiredDocuments") or 0),
+        "missingDocuments": list(summary.get("missingDocuments") or []),
+        "readyForPublicContracting": bool(summary.get("readyForPublicContracting")),
+        "legalConformityAttested": False,
+    }
