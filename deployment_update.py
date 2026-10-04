@@ -54,7 +54,14 @@ def remote_state_script(target: DeploymentTarget) -> str:
     root = _safe_private_root(target.root_path)
     root_json = json.dumps(root)
     prefix_json = json.dumps(_STATE_PREFIX)
-    return f"""python3 - <<'CHECKUPAUTO_UPDATE_STATE'
+    return f"""if command -v python3 >/dev/null 2>&1; then
+  checkupauto_python=python3
+elif [ -x /opt/alt/python312/bin/python3 ]; then
+  checkupauto_python=/opt/alt/python312/bin/python3
+else
+  exit 127
+fi
+"$checkupauto_python" - <<'CHECKUPAUTO_UPDATE_STATE'
 from __future__ import annotations
 import base64
 import json
