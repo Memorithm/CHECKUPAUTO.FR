@@ -19,6 +19,9 @@ class CustomerOIDCAdminFrontendTest(unittest.TestCase):
         self.assertNotIn("console.log",js)
         self.assertIn(".value=''",js)
         self.assertIn("secrets ne sont jamais relus",js)
+        self.assertNotIn("Microsoft",html)
+        self.assertNotIn("microsoft",js)
+        self.assertIn("new Set(['google','apple'])",js)
 
     @unittest.skipUnless(shutil.which("node"),"Node.js required")
     def test_javascript_parses(self):
