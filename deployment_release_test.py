@@ -184,11 +184,11 @@ class DeploymentReleaseTest(unittest.TestCase):
 
     def test_generic_stage_keeps_generic_python_command(self):
         target = center.validate_target({
-            "provider": "generic-ssh",
+            "provider": "planethoster-cpanel",
             "host": "ssh.example.net",
             "username": "checkup",
             "domain": "www.checkupauto.fr",
-            "rootPath": "checkupauto",
+            "rootPath": ".checkupauto-cpanel",
             "webRootPath": "public_html",
             "authMode": "key",
         })
