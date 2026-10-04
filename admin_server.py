@@ -115,12 +115,19 @@ def render_legal_document(doc,c):
  body=''.join(chunks)
  published=esc(doc.get('publishedAt') or '')
  version=esc(doc.get('version') or '')
+ if doc.get('legacyBaseline'):
+  captured=esc(doc.get('legacyCapturedAt') or '')
+  sources=[str(x) for x in doc.get('legacySources') or [] if str(x).startswith('https://rdv.checkupauto.fr/')]
+  source_text=' · source active historique : '+esc(sources[0]) if sources else ''
+  meta=f'Baseline repris du site de réservation actif · capture {captured}{source_text}'
+ else:
+  meta=f'Version {version} · publiée {published}'
  return (f'<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
    f'<meta name="robots" content="{robots}"><link rel="canonical" href="{esc(canonical)}"><title>{title} | Checkup Auto</title>'
    '<style>body{font-family:system-ui;margin:0;background:#f6f7f3;color:#17372b}main{max-width:860px;margin:auto;padding:48px 22px 80px}'
    'a{color:#1f5845}h1{font-size:clamp(36px,6vw,68px);letter-spacing:-.04em;margin:28px 0}p{line-height:1.75;color:#40584d}'
    '.meta{padding:14px 16px;background:#fff;border:1px solid #dbe1d8;border-radius:12px;font-size:12px;color:#66776e}</style></head>'
-   f'<body><main><a href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">Version {version} · publiée {published}</div>{body}</main></body></html>').encode()
+   f'<body><main><a href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">{meta}</div>{body}</main></body></html>').encode()
 
 def configure_internal_proxy(token):
  raw=str(token or '').strip()
