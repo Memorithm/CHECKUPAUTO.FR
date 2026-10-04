@@ -116,12 +116,17 @@ def render_legal_document(doc,c):
  body=''.join(chunks)
  published=esc(doc.get('publishedAt') or '')
  version=esc(doc.get('version') or '')
- inherited=bool(doc.get('legacyBaseline')) or version.startswith('legacy-rdv-') or version.startswith('mercureweb-2022-legacy')
+ fallback_legacy=bool(doc.get('legacyBaseline'))
+ inherited_version=version.startswith('legacy-rdv-') or version.startswith('mercureweb-2022-legacy')
+ inherited=fallback_legacy or inherited_version
  if inherited:
   captured=esc(doc.get('legacyCapturedAt') or '2026-10-04')
   sources=[str(x) for x in doc.get('legacySources') or [] if str(x).startswith('https://rdv.checkupauto.fr/')]
   source_text=' · source active historique : '+esc(sources[0]) if sources else ''
-  meta=f'Baseline repris du site de réservation actif · capture {captured}{source_text}'
+  if fallback_legacy:
+   meta=f'Baseline repris du site de réservation actif · capture {captured}{source_text}'
+  else:
+   meta=f'Version {version} · publiée {published} · baseline repris du site de réservation actif{source_text}'
   note=('<div class="legacy-note"><strong>Continuité documentaire.</strong> '
         'Le texte historique ci-dessous est conservé sans réécriture de fond. '
         'Les mentions AutoBilan-Systems/KALANDA décrivent le service rdv.checkupauto.fr. '
