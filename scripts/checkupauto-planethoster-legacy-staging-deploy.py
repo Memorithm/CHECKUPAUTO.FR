@@ -32,6 +32,7 @@ TARGET = {
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _RESULT_PREFIX = "CHECKUPAUTO_LEGACY_ADAPTER_DEPLOY="
 _ACTIVATION_STEP_PREFIX = "CHECKUPAUTO_ACTIVATION_STEP="
+_VERIFY_PREFIX = "CHECKUPAUTO_HTTP_VERIFY="
 
 
 def _activation_program(sha: str) -> str:
@@ -211,10 +212,19 @@ try:
     for attempt in range(20):
         try:
             status, _status_body = origin_get("/api/app/status", limit=200000)
+            print("__VERIFY_PREFIX__app_status:" + str(status), flush=True)
             if status != 200:
                 fail("app status invalid")
             for path, version in legal.items():
                 status, raw_body = origin_get(path, limit=300000)
+                label = {
+                    "/mentions-legales": "legal_notice",
+                    "/confidentialite": "privacy",
+                    "/cookies": "cookies",
+                    "/cgv": "terms",
+                    "/retractation": "withdrawal",
+                }[path]
+                print("__VERIFY_PREFIX__" + label + ":" + str(status), flush=True)
                 if status != 200:
                     fail("legal page status invalid")
                 body = raw_body.decode("utf-8", errors="strict")
@@ -226,6 +236,7 @@ try:
             break
         except Exception as exc:
             last_error = type(exc).__name__
+            print("__VERIFY_PREFIX__error:" + last_error, flush=True)
             observed = {}
             time.sleep(3)
     if len(observed) != len(legal):
@@ -294,7 +305,7 @@ except Exception:
         os.replace(rollback, current)
         touch_restart()
     raise
-'''.replace("__SHA__", repr(sha)).replace("__PREFIX__", repr(_RESULT_PREFIX)).replace("__ACTIVATION_STEP_PREFIX__", _ACTIVATION_STEP_PREFIX)
+'''.replace("__SHA__", repr(sha)).replace("__PREFIX__", repr(_RESULT_PREFIX)).replace("__ACTIVATION_STEP_PREFIX__", _ACTIVATION_STEP_PREFIX).replace("__VERIFY_PREFIX__", _VERIFY_PREFIX)
 
 
 def _qualify_n0c_legacy_runtime(target, known_hosts: str, credential, capabilities, *, timeout: int = 30):
@@ -393,8 +404,23 @@ def deploy(sha: str, key: str, known_hosts: str) -> dict:
         check=False,
     )
     if result.returncode != 0:
+        bounded = []
+        allowed_labels = {"app_status","legal_notice","privacy","cookies","terms","withdrawal","error"}
+        for line in str(result.stdout or "").splitlines():
+            if not line.startswith(_VERIFY_PREFIX):
+                continue
+            item = line[len(_VERIFY_PREFIX):].strip()
+            label, sep, value = item.partition(":")
+            if not sep or label not in allowed_labels:
+                continue
+            if label == "error":
+                if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,80}", value):
+                    bounded.append(label + "=" + value)
+            elif value.isdigit() and 100 <= int(value) <= 599:
+                bounded.append(label + "=" + value)
+        detail = ",".join(bounded[-12:]) if bounded else "none"
         raise RuntimeError(
-            "activation legacy échouée:" + _last_activation_step(result.stdout)
+            "activation legacy échouée:" + _last_activation_step(result.stdout) + ":" + detail
         )
     return _parse_result(result.stdout)
 
