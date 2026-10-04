@@ -18,6 +18,8 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _STAGE_OK_PREFIX = "CHECKUPAUTO_STAGE_OK="
 _STAGE_PATH_PREFIX = "CHECKUPAUTO_STAGE_PATH="
 _STAGE_STEP_PREFIX = "CHECKUPAUTO_STAGE_STEP="
+_BOOTSTRAP_PIP_VERSION = "26.2.1"
+_BOOTSTRAP_SETUPTOOLS_VERSION = "84.0.0"
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,8 @@ def remote_stage_script(target: DeploymentTarget, bundle: ReleaseBundle) -> str:
         "__STAGE_OK_PREFIX__": _STAGE_OK_PREFIX,
         "__STAGE_PATH_PREFIX__": _STAGE_PATH_PREFIX,
         "__STAGE_STEP_PREFIX__": _STAGE_STEP_PREFIX,
+        "__PIP_VERSION__": _BOOTSTRAP_PIP_VERSION,
+        "__SETUPTOOLS_VERSION__": _BOOTSTRAP_SETUPTOOLS_VERSION,
     }
     script = """set -eu
 umask 077
@@ -249,6 +253,16 @@ candidate="$incoming/release"
 printf '__STAGE_STEP_PREFIX__venv\n'
 "$checkupauto_python" -m venv "$candidate/.venv"
 printf '__STAGE_STEP_PREFIX__dependencies\n'
+"$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade \
+  "pip==__PIP_VERSION__" "setuptools==__SETUPTOOLS_VERSION__"
+"$candidate/.venv/bin/python" - <<'CHECKUPAUTO_BOOTSTRAP_VERSIONS'
+import importlib.metadata
+expected={"pip":"__PIP_VERSION__","setuptools":"__SETUPTOOLS_VERSION__"}
+for name,version in expected.items():
+    actual=importlib.metadata.version(name)
+    if actual != version:
+        raise SystemExit("bootstrap package version mismatch")
+CHECKUPAUTO_BOOTSTRAP_VERSIONS
 "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
 printf '__STAGE_STEP_PREFIX__compile\n'
 "$candidate/.venv/bin/python" -m compileall -q "$candidate"
