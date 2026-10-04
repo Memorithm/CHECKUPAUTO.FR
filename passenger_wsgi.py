@@ -22,6 +22,8 @@ _PROVENANCE_LOCK = threading.RLock()
 _PROVENANCE_CACHE = (0.0, b"")
 _PROVENANCE_CACHE_SECONDS = 5.0
 _ROOT = Path(__file__).resolve().parent
+_RELEASE_MARKER_NAME = ".checkupauto-release.json"
+_RELEASE_MARKER_MAX_BYTES = 2048
 _HOP_BY_HOP = {
     "connection",
     "keep-alive",
@@ -142,6 +144,32 @@ def _runtime_git_state() -> dict:
         return {"available": False, "head": "", "branch": "", "dirty": None}
 
 
+def _runtime_release_marker_sha() -> str:
+    """Read only the immutable archive revision marker created by deployment_release."""
+    marker = _ROOT / _RELEASE_MARKER_NAME
+    try:
+        if not marker.is_file() or marker.is_symlink():
+            return ""
+        raw = marker.read_bytes()
+        if not raw or len(raw) > _RELEASE_MARKER_MAX_BYTES:
+            return ""
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("schemaVersion") != 1 or payload.get("verified") is not True:
+            return ""
+        sha = str(payload.get("sha") or "").strip().lower()
+        digest = str(payload.get("archiveSha256") or "").strip().lower()
+        hexchars = set("0123456789abcdef")
+        if len(sha) != 40 or any(ch not in hexchars for ch in sha):
+            return ""
+        if len(digest) != 64 or any(ch not in hexchars for ch in digest):
+            return ""
+        if _ROOT.name != sha:
+            return ""
+        return sha
+    except Exception:
+        return ""
+
+
 def _public_provenance_body() -> bytes:
     global _PROVENANCE_CACHE
     now = time.monotonic()
@@ -149,7 +177,16 @@ def _public_provenance_body() -> bytes:
         cached_at, cached = _PROVENANCE_CACHE
         if cached and now - cached_at < _PROVENANCE_CACHE_SECONDS:
             return cached
-        payload = public_surface_provenance.runtime_evidence(_runtime_git_state())
+        git_state = _runtime_git_state()
+        if git_state.get("available") is True:
+            payload = public_surface_provenance.runtime_evidence(git_state)
+        else:
+            release_sha = _runtime_release_marker_sha()
+            payload = (
+                public_surface_provenance.deployment_artifact_evidence(release_sha)
+                if release_sha
+                else public_surface_provenance.runtime_evidence(git_state)
+            )
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         _PROVENANCE_CACHE = (now, raw)
         return raw
