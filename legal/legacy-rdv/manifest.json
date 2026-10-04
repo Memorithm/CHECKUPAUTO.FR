@@ -1,0 +1,38 @@
+{
+  "schema": "checkupauto.legacy-legal-baseline/v1",
+  "capturedAt": "2026-10-04",
+  "policy": "Verbatim legal-content baseline captured from the currently active reservation site. Runtime-published non-test documents override it. Baseline display is not compliance attestation.",
+  "documents": {
+    "legal_notice": {
+      "sources": [
+        "https://rdv.checkupauto.fr/mentions_legales"
+      ],
+      "file": "legal/legacy-rdv/mentions-legales.md"
+    },
+    "privacy": {
+      "sources": [
+        "https://rdv.checkupauto.fr/politique_de_confidentialite",
+        "https://rdv.checkupauto.fr/Politique_RGPD"
+      ],
+      "file": "legal/legacy-rdv/confidentialite.md"
+    },
+    "cookies": {
+      "sources": [
+        "https://rdv.checkupauto.fr/Cookies_et_technologies_similaires"
+      ],
+      "file": "legal/legacy-rdv/cookies.md"
+    },
+    "terms": {
+      "sources": [
+        "https://rdv.checkupauto.fr/uploads/CGV_VL.pdf"
+      ],
+      "file": "legal/legacy-rdv/cgv-vl-mercureweb-2022.txt"
+    },
+    "withdrawal": {
+      "sources": [
+        "https://rdv.checkupauto.fr/uploads/CGV_VL.pdf"
+      ],
+      "file": "legal/legacy-rdv/retractation-extrait-cgv-vl-2022.txt"
+    }
+  }
+}
