@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import booking_conversion_erasure
+import contact_request_rights
 import contract_subject_rights
 import data_subject_rights
 import mobile_dsar_erasure
@@ -180,6 +181,14 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
     """
     body = _payload(payload)
     adapter = str(body.get("adapter") or "").strip()
+
+    if adapter == contact_request_rights.ADAPTER:
+        _exact_fields(body, _BASE_FIELDS)
+        return contact_request_rights.execute(
+            body.get("id"),
+            body.get("subjectRef"),
+            db_path,
+        )
 
     if adapter == contract_subject_rights.ADAPTER:
         _exact_fields(body, _BASE_FIELDS)
@@ -397,9 +406,13 @@ def capability(db_path: Path | str | None = None) -> dict:
     }
     rectification = rights_rectification.capability()
     wallet = referral_wallet_rights.capability(db_path)
+    contact_requests = contact_request_rights.capability()
     contracts = contract_subject_rights.capability()
     withdrawal = withdrawal_rights.capability()
     adapters = dict(central)
+    adapters[contact_request_rights.ADAPTER] = list(
+        contact_requests.get("supportedRights") or []
+    )
     adapters[rights_rectification.ADAPTER] = [rectification["requestType"]]
     adapters[referral_wallet_rights.ADAPTER] = list(wallet.get("supportedRights") or [])
     adapters[withdrawal_rights.ADAPTER] = list(withdrawal.get("supportedRights") or [])
@@ -407,6 +420,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         "dispatchReady": True,
         "globalCoverageComplete": False,
         "supportedAdapters": adapters,
+        "contactRequests": contact_requests,
         "contractSubject": contracts,
         "withdrawalEvidence": withdrawal,
         "rectification": rectification,
