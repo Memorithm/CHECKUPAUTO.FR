@@ -115,6 +115,11 @@ class ReferralWalletPurgeRightsTest(unittest.TestCase):
                     "disposition": "not_applicable",
                     "justification": "La suppression de traitement est hors du périmètre de cette demande de test.",
                 },
+                {
+                    "adapter": "contact_requests",
+                    "disposition": "not_applicable",
+                    "justification": "Aucune demande de contact n'est liée à cette demande de test.",
+                },
                 {"adapter": "referral_wallet", "disposition": "required"},
             ],
             self.compliance_db,
