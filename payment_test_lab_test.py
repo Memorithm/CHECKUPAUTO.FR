@@ -87,7 +87,7 @@ class PaymentTestLabTest(unittest.TestCase):
              patch.object(lab.booking,"record_terms_acceptance",return_value={"ok":True}), \
              patch.object(lab.booking,"apply_conversion",return_value={
                  "ok":True,"contractAcceptanceBound":True,
-             }), \
+             }) as apply_conversion, \
              patch.object(lab.checkout,"create_sandbox_intent") as create_payment:
             result=lab.prepare_payline_checkout(
                 "session-token","technical","2026-10-03","09:00",
@@ -102,7 +102,7 @@ class PaymentTestLabTest(unittest.TestCase):
         self.assertTrue(result["paylineSandbox"]["configured"])
         self.assertFalse(result["paylineSandbox"]["livePaymentsEnabled"])
         create_payment.assert_not_called()
-        conversion_call=lab.booking.apply_conversion.call_args
+        conversion_call=apply_conversion.call_args
         self.assertEqual(
             conversion_call.kwargs["acceptance_source"],
             "staging_synthetic_mercure_contract_confirmation",
@@ -125,7 +125,7 @@ class PaymentTestLabTest(unittest.TestCase):
              patch.object(lab.booking,"record_terms_acceptance",return_value={"ok":True}), \
              patch.object(lab.booking,"apply_conversion",return_value={
                  "ok":True,"contractAcceptanceBound":True,
-             }), \
+             }) as apply_conversion, \
              patch.object(lab.checkout,"create_sandbox_intent",return_value={
                  "paymentId":"b"*32,"provider":"payline","environment":"sandbox",
                  "state":"created","amountCents":8000,"currency":"EUR",
@@ -139,7 +139,7 @@ class PaymentTestLabTest(unittest.TestCase):
         self.assertEqual(result["payment"]["amountCents"],8000)
         self.assertIn("/payment/test/provider#token=session-token",result["providerUrl"])
         fake_store.bind_provider.assert_called_once_with("b"*32,"TESTPAY_"+"b"*32)
-        conversion_call=lab.booking.apply_conversion.call_args
+        conversion_call=apply_conversion.call_args
         self.assertEqual(
             conversion_call.kwargs["acceptance_source"],
             "staging_synthetic_mercure_contract_confirmation",
