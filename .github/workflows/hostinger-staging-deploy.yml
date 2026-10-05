@@ -57,6 +57,7 @@ jobs:
             admin_server_runtime_test.py \
             hostinger_staging_tls_readiness_test.py \
             hostinger_staging_control_plane_test.py \
+            hostinger_staging_private_permissions_test.py \
             hostinger_staging_deployment_provenance_test.py
 
       - name: Validate Docker compose model
