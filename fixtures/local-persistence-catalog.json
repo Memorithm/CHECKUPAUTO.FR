@@ -1,0 +1,303 @@
+{
+  "schema": "checkupauto.local-persistence-catalog/v1",
+  "reviewedAt": "2026-10-05",
+  "scope": "Production Python CREATE TABLE declarations; test modules excluded. Catalog completeness is technical persistence discovery only and does not assert data-subject-right execution coverage.",
+  "tables": [
+    {
+      "table": "behavior_profiles",
+      "module": "security_behavior.py"
+    },
+    {
+      "table": "booking_conversion_privacy_receipt",
+      "module": "booking_conversion_erasure.py"
+    },
+    {
+      "table": "booking_conversions",
+      "module": "booking_bridge.py"
+    },
+    {
+      "table": "booking_intents",
+      "module": "booking_bridge.py"
+    },
+    {
+      "table": "booking_schema_meta",
+      "module": "booking_bridge.py"
+    },
+    {
+      "table": "booking_test_sessions",
+      "module": "booking_test.py"
+    },
+    {
+      "table": "checkout_acceptance_intents",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "competitors",
+      "module": "competitive_intelligence.py"
+    },
+    {
+      "table": "compliance_operation_audit",
+      "module": "compliance_operations.py"
+    },
+    {
+      "table": "compliance_settings",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "consent_receipts",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "contact_requests",
+      "module": "contact_request.py"
+    },
+    {
+      "table": "cookie_registry",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "customer_account",
+      "module": "customer_accounts.py"
+    },
+    {
+      "table": "customer_ct_report",
+      "module": "customer_ct_reports.py"
+    },
+    {
+      "table": "customer_identity",
+      "module": "customer_accounts.py"
+    },
+    {
+      "table": "customer_oidc_flow",
+      "module": "customer_oidc.py"
+    },
+    {
+      "table": "customer_session",
+      "module": "customer_accounts.py"
+    },
+    {
+      "table": "data_incidents",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "legal_documents",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "marketing_campaign_run",
+      "module": "marketing_campaigns.py"
+    },
+    {
+      "table": "marketing_consent",
+      "module": "marketing_consent.py"
+    },
+    {
+      "table": "mobile_auth_ticket",
+      "module": "mobile_auth_ticket.py"
+    },
+    {
+      "table": "mobile_deadline",
+      "module": "mobile_devices.py"
+    },
+    {
+      "table": "mobile_device",
+      "module": "mobile_devices.py"
+    },
+    {
+      "table": "mobile_erasure_receipt",
+      "module": "referral_wallet_lifecycle.py"
+    },
+    {
+      "table": "mobile_rectification_receipt",
+      "module": "rights_rectification.py"
+    },
+    {
+      "table": "mobile_vehicle_binding",
+      "module": "mobile_devices.py"
+    },
+    {
+      "table": "mobile_vehicle_claim",
+      "module": "mobile_devices.py"
+    },
+    {
+      "table": "notification_delivery",
+      "module": "notification_broker.py"
+    },
+    {
+      "table": "notification_privacy_binding",
+      "module": "notification_privacy.py"
+    },
+    {
+      "table": "notification_transport_health",
+      "module": "notification_broker.py"
+    },
+    {
+      "table": "observations",
+      "module": "competitive_intelligence.py"
+    },
+    {
+      "table": "payment_events",
+      "module": "payment_core.py"
+    },
+    {
+      "table": "payment_intents",
+      "module": "payment_core.py"
+    },
+    {
+      "table": "payment_provider_starts",
+      "module": "payment_core.py"
+    },
+    {
+      "table": "payment_provider_transactions",
+      "module": "payment_core.py"
+    },
+    {
+      "table": "payment_test_runs",
+      "module": "payment_test_lab.py"
+    },
+    {
+      "table": "privacy_store_receipt",
+      "module": "privacy_suppression.py"
+    },
+    {
+      "table": "privacy_suppression",
+      "module": "privacy_suppression.py"
+    },
+    {
+      "table": "processing_activities",
+      "module": "compliance_operations.py"
+    },
+    {
+      "table": "processing_risk_review",
+      "module": "processing_risk_review.py"
+    },
+    {
+      "table": "processor_inventory",
+      "module": "compliance_operations.py"
+    },
+    {
+      "table": "provider_erasure_completion",
+      "module": "provider_erasure_completion.py"
+    },
+    {
+      "table": "referral_accounts",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_compacted_reward_evidence",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_ledger",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_ledger_checkpoint",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_redeem_tombstone",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_rewards",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_schema_meta",
+      "module": "referral_engine.py"
+    },
+    {
+      "table": "referral_wallet_claim",
+      "module": "referral_wallet_claims.py"
+    },
+    {
+      "table": "referral_wallet_erasure_checkpoint",
+      "module": "referral_wallet_erasure.py"
+    },
+    {
+      "table": "referral_wallet_erasure_completion_link",
+      "module": "referral_wallet_purge_rights.py"
+    },
+    {
+      "table": "referral_wallet_export_session",
+      "module": "referral_wallet_paged_export.py"
+    },
+    {
+      "table": "referral_wallet_final_purge_audit",
+      "module": "referral_wallet_final_purge.py"
+    },
+    {
+      "table": "referral_wallet_owner",
+      "module": "referral_wallet_claims.py"
+    },
+    {
+      "table": "reminder_meta",
+      "module": "reminder_dispatch.py"
+    },
+    {
+      "table": "reminder_privacy_erasure_receipt",
+      "module": "reminder_dispatch.py"
+    },
+    {
+      "table": "reminder_target",
+      "module": "reminder_dispatch.py"
+    },
+    {
+      "table": "retention_policy_setting",
+      "module": "retention_enforcement.py"
+    },
+    {
+      "table": "retention_purge_audit",
+      "module": "retention_enforcement.py"
+    },
+    {
+      "table": "retention_rule_run_state",
+      "module": "retention_enforcement.py"
+    },
+    {
+      "table": "review_followup",
+      "module": "review_followup.py"
+    },
+    {
+      "table": "review_followup_privacy_receipt",
+      "module": "review_followup_privacy.py"
+    },
+    {
+      "table": "reviews",
+      "module": "competitive_intelligence.py"
+    },
+    {
+      "table": "rights_completion_plan",
+      "module": "rights_completion_plan.py"
+    },
+    {
+      "table": "rights_execution_audit",
+      "module": "data_subject_rights.py"
+    },
+    {
+      "table": "rights_requests",
+      "module": "compliance_store.py"
+    },
+    {
+      "table": "rights_subject_binding",
+      "module": "rights_subject_bindings.py"
+    },
+    {
+      "table": "security_alerts",
+      "module": "security_alerts.py"
+    },
+    {
+      "table": "security_client_state",
+      "module": "security_guard.py"
+    },
+    {
+      "table": "security_events",
+      "module": "security_guard.py"
+    },
+    {
+      "table": "withdrawal_requests",
+      "module": "withdrawal_service.py"
+    }
+  ]
+}
