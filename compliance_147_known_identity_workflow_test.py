@@ -19,7 +19,7 @@ class Compliance147KnownIdentityWorkflowTest(unittest.TestCase):
         self.assertIn("source.backup(target)",self.text)
         self.assertIn("backup_source.backup(runtime_target)",self.text)
         self.assertIn("APPLY-KNOWN-IDENTITY-FACTS",self.text)
-        self.assertIn('expected_missing=["mediatorName","mediatorUrl","privacyContact"]',self.text)
+        self.assertIn('expected_missing=["privacyContact"]',self.text)
         self.assertIn("known identity apply failed and backup restored",self.text)
 
     def test_transport_is_pinned_and_output_is_bounded(self):
@@ -29,6 +29,7 @@ class Compliance147KnownIdentityWorkflowTest(unittest.TestCase):
         self.assertIn("CHECKUPAUTO_COMPLIANCE_147_IDENTITY=",self.text)
         self.assertNotIn('"privacyContact":',self.text)
         self.assertNotIn('"mediatorName":',self.text)
+        self.assertNotIn('"mediatorUrl":',self.text)
 
 if __name__=="__main__":
     unittest.main()
