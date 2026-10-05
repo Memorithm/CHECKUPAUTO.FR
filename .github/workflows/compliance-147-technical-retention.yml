@@ -1,0 +1,177 @@
+name: Compliance 147 technical retention staging
+
+on:
+  push:
+    branches:
+      - ops/compliance-147-technical-retention
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-compliance-147-technical-retention
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.ref == 'refs/heads/ops/compliance-147-technical-retention'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 10
+    env:
+      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
+      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+      STAGING_HOST: nodels49-eu.n0c.com
+      STAGING_PORT: "5022"
+      STAGING_USER: eqcrhuya
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import json,os,urllib.request
+          req=urllib.request.Request(
+              os.environ["GH_API"].rstrip("/")+"/repos/"+os.environ["GH_REPOSITORY"]+"/branches/main",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(req,timeout=15) as response:
+              current=(json.load(response).get("commit") or {}).get("sha")
+          if current != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("ops branch is not exact current main")
+          print("CURRENT_MAIN_VERIFIED="+current)
+          PY
+      - name: Verify dedicated PlanetHoster SSH material
+        run: |
+          set -euo pipefail
+          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+      - name: Apply technical-only retention baseline with backup
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$STAGING_KEY" \
+            -p "$STAGING_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$STAGING_KNOWN_HOSTS" \
+            "$STAGING_USER@$STAGING_HOST" \
+            /opt/alt/python312/bin/python3 - "$EXPECTED_SHA" <<'PY'
+          from __future__ import annotations
+          import datetime,json,os,sqlite3,subprocess,sys
+          from pathlib import Path
+
+          expected=sys.argv[1]
+          home=Path.home().resolve()
+          root=(home/".checkupauto-test").resolve()
+          release=(root/"current").resolve(strict=True)
+          releases=(root/"releases").resolve()
+          if releases not in release.parents or release.name!=expected:
+              raise SystemExit("runtime revision does not match current main")
+          shared=(root/"shared").resolve()
+          data=(shared/"data").resolve()
+          private=(shared/"private").resolve()
+          db_path=data/"compliance.sqlite3"
+          if not db_path.is_file() or db_path.is_symlink():
+              raise SystemExit("runtime compliance database invalid")
+          db=db_path.resolve()
+          if data not in db.parents:
+              raise SystemExit("runtime compliance database invalid")
+          script=release/"scripts/checkupauto-compliance-seed-technical-retention.py"
+          venv_python=release/".venv/bin/python"
+          if not script.is_file() or not venv_python.is_file():
+              raise SystemExit("technical retention runtime support unavailable")
+
+          backup_dir=private/"compliance-backups"
+          backup_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
+          os.chmod(backup_dir,0o700)
+          stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+          backup=backup_dir/("compliance-before-technical-retention-"+stamp+".sqlite3")
+          source=sqlite3.connect("file:"+str(db)+"?mode=ro",uri=True,timeout=10)
+          target=sqlite3.connect(backup,timeout=10)
+          try:
+              source.backup(target)
+          finally:
+              target.close()
+              source.close()
+          os.chmod(backup,0o600)
+
+          env=os.environ.copy()
+          env.update({
+              "CYBERCHECK_DATA_DIR":str(data),
+              "CYBERCHECK_PRIVATE_DIR":str(private),
+              "CYBERCHECK_SECURITY_DIR":str((shared/"security").resolve()),
+              "CYBERCHECK_INTEGRITY_DIR":str((shared/"integrity").resolve()),
+              "CYBERCHECK_SITE_CONFIG_PATH":str(data/"site-config.json"),
+              "CYBERCHECK_MOBILE_PUSH_ENABLED":"0",
+          })
+          applied=subprocess.run(
+              [
+                  str(venv_python),str(script),"--db",str(db),
+                  "--confirm","APPLY-TECHNICAL-RETENTION-BASELINE",
+              ],
+              cwd=release,env=env,text=True,capture_output=True,timeout=90,check=False,
+          )
+          try:
+              result=json.loads(applied.stdout.strip()) if applied.returncode==0 else {}
+          except Exception:
+              result={}
+          expected_verified=["reminder_targets","review_followup","security_telemetry"]
+          expected_remaining=[
+              "booking_conversions",
+              "checkout_acceptance_transient",
+              "contract_consent_receipts",
+              "mobile_inactive_installations",
+              "notification_delivery",
+              "referral_ledger",
+              "rights_requests_and_audit",
+              "withdrawal_evidence",
+          ]
+          ok=(
+              result.get("schema")=="checkupauto.compliance-technical-retention-result/v1"
+              and result.get("verifiedRuleIds")==expected_verified
+              and result.get("remainingBlockerRuleIds")==expected_remaining
+              and result.get("readyRuleCount")==9
+              and result.get("ruleCount")==17
+              and result.get("retentionBound") is False
+              and result.get("legalReviewAsserted") is False
+          )
+          if not ok:
+              backup_source=sqlite3.connect("file:"+str(backup)+"?mode=ro",uri=True,timeout=10)
+              runtime_target=sqlite3.connect(db,timeout=10)
+              try:
+                  backup_source.backup(runtime_target)
+              finally:
+                  runtime_target.close()
+                  backup_source.close()
+              raise SystemExit("technical retention apply failed and backup restored")
+          print("CHECKUPAUTO_COMPLIANCE_147_TECHNICAL_RETENTION="+json.dumps({
+              "schema":result["schema"],
+              "runtimeSha":expected,
+              "verifiedRuleIds":result["verifiedRuleIds"],
+              "changedRuleIds":result.get("changedRuleIds") or [],
+              "readyRuleCount":result["readyRuleCount"],
+              "ruleCount":result["ruleCount"],
+              "remainingBlockerRuleIds":result["remainingBlockerRuleIds"],
+              "retentionBound":False,
+              "legalReviewAsserted":False,
+              "backupCreated":True,
+              "purgeExecuted":False,
+          },sort_keys=True,separators=(",",":")))
+          PY
