@@ -183,6 +183,38 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],400)
         complete.assert_not_called()
 
+    def test_native_apple_customer_auth_completes_verified_identity(self):
+        payload={
+            "identityToken":"jwt-token",
+            "authorizationCode":"auth-code",
+            "userIdentifier":"apple-subject-42",
+            "givenName":"Alice",
+            "familyName":"Martin",
+            "email":"alice@example.test",
+            "nonce":"nonce-42",
+        }
+        h=Handler("/api/mobile/auth/apple","POST",payload)
+        account={**self.account(),"accountId":"00000000-0000-4000-8000-000000000042"}
+        with patch.object(http.customer_oidc,"verify_native_apple_identity",return_value={
+                 "sub":"apple-subject-42",
+                 "email":"alice@example.test",
+                 "email_verified":"true",
+             }) as verify, \
+             patch.object(http.customer_accounts,"create_from_verified_identity",return_value=account) as create, \
+             patch.object(http.customer_accounts,"issue_session",return_value={
+                 "token":"mobile-session-token",
+                 "expiresAt":"2026-10-06T12:00:00+00:00",
+             }) as issue:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        self.assertEqual(h.response["json"]["accountId"],account["accountId"])
+        self.assertEqual(h.response["json"]["sessionToken"],"mobile-session-token")
+        verify.assert_called_once_with("jwt-token",client_id="fr.checkupauto.reminder",nonce="nonce-42")
+        create.assert_called_once_with(
+            "apple","apple-subject-42","alice@example.test","Alice Martin",email_verified=True
+        )
+        issue.assert_called_once_with(account["accountId"])
+
     def test_concurrent_provider_flows_use_distinct_cookies_and_clear_only_their_own(self):
         states=("a"*43,"b"*43)
         cookies=[]
