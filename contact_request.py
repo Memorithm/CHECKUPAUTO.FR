@@ -106,10 +106,11 @@ def _connect(path: Path | None = None):
     return db
 
 
-def submit(payload: dict, *, path: Path | None = None) -> dict:
+def submit(payload: dict, *, customer: dict, path: Path | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("contact_payload_invalid")
-    allowed = {"category", "name", "email", "phone", "message", "website", "consent"}
+    account_id, name, email, phone = _customer_identity(customer)
+    allowed = {"category", "message", "website", "consent"}
     if set(payload) - allowed:
         raise ValueError("contact_payload_invalid")
     if str(payload.get("website") or ""):
@@ -119,9 +120,6 @@ def submit(payload: dict, *, path: Path | None = None) -> dict:
     category = str(payload.get("category") or "")
     if category not in CATEGORIES:
         raise ValueError("contact_category_invalid")
-    name = _text(payload.get("name"), minimum=2, maximum=120, code="contact_name_invalid")
-    email = _email(payload.get("email"))
-    phone = _phone(payload.get("phone"))
     message = _message(payload.get("message"))
     request_id = secrets.token_hex(16)
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
@@ -132,15 +130,16 @@ def submit(payload: dict, *, path: Path | None = None) -> dict:
         db.execute("DELETE FROM contact_requests WHERE created_at < ?", (cutoff,))
         db.execute(
             """INSERT INTO contact_requests(
-                 request_id,category,name,email,phone,message,status,created_at
-               ) VALUES(?,?,?,?,?,?,'open',?)""",
-            (request_id, category, name, email, phone, message, now),
+                 request_id,customer_account_id,category,name,email,phone,message,status,created_at
+               ) VALUES(?,?,?,?,?,?,?,'open',?)""",
+            (request_id, account_id, category, name, email, phone, message, now),
         )
         db.commit()
     finally:
         db.close()
     return {
         "requestId": request_id,
+        "customerAccountId": account_id,
         "category": category,
         "createdAt": now,
         "paymentActionTriggered": False,
@@ -154,7 +153,7 @@ def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
     db=_connect(path)
     try:
         rows=db.execute(
-            """SELECT request_id,category,name,email,phone,message,status,created_at
+            """SELECT request_id,customer_account_id,category,name,email,phone,message,status,created_at
                FROM contact_requests WHERE email=? ORDER BY created_at,request_id""",
             (normalized,),
         ).fetchall()
@@ -166,6 +165,7 @@ def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
         "requests":[
             {
                 "requestId":str(row["request_id"]),
+                "customerAccountId":str(row["customer_account_id"]),
                 "category":str(row["category"]),
                 "name":str(row["name"]),
                 "email":str(row["email"]),
