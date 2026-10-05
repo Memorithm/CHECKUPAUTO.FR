@@ -116,8 +116,14 @@ jobs:
           fixture=json.loads(fixture_path.read_text(encoding="utf-8"))
           expected_payload={
               "schema":"checkupauto.operational-registers.v1",
-              "processingActivities":fixture.get("processingActivities") or [],
-              "processors":fixture.get("processors") or [],
+              "processingActivities":sorted(
+                  fixture.get("processingActivities") or [],
+                  key=lambda row:str(row.get("id") or ""),
+              ),
+              "processors":sorted(
+                  fixture.get("processors") or [],
+                  key=lambda row:str(row.get("id") or ""),
+              ),
           }
           actual_payload=attestation.register_payload(db)
           if actual_payload!=expected_payload:
