@@ -30,12 +30,14 @@ class ContactRequestRightsTest(unittest.TestCase):
     def submit(self,email,name="Alice",message="Demande de contact suffisamment longue."):
         return contact_request.submit({
             "category":"general",
-            "name":name,
-            "email":email,
-            "phone":"",
             "message":message,
             "website":"",
             "consent":"yes",
+        },customer={
+            "accountId":"00000000-0000-4000-8000-000000000001",
+            "displayName":name,
+            "email":email,
+            "phone":"",
         })
 
     def request(self,kind,email):
