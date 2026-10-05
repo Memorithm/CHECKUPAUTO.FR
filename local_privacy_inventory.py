@@ -10,6 +10,7 @@ reviewed; callers must not infer completeness from the absence of a row here.
 
 import analytics_store
 import booking_conversion_reconciliation
+import local_persistence_catalog
 
 
 INVENTORY_SCOPE = "known-local-privacy-stores-v4"
@@ -58,6 +59,7 @@ def _booking_observability(state: object) -> dict:
 
 
 def snapshot() -> dict:
+    persistence_catalog = local_persistence_catalog.snapshot()
     analytics = analytics_store.privacy_profile()
     analytics_subject_keyed = bool(analytics.get("subjectKeyed"))
     booking_observability = _booking_observability(
@@ -163,10 +165,18 @@ def snapshot() -> dict:
 
     unresolved_states = {"unresolved", "conditional_unwired", "partial_wired"}
     unresolved = [row for row in stores if row["executionState"] in unresolved_states]
+    catalog_complete = bool(persistence_catalog.get("complete"))
     return {
         "scope": INVENTORY_SCOPE,
         "inventoryComplete": False,
         "knownExecutionCoverageComplete": not unresolved,
+        "persistenceCatalog": {
+            "scope": str(persistence_catalog.get("scope") or ""),
+            "complete": catalog_complete,
+            "tableCount": int(persistence_catalog.get("tableCount") or 0),
+            "state": str(persistence_catalog.get("state") or "unavailable"),
+            "privacyExecutionCoverageAsserted": False,
+        },
         "knownStoreCount": len(stores),
         "unresolvedStoreCount": len(unresolved),
         "unresolvedStores": [row["store"] for row in unresolved],
@@ -182,7 +192,11 @@ def snapshot() -> dict:
         },
         "bookingConversionReconciliation": booking_observability,
         "limitations": [
-            "inventory_scope_not_yet_exhaustive",
+            (
+                "persistence_catalog_complete_privacy_store_mapping_incomplete"
+                if catalog_complete
+                else "persistence_catalog_incomplete"
+            ),
             "provider_reference_stores_require_attested_subject_appointment_inventory",
             "local_booking_reconciliation_does_not_prove_provider_coverage",
             "withdrawal_subject_coverage_limited_to_exact_verified_receipt_email",
