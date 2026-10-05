@@ -158,6 +158,54 @@ def submit(payload: dict, *, customer: dict, path: Path | None = None) -> dict:
     }
 
 
+def admin_list(*, intent: str = "", limit: int = 100, path: Path | None = None) -> dict:
+    intent=str(intent or "").strip().lower()
+    if intent not in {"","contact","suggestion"}:
+        raise ValueError("contact_intent_invalid")
+    try:
+        limit=int(limit)
+    except (TypeError,ValueError) as exc:
+        raise ValueError("contact_limit_invalid") from exc
+    if not 1<=limit<=200:
+        raise ValueError("contact_limit_invalid")
+    db=_connect(path)
+    try:
+        if intent:
+            rows=db.execute(
+                """SELECT request_id,customer_account_id,intent,category,name,email,phone,message,status,created_at
+                   FROM contact_requests WHERE intent=? ORDER BY created_at DESC,request_id DESC LIMIT ?""",
+                (intent,limit),
+            ).fetchall()
+        else:
+            rows=db.execute(
+                """SELECT request_id,customer_account_id,intent,category,name,email,phone,message,status,created_at
+                   FROM contact_requests ORDER BY created_at DESC,request_id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    finally:
+        db.close()
+    return {
+        "ok":True,
+        "intent":intent,
+        "count":len(rows),
+        "requests":[
+            {
+                "requestId":str(row["request_id"]),
+                "customerAccountId":str(row["customer_account_id"]),
+                "intent":str(row["intent"]),
+                "category":str(row["category"]),
+                "name":str(row["name"]),
+                "email":str(row["email"]),
+                "phone":str(row["phone"]),
+                "message":str(row["message"]),
+                "status":str(row["status"]),
+                "createdAt":str(row["created_at"]),
+            }
+            for row in rows
+        ],
+    }
+
+
 def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
     """Return every retained contact row for one exact normalized e-mail subject."""
     normalized=_email(email)
