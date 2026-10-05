@@ -62,6 +62,20 @@ def _phone(value) -> str:
     return value
 
 
+def _customer_identity(customer: object) -> tuple[str, str, str, str]:
+    if not isinstance(customer, dict):
+        raise ValueError("contact_customer_required")
+    account_id = _text(
+        customer.get("accountId"), minimum=8, maximum=80, code="contact_customer_required"
+    )
+    name = _text(
+        customer.get("displayName"), minimum=2, maximum=120, code="contact_customer_required"
+    )
+    email = _email(customer.get("email"))
+    phone = _phone(customer.get("phone"))
+    return account_id, name, email, phone
+
+
 def _connect(path: Path | None = None):
     path = path or db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
