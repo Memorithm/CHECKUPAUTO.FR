@@ -69,6 +69,54 @@ class ContactRequestTest(unittest.TestCase):
             )
         self.assertFalse(self.path.exists())
 
+    def test_suggestion_intent_is_customer_bound_and_migrates_existing_store(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("""CREATE TABLE contact_requests(
+              request_id TEXT PRIMARY KEY,
+              customer_account_id TEXT NOT NULL DEFAULT '',
+              category TEXT NOT NULL CHECK(category IN ('general','booking','payment','refund_request')),
+              name TEXT NOT NULL,
+              email TEXT NOT NULL,
+              phone TEXT NOT NULL DEFAULT '',
+              message TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
+              created_at TEXT NOT NULL
+            )""")
+            db.commit()
+        result=contact.submit(
+            self.payload(
+                intent="suggestion",
+                category="general",
+                message="Je suggère un rappel plus visible dans mon espace client.",
+            ),
+            customer=self.customer(),
+            path=self.path,
+        )
+        self.assertEqual(result["intent"],"suggestion")
+        with sqlite3.connect(self.path) as db:
+            row=db.execute(
+                "SELECT customer_account_id,intent,category,message FROM contact_requests WHERE request_id=?",
+                (result["requestId"],),
+            ).fetchone()
+        self.assertEqual(
+            row,
+            (
+                self.customer()["accountId"],
+                "suggestion",
+                "general",
+                "Je suggère un rappel plus visible dans mon espace client.",
+            ),
+        )
+
+    def test_suggestion_rejects_payment_or_refund_category(self):
+        with self.assertRaisesRegex(ValueError,"^contact_category_invalid$"):
+            contact.submit(
+                self.payload(intent="suggestion",category="payment"),
+                customer=self.customer(),
+                path=self.path,
+            )
+        self.assertFalse(self.path.exists())
+
     def test_honeypot_and_consent_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "^contact_payload_invalid$"):
             contact.submit(
@@ -97,6 +145,16 @@ class ContactRequestTest(unittest.TestCase):
         self.assertIn("ne déclenche aucun remboursement".encode(), body)
         self.assertNotIn(b"/api/admin/payments/refunds", body)
         self.assertNotIn(b"PaylineAPI", body)
+
+    def test_suggestion_form_is_preselected_and_uses_no_free_identity(self):
+        body=contact.render_form(self.customer(),"c"*64,"suggestion")
+        self.assertIn("Une idée pour nous améliorer".encode(),body)
+        self.assertIn(b'name="intent" value="suggestion"',body)
+        self.assertIn(b'name="category" value="general"',body)
+        self.assertIn("Votre suggestion".encode(),body)
+        self.assertNotIn(b'<select name="category"',body)
+        self.assertNotIn(b'name="email"',body)
+        self.assertIn(b"client@example.test",body)
 
     def test_confirmation_never_claims_a_refund(self):
         result = contact.submit(
