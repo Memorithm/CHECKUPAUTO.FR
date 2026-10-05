@@ -57,11 +57,6 @@ class RightsCompletionPlanTest(unittest.TestCase):
 
     def _access_plan(self, *, wallet_disposition: str = "not_applicable") -> list[dict]:
         rows = [
-            {
-                "adapter": "contact_requests",
-                "disposition": "not_applicable",
-                "justification": "aucune demande de contact n'est liée à cette installation",
-            },
             {"adapter": "mobile_installation", "disposition": "required"},
             {
                 "adapter": "mercure_customer_contact",
@@ -72,6 +67,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "adapter": "compliance_contracts",
                 "disposition": "not_applicable",
                 "justification": "aucun contrat CheckupAuto n'est lié à cette installation",
+            },
+            {
+                "adapter": "contact_requests",
+                "disposition": "not_applicable",
+                "justification": "aucune demande de contact n'est liée à cette installation",
             },
         ]
         if wallet_disposition == "required":
