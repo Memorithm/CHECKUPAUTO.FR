@@ -1,8 +1,9 @@
-"""Public contact-request intake.
+"""Authenticated customer contact-request intake.
 
-A contact request is operational correspondence only. It never invokes payment,
-refund, booking or provider APIs. Refund-related messages are queued for manual
-review through the same contact workflow.
+A contact request is accepted only from an authenticated customer session.
+Customer identity is derived from the verified customer account rather than
+free-form contact fields. The workflow never invokes payment, refund, booking
+or provider APIs; refund-related messages remain manual correspondence only.
 """
 from __future__ import annotations
 
