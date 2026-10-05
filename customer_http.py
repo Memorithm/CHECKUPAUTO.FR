@@ -372,7 +372,7 @@ def handle(handler) -> bool:
             intent=""
         if not account:
             info=(
-                "Pour nous contacter, connectez-vous ou créez votre compte client avec Google ou Apple. "
+                "Pour nous contacter, connectez-vous ou créez votre compte client avec un fournisseur de connexion disponible. "
                 "Cette étape permet de sécuriser et d’identifier les échanges."
                 if intent=="contact" else ""
             )
