@@ -131,6 +131,8 @@ def init_db():
             db.execute("ALTER TABLE booking_intents ADD COLUMN preferred_date TEXT NOT NULL DEFAULT ''")
         if 'preferred_time' not in intent_cols:
             db.execute("ALTER TABLE booking_intents ADD COLUMN preferred_time TEXT NOT NULL DEFAULT ''")
+        if 'customer_contact_confirmed' not in intent_cols:
+            db.execute("ALTER TABLE booking_intents ADD COLUMN customer_contact_confirmed INTEGER NOT NULL DEFAULT 0")
         conversion_cols={row['name'] for row in db.execute('PRAGMA table_info(booking_conversions)')}
         if 'referral_code' not in conversion_cols:
             db.execute("ALTER TABLE booking_conversions ADD COLUMN referral_code TEXT NOT NULL DEFAULT ''")
@@ -296,7 +298,7 @@ def auto_submit_html(token, service, nonce=""):
     return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>Prix affiché : {html.escape(str(price))} € TTC{preferred_markup}</div><p><a href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</label>{immediate_markup}<button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error'),requiresImmediate={immediate_required_js};const update=()=>{{button.disabled=!terms.checked||(requiresImmediate&&!immediate.checked)}};terms.addEventListener('change',update);if(requiresImmediate)immediate.addEventListener('change',update);form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked||(requiresImmediate&&!immediate.checked))return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:requiresImmediate?immediate.checked:false}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
 
 
-def create_intent(params, booking_url):
+def create_intent(params, booking_url, *, customer_contact_confirmed=False):
     token=secrets.token_urlsafe(20)
     attribution_key=_attribution_key(token)
     created=now_iso()
@@ -313,14 +315,14 @@ def create_intent(params, booking_url):
     if preferred_time and not re.fullmatch(r'\d{2}:\d{2}',preferred_time):
         raise ValueError('preferredTime invalid')
     with analytics.connect() as db:
-        db.execute('INSERT INTO booking_intents(token,attribution_key,created_at,source,campaign,device,path,service,referral_code,preferred_date,preferred_time) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                   (token,attribution_key,created,source,campaign,device,path,service,referral_code,preferred_date,preferred_time))
+        db.execute('INSERT INTO booking_intents(token,attribution_key,created_at,source,campaign,device,path,service,referral_code,preferred_date,preferred_time,customer_contact_confirmed) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                   (token,attribution_key,created,source,campaign,device,path,service,referral_code,preferred_date,preferred_time,1 if customer_contact_confirmed else 0))
         db.execute("INSERT INTO events(occurred_at,event,path,source,campaign,device,referrer_host,service) VALUES(?,?,?,?,?,?,?,?)",
                    (created,'booking_click',path,source,campaign,device,'',service))
     parts=urlsplit(booking_url)
     query=dict(parse_qsl(parts.query,keep_blank_values=True)); query['ccid']=token; query['cct']=browser_token(token)
     target=urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),parts.fragment))
-    return {'token':token,'target':target,'source':source,'campaign':campaign,'referralCode':referral_code or None}
+    return {'token':token,'target':target,'source':source,'campaign':campaign,'referralCode':referral_code or None,'customerContactConfirmed':bool(customer_contact_confirmed)}
 
 
 def record_terms_acceptance(payload):
