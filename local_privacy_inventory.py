@@ -4,8 +4,10 @@ from __future__ import annotations
 
 This module is deliberately a technical inventory, not a legal classification.
 It records only behaviours that are directly implemented in this repository.
-`inventoryComplete` stays false until every local persistence surface has been
-reviewed; callers must not infer completeness from the absence of a row here.
+`inventoryComplete` means every production persistence surface has been discovered
+and technically classified. It is deliberately independent from execution coverage;
+callers must require `knownExecutionCoverageComplete` before treating rights coverage
+as complete.
 """
 
 import analytics_store
