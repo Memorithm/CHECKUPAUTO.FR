@@ -548,17 +548,45 @@ def confirm_passage_contact(
     action=str(action or "").strip().lower()
     if action not in {"validated","modified"}:
         raise CustomerAccountError("customer_passage_action_invalid")
-    row=_passage_row(account_id,passage_token)
-    if str(row["state"])!="pending":
-        raise RuntimeError("customer_passage_not_pending")
-    current=profile(account_id)
-    if not bool(current.get("contactDetailsComplete")):
-        raise CustomerAccountError("customer_contact_details_incomplete")
-    contact_hash=_contact_hash(account_id,current)
-    stamp=_now_iso()
-    digest=str(row["passage_hash"])
+    raw=str(passage_token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",raw):
+        raise PermissionError("customer_passage_invalid")
+    digest=hashlib.sha256(raw.encode("ascii")).hexdigest()
+    now=_now()
+    stamp=now.isoformat(timespec="seconds")
+    init_db()
     with _connect() as db:
+        # Hold the write lock while reading both the contact profile and passage
+        # row so another request cannot change the profile between validation and
+        # confirmation.
         db.execute("BEGIN IMMEDIATE")
+        row=db.execute(
+            """SELECT passage_hash,state
+               FROM customer_passage_confirmation
+               WHERE passage_hash=? AND account_id=?""",
+            (digest,account_id),
+        ).fetchone()
+        if not row:
+            raise PermissionError("customer_passage_invalid")
+        expires=db.execute(
+            """SELECT expires_at FROM customer_passage_confirmation
+               WHERE passage_hash=? AND account_id=?""",
+            (digest,account_id),
+        ).fetchone()
+        if _now()>=dt.datetime.fromisoformat(str(expires["expires_at"]).replace("Z","+00:00")):
+            raise PermissionError("customer_passage_expired")
+        if str(row["state"])!="pending":
+            raise RuntimeError("customer_passage_not_pending")
+        account=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not account:
+            raise CustomerAccountError("customer_account_not_found")
+        current=_decrypt_profile(account_id,account["profile_blob"])
+        if not _contact_complete(current):
+            raise CustomerAccountError("customer_contact_details_incomplete")
+        contact_hash=_contact_hash(account_id,current)
         updated=db.execute(
             """UPDATE customer_passage_confirmation
                SET state='confirmed',action=?,contact_hash=?,confirmed_at=?
@@ -630,13 +658,21 @@ def consume_passage_confirmation(
 
 def consume_latest_passage_confirmation(account_id: object) -> dict:
     account_id=_account_id(account_id)
-    current=profile(account_id)
-    expected=_contact_hash(account_id,current)
     now=_now()
     stamp=now.isoformat(timespec="seconds")
     init_db()
     with _connect() as db:
+        # One write transaction makes the contact snapshot and one-time consume
+        # indivisible with respect to profile edits from another request.
         db.execute("BEGIN IMMEDIATE")
+        account=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not account:
+            raise CustomerAccountError("customer_account_not_found")
+        current=_decrypt_profile(account_id,account["profile_blob"])
+        expected=_contact_hash(account_id,current)
         db.execute(
             "DELETE FROM customer_passage_confirmation WHERE expires_at<?",
             (stamp,),
