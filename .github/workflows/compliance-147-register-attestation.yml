@@ -1,0 +1,179 @@
+name: Compliance 147 register attestation staging
+
+on:
+  push:
+    branches:
+      - ops/compliance-147-register-attestation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-compliance-147-register-attestation
+  cancel-in-progress: false
+
+jobs:
+  attest:
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.ref == 'refs/heads/ops/compliance-147-register-attestation'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 10
+    env:
+      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
+      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+      STAGING_HOST: nodels49-eu.n0c.com
+      STAGING_PORT: "5022"
+      STAGING_USER: eqcrhuya
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import json,os,urllib.request
+          req=urllib.request.Request(
+              os.environ["GH_API"].rstrip("/")+"/repos/"+os.environ["GH_REPOSITORY"]+"/branches/main",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(req,timeout=15) as response:
+              current=(json.load(response).get("commit") or {}).get("sha")
+          if current != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("ops branch is not exact current main")
+          print("CURRENT_MAIN_VERIFIED="+current)
+          PY
+      - name: Verify dedicated PlanetHoster SSH material
+        run: |
+          set -euo pipefail
+          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+      - name: Attest exact reviewed register baseline
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$STAGING_KEY" \
+            -p "$STAGING_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$STAGING_KNOWN_HOSTS" \
+            "$STAGING_USER@$STAGING_HOST" \
+            /opt/alt/python312/bin/python3 - "$EXPECTED_SHA" <<'PY'
+          from __future__ import annotations
+          import datetime,json,os,sqlite3,sys
+          from pathlib import Path
+
+          expected_sha=sys.argv[1]
+          home=Path.home().resolve()
+          root=(home/".checkupauto-test").resolve()
+          release=(root/"current").resolve(strict=True)
+          releases=(root/"releases").resolve()
+          if releases not in release.parents or release.name!=expected_sha:
+              raise SystemExit("runtime revision does not match current main")
+
+          shared=(root/"shared").resolve()
+          data=(shared/"data").resolve()
+          private=(shared/"private").resolve()
+          db_path=data/"compliance.sqlite3"
+          if not db_path.is_file() or db_path.is_symlink():
+              raise SystemExit("runtime compliance database invalid")
+          db=db_path.resolve()
+          if data not in db.parents:
+              raise SystemExit("runtime compliance database invalid")
+
+          sys.path.insert(0,str(release))
+          import compliance_admin
+          import compliance_register_attestation as attestation
+
+          fixture_path=release/"fixtures/compliance-runtime-baseline.json"
+          if not fixture_path.is_file():
+              raise SystemExit("reviewed register baseline unavailable")
+          fixture=json.loads(fixture_path.read_text(encoding="utf-8"))
+          expected_payload={
+              "schema":"checkupauto.operational-registers.v1",
+              "processingActivities":fixture.get("processingActivities") or [],
+              "processors":fixture.get("processors") or [],
+          }
+          actual_payload=attestation.register_payload(db)
+          if actual_payload!=expected_payload:
+              raise SystemExit("runtime register differs from reviewed baseline")
+
+          digest=attestation.register_hash(db)
+          before=attestation.status(db)
+          backup_created=False
+          backup=None
+          if not bool(before.get("current")):
+              backup_dir=private/"compliance-backups"
+              backup_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
+              os.chmod(backup_dir,0o700)
+              stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+              backup=backup_dir/("compliance-before-register-attestation-"+stamp+".sqlite3")
+              source=sqlite3.connect("file:"+str(db)+"?mode=ro",uri=True,timeout=10)
+              target=sqlite3.connect(backup,timeout=10)
+              try:
+                  source.backup(target)
+              finally:
+                  target.close()
+                  source.close()
+              os.chmod(backup,0o600)
+              backup_created=True
+
+          try:
+              state=before if bool(before.get("current")) else attestation.attest(
+                  db,
+                  expected_register_hash=digest,
+              )
+              snap=compliance_admin.snapshot(db)
+              blocker_types=sorted({
+                  str(row.get("type") or "")
+                  for row in ((snap.get("operations") or {}).get("summary") or {}).get("blockers") or []
+                  if str(row.get("type") or "")
+              })
+              if not bool(state.get("current")):
+                  raise RuntimeError("register attestation not current")
+              if str(state.get("attestedRegisterHash") or "")!=digest:
+                  raise RuntimeError("attested register hash mismatch")
+              if "operational_register_attestation_missing" in blocker_types:
+                  raise RuntimeError("attestation blocker still present")
+              if "operational_register_attestation_stale" in blocker_types:
+                  raise RuntimeError("attestation unexpectedly stale")
+              if "processor_dpa_pending" not in blocker_types:
+                  raise RuntimeError("pending processor DPA blocker was lost")
+          except Exception:
+              if backup_created and backup is not None:
+                  source=sqlite3.connect("file:"+str(backup)+"?mode=ro",uri=True,timeout=10)
+                  target=sqlite3.connect(db,timeout=10)
+                  try:
+                      source.backup(target)
+                  finally:
+                      target.close()
+                      source.close()
+              raise
+
+          print("CHECKUPAUTO_COMPLIANCE_147_REGISTER_ATTESTATION="+json.dumps({
+              "schema":"checkupauto.compliance-147-register-attestation/v1",
+              "runtimeSha":expected_sha,
+              "reviewedBaselineMatched":True,
+              "current":True,
+              "registerHash":digest,
+              "attestationCount":int(state.get("attestationCount") or 0),
+              "reviewedAtPresent":bool(state.get("reviewedAt")),
+              "backupCreated":backup_created,
+              "operationalBlockerTypes":blocker_types,
+              "readyForPublicContracting":bool((snap.get("summary") or {}).get("readyForPublicContracting")),
+          },sort_keys=True,separators=(",",":")))
+          PY
