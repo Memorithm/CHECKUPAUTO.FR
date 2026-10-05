@@ -102,6 +102,11 @@ class PaymentTestLabTest(unittest.TestCase):
         self.assertTrue(result["paylineSandbox"]["configured"])
         self.assertFalse(result["paylineSandbox"]["livePaymentsEnabled"])
         create_payment.assert_not_called()
+        conversion_call=lab.booking.apply_conversion.call_args
+        self.assertEqual(
+            conversion_call.kwargs["acceptance_source"],
+            "staging_synthetic_mercure_contract_confirmation",
+        )
 
     def test_create_reservation_binds_synthetic_mercure_to_local_payment(self):
         fake_store=MagicMock()
@@ -134,6 +139,11 @@ class PaymentTestLabTest(unittest.TestCase):
         self.assertEqual(result["payment"]["amountCents"],8000)
         self.assertIn("/payment/test/provider#token=session-token",result["providerUrl"])
         fake_store.bind_provider.assert_called_once_with("b"*32,"TESTPAY_"+"b"*32)
+        conversion_call=lab.booking.apply_conversion.call_args
+        self.assertEqual(
+            conversion_call.kwargs["acceptance_source"],
+            "staging_synthetic_mercure_contract_confirmation",
+        )
         with analytics.connect() as db:
             row=db.execute("SELECT state,payment_id FROM payment_test_runs").fetchone()
         self.assertEqual(row["state"],"payment-ready")
