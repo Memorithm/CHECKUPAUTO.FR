@@ -84,9 +84,13 @@ def attest(
         raise RuntimeError("registre des activités vide")
     if int(operations.get("activeProcessorCount") or 0) == 0:
         raise RuntimeError("inventaire des sous-traitants vide")
-    if not bool(operations.get("operationalRegistersReady")):
-        raise RuntimeError("registres opérationnels bloqués")
 
+    # Attestation proves that the exact populated register content was reviewed.
+    # It is deliberately independent from the register's compliance blockers:
+    # a documented pending DPA, transfer gap, overdue review or unresolved DPIA
+    # must remain visible in operational readiness, but must not make it
+    # impossible to attest the register that records that gap.
+    #
     # The reviewed digest is part of the trust boundary, not an optional hint.
     # Requiring it in the core operation prevents a future HTTP/admin caller
     # from bypassing the stale-review/TOCTOU protection already enforced by the
