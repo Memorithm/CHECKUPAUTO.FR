@@ -16,6 +16,11 @@ spec.loader.exec_module(snapshot147)
 
 
 class Compliance147BoundedSnapshotTest(unittest.TestCase):
+    def test_runtime_script_adds_repository_root_to_import_path(self):
+        source=(ROOT/"scripts/checkupauto-compliance-147-snapshot.py").read_text(encoding="utf-8")
+        self.assertIn("ROOT=Path(__file__).resolve().parents[1]",source)
+        self.assertIn("sys.path.insert(0,str(ROOT))",source)
+
     def test_snapshot_is_bounded_and_contains_no_contract_references(self):
         with tempfile.TemporaryDirectory() as tmp:
             db=Path(tmp)/"compliance.sqlite3"
