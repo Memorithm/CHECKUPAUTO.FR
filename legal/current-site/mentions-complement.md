@@ -6,4 +6,6 @@ Le nouveau site CheckupAuto est exploité par CHECK UP AUTO, société par actio
 
 L'environnement web CheckupAuto actuellement utilisé pour les essais est hébergé chez PlanetHoster. PlanetHoster Inc. publie l'adresse 4416, rue Louis-B.-Mayer, Laval (Québec) H7P 0G1, Canada. Cette mention d'hébergement du nouveau site ne modifie pas la mention KALANDA reproduite dans le document historique du service rdv.checkupauto.fr.
 
-Ce complément décrit l'identité et l'hébergement du nouveau site ; il ne vaut pas attestation d'un médiateur de la consommation, d'un DPA, d'une AIPD ou d'une couverture exhaustive Mercure lorsque ces preuves n'ont pas encore été enregistrées dans le Compliance Center.
+Médiation de la consommation : CHECK UP AUTO a désigné le Médiateur FNA. Le médiateur actuellement référencé par la FNA est M. Jean-Pierre CHEVROT. Le consommateur peut saisir gratuitement le Médiateur FNA en ligne sur https://www.mediateur.fna.fr/ ou par courrier à l'adresse : Médiateur FNA, Tour Kupka B, 16 rue Hoche, 92906 Paris La Défense Cedex. Une réclamation préalable doit être adressée au professionnel avant la saisine du médiateur.
+
+Ce complément décrit l'identité, l'hébergement et le médiateur de la consommation du nouveau site ; il ne vaut pas attestation d'un DPA, d'une AIPD ou d'une couverture exhaustive Mercure lorsque ces preuves n'ont pas encore été enregistrées dans le Compliance Center.
