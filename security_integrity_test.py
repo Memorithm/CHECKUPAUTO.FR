@@ -25,6 +25,11 @@ class _Response:
 
 
 class SecurityIntegrityTest(unittest.TestCase):
+    def test_runtime_integrity_does_not_require_dockerignored_source_only_files(self):
+        self.assertNotIn(".github/workflows/security-ci.yml", integrity.CRITICAL_FILES)
+        self.assertNotIn("3d/blend/CyberCheckVehicle_Photo3D.blend", integrity.CRITICAL_FILES)
+        self.assertIn("3d/scripts/setup_reference_scene.py", integrity.CRITICAL_FILES)
+
     def test_requirement_extras_resolve_to_distribution_name(self):
         parsed = integrity._parse_requirement_line('httpx[http2]==0.28.1')
         self.assertEqual(parsed['name'], 'httpx')

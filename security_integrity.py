@@ -33,11 +33,11 @@ CRITICAL_FILES = (
     'index.html','app.js','style.css','admin/index.html','admin/admin.js','admin/control-center.js','admin/gsc-admin.js','admin/competitive.js','admin/review-followup.js','admin/admin.css',
     'data/geo-radius-50.01km.json','requirements.txt','.gitignore','README.md','SECURITY.md',
     'deploy/cybercheck.service','deploy/cybercheck-ollama.service','deploy/rebaseline-integrity.sh',
-    'scripts/precommit_security.py','.github/workflows/security-ci.yml',
+    'scripts/precommit_security.py',
     'assets/vehicle.png','assets/vehicle.mp4',
     'assets/premium/vehicle-peugeot208-premium.webp','assets/premium/vehicle-suv4x4-premium.webp',
     'assets/premium/vehicle-utility-premium.webp','assets/premium/vehicle-ambulance-premium.webp','assets/premium/vehicle-foodtruck-premium.webp',
-    '3d/blend/CyberCheckVehicle_Photo3D.blend','3d/scripts/setup_reference_scene.py',
+    '3d/scripts/setup_reference_scene.py',
 )
 
 
