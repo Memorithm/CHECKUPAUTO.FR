@@ -132,7 +132,7 @@ jobs:
               result=json.loads(applied.stdout.strip()) if applied.returncode==0 else {}
           except Exception:
               result={}
-          expected_missing=["mediatorName","mediatorUrl","privacyContact"]
+          expected_missing=["privacyContact"]
           ok=(
               result.get("schema")=="checkupauto.compliance-known-identity-result/v1"
               and result.get("knownFieldsVerified") is True
