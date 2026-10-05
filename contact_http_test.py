@@ -53,7 +53,7 @@ class ContactHttpTest(unittest.TestCase):
             finally:
                 connection.close()
             self.assertEqual(response.status, 303)
-            self.assertEqual(response.getheader("Location"), "/compte")
+            self.assertEqual(response.getheader("Location"), "/compte?intent=contact")
 
             payload = urlencode({
                 "category": "general",
@@ -79,7 +79,7 @@ class ContactHttpTest(unittest.TestCase):
             finally:
                 connection.close()
             self.assertEqual(response.status, 303)
-            self.assertEqual(response.getheader("Location"), "/compte")
+            self.assertEqual(response.getheader("Location"), "/compte?intent=contact")
             self.assertFalse((data_dir / "contact-requests.sqlite3").exists())
 
     def test_authenticated_contact_uses_customer_profile_identity(self):
