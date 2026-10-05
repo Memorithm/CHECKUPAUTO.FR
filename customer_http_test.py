@@ -108,6 +108,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Rattacher à l’app iOS",body)
         self.assertIn('id="ct-report"',body)
         self.assertIn('href="/compte/reserver">Réserver un contrôle',body)
+        self.assertIn('href="/contact">Nous contacter',body)
         self.assertIn('Consulter mes rendez-vous Mercure',body)
         self.assertNotIn('Réserver ou consulter mes rendez-vous sur le planning actuel',body)
         self.assertIn('nonce="',body)

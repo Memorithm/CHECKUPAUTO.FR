@@ -1,8 +1,9 @@
-"""Public contact-request intake.
+"""Authenticated customer contact-request intake.
 
-A contact request is operational correspondence only. It never invokes payment,
-refund, booking or provider APIs. Refund-related messages are queued for manual
-review through the same contact workflow.
+A contact request is accepted only from an authenticated customer session.
+Customer identity is derived from the verified customer account rather than
+free-form contact fields. The workflow never invokes payment, refund, booking
+or provider APIs; refund-related messages remain manual correspondence only.
 """
 from __future__ import annotations
 
@@ -61,6 +62,20 @@ def _phone(value) -> str:
     return value
 
 
+def _customer_identity(customer: object) -> tuple[str, str, str, str]:
+    if not isinstance(customer, dict):
+        raise ValueError("contact_customer_required")
+    account_id = _text(
+        customer.get("accountId"), minimum=8, maximum=80, code="contact_customer_required"
+    )
+    name = _text(
+        customer.get("displayName"), minimum=2, maximum=120, code="contact_customer_required"
+    )
+    email = _email(customer.get("email"))
+    phone = _phone(customer.get("phone"))
+    return account_id, name, email, phone
+
+
 def _connect(path: Path | None = None):
     path = path or db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +83,7 @@ def _connect(path: Path | None = None):
     db.row_factory = sqlite3.Row
     db.execute("""CREATE TABLE IF NOT EXISTS contact_requests(
       request_id TEXT PRIMARY KEY,
+      customer_account_id TEXT NOT NULL DEFAULT '',
       category TEXT NOT NULL CHECK(category IN ('general','booking','payment','refund_request')),
       name TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -76,15 +92,25 @@ def _connect(path: Path | None = None):
       status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
       created_at TEXT NOT NULL
     )""")
+    columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(contact_requests)")}
+    if "customer_account_id" not in columns:
+        db.execute(
+            "ALTER TABLE contact_requests ADD COLUMN customer_account_id TEXT NOT NULL DEFAULT ''"
+        )
     db.execute("CREATE INDEX IF NOT EXISTS contact_requests_created ON contact_requests(created_at)")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS contact_requests_customer "
+        "ON contact_requests(customer_account_id,created_at)"
+    )
     db.commit()
     return db
 
 
-def submit(payload: dict, *, path: Path | None = None) -> dict:
+def submit(payload: dict, *, customer: dict, path: Path | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("contact_payload_invalid")
-    allowed = {"category", "name", "email", "phone", "message", "website", "consent"}
+    account_id, name, email, phone = _customer_identity(customer)
+    allowed = {"category", "message", "website", "consent"}
     if set(payload) - allowed:
         raise ValueError("contact_payload_invalid")
     if str(payload.get("website") or ""):
@@ -94,9 +120,6 @@ def submit(payload: dict, *, path: Path | None = None) -> dict:
     category = str(payload.get("category") or "")
     if category not in CATEGORIES:
         raise ValueError("contact_category_invalid")
-    name = _text(payload.get("name"), minimum=2, maximum=120, code="contact_name_invalid")
-    email = _email(payload.get("email"))
-    phone = _phone(payload.get("phone"))
     message = _message(payload.get("message"))
     request_id = secrets.token_hex(16)
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
@@ -107,15 +130,16 @@ def submit(payload: dict, *, path: Path | None = None) -> dict:
         db.execute("DELETE FROM contact_requests WHERE created_at < ?", (cutoff,))
         db.execute(
             """INSERT INTO contact_requests(
-                 request_id,category,name,email,phone,message,status,created_at
-               ) VALUES(?,?,?,?,?,?,'open',?)""",
-            (request_id, category, name, email, phone, message, now),
+                 request_id,customer_account_id,category,name,email,phone,message,status,created_at
+               ) VALUES(?,?,?,?,?,?,?,'open',?)""",
+            (request_id, account_id, category, name, email, phone, message, now),
         )
         db.commit()
     finally:
         db.close()
     return {
         "requestId": request_id,
+        "customerAccountId": account_id,
         "category": category,
         "createdAt": now,
         "paymentActionTriggered": False,
@@ -129,7 +153,7 @@ def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
     db=_connect(path)
     try:
         rows=db.execute(
-            """SELECT request_id,category,name,email,phone,message,status,created_at
+            """SELECT request_id,customer_account_id,category,name,email,phone,message,status,created_at
                FROM contact_requests WHERE email=? ORDER BY created_at,request_id""",
             (normalized,),
         ).fetchall()
@@ -141,6 +165,7 @@ def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
         "requests":[
             {
                 "requestId":str(row["request_id"]),
+                "customerAccountId":str(row["customer_account_id"]),
                 "category":str(row["category"]),
                 "name":str(row["name"]),
                 "email":str(row["email"]),
@@ -184,14 +209,20 @@ def erase_subject(email: object, *, path: Path | None = None) -> dict:
     }
 
 
-def render_form() -> bytes:
+def render_form(customer: dict, csrf_token: str) -> bytes:
+    _account_id, name, email, phone = _customer_identity(customer)
+    csrf = _text(csrf_token, minimum=16, maximum=256, code="contact_csrf_invalid")
     options = "".join(
         f'<option value="{html.escape(key)}">{html.escape(label)}</option>'
         for key, label in CATEGORIES.items()
     )
+    safe_name = html.escape(name)
+    safe_email = html.escape(email)
+    safe_phone = html.escape(phone)
+    phone_line = f"<br>{safe_phone}" if safe_phone else ""
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,follow"><title>Contact | Checkup Auto</title>
+<meta name="robots" content="noindex,nofollow,noarchive"><title>Contact client | Checkup Auto</title>
 <style>
 :root{{--paper:#f6f7f2;--ink:#213b30;--muted:#747d71;--line:#d9dfd3;--green:#1f5443}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
@@ -200,23 +231,23 @@ main{{width:min(860px,calc(100% - 32px));margin:0 auto;padding:42px 0 64px}}a{{c
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.13em;color:var(--green)}}h1{{font:400 clamp(38px,7vw,68px)/1 Georgia,serif;letter-spacing:-.04em;margin:14px 0 18px}}
 p{{color:var(--muted);line-height:1.7}}form{{display:grid;gap:18px;margin-top:28px}}label{{display:grid;gap:8px;font-size:12px;font-weight:700}}
 input,select,textarea{{width:100%;border:1px solid var(--line);background:#fbfcfa;padding:13px 14px;font:14px Arial,sans-serif;color:var(--ink)}}textarea{{min-height:160px;resize:vertical}}
-.row{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}.consent{{display:flex;gap:10px;align-items:flex-start;font-weight:400;line-height:1.5}}.consent input{{width:auto;margin-top:3px}}
+.consent{{display:flex;gap:10px;align-items:flex-start;font-weight:400;line-height:1.5}}.consent input{{width:auto;margin-top:3px}}
 button{{border:0;background:var(--green);color:#fff;padding:15px 20px;font-weight:700;cursor:pointer;justify-self:start}}.notice{{padding:14px 16px;background:#eef3ed;border-left:3px solid var(--green);font-size:12px}}
+.identity{{padding:16px;background:#fbfcfa;border:1px solid var(--line);line-height:1.6}}.identity a{{color:var(--green);font-size:12px}}
 .hp{{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}}
-@media(max-width:640px){{.row{{grid-template-columns:1fr}}}}
-</style></head><body><main><a class="brand" href="/">✓ CHECKUP AUTO</a><section class="card">
-<div class="eyebrow">CONTACT / TRAITEMENT MANUEL</div><h1>Nous contacter.</h1>
-<p>Utilisez ce formulaire pour une question sur une réservation, un paiement ou toute autre demande.</p>
+</style></head><body><main><a class="brand" href="/compte">✓ CHECKUP AUTO · ESPACE CLIENT</a><section class="card">
+<div class="eyebrow">CONTACT CLIENT / TRAITEMENT MANUEL</div><h1>Nous contacter.</h1>
+<p>Ce formulaire est réservé aux clients connectés. Votre identité et vos coordonnées proviennent de votre compte Checkup Auto et ne peuvent pas être remplacées par des coordonnées libres.</p>
+<div class="identity"><strong>{safe_name}</strong><br>{safe_email}{phone_line}<br><a href="/compte">Modifier mes coordonnées dans mon espace client →</a></div>
 <div class="notice"><strong>Demande concernant un remboursement :</strong> ce formulaire ouvre uniquement une demande de contact. Il ne déclenche aucun remboursement ni aucune opération Payline. La demande est étudiée séparément.</div>
 <form method="post" action="/contact" autocomplete="on">
-<div class="row"><label>Nom<input name="name" maxlength="120" required autocomplete="name"></label><label>E-mail<input name="email" type="email" maxlength="254" required autocomplete="email"></label></div>
-<div class="row"><label>Téléphone (facultatif)<input name="phone" maxlength="32" autocomplete="tel"></label><label>Objet<select name="category" required>{options}</select></label></div>
+<input type="hidden" name="csrf" value="{html.escape(csrf,quote=True)}">
+<label>Objet<select name="category" required>{options}</select></label>
 <label>Votre message<textarea name="message" maxlength="3000" required></textarea></label>
 <label class="hp" aria-hidden="true">Site web<input name="website" tabindex="-1" autocomplete="off"></label>
 <label class="consent"><input type="checkbox" name="consent" value="yes" required><span>J’accepte que ces informations soient utilisées pour traiter ma demande. Elles ne sont pas utilisées pour déclencher une opération bancaire.</span></label>
 <button type="submit">Envoyer ma demande →</button>
 </form></section></main></body></html>""".encode("utf-8")
-
 
 def render_confirmation(result: dict) -> bytes:
     request_id = html.escape(str(result.get("requestId") or ""))
@@ -227,4 +258,4 @@ body{{margin:0;background:#f6f7f2;color:#213b30;font-family:Arial,sans-serif}}ma
 .card{{background:#fff;border:1px solid #d9dfd3;padding:42px}}h1{{font:400 48px/1 Georgia,serif}}p{{line-height:1.7;color:#66776e}}code{{font-size:12px}}a{{color:#1f5443}}
 </style></head><body><main><div class="card"><h1>Demande enregistrée.</h1>
 <p>Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché.</p>
-<p>Référence : <code>{request_id}</code></p><p><a href="/">Revenir à Checkup Auto →</a></p></div></main></body></html>""".encode("utf-8")
+<p>Référence : <code>{request_id}</code></p><p><a href="/compte">Revenir à mon espace client →</a></p></div></main></body></html>""".encode("utf-8")
