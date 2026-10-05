@@ -41,10 +41,28 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         state=catalog.snapshot()
         self.assertTrue(state["complete"])
         self.assertEqual(state["tableCount"],76)
+        self.assertTrue(state["mappingComplete"])
+        self.assertEqual(state["subjectExecutionRequiredCount"],21)
+        self.assertEqual(state["executionGapCount"],14)
+        self.assertEqual(
+            state["executionGapTables"],
+            ["booking_conversions","checkout_acceptance_intents","consent_receipts","contact_requests","customer_account","customer_ct_report","customer_identity","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+        )
         self.assertFalse(state["privacyExecutionCoverageAsserted"])
-        self.assertEqual(state["state"],"catalogued")
-        self.assertNotIn("privacyClass", state)
-        self.assertNotIn("rightsAdapter", state)
+        self.assertEqual(state["state"],"mapped_with_execution_gaps")
+        self.assertNotIn("subjectRelation", state)
+        self.assertNotIn("adapter", state)
+
+    def test_every_required_subject_table_is_wired_or_explicit_gap(self):
+        data=catalog.load()
+        required=[row for row in data["tables"] if row["subjectExecutionRequired"]]
+        self.assertEqual(len(required),21)
+        self.assertEqual(
+            sorted(row["table"] for row in required if row["executionState"]!="wired"),
+            ["booking_conversions","checkout_acceptance_intents","consent_receipts","contact_requests","customer_account","customer_ct_report","customer_identity","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+        )
+        for row in required:
+            self.assertIn(row["executionState"],{"wired","partial","unmapped"})
 
     def test_catalog_contains_no_test_module(self):
         data=catalog.load()
