@@ -1,311 +1,615 @@
 {
-  "schema": "checkupauto.local-persistence-catalog/v1",
+  "schema": "checkupauto.local-persistence-catalog/v2",
   "reviewedAt": "2026-10-05",
-  "scope": "Production Python CREATE TABLE declarations; test modules excluded. Catalog completeness is technical persistence discovery only and does not assert data-subject-right execution coverage.",
+  "scope": "Production Python CREATE TABLE declarations with technical data-subject linkage review. Classification is fail-closed and does not constitute a legal personal-data determination.",
   "tables": [
     {
       "table": "behavior_profiles",
-      "module": "security_behavior.py"
+      "module": "security_behavior.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "retention_only",
+      "adapter": "security_telemetry",
+      "subjectExecutionRequired": false
     },
     {
       "table": "booking_conversion_privacy_receipt",
-      "module": "booking_conversion_erasure.py"
+      "module": "booking_conversion_erasure.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "booking_conversion_erasure",
+      "subjectExecutionRequired": false
     },
     {
       "table": "booking_conversions",
-      "module": "booking_bridge.py"
+      "module": "booking_bridge.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "booking_conversion_erasure",
+      "subjectExecutionRequired": true
     },
     {
       "table": "booking_intents",
-      "module": "booking_bridge.py"
+      "module": "booking_bridge.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "retention_only",
+      "adapter": "retention_enforcement",
+      "subjectExecutionRequired": false
     },
     {
       "table": "booking_schema_meta",
-      "module": "booking_bridge.py"
+      "module": "booking_bridge.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "booking_test_sessions",
-      "module": "booking_test.py"
+      "module": "booking_test.py",
+      "subjectRelation": "staging",
+      "executionState": "staging_only",
+      "adapter": "booking_test",
+      "subjectExecutionRequired": false
     },
     {
       "table": "checkout_acceptance_intents",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "compliance_contracts",
+      "subjectExecutionRequired": true
     },
     {
       "table": "competitors",
-      "module": "competitive_intelligence.py"
+      "module": "competitive_intelligence.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "compliance_operation_audit",
-      "module": "compliance_operations.py"
+      "module": "compliance_operations.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "compliance_settings",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "consent_receipts",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "compliance_contracts",
+      "subjectExecutionRequired": true
     },
     {
       "table": "contact_requests",
-      "module": "contact_request.py"
+      "module": "contact_request.py",
+      "subjectRelation": "direct",
+      "executionState": "unmapped",
+      "adapter": "",
+      "subjectExecutionRequired": true
     },
     {
       "table": "cookie_registry",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "customer_account",
-      "module": "customer_accounts.py"
+      "module": "customer_accounts.py",
+      "subjectRelation": "direct",
+      "executionState": "unmapped",
+      "adapter": "",
+      "subjectExecutionRequired": true
     },
     {
       "table": "customer_ct_report",
-      "module": "customer_ct_reports.py"
+      "module": "customer_ct_reports.py",
+      "subjectRelation": "direct",
+      "executionState": "unmapped",
+      "adapter": "",
+      "subjectExecutionRequired": true
     },
     {
       "table": "customer_identity",
-      "module": "customer_accounts.py"
+      "module": "customer_accounts.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "unmapped",
+      "adapter": "",
+      "subjectExecutionRequired": true
     },
     {
       "table": "customer_oidc_flow",
-      "module": "customer_oidc.py"
+      "module": "customer_oidc.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_oidc",
+      "subjectExecutionRequired": false
     },
     {
       "table": "customer_session",
-      "module": "customer_accounts.py"
+      "module": "customer_accounts.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_accounts",
+      "subjectExecutionRequired": false
     },
     {
       "table": "data_incidents",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "events",
-      "module": "analytics_store.py"
+      "module": "analytics_store.py",
+      "subjectRelation": "runtime_profiled",
+      "executionState": "runtime_guarded",
+      "adapter": "analytics_store",
+      "subjectExecutionRequired": false
     },
     {
       "table": "legal_documents",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "marketing_campaign_run",
-      "module": "marketing_campaigns.py"
+      "module": "marketing_campaigns.py",
+      "subjectRelation": "aggregate",
+      "executionState": "not_applicable",
+      "adapter": "marketing_campaigns",
+      "subjectExecutionRequired": false
     },
     {
       "table": "marketing_consent",
-      "module": "marketing_consent.py"
+      "module": "marketing_consent.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "wired",
+      "adapter": "privacy_suppression",
+      "subjectExecutionRequired": true
     },
     {
       "table": "mobile_auth_ticket",
-      "module": "mobile_auth_ticket.py"
+      "module": "mobile_auth_ticket.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "mobile_auth_ticket",
+      "subjectExecutionRequired": false
     },
     {
       "table": "mobile_deadline",
-      "module": "mobile_devices.py"
+      "module": "mobile_devices.py",
+      "subjectRelation": "direct",
+      "executionState": "wired",
+      "adapter": "mobile_installation",
+      "subjectExecutionRequired": true
     },
     {
       "table": "mobile_device",
-      "module": "mobile_devices.py"
+      "module": "mobile_devices.py",
+      "subjectRelation": "direct",
+      "executionState": "wired",
+      "adapter": "mobile_installation",
+      "subjectExecutionRequired": true
     },
     {
       "table": "mobile_erasure_receipt",
-      "module": "referral_wallet_lifecycle.py"
+      "module": "referral_wallet_lifecycle.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "mobile_installation",
+      "subjectExecutionRequired": false
     },
     {
       "table": "mobile_rectification_receipt",
-      "module": "rights_rectification.py"
+      "module": "rights_rectification.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "mobile_installation",
+      "subjectExecutionRequired": false
     },
     {
       "table": "mobile_vehicle_binding",
-      "module": "mobile_devices.py"
+      "module": "mobile_devices.py",
+      "subjectRelation": "direct",
+      "executionState": "wired",
+      "adapter": "mobile_installation",
+      "subjectExecutionRequired": true
     },
     {
       "table": "mobile_vehicle_claim",
-      "module": "mobile_devices.py"
+      "module": "mobile_devices.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "mobile_installation",
+      "subjectExecutionRequired": false
     },
     {
       "table": "notification_delivery",
-      "module": "notification_broker.py"
+      "module": "notification_broker.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "partial",
+      "adapter": "notification_privacy",
+      "subjectExecutionRequired": true
     },
     {
       "table": "notification_privacy_binding",
-      "module": "notification_privacy.py"
+      "module": "notification_privacy.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "wired",
+      "adapter": "privacy_suppression",
+      "subjectExecutionRequired": true
     },
     {
       "table": "notification_transport_health",
-      "module": "notification_broker.py"
+      "module": "notification_broker.py",
+      "subjectRelation": "aggregate",
+      "executionState": "not_applicable",
+      "adapter": "notification_broker",
+      "subjectExecutionRequired": false
     },
     {
       "table": "observations",
-      "module": "competitive_intelligence.py"
+      "module": "competitive_intelligence.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "operational_register_attestation",
-      "module": "compliance_register_attestation.py"
+      "module": "compliance_register_attestation.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "payment_events",
-      "module": "payment_core.py"
+      "module": "payment_core.py",
+      "subjectRelation": "sandbox",
+      "executionState": "sandbox_only",
+      "adapter": "payment_core",
+      "subjectExecutionRequired": false
     },
     {
       "table": "payment_intents",
-      "module": "payment_core.py"
+      "module": "payment_core.py",
+      "subjectRelation": "sandbox",
+      "executionState": "sandbox_only",
+      "adapter": "payment_core",
+      "subjectExecutionRequired": false
     },
     {
       "table": "payment_provider_starts",
-      "module": "payment_core.py"
+      "module": "payment_core.py",
+      "subjectRelation": "sandbox",
+      "executionState": "sandbox_only",
+      "adapter": "payment_checkout",
+      "subjectExecutionRequired": false
     },
     {
       "table": "payment_provider_transactions",
-      "module": "payment_core.py"
+      "module": "payment_core.py",
+      "subjectRelation": "sandbox",
+      "executionState": "sandbox_only",
+      "adapter": "payment_core",
+      "subjectExecutionRequired": false
     },
     {
       "table": "payment_test_runs",
-      "module": "payment_test_lab.py"
+      "module": "payment_test_lab.py",
+      "subjectRelation": "staging",
+      "executionState": "staging_only",
+      "adapter": "payment_test_lab",
+      "subjectExecutionRequired": false
     },
     {
       "table": "privacy_store_receipt",
-      "module": "privacy_suppression.py"
+      "module": "privacy_suppression.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "privacy_suppression",
+      "subjectExecutionRequired": false
     },
     {
       "table": "privacy_suppression",
-      "module": "privacy_suppression.py"
+      "module": "privacy_suppression.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "wired",
+      "adapter": "privacy_suppression",
+      "subjectExecutionRequired": true
     },
     {
       "table": "processing_activities",
-      "module": "compliance_operations.py"
+      "module": "compliance_operations.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "processing_risk_review",
-      "module": "processing_risk_review.py"
+      "module": "processing_risk_review.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "processor_inventory",
-      "module": "compliance_operations.py"
+      "module": "compliance_operations.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "provider_erasure_completion",
-      "module": "provider_erasure_completion.py"
+      "module": "provider_erasure_completion.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "provider_erasure_completion",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_accounts",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": true
     },
     {
       "table": "referral_compacted_reward_evidence",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_ledger",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": true
     },
     {
       "table": "referral_ledger_checkpoint",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_redeem_tombstone",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_rewards",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": true
     },
     {
       "table": "referral_schema_meta",
-      "module": "referral_engine.py"
+      "module": "referral_engine.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_wallet_claim",
-      "module": "referral_wallet_claims.py"
+      "module": "referral_wallet_claims.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_wallet_erasure_checkpoint",
-      "module": "referral_wallet_erasure.py"
+      "module": "referral_wallet_erasure.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_wallet_erasure_completion_link",
-      "module": "referral_wallet_purge_rights.py"
+      "module": "referral_wallet_purge_rights.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_wallet_export_session",
-      "module": "referral_wallet_paged_export.py"
+      "module": "referral_wallet_paged_export.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_wallet_final_purge_audit",
-      "module": "referral_wallet_final_purge.py"
+      "module": "referral_wallet_final_purge.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": false
     },
     {
       "table": "referral_wallet_owner",
-      "module": "referral_wallet_claims.py"
+      "module": "referral_wallet_claims.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "partial",
+      "adapter": "referral_wallet",
+      "subjectExecutionRequired": true
     },
     {
       "table": "reminder_meta",
-      "module": "reminder_dispatch.py"
+      "module": "reminder_dispatch.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "reminder_dispatch",
+      "subjectExecutionRequired": false
     },
     {
       "table": "reminder_privacy_erasure_receipt",
-      "module": "reminder_dispatch.py"
+      "module": "reminder_dispatch.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "reminder_dispatch",
+      "subjectExecutionRequired": false
     },
     {
       "table": "reminder_target",
-      "module": "reminder_dispatch.py"
+      "module": "reminder_dispatch.py",
+      "subjectRelation": "direct",
+      "executionState": "wired",
+      "adapter": "privacy_suppression",
+      "subjectExecutionRequired": true
     },
     {
       "table": "retention_policy_setting",
-      "module": "retention_enforcement.py"
+      "module": "retention_enforcement.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "retention_enforcement",
+      "subjectExecutionRequired": false
     },
     {
       "table": "retention_purge_audit",
-      "module": "retention_enforcement.py"
+      "module": "retention_enforcement.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "retention_enforcement",
+      "subjectExecutionRequired": false
     },
     {
       "table": "retention_rule_run_state",
-      "module": "retention_enforcement.py"
+      "module": "retention_enforcement.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "retention_enforcement",
+      "subjectExecutionRequired": false
     },
     {
       "table": "review_followup",
-      "module": "review_followup.py"
+      "module": "review_followup.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "review_followup_privacy",
+      "subjectExecutionRequired": true
     },
     {
       "table": "review_followup_privacy_receipt",
-      "module": "review_followup_privacy.py"
+      "module": "review_followup_privacy.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "review_followup_privacy",
+      "subjectExecutionRequired": false
     },
     {
       "table": "reviews",
-      "module": "competitive_intelligence.py"
+      "module": "competitive_intelligence.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
     },
     {
       "table": "rights_completion_plan",
-      "module": "rights_completion_plan.py"
+      "module": "rights_completion_plan.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "rights_completion_plan",
+      "subjectExecutionRequired": false
     },
     {
       "table": "rights_execution_audit",
-      "module": "data_subject_rights.py"
+      "module": "data_subject_rights.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "data_subject_rights",
+      "subjectExecutionRequired": false
     },
     {
       "table": "rights_requests",
-      "module": "compliance_store.py"
+      "module": "compliance_store.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "data_subject_rights",
+      "subjectExecutionRequired": false
     },
     {
       "table": "rights_subject_binding",
-      "module": "rights_subject_bindings.py"
+      "module": "rights_subject_bindings.py",
+      "subjectRelation": "evidence",
+      "executionState": "not_applicable",
+      "adapter": "rights_subject_bindings",
+      "subjectExecutionRequired": false
     },
     {
       "table": "security_alerts",
-      "module": "security_alerts.py"
+      "module": "security_alerts.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "retention_only",
+      "adapter": "security_telemetry",
+      "subjectExecutionRequired": false
     },
     {
       "table": "security_client_state",
-      "module": "security_guard.py"
+      "module": "security_guard.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "retention_only",
+      "adapter": "security_telemetry",
+      "subjectExecutionRequired": false
     },
     {
       "table": "security_events",
-      "module": "security_guard.py"
+      "module": "security_guard.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "retention_only",
+      "adapter": "security_telemetry",
+      "subjectExecutionRequired": false
     },
     {
       "table": "withdrawal_requests",
-      "module": "withdrawal_service.py"
+      "module": "withdrawal_service.py",
+      "subjectRelation": "direct",
+      "executionState": "partial",
+      "adapter": "withdrawal_evidence",
+      "subjectExecutionRequired": true
     }
   ]
 }
