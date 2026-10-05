@@ -156,6 +156,30 @@ class ContactRequestTest(unittest.TestCase):
         self.assertNotIn(b'name="email"',body)
         self.assertIn(b"client@example.test",body)
 
+    def test_admin_list_can_filter_suggestions_without_cross_store_guessing(self):
+        contact.submit(
+            self.payload(category="general",message="Question de contact suffisamment longue."),
+            customer=self.customer(),
+            path=self.path,
+        )
+        contact.submit(
+            self.payload(
+                intent="suggestion",
+                category="general",
+                message="Suggestion distincte suffisamment longue pour être conservée.",
+            ),
+            customer=self.customer(),
+            path=self.path,
+        )
+        result=contact.admin_list(intent="suggestion",limit=50,path=self.path)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["count"],1)
+        self.assertEqual(result["requests"][0]["intent"],"suggestion")
+        self.assertEqual(result["requests"][0]["customerAccountId"],self.customer()["accountId"])
+        self.assertIn("Suggestion distincte",result["requests"][0]["message"])
+        with self.assertRaisesRegex(ValueError,"contact_intent_invalid"):
+            contact.admin_list(intent="other",path=self.path)
+
     def test_confirmation_never_claims_a_refund(self):
         result = contact.submit(
             self.payload(category="payment"),
