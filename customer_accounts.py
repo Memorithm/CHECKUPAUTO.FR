@@ -221,13 +221,12 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS customer_passage_confirmation(
               passage_hash TEXT PRIMARY KEY,
               account_id TEXT NOT NULL REFERENCES customer_account(account_id) ON DELETE CASCADE,
-              state TEXT NOT NULL CHECK(state IN ('pending','confirmed','consumed')),
+              state TEXT NOT NULL CHECK(state IN ('pending','confirmed')),
               action TEXT NOT NULL DEFAULT '' CHECK(action IN ('','validated','modified')),
               contact_hash TEXT NOT NULL DEFAULT '',
               created_at TEXT NOT NULL,
               expires_at TEXT NOT NULL,
-              confirmed_at TEXT NOT NULL DEFAULT '',
-              consumed_at TEXT NOT NULL DEFAULT ''
+              confirmed_at TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_customer_passage_account
               ON customer_passage_confirmation(account_id,state,expires_at);
@@ -496,7 +495,7 @@ def begin_passage_confirmation(account_id: object) -> dict:
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
-            "DELETE FROM customer_passage_confirmation WHERE state='pending' AND expires_at<?",
+            "DELETE FROM customer_passage_confirmation WHERE expires_at<?",
             (now.isoformat(timespec="seconds"),),
         )
         db.execute(
@@ -526,7 +525,7 @@ def _passage_row(account_id: str, passage_token: object):
     with _connect() as db:
         row=db.execute(
             """SELECT passage_hash,account_id,state,action,contact_hash,
-                      created_at,expires_at,confirmed_at,consumed_at
+                      created_at,expires_at,confirmed_at
                FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=?""",
             (digest,account_id),
@@ -593,13 +592,12 @@ def consume_passage_confirmation(
     digest=str(row["passage_hash"])
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        updated=db.execute(
-            """UPDATE customer_passage_confirmation
-               SET state='consumed',consumed_at=?
+        removed=db.execute(
+            """DELETE FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=? AND state='confirmed'""",
-            (stamp,digest,account_id),
+            (digest,account_id),
         ).rowcount
-        if updated!=1:
+        if removed!=1:
             raise RuntimeError("customer_passage_consume_conflict")
     return {
         "ok":True,
@@ -607,6 +605,7 @@ def consume_passage_confirmation(
         "action":str(row["action"]),
         "confirmedAt":str(row["confirmed_at"]),
         "consumedAt":stamp,
+        "confirmationRetained":False,
     }
 
 
