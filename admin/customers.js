@@ -1,6 +1,6 @@
 'use strict';
 (() => {
- const $=s=>document.querySelector(s),route='/api/admin/customers/oidc';
+ const $=s=>document.querySelector(s),route='/api/admin/customers/oidc',feedbackRoute='/api/admin/contact-requests';
  let snapshot=null,busy=false;
  const message=(text,error=false)=>{$('#oidcMessage').textContent=text;$('#oidcMessage').classList.toggle('error',error);};
  const setBusy=value=>{busy=value;document.querySelectorAll('#oidcProviders input,#oidcProviders button,#oidcReload').forEach(el=>{el.disabled=value;});};
@@ -65,5 +65,32 @@
   catch(e){message(e.message||'Suppression impossible.',true);}
   finally{setBusy(false);}
  }
- $('#oidcReload').addEventListener('click',load);load();
+ async function loadFeedback(){
+  const root=$('#feedbackList'),status=$('#feedbackMessage'),intent=$('#feedbackIntent').value;
+  $('#feedbackReload').disabled=true;status.textContent='Chargement des retours…';
+  try{
+   const response=await fetch(feedbackRoute+'?limit=100&intent='+encodeURIComponent(intent),{cache:'no-store',credentials:'same-origin'});
+   if(response.status===401||response.status===403)throw new Error('Authentification administrateur à renouveler.');
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok||!data.ok)throw new Error('Retours clients indisponibles.');
+   root.replaceChildren();
+   for(const row of data.requests||[]){
+    const card=document.createElement('article');card.className='feedback-entry '+(row.intent==='suggestion'?'suggestion':'contact');
+    const head=document.createElement('div');head.className='feedback-entry-head';
+    const kind=document.createElement('strong');kind.textContent=row.intent==='suggestion'?'SUGGESTION':'CONTACT';
+    const date=document.createElement('span');date.textContent=row.createdAt||'';
+    head.append(kind,date);
+    const identity=document.createElement('p');identity.className='feedback-identity';identity.textContent=(row.name||'Client')+' · '+(row.email||'')+(row.phone?' · '+row.phone:'');
+    const meta=document.createElement('p');meta.className='feedback-meta';meta.textContent='Compte '+(row.customerAccountId||'—')+' · '+(row.category||'general')+' · '+(row.status||'open');
+    const message=document.createElement('p');message.className='feedback-body';message.textContent=row.message||'';
+    card.append(head,identity,meta,message);root.append(card);
+   }
+   if(!(data.requests||[]).length){const empty=document.createElement('p');empty.className='hint';empty.textContent='Aucun retour dans ce filtre.';root.append(empty);}
+   status.textContent=String(data.count||0)+' retour(s) affiché(s).';
+  }catch(e){root.replaceChildren();status.textContent=e.message||'Retours clients indisponibles.';status.classList.add('error');}
+  finally{$('#feedbackReload').disabled=false;}
+ }
+ $('#feedbackIntent').addEventListener('change',loadFeedback);
+ $('#feedbackReload').addEventListener('click',loadFeedback);
+ $('#oidcReload').addEventListener('click',load);load();loadFeedback();
 })();
