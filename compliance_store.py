@@ -833,6 +833,8 @@ def finalize_checkout_acceptance(
             (contract_ref, row["terms_version"], row["terms_content_hash"]),
         ).fetchone()
         if existing:
+            if str(existing["source"] or "") != source:
+                raise ValueError("provenance de reçu contrat incohérente")
             receipt_id = existing["receipt_id"]
         else:
             receipt_id = uuid.uuid4().hex
