@@ -209,14 +209,20 @@ def erase_subject(email: object, *, path: Path | None = None) -> dict:
     }
 
 
-def render_form() -> bytes:
+def render_form(customer: dict, csrf_token: str) -> bytes:
+    _account_id, name, email, phone = _customer_identity(customer)
+    csrf = _text(csrf_token, minimum=16, maximum=256, code="contact_csrf_invalid")
     options = "".join(
         f'<option value="{html.escape(key)}">{html.escape(label)}</option>'
         for key, label in CATEGORIES.items()
     )
+    safe_name = html.escape(name)
+    safe_email = html.escape(email)
+    safe_phone = html.escape(phone)
+    phone_line = f"<br>{safe_phone}" if safe_phone else ""
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,follow"><title>Contact | Checkup Auto</title>
+<meta name="robots" content="noindex,nofollow,noarchive"><title>Contact client | Checkup Auto</title>
 <style>
 :root{{--paper:#f6f7f2;--ink:#213b30;--muted:#747d71;--line:#d9dfd3;--green:#1f5443}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
@@ -225,23 +231,23 @@ main{{width:min(860px,calc(100% - 32px));margin:0 auto;padding:42px 0 64px}}a{{c
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.13em;color:var(--green)}}h1{{font:400 clamp(38px,7vw,68px)/1 Georgia,serif;letter-spacing:-.04em;margin:14px 0 18px}}
 p{{color:var(--muted);line-height:1.7}}form{{display:grid;gap:18px;margin-top:28px}}label{{display:grid;gap:8px;font-size:12px;font-weight:700}}
 input,select,textarea{{width:100%;border:1px solid var(--line);background:#fbfcfa;padding:13px 14px;font:14px Arial,sans-serif;color:var(--ink)}}textarea{{min-height:160px;resize:vertical}}
-.row{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}.consent{{display:flex;gap:10px;align-items:flex-start;font-weight:400;line-height:1.5}}.consent input{{width:auto;margin-top:3px}}
+.consent{{display:flex;gap:10px;align-items:flex-start;font-weight:400;line-height:1.5}}.consent input{{width:auto;margin-top:3px}}
 button{{border:0;background:var(--green);color:#fff;padding:15px 20px;font-weight:700;cursor:pointer;justify-self:start}}.notice{{padding:14px 16px;background:#eef3ed;border-left:3px solid var(--green);font-size:12px}}
+.identity{{padding:16px;background:#fbfcfa;border:1px solid var(--line);line-height:1.6}}.identity a{{color:var(--green);font-size:12px}}
 .hp{{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}}
-@media(max-width:640px){{.row{{grid-template-columns:1fr}}}}
-</style></head><body><main><a class="brand" href="/">✓ CHECKUP AUTO</a><section class="card">
-<div class="eyebrow">CONTACT / TRAITEMENT MANUEL</div><h1>Nous contacter.</h1>
-<p>Utilisez ce formulaire pour une question sur une réservation, un paiement ou toute autre demande.</p>
+</style></head><body><main><a class="brand" href="/compte">✓ CHECKUP AUTO · ESPACE CLIENT</a><section class="card">
+<div class="eyebrow">CONTACT CLIENT / TRAITEMENT MANUEL</div><h1>Nous contacter.</h1>
+<p>Ce formulaire est réservé aux clients connectés. Votre identité et vos coordonnées proviennent de votre compte Checkup Auto et ne peuvent pas être remplacées par des coordonnées libres.</p>
+<div class="identity"><strong>{safe_name}</strong><br>{safe_email}{phone_line}<br><a href="/compte">Modifier mes coordonnées dans mon espace client →</a></div>
 <div class="notice"><strong>Demande concernant un remboursement :</strong> ce formulaire ouvre uniquement une demande de contact. Il ne déclenche aucun remboursement ni aucune opération Payline. La demande est étudiée séparément.</div>
 <form method="post" action="/contact" autocomplete="on">
-<div class="row"><label>Nom<input name="name" maxlength="120" required autocomplete="name"></label><label>E-mail<input name="email" type="email" maxlength="254" required autocomplete="email"></label></div>
-<div class="row"><label>Téléphone (facultatif)<input name="phone" maxlength="32" autocomplete="tel"></label><label>Objet<select name="category" required>{options}</select></label></div>
+<input type="hidden" name="csrf" value="{html.escape(csrf,quote=True)}">
+<label>Objet<select name="category" required>{options}</select></label>
 <label>Votre message<textarea name="message" maxlength="3000" required></textarea></label>
 <label class="hp" aria-hidden="true">Site web<input name="website" tabindex="-1" autocomplete="off"></label>
 <label class="consent"><input type="checkbox" name="consent" value="yes" required><span>J’accepte que ces informations soient utilisées pour traiter ma demande. Elles ne sont pas utilisées pour déclencher une opération bancaire.</span></label>
 <button type="submit">Envoyer ma demande →</button>
 </form></section></main></body></html>""".encode("utf-8")
-
 
 def render_confirmation(result: dict) -> bytes:
     request_id = html.escape(str(result.get("requestId") or ""))
@@ -252,4 +258,4 @@ body{{margin:0;background:#f6f7f2;color:#213b30;font-family:Arial,sans-serif}}ma
 .card{{background:#fff;border:1px solid #d9dfd3;padding:42px}}h1{{font:400 48px/1 Georgia,serif}}p{{line-height:1.7;color:#66776e}}code{{font-size:12px}}a{{color:#1f5443}}
 </style></head><body><main><div class="card"><h1>Demande enregistrée.</h1>
 <p>Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché.</p>
-<p>Référence : <code>{request_id}</code></p><p><a href="/">Revenir à Checkup Auto →</a></p></div></main></body></html>""".encode("utf-8")
+<p>Référence : <code>{request_id}</code></p><p><a href="/compte">Revenir à mon espace client →</a></p></div></main></body></html>""".encode("utf-8")
