@@ -561,19 +561,14 @@ def confirm_passage_contact(
         # confirmation.
         db.execute("BEGIN IMMEDIATE")
         row=db.execute(
-            """SELECT passage_hash,state
+            """SELECT passage_hash,state,expires_at
                FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=?""",
             (digest,account_id),
         ).fetchone()
         if not row:
             raise PermissionError("customer_passage_invalid")
-        expires=db.execute(
-            """SELECT expires_at FROM customer_passage_confirmation
-               WHERE passage_hash=? AND account_id=?""",
-            (digest,account_id),
-        ).fetchone()
-        if _now()>=dt.datetime.fromisoformat(str(expires["expires_at"]).replace("Z","+00:00")):
+        if now>=dt.datetime.fromisoformat(str(row["expires_at"]).replace("Z","+00:00")):
             raise PermissionError("customer_passage_expired")
         if str(row["state"])!="pending":
             raise RuntimeError("customer_passage_not_pending")
