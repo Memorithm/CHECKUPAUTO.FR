@@ -3,6 +3,7 @@ import http.client
 import importlib
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -33,26 +34,159 @@ class ContactHttpTest(unittest.TestCase):
                         httpd.server_close()
                         thread.join(timeout=5)
 
-    def test_contact_page_and_refund_request_are_manual_only(self):
+    @staticmethod
+    def customer():
+        return {
+            "accountId": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Client Test",
+            "email": "client@example.test",
+            "phone": "0612345678",
+        }
+
+    def test_anonymous_contact_get_and_post_redirect_to_customer_login(self):
         with self.server() as (app, address, data_dir):
             connection = http.client.HTTPConnection(*address, timeout=5)
             try:
                 connection.request("GET", "/contact")
                 response = connection.getresponse()
-                body = response.read()
+                response.read()
             finally:
                 connection.close()
-            self.assertEqual(response.status, 200)
-            self.assertIn("ne déclenche aucun remboursement".encode(), body)
+            self.assertEqual(response.status, 303)
+            self.assertEqual(response.getheader("Location"), "/compte")
 
             payload = urlencode({
-                "category": "refund_request",
-                "name": "Client Test",
-                "email": "client@example.test",
-                "phone": "",
-                "message": "Merci de me recontacter au sujet de mon paiement.",
+                "category": "general",
+                "message": "Ceci est une demande de contact suffisamment longue.",
                 "website": "",
                 "consent": "yes",
+                "csrf": "c" * 64,
+            }).encode()
+            connection = http.client.HTTPConnection(*address, timeout=5)
+            try:
+                connection.request(
+                    "POST",
+                    "/contact",
+                    payload,
+                    {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Content-Length": str(len(payload)),
+                        "Origin": f"http://{address[0]}:{address[1]}",
+                    },
+                )
+                response = connection.getresponse()
+                response.read()
+            finally:
+                connection.close()
+            self.assertEqual(response.status, 303)
+            self.assertEqual(response.getheader("Location"), "/compte")
+            self.assertFalse((data_dir / "contact-requests.sqlite3").exists())
+
+    def test_authenticated_contact_uses_customer_profile_identity(self):
+        with self.server() as (app, address, data_dir):
+            customer = self.customer()
+            with patch.object(
+                app.customer_http, "_account", return_value=("session-token", customer)
+            ), patch.object(
+                app.customer_http.customer_accounts, "csrf_token", return_value="c" * 64
+            ), patch.object(
+                app.customer_http.customer_accounts, "verify_csrf", return_value=True
+            ):
+                connection = http.client.HTTPConnection(*address, timeout=5)
+                try:
+                    connection.request("GET", "/contact")
+                    response = connection.getresponse()
+                    body = response.read()
+                finally:
+                    connection.close()
+                self.assertEqual(response.status, 200)
+                self.assertIn(b"client@example.test", body)
+                self.assertIn("réservé aux clients connectés".encode(), body)
+                self.assertNotIn(b'name="email"', body)
+                self.assertNotIn(b'name="name"', body)
+
+                payload = urlencode({
+                    "category": "refund_request",
+                    "message": "Merci de me recontacter au sujet de mon paiement.",
+                    "website": "",
+                    "consent": "yes",
+                    "csrf": "c" * 64,
+                }).encode()
+                headers = {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Content-Length": str(len(payload)),
+                    "Origin": f"http://{address[0]}:{address[1]}",
+                }
+                with patch.object(
+                    importlib.import_module("payment_payline"),
+                    "refund",
+                    side_effect=AssertionError("contact must never call Payline refund"),
+                ):
+                    connection = http.client.HTTPConnection(*address, timeout=5)
+                    try:
+                        connection.request("POST", "/contact", payload, headers)
+                        response = connection.getresponse()
+                        confirmation = response.read()
+                    finally:
+                        connection.close()
+
+            self.assertEqual(response.status, 201)
+            self.assertIn("Aucune opération bancaire".encode(), confirmation)
+            db_path = data_dir / "contact-requests.sqlite3"
+            self.assertTrue(db_path.is_file())
+            with sqlite3.connect(db_path) as db:
+                row = db.execute(
+                    """SELECT customer_account_id,name,email,phone
+                       FROM contact_requests"""
+                ).fetchone()
+            self.assertEqual(
+                row,
+                (
+                    customer["accountId"],
+                    customer["displayName"],
+                    customer["email"],
+                    customer["phone"],
+                ),
+            )
+
+    def test_authenticated_cross_origin_contact_post_is_rejected(self):
+        with self.server() as (app, address, data_dir):
+            payload = urlencode({
+                "category": "general",
+                "message": "Ceci est une demande de contact valide.",
+                "website": "",
+                "consent": "yes",
+                "csrf": "c" * 64,
+            }).encode()
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": str(len(payload)),
+                "Origin": "https://evil.example",
+            }
+            with patch.object(
+                app.customer_http, "_account", return_value=("session-token", self.customer())
+            ), patch.object(
+                app.customer_http.customer_accounts, "verify_csrf", return_value=True
+            ):
+                connection = http.client.HTTPConnection(*address, timeout=5)
+                try:
+                    connection.request("POST", "/contact", payload, headers)
+                    response = connection.getresponse()
+                    response.read()
+                finally:
+                    connection.close()
+            self.assertEqual(response.status, 403)
+            self.assertFalse((data_dir / "contact-requests.sqlite3").exists())
+
+    def test_authenticated_contact_rejects_free_form_identity_fields(self):
+        with self.server() as (app, address, data_dir):
+            payload = urlencode({
+                "category": "general",
+                "email": "outsider@example.test",
+                "message": "Tentative de remplacement de l'identité du client.",
+                "website": "",
+                "consent": "yes",
+                "csrf": "c" * 64,
             }).encode()
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -60,44 +194,18 @@ class ContactHttpTest(unittest.TestCase):
                 "Origin": f"http://{address[0]}:{address[1]}",
             }
             with patch.object(
-                importlib.import_module("payment_payline"),
-                "refund",
-                side_effect=AssertionError("contact must never call Payline refund"),
+                app.customer_http, "_account", return_value=("session-token", self.customer())
+            ), patch.object(
+                app.customer_http.customer_accounts, "verify_csrf", return_value=True
             ):
                 connection = http.client.HTTPConnection(*address, timeout=5)
                 try:
                     connection.request("POST", "/contact", payload, headers)
                     response = connection.getresponse()
-                    confirmation = response.read()
+                    response.read()
                 finally:
                     connection.close()
-            self.assertEqual(response.status, 201)
-            self.assertIn("Aucune opération bancaire".encode(), confirmation)
-            self.assertTrue((data_dir / "contact-requests.sqlite3").is_file())
-
-    def test_cross_origin_contact_post_is_rejected(self):
-        with self.server() as (app, address, data_dir):
-            payload = urlencode({
-                "category": "general",
-                "name": "Client Test",
-                "email": "client@example.test",
-                "message": "Ceci est une demande de contact valide.",
-                "website": "",
-                "consent": "yes",
-            }).encode()
-            headers = {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Content-Length": str(len(payload)),
-                "Origin": "https://evil.example",
-            }
-            connection = http.client.HTTPConnection(*address, timeout=5)
-            try:
-                connection.request("POST", "/contact", payload, headers)
-                response = connection.getresponse()
-                response.read()
-            finally:
-                connection.close()
-            self.assertEqual(response.status, 403)
+            self.assertEqual(response.status, 400)
             self.assertFalse((data_dir / "contact-requests.sqlite3").exists())
 
 
