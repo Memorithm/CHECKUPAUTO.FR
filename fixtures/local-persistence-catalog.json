@@ -80,6 +80,10 @@
       "module": "compliance_store.py"
     },
     {
+      "table": "events",
+      "module": "analytics_store.py"
+    },
+    {
       "table": "legal_documents",
       "module": "compliance_store.py"
     },
@@ -134,6 +138,10 @@
     {
       "table": "observations",
       "module": "competitive_intelligence.py"
+    },
+    {
+      "table": "operational_register_attestation",
+      "module": "compliance_register_attestation.py"
     },
     {
       "table": "payment_events",
