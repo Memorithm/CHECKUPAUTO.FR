@@ -14,7 +14,9 @@
       "customer_http.py"
     ],
     "iosSessionStorage": "ios/CheckupAutoReminder/Sources/CustomerSessionKeychain.swift",
-    "siteConfiguration": "data/site-config.json"
+    "siteConfiguration": "data/site-config.json",
+    "mediatorFna": "https://www.mediateur.fna.fr/",
+    "mediatorFnaContact": "https://www.mediateur.fna.fr/contact.htm"
   },
   "addenda": {
     "legal_notice": "legal/current-site/mentions-complement.md",
