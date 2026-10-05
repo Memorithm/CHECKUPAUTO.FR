@@ -23,6 +23,7 @@ class Compliance147RegisterAttestationWorkflowTest(unittest.TestCase):
         self.assertIn('runtime register differs from reviewed baseline',source)
         self.assertIn('expected_register_hash=digest',source)
         self.assertIn('"reviewedBaselineMatched":True',source)
+        self.assertGreaterEqual(source.count('key=lambda row:str(row.get("id") or "")'),2)
 
     def test_workflow_preserves_dpa_fail_closed_gate(self):
         source=WORKFLOW.read_text(encoding="utf-8")
