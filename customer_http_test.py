@@ -120,10 +120,30 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn('id="ct-report"',body)
         self.assertIn('href="/compte/reserver">Réserver un contrôle',body)
         self.assertIn('href="/contact">Nous contacter',body)
+        self.assertIn('href="/contact?intent=suggestion">Faire une suggestion',body)
+        self.assertIn("Donner mon avis sur Google",body)
+        self.assertIn("search.google.com/local/writereview?placeid=ChIJZ82oNlGS5kcRj99QzDs2Fwo",body)
+        self.assertIn("Les avis ne sont ni filtrés ni liés à une récompense",body)
+        self.assertIn("PROFIL ET COORDONNÉES",body)
+        self.assertIn("E-mail vérifié",body)
+        self.assertIn("Téléphone",body)
+        self.assertIn("Adresse",body)
+        self.assertIn("Code postal",body)
+        self.assertIn("Ville",body)
         self.assertIn('Consulter mes rendez-vous Mercure',body)
         self.assertNotIn('Réserver ou consulter mes rendez-vous sur le planning actuel',body)
         self.assertIn('nonce="',body)
         self.assertTrue(h._csp_nonce)
+
+    def test_google_review_url_uses_valid_configured_google_host(self):
+        with patch.object(http.site_config_store,"load",return_value={
+            "business":{"googleReviewUrl":"https://g.page/r/example/review"}
+        }):
+            self.assertEqual(http._google_review_url(),"https://g.page/r/example/review")
+        with patch.object(http.site_config_store,"load",return_value={
+            "business":{"googleReviewUrl":"https://evil.example/review"}
+        }):
+            self.assertEqual(http._google_review_url(),http.GOOGLE_REVIEW_FALLBACK_URL)
 
     @unittest.skipUnless(shutil.which("node"),"Node.js is required for inline dashboard syntax validation")
     def test_dashboard_inline_javascript_parses(self):
