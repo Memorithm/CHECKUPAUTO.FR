@@ -16,6 +16,7 @@ import referral_wallet_claims
 import mobile_auth_ticket
 
 ACCOUNT_ROUTE="/compte"
+CONTACT_ROUTE="/contact"
 PASSAGE_ROUTE="/compte/reserver"
 PASSAGE_CONFIRM_ROUTE="/api/customer/passage/confirm"
 PROVIDERS_ROUTE="/api/customer/providers"
@@ -163,7 +164,7 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
 :root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6d796f;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}a{{color:inherit;text-decoration:none}}
 .shell{{width:min(1240px,calc(100% - 32px));margin:auto;padding:28px 0 64px}}.top{{display:flex;justify-content:space-between;align-items:center;padding:10px 0 24px}}
-.brand{{font-weight:750;letter-spacing:-.04em}}.logout{{border:0;background:none;color:var(--muted);cursor:pointer}}
+.brand{{font-weight:750;letter-spacing:-.04em}}.top-actions{{display:flex;gap:16px;align-items:center}}.contact-link{{color:var(--green);font-weight:700}}.logout{{border:0;background:none;color:var(--muted);cursor:pointer}}
 .hero{{background:#fff;border:1px solid var(--line);padding:clamp(28px,5vw,52px);display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end}}
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(42px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.045em;margin:14px 0 8px}}p{{color:var(--muted);line-height:1.6}}
 .badge{{padding:9px 12px;border:1px solid #a9bcaf;background:var(--soft);font:700 9px Consolas,monospace;letter-spacing:.1em}}
@@ -178,7 +179,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 .report-analysis h3{{font:400 22px Georgia,serif;margin:12px 0 6px}}.report-analysis ul{{padding-left:18px;color:var(--muted)}}.report-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.report-status{{font-size:11px;color:var(--muted);margin-top:8px}}
 @media(max-width:900px){{.grid{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}
 </style></head><body><main class="shell">
-<div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
+<div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><div class="top-actions"><a class="contact-link" href="{CONTACT_ROUTE}">Nous contacter</a><button id="logout" class="logout" type="button">Se déconnecter</button></div></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
 <section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="{PASSAGE_ROUTE}">Réserver un contrôle →</a> · <a href="https://rdv.checkupauto.fr/" rel="noreferrer">Consulter mes rendez-vous Mercure →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
