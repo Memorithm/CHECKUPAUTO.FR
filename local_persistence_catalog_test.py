@@ -40,7 +40,7 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
     def test_catalog_is_technical_discovery_not_privacy_completion(self):
         state=catalog.snapshot()
         self.assertTrue(state["complete"])
-        self.assertEqual(state["tableCount"],74)
+        self.assertEqual(state["tableCount"],76)
         self.assertFalse(state["privacyExecutionCoverageAsserted"])
         self.assertEqual(state["state"],"catalogued")
         self.assertNotIn("privacyClass", state)
