@@ -157,6 +157,14 @@ def snapshot(db_path: Path | str | None = None) -> dict:
             "knownExecutionCoverageComplete": bool(local.get("knownExecutionCoverageComplete")),
             "unresolvedStoreCount": int(local.get("unresolvedStoreCount") or 0),
             "unresolvedStores": sorted(str(x) for x in local.get("unresolvedStores") or []),
+            "persistenceCatalog": {
+                "complete": bool((local.get("persistenceCatalog") or {}).get("complete")),
+                "tableCount": int((local.get("persistenceCatalog") or {}).get("tableCount") or 0),
+                "state": str((local.get("persistenceCatalog") or {}).get("state") or ""),
+                "privacyExecutionCoverageAsserted": bool(
+                    (local.get("persistenceCatalog") or {}).get("privacyExecutionCoverageAsserted")
+                ),
+            },
         },
         "phase2": {
             "ready": bool(summary.get("phase2CoverageReady")),
