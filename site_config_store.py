@@ -56,6 +56,34 @@ def _validate_public_canonical(config: dict) -> None:
         raise ValueError("seo.canonicalUrl must use the CheckupAuto production origin")
 
 
+def _validate_google_review_url(config: dict) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("site config must be an object")
+    business=config.get("business")
+    if not isinstance(business,dict):
+        return
+    raw=str(business.get("googleReviewUrl") or "").strip()
+    if not raw:
+        return
+    try:
+        parsed=urlparse(raw)
+        hostname=(parsed.hostname or "").lower()
+        valid=(
+            parsed.scheme=="https"
+            and hostname in {"search.google.com","g.page"}
+            and parsed.port in (None,443)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.fragment
+        )
+        if hostname=="search.google.com":
+            valid=valid and parsed.path=="/local/writereview" and parsed.query.startswith("placeid=")
+    except (TypeError,ValueError):
+        valid=False
+    if not valid:
+        raise ValueError("business.googleReviewUrl invalid")
+
+
 def _validate_booking_mode(config: dict) -> None:
     if not isinstance(config, dict):
         raise ValueError("site config must be an object")
@@ -89,6 +117,7 @@ def _validate_booking_mode(config: dict) -> None:
 def save(config: dict, *, runtime_path: Path | None = None) -> Path:
     _validate_public_canonical(config)
     _validate_booking_mode(config)
+    _validate_google_review_url(config)
     target = Path(runtime_path) if runtime_path is not None else runtime_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix="site-config.", suffix=".json", dir=str(target.parent))

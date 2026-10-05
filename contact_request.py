@@ -84,6 +84,7 @@ def _connect(path: Path | None = None):
     db.execute("""CREATE TABLE IF NOT EXISTS contact_requests(
       request_id TEXT PRIMARY KEY,
       customer_account_id TEXT NOT NULL DEFAULT '',
+      intent TEXT NOT NULL DEFAULT 'contact',
       category TEXT NOT NULL CHECK(category IN ('general','booking','payment','refund_request')),
       name TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -96,6 +97,10 @@ def _connect(path: Path | None = None):
     if "customer_account_id" not in columns:
         db.execute(
             "ALTER TABLE contact_requests ADD COLUMN customer_account_id TEXT NOT NULL DEFAULT ''"
+        )
+    if "intent" not in columns:
+        db.execute(
+            "ALTER TABLE contact_requests ADD COLUMN intent TEXT NOT NULL DEFAULT 'contact'"
         )
     db.execute("CREATE INDEX IF NOT EXISTS contact_requests_created ON contact_requests(created_at)")
     db.execute(
@@ -110,15 +115,20 @@ def submit(payload: dict, *, customer: dict, path: Path | None = None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("contact_payload_invalid")
     account_id, name, email, phone = _customer_identity(customer)
-    allowed = {"category", "message", "website", "consent"}
+    allowed = {"intent", "category", "message", "website", "consent"}
     if set(payload) - allowed:
         raise ValueError("contact_payload_invalid")
     if str(payload.get("website") or ""):
         raise ValueError("contact_payload_invalid")
     if payload.get("consent") not in {"yes", True}:
         raise ValueError("contact_consent_required")
+    intent = str(payload.get("intent") or "contact").strip().lower()
+    if intent not in {"contact","suggestion"}:
+        raise ValueError("contact_intent_invalid")
     category = str(payload.get("category") or "")
     if category not in CATEGORIES:
+        raise ValueError("contact_category_invalid")
+    if intent=="suggestion" and category!="general":
         raise ValueError("contact_category_invalid")
     message = _message(payload.get("message"))
     request_id = secrets.token_hex(16)
@@ -130,9 +140,9 @@ def submit(payload: dict, *, customer: dict, path: Path | None = None) -> dict:
         db.execute("DELETE FROM contact_requests WHERE created_at < ?", (cutoff,))
         db.execute(
             """INSERT INTO contact_requests(
-                 request_id,customer_account_id,category,name,email,phone,message,status,created_at
-               ) VALUES(?,?,?,?,?,?,?,'open',?)""",
-            (request_id, account_id, category, name, email, phone, message, now),
+                 request_id,customer_account_id,intent,category,name,email,phone,message,status,created_at
+               ) VALUES(?,?,?,?,?,?,?,?,'open',?)""",
+            (request_id, account_id, intent, category, name, email, phone, message, now),
         )
         db.commit()
     finally:
@@ -140,10 +150,59 @@ def submit(payload: dict, *, customer: dict, path: Path | None = None) -> dict:
     return {
         "requestId": request_id,
         "customerAccountId": account_id,
+        "intent": intent,
         "category": category,
         "createdAt": now,
         "paymentActionTriggered": False,
         "refundActionTriggered": False,
+    }
+
+
+def admin_list(*, intent: str = "", limit: int = 100, path: Path | None = None) -> dict:
+    intent=str(intent or "").strip().lower()
+    if intent not in {"","contact","suggestion"}:
+        raise ValueError("contact_intent_invalid")
+    try:
+        limit=int(limit)
+    except (TypeError,ValueError) as exc:
+        raise ValueError("contact_limit_invalid") from exc
+    if not 1<=limit<=200:
+        raise ValueError("contact_limit_invalid")
+    db=_connect(path)
+    try:
+        if intent:
+            rows=db.execute(
+                """SELECT request_id,customer_account_id,intent,category,name,email,phone,message,status,created_at
+                   FROM contact_requests WHERE intent=? ORDER BY created_at DESC,request_id DESC LIMIT ?""",
+                (intent,limit),
+            ).fetchall()
+        else:
+            rows=db.execute(
+                """SELECT request_id,customer_account_id,intent,category,name,email,phone,message,status,created_at
+                   FROM contact_requests ORDER BY created_at DESC,request_id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    finally:
+        db.close()
+    return {
+        "ok":True,
+        "intent":intent,
+        "count":len(rows),
+        "requests":[
+            {
+                "requestId":str(row["request_id"]),
+                "customerAccountId":str(row["customer_account_id"]),
+                "intent":str(row["intent"]),
+                "category":str(row["category"]),
+                "name":str(row["name"]),
+                "email":str(row["email"]),
+                "phone":str(row["phone"]),
+                "message":str(row["message"]),
+                "status":str(row["status"]),
+                "createdAt":str(row["created_at"]),
+            }
+            for row in rows
+        ],
     }
 
 
@@ -153,7 +212,7 @@ def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
     db=_connect(path)
     try:
         rows=db.execute(
-            """SELECT request_id,customer_account_id,category,name,email,phone,message,status,created_at
+            """SELECT request_id,customer_account_id,intent,category,name,email,phone,message,status,created_at
                FROM contact_requests WHERE email=? ORDER BY created_at,request_id""",
             (normalized,),
         ).fetchall()
@@ -166,6 +225,7 @@ def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
             {
                 "requestId":str(row["request_id"]),
                 "customerAccountId":str(row["customer_account_id"]),
+                "intent":str(row["intent"]),
                 "category":str(row["category"]),
                 "name":str(row["name"]),
                 "email":str(row["email"]),
@@ -209,9 +269,12 @@ def erase_subject(email: object, *, path: Path | None = None) -> dict:
     }
 
 
-def render_form(customer: dict, csrf_token: str) -> bytes:
+def render_form(customer: dict, csrf_token: str, intent: str = "contact") -> bytes:
     _account_id, name, email, phone = _customer_identity(customer)
     csrf = _text(csrf_token, minimum=16, maximum=256, code="contact_csrf_invalid")
+    intent=str(intent or "contact").strip().lower()
+    if intent not in {"contact","suggestion"}:
+        intent="contact"
     options = "".join(
         f'<option value="{html.escape(key)}">{html.escape(label)}</option>'
         for key, label in CATEGORIES.items()
@@ -220,9 +283,31 @@ def render_form(customer: dict, csrf_token: str) -> bytes:
     safe_email = html.escape(email)
     safe_phone = html.escape(phone)
     phone_line = f"<br>{safe_phone}" if safe_phone else ""
+    is_suggestion=intent=="suggestion"
+    eyebrow="SUGGESTION CLIENT" if is_suggestion else "CONTACT CLIENT / TRAITEMENT MANUEL"
+    title="Une idée pour nous améliorer." if is_suggestion else "Nous contacter."
+    intro=(
+        "Décrivez votre suggestion. Elle sera liée à votre compte client afin que nous puissions la suivre et, si nécessaire, vous recontacter."
+        if is_suggestion
+        else "Ce formulaire est réservé aux clients connectés. Votre identité et vos coordonnées proviennent de votre compte Checkup Auto et ne peuvent pas être remplacées par des coordonnées libres."
+    )
+    form_fields=(
+        '<input type="hidden" name="intent" value="suggestion">'
+        '<input type="hidden" name="category" value="general">'
+        '<label>Votre suggestion<textarea name="message" maxlength="3000" required></textarea></label>'
+        if is_suggestion else
+        '<input type="hidden" name="intent" value="contact">'
+        f'<label>Objet<select name="category" required>{options}</select></label>'
+        '<label>Votre message<textarea name="message" maxlength="3000" required></textarea></label>'
+    )
+    notice=(
+        '<div class="notice"><strong>Suggestion :</strong> votre message est traité comme un retour client. Il ne déclenche aucune opération de réservation, de paiement ou de remboursement.</div>'
+        if is_suggestion else
+        '<div class="notice"><strong>Demande concernant un remboursement :</strong> ce formulaire ouvre uniquement une demande de contact. Il ne déclenche aucun remboursement ni aucune opération Payline. La demande est étudiée séparément.</div>'
+    )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow,noarchive"><title>Contact client | Checkup Auto</title>
+<meta name="robots" content="noindex,nofollow,noarchive"><title>{"Suggestion" if is_suggestion else "Contact client"} | Checkup Auto</title>
 <style>
 :root{{--paper:#f6f7f2;--ink:#213b30;--muted:#747d71;--line:#d9dfd3;--green:#1f5443}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
@@ -236,26 +321,33 @@ button{{border:0;background:var(--green);color:#fff;padding:15px 20px;font-weigh
 .identity{{padding:16px;background:#fbfcfa;border:1px solid var(--line);line-height:1.6}}.identity a{{color:var(--green);font-size:12px}}
 .hp{{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}}
 </style></head><body><main><a class="brand" href="/compte">✓ CHECKUP AUTO · ESPACE CLIENT</a><section class="card">
-<div class="eyebrow">CONTACT CLIENT / TRAITEMENT MANUEL</div><h1>Nous contacter.</h1>
-<p>Ce formulaire est réservé aux clients connectés. Votre identité et vos coordonnées proviennent de votre compte Checkup Auto et ne peuvent pas être remplacées par des coordonnées libres.</p>
+<div class="eyebrow">{eyebrow}</div><h1>{title}</h1>
+<p>{intro}</p>
 <div class="identity"><strong>{safe_name}</strong><br>{safe_email}{phone_line}<br><a href="/compte">Modifier mes coordonnées dans mon espace client →</a></div>
-<div class="notice"><strong>Demande concernant un remboursement :</strong> ce formulaire ouvre uniquement une demande de contact. Il ne déclenche aucun remboursement ni aucune opération Payline. La demande est étudiée séparément.</div>
+{notice}
 <form method="post" action="/contact" autocomplete="on">
 <input type="hidden" name="csrf" value="{html.escape(csrf,quote=True)}">
-<label>Objet<select name="category" required>{options}</select></label>
-<label>Votre message<textarea name="message" maxlength="3000" required></textarea></label>
+{form_fields}
 <label class="hp" aria-hidden="true">Site web<input name="website" tabindex="-1" autocomplete="off"></label>
-<label class="consent"><input type="checkbox" name="consent" value="yes" required><span>J’accepte que ces informations soient utilisées pour traiter ma demande. Elles ne sont pas utilisées pour déclencher une opération bancaire.</span></label>
-<button type="submit">Envoyer ma demande →</button>
+<label class="consent"><input type="checkbox" name="consent" value="yes" required><span>J’accepte que ces informations soient utilisées pour traiter ma demande.</span></label>
+<button type="submit">{"Envoyer ma suggestion" if is_suggestion else "Envoyer ma demande"} →</button>
 </form></section></main></body></html>""".encode("utf-8")
+
 
 def render_confirmation(result: dict) -> bytes:
     request_id = html.escape(str(result.get("requestId") or ""))
+    suggestion=str(result.get("intent") or "")=="suggestion"
+    title="Suggestion enregistrée." if suggestion else "Demande enregistrée."
+    copy=(
+        "Votre suggestion a été enregistrée et reste liée à votre compte client pour permettre son suivi."
+        if suggestion else
+        "Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché."
+    )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>Demande enregistrée | Checkup Auto</title><style>
+<title>{title} | Checkup Auto</title><style>
 body{{margin:0;background:#f6f7f2;color:#213b30;font-family:Arial,sans-serif}}main{{max-width:760px;margin:auto;padding:64px 24px}}
 .card{{background:#fff;border:1px solid #d9dfd3;padding:42px}}h1{{font:400 48px/1 Georgia,serif}}p{{line-height:1.7;color:#66776e}}code{{font-size:12px}}a{{color:#1f5443}}
-</style></head><body><main><div class="card"><h1>Demande enregistrée.</h1>
-<p>Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché.</p>
+</style></head><body><main><div class="card"><h1>{title}</h1>
+<p>{copy}</p>
 <p>Référence : <code>{request_id}</code></p><p><a href="/compte">Revenir à mon espace client →</a></p></div></main></body></html>""".encode("utf-8")

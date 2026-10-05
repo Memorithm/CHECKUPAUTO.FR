@@ -18,4 +18,10 @@
 <p class="hint">Le callback doit être déclaré exactement chez chaque fournisseur. Les URL affichées ici sont calculées côté serveur à partir du domaine courant.</p></div>
 <button id="oidcReload" class="secondary" type="button">Actualiser</button></div>
 <div id="oidcProviders" class="oidc-grid" aria-live="polite"></div></section>
+
+<section class="panel"><div class="panel-head"><div><p class="eyebrow">CONTACTS / SUGGESTIONS</p><h2>Retours clients</h2>
+<p class="hint">Demandes et suggestions provenant exclusivement de comptes clients authentifiés.</p></div>
+<div class="feedback-tools"><select id="feedbackIntent" aria-label="Filtrer les retours"><option value="">Tous</option><option value="suggestion">Suggestions</option><option value="contact">Contacts</option></select><button id="feedbackReload" class="secondary" type="button">Actualiser</button></div></div>
+<p id="feedbackMessage" class="hint" role="status" aria-live="polite">Chargement des retours…</p>
+<div id="feedbackList" class="feedback-list" aria-live="polite"></div></section>
 </main></div><script src="/admin/customers.js"></script></body></html>

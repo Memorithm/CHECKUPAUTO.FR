@@ -73,6 +73,40 @@ class SiteConfigStoreTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError,"MercureWeb"):
                         site_config_store.save(config,runtime_path=target)
 
+    def test_save_accepts_google_review_link_on_google_hosts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"site-config.json"
+            for url in (
+                "https://search.google.com/local/writereview?placeid=ChIJZ82oNlGS5kcRj99QzDs2Fwo",
+                "https://g.page/r/example/review",
+            ):
+                with self.subTest(url=url):
+                    config={
+                        "seo":{"canonicalUrl":"https://www.checkupauto.fr/"},
+                        "business":{"googleReviewUrl":url},
+                    }
+                    site_config_store.save(config,runtime_path=target)
+                    self.assertEqual(
+                        site_config_store.load(runtime_path=target)["business"]["googleReviewUrl"],
+                        url,
+                    )
+
+    def test_save_rejects_non_google_review_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target=Path(tmp)/"site-config.json"
+            for url in (
+                "http://search.google.com/local/writereview?placeid=x",
+                "https://evil.example/review",
+                "https://search.google.com.evil.example/local/writereview?placeid=x",
+                "https://search.google.com/other?placeid=x",
+            ):
+                with self.subTest(url=url):
+                    with self.assertRaisesRegex(ValueError,"googleReviewUrl"):
+                        site_config_store.save({
+                            "seo":{"canonicalUrl":"https://www.checkupauto.fr/"},
+                            "business":{"googleReviewUrl":url},
+                        },runtime_path=target)
+
     def test_save_accepts_production_canonical_origin(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "site-config.json"

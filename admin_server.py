@@ -373,6 +373,13 @@ class Handler(SimpleHTTPRequestHandler):
     result['redirectUri']=integrations.oauth_redirect_uri(origin)
     return self.send_json(result)
    except Exception: return self.send_json({'ok':False,'error':'google_integration_status_unavailable'},500)
+  if path=='/api/admin/contact-requests':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); intent=(q.get('intent') or [''])[0]; limit=int((q.get('limit') or ['100'])[0])
+    return self.send_json(contact_request.admin_list(intent=intent,limit=limit))
+   except ValueError: return self.send_json({'ok':False,'error':'contact_request_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'contact_request_admin_unavailable'},500)
   if path=='/api/admin/referrals/accounts':
    if not self.authorized(): return self.require_auth()
    try:
@@ -553,7 +560,9 @@ class Handler(SimpleHTTPRequestHandler):
    token,account=customer_http._account(self)
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
    csrf=customer_http.customer_accounts.csrf_token(token)
-   return self.send_bytes(contact_request.render_form(account,csrf),'text/html; charset=utf-8',cache='no-store')
+   query=parse_qs(parsed.query,keep_blank_values=True)
+   intent=(query.get('intent') or ['contact'])[0]
+   return self.send_bytes(contact_request.render_form(account,csrf,intent),'text/html; charset=utf-8',cache='no-store')
   if path=='/api/compliance/cookies':
    try: return self.send_json(compliance.cookie_policy())
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
