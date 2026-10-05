@@ -114,8 +114,9 @@ def _providers_html() -> str:
     return "".join(rows)
 
 
-def _login_page(message: str="") -> bytes:
+def _login_page(message: str="", info: str="") -> bytes:
     note=f'<p class="error">{html.escape(message)}</p>' if message else ""
+    info_note=f'<p class="info">{html.escape(info)}</p>' if info else ""
     providers=_providers_html()
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -130,12 +131,12 @@ main{{width:min(940px,calc(100% - 32px));margin:auto;padding:38px 0 70px}}a{{col
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(46px,7vw,76px)/.98 Georgia,serif;letter-spacing:-.05em;margin:16px 0 20px}}
 p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:30px}}
 .sso{{border:1px solid var(--line);padding:15px 17px;background:#fbfcfa;font-weight:700;text-align:center}}.sso:hover{{border-color:#9ab1a2}}
-.sso.disabled{{opacity:.48}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}
+.sso.disabled{{opacity:.48}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}.info{{padding:14px 16px;border-left:3px solid var(--green);background:#edf1eb;color:var(--ink)}}
 @media(max-width:720px){{.providers{{grid-template-columns:1fr}}}}
 </style></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a href="/">Retour au site</a></div>
 <section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>Votre véhicule, dans la durée.</h1>
 <p>Retrouvez votre fidélité et l’analyse de vos rapports de contrôle technique dans un seul espace.</p>
-{note}<div class="providers">{providers}</div>
+{info_note}{note}<div class="providers">{providers}</div>
 <div class="trust">Connexion fédérée uniquement · aucun mot de passe CheckupAuto à mémoriser · session sécurisée et limitée dans le temps.</div>
 </section></main></body></html>""".encode("utf-8")
 
@@ -365,8 +366,17 @@ def handle(handler) -> bool:
 
     if command=="GET" and path==ACCOUNT_ROUTE:
         token,account=_account(handler)
+        query=parse_qs(parsed.query,keep_blank_values=True)
+        intent=(query.get("intent") or [""])[0]
+        if intent not in {"","contact"}:
+            intent=""
         if not account:
-            handler.send_bytes(_login_page(),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+            info=(
+                "Pour nous contacter, connectez-vous ou créez votre compte client avec Google ou Apple. "
+                "Cette étape permet de sécuriser et d’identifier les échanges."
+                if intent=="contact" else ""
+            )
+            handler.send_bytes(_login_page(info=info),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
             return True
         nonce=secrets.token_urlsafe(18)
         handler._csp_nonce=nonce
