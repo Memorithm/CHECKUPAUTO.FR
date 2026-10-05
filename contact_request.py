@@ -336,11 +336,18 @@ button{{border:0;background:var(--green);color:#fff;padding:15px 20px;font-weigh
 
 def render_confirmation(result: dict) -> bytes:
     request_id = html.escape(str(result.get("requestId") or ""))
+    suggestion=str(result.get("intent") or "")=="suggestion"
+    title="Suggestion enregistrée." if suggestion else "Demande enregistrée."
+    copy=(
+        "Votre suggestion a été enregistrée et reste liée à votre compte client pour permettre son suivi."
+        if suggestion else
+        "Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché."
+    )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>Demande enregistrée | Checkup Auto</title><style>
+<title>{title} | Checkup Auto</title><style>
 body{{margin:0;background:#f6f7f2;color:#213b30;font-family:Arial,sans-serif}}main{{max-width:760px;margin:auto;padding:64px 24px}}
 .card{{background:#fff;border:1px solid #d9dfd3;padding:42px}}h1{{font:400 48px/1 Georgia,serif}}p{{line-height:1.7;color:#66776e}}code{{font-size:12px}}a{{color:#1f5443}}
-</style></head><body><main><div class="card"><h1>Demande enregistrée.</h1>
-<p>Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché.</p>
+</style></head><body><main><div class="card"><h1>{title}</h1>
+<p>{copy}</p>
 <p>Référence : <code>{request_id}</code></p><p><a href="/compte">Revenir à mon espace client →</a></p></div></main></body></html>""".encode("utf-8")
