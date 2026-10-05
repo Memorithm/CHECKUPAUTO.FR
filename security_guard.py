@@ -369,8 +369,11 @@ def auth_failure(client: str, path='/admin/'):
             _ban(client, 1800, 'admin_bruteforce')
 
 
+STATUS_MAX_DAYS = 30
+
+
 def status(days=1):
-    days = max(1, min(int(days), 30))
+    days = max(1, min(int(days), STATUS_MAX_DAYS))
     since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat(timespec='seconds')
     with sqlite3.connect(DB) as db:
         db.row_factory = sqlite3.Row

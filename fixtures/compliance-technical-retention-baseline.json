@@ -1,0 +1,43 @@
+{
+  "schema": "checkupauto.compliance-technical-retention-baseline/v1",
+  "reviewedAt": "2026-10-05",
+  "scope": "Technical product windows only; no legal-review-required retention rule is asserted.",
+  "rules": [
+    {
+      "ruleId": "review_followup",
+      "activeDays": 2,
+      "enabled": true,
+      "legalReviewConfirmed": false,
+      "source": "review_followup.LOOKBACK_HOURS=36",
+      "justification": "Fenêtre technique de 2 jours, arrondie au jour supérieur à partir du lookback produit de 36 h. La purge ne vise que les demandes d’avis déjà envoyées; les états non envoyés restent conservés pour traitement."
+    },
+    {
+      "ruleId": "reminder_targets",
+      "activeDays": 730,
+      "enabled": true,
+      "legalReviewConfirmed": false,
+      "source": "reminder_dispatch.BACKFILL_DAYS=730",
+      "justification": "La reconstruction Mercure des cibles de rappel est bornée à 730 jours. Les échéances plus anciennes sortent de la fenêtre technique de backfill et ne sont plus nécessaires au moteur de rappels."
+    },
+    {
+      "ruleId": "security_telemetry",
+      "activeDays": 30,
+      "enabled": true,
+      "legalReviewConfirmed": false,
+      "source": "security_guard.STATUS_MAX_DAYS=30",
+      "justification": "La surface d’investigation sécurité est bornée à 30 jours. La purge conserve explicitement les alertes non acquittées et ne supprime que la télémétrie ancienne et les alertes déjà acquittées."
+    }
+  ],
+  "deliberatelyUnconfigured": [
+    "notification_delivery",
+    "mobile_inactive_installations",
+    "checkout_acceptance_transient"
+  ],
+  "requiresLegalReview": [
+    "booking_conversions",
+    "contract_consent_receipts",
+    "withdrawal_evidence",
+    "rights_requests_and_audit",
+    "referral_ledger"
+  ]
+}
