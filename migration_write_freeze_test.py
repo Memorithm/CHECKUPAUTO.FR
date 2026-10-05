@@ -44,6 +44,14 @@ class MigrationWriteFreezeTest(unittest.TestCase):
             self.assertFalse(state["valid"])
             self.assertEqual(state["state"],"invalid_marker")
 
+    def test_shared_tick_checks_freeze_before_runtime_initialization(self):
+        script=(Path(__file__).parent/"scripts/checkupauto-shared-tick.py").read_text()
+        freeze_check=script.index("freeze=migration_write_freeze.status()")
+        runtime_init=script.index("admin_server.initialize_runtime(background=False)")
+        self.assertLess(freeze_check,runtime_init)
+        self.assertIn('"state":"write_frozen"',script)
+        self.assertIn('"tasks":[]',script)
+
     def test_symlink_marker_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
             os.environ, {"CYBERCHECK_DATA_DIR": tmp}
