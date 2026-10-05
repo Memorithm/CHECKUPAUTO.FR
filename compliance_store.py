@@ -787,14 +787,24 @@ def record_checkout_acceptance(
     return _checkout_acceptance_row(row)
 
 
+CONTRACT_ACCEPTANCE_SOURCES = {
+    "mercure_contract_confirmation",
+    "staging_synthetic_mercure_contract_confirmation",
+}
+
+
 def finalize_checkout_acceptance(
     booking_token: str,
     contract_ref: str,
     *,
+    source: str = "mercure_contract_confirmation",
     db_path: Path | str | None = None,
 ) -> dict:
     token_hash = _checkout_token_hash(booking_token)
     contract_ref = _text(contract_ref, "contractRef", 200, required=True)
+    source = _text(source, "source", 80, required=True)
+    if source not in CONTRACT_ACCEPTANCE_SOURCES:
+        raise ValueError("source de finalisation contrat invalide")
     init_db(db_path)
     with connect(db_path) as db:
         row = db.execute(
@@ -838,7 +848,7 @@ def finalize_checkout_acceptance(
                     row["terms_content_hash"],
                     row["accepted_at"],
                     row["immediate_performance"],
-                    "mercure_contract_confirmation",
+                    source,
                 ),
             )
         finalized_at = _now_iso()
@@ -857,7 +867,7 @@ def finalize_checkout_acceptance(
         "contentHash": row["terms_content_hash"],
         "acceptedAt": row["accepted_at"],
         "immediatePerformance": bool(row["immediate_performance"]),
-        "source": "mercure_contract_confirmation",
+        "source": source,
         "finalizedAt": finalized_at,
     }
 
