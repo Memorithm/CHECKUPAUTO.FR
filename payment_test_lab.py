@@ -323,7 +323,7 @@ def prepare_payline_checkout(token: str, service_key: str, date_value: str, time
             "appointmentDate":str(appointment["appointmentAt"]),
             "service":label,
             "amount":float(appointment["price"]),
-        }))
+        }, acceptance_source="staging_synthetic_mercure_contract_confirmation"))
         if not conversion.get("contractAcceptanceBound"):
             raise PaymentTestError("payment_test_contract_binding_failed")
 
