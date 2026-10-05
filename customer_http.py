@@ -6,7 +6,7 @@ import json
 import re
 import secrets
 from http.cookies import SimpleCookie
-from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 import customer_accounts
 import customer_ct_reports
@@ -213,12 +213,44 @@ document.getElementById('logout').addEventListener('click',async()=>{{await fetc
 }})();</script></body></html>""".encode("utf-8")
 
 
+def _passage_return_target(value: object) -> str:
+    raw=str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw)>2048 or any(ord(ch)<32 for ch in raw):
+        return ""
+    parts=urlsplit(raw)
+    if parts.scheme or parts.netloc or parts.fragment or parts.path!="/go/booking":
+        return ""
+    return "/go/booking"+(("?"+parts.query) if parts.query else "")
+
+
+def booking_confirmation_url(target: object) -> str:
+    return_to=_passage_return_target(target)
+    if not return_to:
+        return PASSAGE_ROUTE
+    return PASSAGE_ROUTE+"?"+urlencode({"returnTo":return_to})
+
+
+def consume_booking_confirmation(handler) -> dict:
+    token,account=_account(handler)
+    if not token or not account:
+        return {"required":False,"consumed":False}
+    consumed=customer_accounts.consume_latest_passage_confirmation(account["accountId"])
+    return {
+        "required":True,
+        "consumed":bool(consumed.get("consumed")),
+        "confirmedAt":str(consumed.get("confirmedAt") or ""),
+    }
+
+
 def _passage_page(
     token: str,
     account: dict,
     passage: dict,
     nonce: str,
     message: str = "",
+    return_to: str = "",
 ) -> bytes:
     csrf=customer_accounts.csrf_token(token)
     passage_token=str(passage["passageToken"])
@@ -259,8 +291,8 @@ form{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}}label
 </form>
 <p><a href="{ACCOUNT_ROUTE}">← Retour à mon compte</a></p></section></main>
 <script nonce="{html.escape(nonce,quote=True)}">
-(()=>{{'use strict';const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},form=document.getElementById('contactForm'),status=document.getElementById('passageStatus');
-const send=async payload=>{{status.textContent='Vérification…';const r=await fetch('{PASSAGE_CONFIRM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{passageToken,...payload}})}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'contact_confirmation_failed');location.assign(d.continueUrl);}};
+(()=>{{'use strict';const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},returnTo={json.dumps(return_to)},form=document.getElementById('contactForm'),status=document.getElementById('passageStatus');
+const send=async payload=>{{status.textContent='Vérification…';const r=await fetch('{PASSAGE_CONFIRM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{passageToken,returnTo,...payload}})}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'contact_confirmation_failed');location.assign(d.continueUrl);}};
 document.getElementById('showEdit').addEventListener('click',()=>{{form.style.display='grid';}});
 document.getElementById('confirmCurrent').addEventListener('click',async()=>{{try{{await send({{action:'validated'}});}}catch(e){{status.textContent='Validation impossible.';}}}});
 form.addEventListener('submit',async e=>{{e.preventDefault();try{{await send({{action:'modified',phone:document.getElementById('passagePhone').value,addressLine1:document.getElementById('passageAddress1').value,addressLine2:document.getElementById('passageAddress2').value,postalCode:document.getElementById('passagePostal').value,city:document.getElementById('passageCity').value}});}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
@@ -307,11 +339,12 @@ def handle(handler) -> bool:
             handler.send_redirect(ACCOUNT_ROUTE,303)
             return True
         query=parse_qs(parsed.query,keep_blank_values=True)
+        return_to=_passage_return_target((query.get("returnTo") or [""])[0])
         supplied=(query.get("passage") or [""])[0]
         if supplied:
             try:
-                customer_accounts.consume_passage_confirmation(account["accountId"],supplied)
-                handler.send_redirect("/#reservation",303)
+                customer_accounts.validate_passage_confirmation(account["accountId"],supplied)
+                handler.send_redirect(return_to or "/#reservation",303)
                 return True
             except Exception:
                 message="Cette validation a expiré ou les coordonnées ont changé. Merci de les confirmer à nouveau."
@@ -322,7 +355,7 @@ def handle(handler) -> bool:
         handler._csp_nonce=nonce
         fresh=customer_accounts.profile(account["accountId"])
         handler.send_bytes(
-            _passage_page(token,fresh,passage,nonce,message),
+            _passage_page(token,fresh,passage,nonce,message=message,return_to=return_to),
             "text/html; charset=utf-8",200,"no-store",
             {"X-Robots-Tag":"noindex, nofollow, noarchive"},
         )
@@ -558,6 +591,7 @@ def handle(handler) -> bool:
         if path==PASSAGE_CONFIRM_ROUTE:
             try:
                 payload=_json_body(handler)
+                return_to=_passage_return_target(payload.pop("returnTo",""))
                 action=str(payload.get("action") or "")
                 passage_token=str(payload.get("passageToken") or "")
                 if action=="validated":
@@ -582,7 +616,7 @@ def handle(handler) -> bool:
                 handler.send_json({
                     "ok":True,
                     "confirmed":bool(confirmed.get("confirmed")),
-                    "continueUrl":PASSAGE_ROUTE+"?passage="+quote(passage_token,safe=""),
+                    "continueUrl":return_to or "/#reservation",
                 })
             except customer_accounts.CustomerAccountError as exc:
                 handler.send_json({"ok":False,"error":str(exc)},400)

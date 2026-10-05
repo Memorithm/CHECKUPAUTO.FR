@@ -243,15 +243,15 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Modifier",body)
         begin.assert_called_once_with(self.account()["accountId"])
 
-    def test_confirmed_passage_is_consumed_before_reservation_redirect(self):
+    def test_confirmed_legacy_passage_is_validated_but_not_consumed_before_reservation(self):
         token="p"*43
         h=Handler("/compte/reserver?passage="+token,headers={"Cookie":"checkupauto_customer=token"})
         with patch.object(http,"_account",return_value=("token",self.account())), \
-             patch.object(http.customer_accounts,"consume_passage_confirmation",return_value={"ok":True}) as consume:
+             patch.object(http.customer_accounts,"validate_passage_confirmation",return_value={"ok":True}) as validate:
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],303)
         self.assertEqual(h.response["location"],"/#reservation")
-        consume.assert_called_once_with(self.account()["accountId"],token)
+        validate.assert_called_once_with(self.account()["accountId"],token)
 
     def test_current_contact_confirmation_requires_csrf_and_returns_one_time_continue_url(self):
         passage="p"*43
@@ -268,8 +268,42 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],200)
         self.assertTrue(h.response["json"]["confirmed"])
-        self.assertEqual(h.response["json"]["continueUrl"],"/compte/reserver?passage="+passage)
+        self.assertEqual(h.response["json"]["continueUrl"],"/#reservation")
         confirm.assert_called_once_with(self.account()["accountId"],passage,action="validated")
+
+    def test_contact_confirmation_can_resume_the_selected_booking_handoff(self):
+        passage="p"*43
+        return_to="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        h=Handler("/api/customer/passage/confirm","POST",{
+            "passageToken":passage,
+            "returnTo":return_to,
+            "action":"validated",
+        },headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"c"*64,
+        })
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}):
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        self.assertEqual(h.response["json"]["continueUrl"],return_to)
+
+    def test_booking_confirmation_redirect_rejects_external_return_target(self):
+        safe=http.booking_confirmation_url("/go/booking?service=Contr%C3%B4le+technique")
+        self.assertTrue(safe.startswith("/compte/reserver?returnTo="))
+        self.assertEqual(http.booking_confirmation_url("https://evil.example/go/booking"),"/compte/reserver")
+
+    def test_authenticated_booking_consumes_latest_confirmation_only_at_handoff(self):
+        h=Handler("/go/booking",headers={"Cookie":"checkupauto_customer=token"})
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"consume_latest_passage_confirmation",return_value={
+                 "consumed":True,"confirmedAt":"2026-10-05T12:00:00+00:00"
+             }) as consume:
+            result=http.consume_booking_confirmation(h)
+        self.assertTrue(result["required"])
+        self.assertTrue(result["consumed"])
+        consume.assert_called_once_with(self.account()["accountId"])
 
     def test_modified_contact_confirmation_updates_profile_before_confirmation(self):
         passage="p"*43

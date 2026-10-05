@@ -494,6 +494,11 @@ class Handler(SimpleHTTPRequestHandler):
      doc=f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Réservation par téléphone</title><style>body{{font-family:system-ui;background:#f5f6f1;color:#111;padding:32px}}main{{max-width:620px;margin:auto}}a{{display:inline-block;padding:14px 20px;border-radius:999px;background:#111;color:#fff;text-decoration:none}}</style></head><body><main><h1>Cette prestation se réserve par téléphone.</h1><p>La réservation en ligne est limitée aux contrôles à 80 € et 90 €.</p><a href="tel:{tel}">Appeler le centre · {phone}</a></main></body></html>'''.encode()
      return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
     booking.require_published_terms()
+    try:
+     customer_http.consume_booking_confirmation(self)
+    except PermissionError:
+     target=path+(('?'+parsed.query) if parsed.query else '')
+     return self.send_redirect(customer_http.booking_confirmation_url(target),303)
     result=booking.create_intent(params,c['business']['bookingUrl']); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce; doc=booking.auto_submit_html(result['token'],service,nonce)
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
    except booking.BookingTermsUnavailable:

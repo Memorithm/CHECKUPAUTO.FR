@@ -576,11 +576,7 @@ def confirm_passage_contact(
     }
 
 
-def consume_passage_confirmation(
-    account_id: object,
-    passage_token: object,
-) -> dict:
-    account_id=_account_id(account_id)
+def _validated_passage_row(account_id: str, passage_token: object):
     row=_passage_row(account_id,passage_token)
     if str(row["state"])!="confirmed":
         raise PermissionError("customer_passage_not_confirmed")
@@ -588,6 +584,29 @@ def consume_passage_confirmation(
     expected=_contact_hash(account_id,current)
     if not hmac.compare_digest(str(row["contact_hash"] or ""),expected):
         raise PermissionError("customer_passage_contact_changed")
+    return row
+
+
+def validate_passage_confirmation(
+    account_id: object,
+    passage_token: object,
+) -> dict:
+    account_id=_account_id(account_id)
+    row=_validated_passage_row(account_id,passage_token)
+    return {
+        "ok":True,
+        "confirmed":True,
+        "action":str(row["action"]),
+        "confirmedAt":str(row["confirmed_at"]),
+    }
+
+
+def consume_passage_confirmation(
+    account_id: object,
+    passage_token: object,
+) -> dict:
+    account_id=_account_id(account_id)
+    row=_validated_passage_row(account_id,passage_token)
     stamp=_now_iso()
     digest=str(row["passage_hash"])
     with _connect() as db:
@@ -596,6 +615,48 @@ def consume_passage_confirmation(
             """DELETE FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=? AND state='confirmed'""",
             (digest,account_id),
+        ).rowcount
+        if removed!=1:
+            raise RuntimeError("customer_passage_consume_conflict")
+    return {
+        "ok":True,
+        "consumed":True,
+        "action":str(row["action"]),
+        "confirmedAt":str(row["confirmed_at"]),
+        "consumedAt":stamp,
+        "confirmationRetained":False,
+    }
+
+
+def consume_latest_passage_confirmation(account_id: object) -> dict:
+    account_id=_account_id(account_id)
+    current=profile(account_id)
+    expected=_contact_hash(account_id,current)
+    now=_now()
+    stamp=now.isoformat(timespec="seconds")
+    init_db()
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "DELETE FROM customer_passage_confirmation WHERE expires_at<?",
+            (stamp,),
+        )
+        row=db.execute(
+            """SELECT passage_hash,action,contact_hash,confirmed_at
+               FROM customer_passage_confirmation
+               WHERE account_id=? AND state='confirmed' AND expires_at>=?
+               ORDER BY confirmed_at DESC,created_at DESC
+               LIMIT 1""",
+            (account_id,stamp),
+        ).fetchone()
+        if not row:
+            raise PermissionError("customer_passage_confirmation_required")
+        if not hmac.compare_digest(str(row["contact_hash"] or ""),expected):
+            raise PermissionError("customer_passage_contact_changed")
+        removed=db.execute(
+            """DELETE FROM customer_passage_confirmation
+               WHERE passage_hash=? AND account_id=? AND state='confirmed'""",
+            (str(row["passage_hash"]),account_id),
         ).rowcount
         if removed!=1:
             raise RuntimeError("customer_passage_consume_conflict")

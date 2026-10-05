@@ -129,6 +129,28 @@ class CustomerAccountsTest(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError,"customer_passage_not_confirmed"):
             accounts.consume_passage_confirmation(created["accountId"],second["passageToken"])
 
+    def test_latest_confirmed_passage_is_consumed_once_at_booking_handoff(self):
+        created=self.create()
+        accounts.update_contact_details(
+            created["accountId"],
+            phone="0612345678",
+            address_line1="12 rue de Paris",
+            postal_code="78130",
+            city="Les Mureaux",
+        )
+        passage=accounts.begin_passage_confirmation(created["accountId"])
+        accounts.confirm_passage_contact(
+            created["accountId"],passage["passageToken"],action="validated"
+        )
+
+        consumed=accounts.consume_latest_passage_confirmation(created["accountId"])
+        self.assertTrue(consumed["consumed"])
+        self.assertEqual(consumed["action"],"validated")
+        self.assertFalse(consumed["confirmationRetained"])
+
+        with self.assertRaisesRegex(PermissionError,"customer_passage_confirmation_required"):
+            accounts.consume_latest_passage_confirmation(created["accountId"])
+
     def test_passage_confirmation_is_invalidated_if_contact_details_change(self):
         created=self.create()
         accounts.update_contact_details(
