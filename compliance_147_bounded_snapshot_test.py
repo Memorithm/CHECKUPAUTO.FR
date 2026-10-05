@@ -58,7 +58,7 @@ class Compliance147BoundedSnapshotTest(unittest.TestCase):
                 "action":"publish",
             },db)
             doc=compliance_store.published_document("terms",db)
-            compliance_store.record_consent(
+            compliance_store.record_acceptance(
                 "contract-should-never-be-output",
                 purpose="contract_terms",
                 document_type="terms",
