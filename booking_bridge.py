@@ -454,7 +454,7 @@ def _authoritative_conversion_for_token(db, token_key):
     ).fetchone()
 
 
-def apply_conversion(payload):
+def apply_conversion(payload, *, acceptance_source="mercure_contract_confirmation"):
     if not isinstance(payload,dict): raise ValueError('invalid payload')
     external_id=analytics.clean(payload.get('externalId') or payload.get('id'),120)
     if not external_id: raise ValueError('externalId required')
@@ -465,8 +465,12 @@ def apply_conversion(payload):
     token_key=_attribution_key(token)
     acceptance=None
     if token and status in CONFIRMED:
-        try: acceptance=compliance.finalize_checkout_acceptance(token,external_id)
-        except PermissionError: acceptance=None
+        try:
+            acceptance=compliance.finalize_checkout_acceptance(
+                token,external_id,source=acceptance_source
+            )
+        except PermissionError:
+            acceptance=None
     service=analytics._safe_dimension(payload.get('service'),120)
     amount_cents=_money_cents(payload.get('amount'))
     source='Non attribué'; campaign=''; device='unknown'; referral_code=''
