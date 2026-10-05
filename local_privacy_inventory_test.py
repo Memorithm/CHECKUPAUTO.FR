@@ -12,21 +12,25 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         state = inventory.snapshot()
         rows = self.by_store(state)
 
-        self.assertFalse(state["inventoryComplete"])
+        self.assertTrue(state["inventoryComplete"])
         self.assertFalse(state["knownExecutionCoverageComplete"])
         self.assertEqual(state["scope"], "known-local-privacy-stores-v4")
         self.assertTrue(state["persistenceCatalog"]["complete"])
         self.assertEqual(state["persistenceCatalog"]["tableCount"], 76)
+        self.assertTrue(state["persistenceCatalog"]["mappingComplete"])
+        self.assertEqual(state["persistenceCatalog"]["subjectExecutionRequiredCount"],21)
+        self.assertEqual(state["persistenceCatalog"]["executionGapCount"],14)
         self.assertFalse(state["persistenceCatalog"]["privacyExecutionCoverageAsserted"])
         self.assertIn(
-            "persistence_catalog_complete_privacy_store_mapping_incomplete",
+            "persistence_catalog_complete_execution_coverage_incomplete",
             state["limitations"],
         )
         self.assertNotIn("inventory_scope_not_yet_exhaustive", state["limitations"])
         self.assertEqual(
-            set(state["unresolvedStores"]),
-            {"review_followup", "booking_conversions", "withdrawal_requests"},
+            state["unresolvedStores"],
+            ["booking_conversions","checkout_acceptance_intents","consent_receipts","contact_requests","customer_account","customer_ct_report","customer_identity","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
+        self.assertEqual(state["unresolvedStoreCount"],14)
         self.assertEqual(rows["review_followup"]["executionState"], "partial_wired")
         self.assertEqual(rows["review_followup"]["adapter"], "privacy_suppression")
         self.assertEqual(
@@ -154,7 +158,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertTrue(row["subjectErasureApplicable"])
         self.assertEqual(row["executionState"], "unresolved")
         self.assertIn("analytics_event", state["unresolvedStores"])
-        self.assertEqual(state["unresolvedStoreCount"], 4)
+        self.assertEqual(state["unresolvedStoreCount"], 15)
 
     def test_inventory_contains_no_subject_value_or_secret_material(self):
         serialized = repr(inventory.snapshot())
