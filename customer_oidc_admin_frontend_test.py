@@ -23,6 +23,17 @@ class CustomerOIDCAdminFrontendTest(unittest.TestCase):
         self.assertNotIn("microsoft",js)
         self.assertIn("new Set(['google','apple'])",js)
 
+    def test_customer_admin_exposes_authenticated_feedback_without_inner_html(self):
+        root=Path(__file__).parent
+        html=(root/"admin/customers.html").read_text()
+        js=(root/"admin/customers.js").read_text()
+        self.assertIn("Retours clients",html)
+        self.assertIn("/api/admin/contact-requests",js)
+        self.assertIn("feedbackIntent",html)
+        self.assertIn("SUGGESTION",js)
+        self.assertIn("textContent=row.message",js)
+        self.assertNotIn("innerHTML",js)
+
     @unittest.skipUnless(shutil.which("node"),"Node.js required")
     def test_javascript_parses(self):
         root=Path(__file__).parent
