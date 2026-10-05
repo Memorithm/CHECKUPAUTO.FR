@@ -213,6 +213,61 @@ document.getElementById('logout').addEventListener('click',async()=>{{await fetc
 }})();</script></body></html>""".encode("utf-8")
 
 
+def _passage_page(
+    token: str,
+    account: dict,
+    passage: dict,
+    nonce: str,
+    message: str = "",
+) -> bytes:
+    csrf=customer_accounts.csrf_token(token)
+    passage_token=str(passage["passageToken"])
+    complete=bool(account.get("contactDetailsComplete"))
+    phone=html.escape(str(account.get("phone") or ""))
+    address1=html.escape(str(account.get("addressLine1") or ""))
+    address2=html.escape(str(account.get("addressLine2") or ""))
+    postal=html.escape(str(account.get("postalCode") or ""))
+    city=html.escape(str(account.get("city") or ""))
+    email=html.escape(str(account.get("email") or ""))
+    note=f'<p class="error">{html.escape(message)}</p>' if message else ""
+    incomplete="" if complete else '<p class="warning">Complétez votre téléphone et votre adresse avant de continuer.</p>'
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive">
+<title>Vérification des coordonnées | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6d796f;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
+main{{width:min(760px,calc(100% - 32px));margin:auto;padding:42px 0 70px}}a{{color:inherit}}.card{{background:#fff;border:1px solid var(--line);padding:clamp(28px,6vw,52px)}}
+.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(38px,7vw,62px)/1 Georgia,serif;letter-spacing:-.04em;margin:14px 0 18px}}
+p{{line-height:1.6;color:var(--muted)}}.summary{{background:var(--soft);padding:18px;margin:20px 0;line-height:1.7}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}}
+button{{padding:13px 18px;border:1px solid var(--green);font-weight:700;cursor:pointer}}button.primary{{background:var(--green);color:#fff}}button.secondary{{background:#fff;color:var(--green)}}
+form{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input{{padding:12px;border:1px solid var(--line)}}.full{{grid-column:1/-1}}.error{{color:#8c3a31}}.warning{{color:#7a5111}}
+@media(max-width:620px){{form{{grid-template-columns:1fr}}.full{{grid-column:1}}}}
+</style></head><body><main><section class="card"><div class="eyebrow">AVANT VOTRE PASSAGE</div>
+<h1>Vos coordonnées sont-elles toujours à jour&nbsp;?</h1>
+<p>Nous vous posons cette question à chaque nouveau passage afin de conserver une adresse et un téléphone corrects.</p>
+{note}{incomplete}
+<div class="summary"><strong>{email}</strong><br>{phone or "Téléphone non renseigné"}<br>{address1 or "Adresse non renseignée"}{("<br>"+address2) if address2 else ""}<br>{postal} {city}</div>
+<div class="actions"><button id="confirmCurrent" class="primary" type="button"{" disabled" if not complete else ""}>Oui, elles sont à jour</button><button id="showEdit" class="secondary" type="button">Modifier</button></div>
+<form id="contactForm"{" style='display:none'" if complete else ""}>
+<label>Téléphone<input id="passagePhone" value="{phone}" autocomplete="tel" maxlength="32" required></label>
+<label>Adresse<input id="passageAddress1" value="{address1}" autocomplete="street-address" maxlength="180" required></label>
+<label>Complément d’adresse<input id="passageAddress2" value="{address2}" maxlength="180"></label>
+<label>Code postal<input id="passagePostal" value="{postal}" autocomplete="postal-code" maxlength="16" required></label>
+<label>Ville<input id="passageCity" value="{city}" autocomplete="address-level2" maxlength="120" required></label>
+<div class="full actions"><button class="primary" type="submit">Enregistrer et continuer</button><span id="passageStatus"></span></div>
+</form>
+<p><a href="{ACCOUNT_ROUTE}">← Retour à mon compte</a></p></section></main>
+<script nonce="{html.escape(nonce,quote=True)}">
+(()=>{{'use strict';const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},form=document.getElementById('contactForm'),status=document.getElementById('passageStatus');
+const send=async payload=>{{status.textContent='Vérification…';const r=await fetch('{PASSAGE_CONFIRM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{passageToken,...payload}})}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'contact_confirmation_failed');location.assign(d.continueUrl);}};
+document.getElementById('showEdit').addEventListener('click',()=>{{form.style.display='grid';}});
+document.getElementById('confirmCurrent').addEventListener('click',async()=>{{try{{await send({{action:'validated'}});}}catch(e){{status.textContent='Validation impossible.';}}}});
+form.addEventListener('submit',async e=>{{e.preventDefault();try{{await send({{action:'modified',phone:document.getElementById('passagePhone').value,addressLine1:document.getElementById('passageAddress1').value,addressLine2:document.getElementById('passageAddress2').value,postalCode:document.getElementById('passagePostal').value,city:document.getElementById('passageCity').value}});}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+}})();
+</script></body></html>""".encode("utf-8")
+
+
 def _browser_origin(handler) -> str:
     host = str(handler.headers.get("Host") or "").strip().lower()
     if (
