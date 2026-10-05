@@ -59,7 +59,7 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         self.assertEqual(len(required),21)
         self.assertEqual(
             sorted(row["table"] for row in required if row["executionState"]!="wired"),
-            ["booking_conversions","checkout_acceptance_intents","consent_receipts","contact_requests","customer_account","customer_ct_report","customer_identity","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","checkout_acceptance_intents","consent_receipts","customer_account","customer_ct_report","customer_identity","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
         for row in required:
             self.assertIn(row["executionState"],{"wired","partial","unmapped"})
