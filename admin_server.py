@@ -373,6 +373,13 @@ class Handler(SimpleHTTPRequestHandler):
     result['redirectUri']=integrations.oauth_redirect_uri(origin)
     return self.send_json(result)
    except Exception: return self.send_json({'ok':False,'error':'google_integration_status_unavailable'},500)
+  if path=='/api/admin/contact-requests':
+   if not self.authorized(): return self.require_auth()
+   try:
+    q=parse_qs(parsed.query); intent=(q.get('intent') or [''])[0]; limit=int((q.get('limit') or ['100'])[0])
+    return self.send_json(contact_request.admin_list(intent=intent,limit=limit))
+   except ValueError: return self.send_json({'ok':False,'error':'contact_request_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'contact_request_admin_unavailable'},500)
   if path=='/api/admin/referrals/accounts':
    if not self.authorized(): return self.require_auth()
    try:
