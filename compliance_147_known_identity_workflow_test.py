@@ -27,8 +27,8 @@ class Compliance147KnownIdentityWorkflowTest(unittest.TestCase):
         self.assertIn("IdentitiesOnly=yes",self.text)
         self.assertIn("BatchMode=yes",self.text)
         self.assertIn("CHECKUPAUTO_COMPLIANCE_147_IDENTITY=",self.text)
-        self.assertNotIn("privacyContact":"",self.text)
-        self.assertNotIn("mediatorName":"",self.text)
+        self.assertNotIn('"privacyContact":',self.text)
+        self.assertNotIn('"mediatorName":',self.text)
 
 if __name__=="__main__":
     unittest.main()
