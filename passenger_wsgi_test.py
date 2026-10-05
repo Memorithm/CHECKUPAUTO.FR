@@ -134,6 +134,42 @@ class PassengerWSGITest(unittest.TestCase):
         self.assertEqual(request_body, b"")
         self.assertEqual(headers["X-CheckupAuto-Client-IP"], "198.51.100.12")
 
+    def test_migration_freeze_rejects_mutating_request_before_backend(self):
+        captured = {}
+
+        def start_response(status, headers):
+            captured["status"] = status
+            captured["headers"] = dict(headers)
+
+        with mock.patch(
+            "passenger_wsgi.migration_write_freeze.status",
+            return_value={"active":True,"valid":True,"state":"frozen"},
+        ), mock.patch("passenger_wsgi._ensure_backend") as backend:
+            result=wsgi.application({
+                "REQUEST_METHOD":"POST",
+                "PATH_INFO":"/contact",
+                "CONTENT_LENGTH":"999999999",
+                "REMOTE_ADDR":"203.0.113.8",
+            },start_response)
+        body=b"".join(result)
+        backend.assert_not_called()
+        self.assertEqual(captured["status"],"503 Service Unavailable")
+        self.assertEqual(captured["headers"]["Retry-After"],"120")
+        self.assertEqual(captured["headers"]["X-CheckupAuto-Migration-Freeze"],"active")
+        self.assertIn(b"migration_write_frozen",body)
+
+    def test_migration_freeze_keeps_safe_methods_readable(self):
+        with mock.patch(
+            "passenger_wsgi.migration_write_freeze.status",
+            return_value={"active":True,"valid":True,"state":"frozen"},
+        ):
+            for method in ("GET","HEAD","OPTIONS"):
+                with self.subTest(method=method):
+                    self.assertIsNone(wsgi._write_freeze_response(
+                        {"REQUEST_METHOD":method},
+                        lambda _status,_headers: None,
+                    ))
+
     def test_invalid_wsgi_request_returns_sanitized_400(self):
         captured = {}
 

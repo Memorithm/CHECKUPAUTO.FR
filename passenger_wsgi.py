@@ -13,6 +13,7 @@ import time
 from urllib.parse import quote
 
 import public_surface_provenance
+import migration_write_freeze
 
 _BACKEND_LOCK = threading.RLock()
 _BACKEND_SERVER = None
@@ -210,6 +211,27 @@ def _public_provenance_response(environ: dict, start_response):
     return [b"" if method == "HEAD" else payload]
 
 
+def _write_freeze_response(environ: dict, start_response):
+    method = str(environ.get("REQUEST_METHOD") or "GET").upper()
+    if method in {"GET", "HEAD", "OPTIONS"}:
+        return None
+    state = migration_write_freeze.status()
+    if not state.get("active"):
+        return None
+    payload = b'{"ok":false,"error":"migration_write_frozen"}'
+    start_response(
+        "503 Service Unavailable",
+        [
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Content-Length", str(len(payload))),
+            ("Cache-Control", "no-store"),
+            ("Retry-After", "120"),
+            ("X-CheckupAuto-Migration-Freeze", "active"),
+        ],
+    )
+    return [payload]
+
+
 class _ResponseIterable:
     def __init__(self, response, connection):
         self.response = response
@@ -234,6 +256,9 @@ def application(environ, start_response):
         direct = _public_provenance_response(environ, start_response)
         if direct is not None:
             return direct
+        frozen = _write_freeze_response(environ, start_response)
+        if frozen is not None:
+            return frozen
 
         host, port = _ensure_backend()
         method = str(environ.get("REQUEST_METHOD") or "GET").upper()
