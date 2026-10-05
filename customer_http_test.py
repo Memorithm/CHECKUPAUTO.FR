@@ -96,6 +96,17 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIsNone(h.response)
         begin.assert_not_called()
 
+    def test_contact_intent_explains_customer_account_requirement(self):
+        h=Handler("/compte?intent=contact")
+        with patch.object(http,"_account",return_value=("",None)):
+            self.assertTrue(http.handle(h))
+        body=h.response["data"].decode()
+        self.assertEqual(h.response["status"],200)
+        self.assertIn("Pour nous contacter, connectez-vous ou créez votre compte client",body)
+        self.assertIn("fournisseur de connexion disponible",body)
+        self.assertIn("sécuriser et d’identifier les échanges",body)
+        self.assertIn('class="providers"',body)
+
     def test_dashboard_uses_csp_nonce_and_server_loyalty_snapshot(self):
         h=Handler("/compte")
         with patch.object(http,"_account",return_value=("session-token",self.account())), \

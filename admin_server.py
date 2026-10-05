@@ -270,7 +270,7 @@ class Handler(SimpleHTTPRequestHandler):
    self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Disposition','inline'); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/contact':
    token,account=customer_http._account(self)
-   if not token or not account: return self.send_redirect('/compte',303)
+   if not token or not account: return self.send_redirect('/compte?intent=contact',303)
    self.send_response(200); self.send_header('Cache-Control','no-store'); self.end_headers(); return
   dynamic={'/','/index.html','/app','/demo','/compte','/payment/test','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/go/booking'}
   if path in dynamic or path=='/api/booking/availability':
@@ -551,7 +551,7 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json({'error':'association_not_ready'},503)
   if path=='/contact':
    token,account=customer_http._account(self)
-   if not token or not account: return self.send_redirect('/compte',303)
+   if not token or not account: return self.send_redirect('/compte?intent=contact',303)
    csrf=customer_http.customer_accounts.csrf_token(token)
    return self.send_bytes(contact_request.render_form(account,csrf),'text/html; charset=utf-8',cache='no-store')
   if path=='/api/compliance/cookies':
@@ -624,7 +624,7 @@ class Handler(SimpleHTTPRequestHandler):
   path=urlparse(self.path).path
   if path=='/contact':
    token,account=customer_http._account(self)
-   if not token or not account: return self.send_redirect('/compte',303)
+   if not token or not account: return self.send_redirect('/compte?intent=contact',303)
    try:
     if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
     payload=self._read_form()
