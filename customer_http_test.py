@@ -54,7 +54,10 @@ class CustomerHttpTest(unittest.TestCase):
         return {
             "ok":True,"accountId":"00000000-0000-4000-8000-000000000001",
             "kind":"individual","displayName":"Client Test","email":"client@example.test",
-            "companyName":"","siret":"","providers":["google"],
+            "companyName":"","siret":"","phone":"0612345678",
+            "addressLine1":"12 rue de Paris","addressLine2":"",
+            "postalCode":"78130","city":"Les Mureaux","contactDetailsComplete":True,
+            "providers":["google"],
             "loyalty":{"referralCode":"TEST-1234","currency":"EUR","balanceCents":500,
                        "pendingCents":100,"earnedReferrals":2,"pendingReferrals":1},
             "createdAt":"2026-09-25T00:00:00+00:00","updatedAt":"2026-09-25T00:00:00+00:00",
@@ -104,7 +107,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Code TEST-1234",body)
         self.assertIn("Rattacher à l’app iOS",body)
         self.assertIn('id="ct-report"',body)
-        self.assertIn('href="/#reservation">Réserver un contrôle',body)
+        self.assertIn('href="/compte/reserver">Réserver un contrôle',body)
         self.assertIn('Consulter mes rendez-vous Mercure',body)
         self.assertNotIn('Réserver ou consulter mes rendez-vous sur le planning actuel',body)
         self.assertIn('nonce="',body)
@@ -200,6 +203,8 @@ class CustomerHttpTest(unittest.TestCase):
         h=Handler("/api/customer/profile","POST",{
             "kind":"professional","displayName":"Client Test",
             "companyName":"Garage Exemple","siret":"12345678901234",
+            "phone":"0612345678","addressLine1":"12 rue de Paris",
+            "addressLine2":"","postalCode":"78130","city":"Les Mureaux",
         },headers={"Cookie":"checkupauto_customer=token","X-CheckupAuto-Customer-CSRF":"c"*64})
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
@@ -216,6 +221,82 @@ class CustomerHttpTest(unittest.TestCase):
              patch.object(http.customer_accounts,"verify_csrf",return_value=False):
             self.assertTrue(http.handle(bad))
         self.assertEqual(bad.response["status"],403)
+
+    def test_booking_from_customer_space_requires_contact_confirmation_page(self):
+        h=Handler("/compte/reserver",headers={"Cookie":"checkupauto_customer=token"})
+        passage={
+            "passageToken":"p"*43,
+            "expiresAt":"2026-10-05T12:00:00+00:00",
+            "contactDetailsComplete":True,
+        }
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"begin_passage_confirmation",return_value=passage) as begin, \
+             patch.object(http.customer_accounts,"profile",return_value=self.account()), \
+             patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
+            self.assertTrue(http.handle(h))
+        body=h.response["data"].decode()
+        self.assertEqual(h.response["status"],200)
+        self.assertIn("Vos coordonnées sont-elles toujours à jour",body)
+        self.assertIn("0612345678",body)
+        self.assertIn("12 rue de Paris",body)
+        self.assertIn("Oui, elles sont à jour",body)
+        self.assertIn("Modifier",body)
+        begin.assert_called_once_with(self.account()["accountId"])
+
+    def test_confirmed_passage_is_consumed_before_reservation_redirect(self):
+        token="p"*43
+        h=Handler("/compte/reserver?passage="+token,headers={"Cookie":"checkupauto_customer=token"})
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"consume_passage_confirmation",return_value={"ok":True}) as consume:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],303)
+        self.assertEqual(h.response["location"],"/#reservation")
+        consume.assert_called_once_with(self.account()["accountId"],token)
+
+    def test_current_contact_confirmation_requires_csrf_and_returns_one_time_continue_url(self):
+        passage="p"*43
+        h=Handler("/api/customer/passage/confirm","POST",{
+            "passageToken":passage,
+            "action":"validated",
+        },headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"c"*64,
+        })
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}) as confirm:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        self.assertTrue(h.response["json"]["confirmed"])
+        self.assertEqual(h.response["json"]["continueUrl"],"/compte/reserver?passage="+passage)
+        confirm.assert_called_once_with(self.account()["accountId"],passage,action="validated")
+
+    def test_modified_contact_confirmation_updates_profile_before_confirmation(self):
+        passage="p"*43
+        payload={
+            "passageToken":passage,"action":"modified",
+            "phone":"0699999999","addressLine1":"20 avenue du Centre",
+            "addressLine2":"Bâtiment A","postalCode":"78130","city":"Les Mureaux",
+        }
+        h=Handler("/api/customer/passage/confirm","POST",payload,headers={
+            "Cookie":"checkupauto_customer=token",
+            "X-CheckupAuto-Customer-CSRF":"c"*64,
+        })
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_accounts,"update_contact_details",return_value=self.account()) as update, \
+             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}) as confirm:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        update.assert_called_once_with(
+            self.account()["accountId"],
+            phone="0699999999",
+            address_line1="20 avenue du Centre",
+            address_line2="Bâtiment A",
+            postal_code="78130",
+            city="Les Mureaux",
+        )
+        confirm.assert_called_once_with(self.account()["accountId"],passage,action="modified")
 
     def test_wallet_mobile_claim_is_session_csrf_bound_and_returns_one_time_app_link(self):
         h=Handler("/api/customer/wallet/mobile-claim","POST",{},headers={
