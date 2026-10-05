@@ -27,6 +27,7 @@ WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
 COOKIE_NAME="checkupauto_customer"
+PASSAGE_COOKIE_NAME="__Host-checkupauto_passage"
 PUBLIC_PROVIDER_IDS=("google","apple")
 
 
@@ -50,6 +51,17 @@ def _account(handler):
         return token,customer_accounts.profile(account_id)
     except Exception:
         return "",None
+
+
+def passage_cookie(passage_token: str = "", *, clear: bool = False) -> str:
+    max_age=0 if clear else customer_accounts.PASSAGE_CONFIRMATION_TTL_MINUTES*60
+    value="" if clear else str(passage_token or "").strip()
+    if not clear and not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",value):
+        raise ValueError("customer_passage_cookie_invalid")
+    return (
+        f"{PASSAGE_COOKIE_NAME}={value}; Path=/go/booking; Max-Age={max_age}; "
+        "HttpOnly; Secure; SameSite=Lax"
+    )
 
 
 def _flow_cookie_name(provider: str, state: str) -> str:
@@ -306,17 +318,7 @@ def handle(handler) -> bool:
         if not token or not account:
             handler.send_redirect(ACCOUNT_ROUTE,303)
             return True
-        query=parse_qs(parsed.query,keep_blank_values=True)
-        supplied=(query.get("passage") or [""])[0]
-        if supplied:
-            try:
-                customer_accounts.consume_passage_confirmation(account["accountId"],supplied)
-                handler.send_redirect("/#reservation",303)
-                return True
-            except Exception:
-                message="Cette validation a expiré ou les coordonnées ont changé. Merci de les confirmer à nouveau."
-        else:
-            message=""
+        message=""
         passage=customer_accounts.begin_passage_confirmation(account["accountId"])
         nonce=secrets.token_urlsafe(18)
         handler._csp_nonce=nonce
@@ -582,8 +584,8 @@ def handle(handler) -> bool:
                 handler.send_json({
                     "ok":True,
                     "confirmed":bool(confirmed.get("confirmed")),
-                    "continueUrl":PASSAGE_ROUTE+"?passage="+quote(passage_token,safe=""),
-                })
+                    "continueUrl":"/#reservation",
+                },headers={"Set-Cookie":passage_cookie(passage_token)})
             except customer_accounts.CustomerAccountError as exc:
                 handler.send_json({"ok":False,"error":str(exc)},400)
             except PermissionError:
