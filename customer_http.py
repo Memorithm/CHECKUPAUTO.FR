@@ -14,6 +14,7 @@ import customer_ct_reports
 import customer_oidc
 import referral_wallet_claims
 import mobile_auth_ticket
+import site_config_store
 
 ACCOUNT_ROUTE="/compte"
 CONTACT_ROUTE="/contact"
@@ -30,6 +31,28 @@ MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
 COOKIE_NAME="checkupauto_customer"
 PUBLIC_PROVIDER_IDS=("google","apple")
+GOOGLE_REVIEW_FALLBACK_URL="https://search.google.com/local/writereview?placeid=ChIJZ82oNlGS5kcRj99QzDs2Fwo"
+
+
+def _google_review_url() -> str:
+    try:
+        raw=str(
+            site_config_store.load().get("business",{}).get("googleReviewUrl")
+            or GOOGLE_REVIEW_FALLBACK_URL
+        ).strip()
+        parsed=urlsplit(raw)
+        if (
+            parsed.scheme=="https"
+            and (parsed.hostname or "").lower() in {"search.google.com","g.page"}
+            and parsed.port in (None,443)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.fragment
+        ):
+            return raw
+    except Exception:
+        pass
+    return GOOGLE_REVIEW_FALLBACK_URL
 
 
 def _cookie(handler, name=COOKIE_NAME) -> str:
@@ -158,6 +181,7 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     providers=" · ".join(html.escape(customer_oidc.PROVIDERS.get(str(p),{}).get("label",str(p).title())) for p in account["providers"]) or "—"
     balance=f'{int(loyalty["balanceCents"])/100:.2f} €'
     pending=f'{int(loyalty["pendingCents"])/100:.2f} €'
+    google_review_url=html.escape(_google_review_url(),quote=True)
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive">
 <title>Tableau de bord | Checkup Auto</title>
@@ -178,7 +202,8 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 .report-list{{display:grid;gap:8px;margin-top:14px}}.report-item{{border:1px solid var(--line);background:#fff;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center}}
 .report-item button,.report-actions button{{border:1px solid var(--line);background:#fff;padding:9px 11px;cursor:pointer;color:var(--ink)}}.report-analysis{{margin-top:14px;border-top:1px solid var(--line);padding-top:14px}}
 .report-analysis h3{{font:400 22px Georgia,serif;margin:12px 0 6px}}.report-analysis ul{{padding-left:18px;color:var(--muted)}}.report-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.report-status{{font-size:11px;color:var(--muted);margin-top:8px}}
-@media(max-width:900px){{.grid{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}
+.feedback{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}}.feedback-card{{background:#fff;border:1px solid var(--line);padding:24px}}.feedback-card h2{{font:400 28px Georgia,serif;margin:8px 0 12px}}.feedback-card .cta{{display:inline-block;margin-top:8px;border:1px solid var(--green);padding:12px 15px;font-weight:700;color:var(--green)}}.feedback-card .cta.primary{{background:var(--green);color:#fff}}.feedback-note{{font-size:11px;color:var(--muted)}}
+@media(max-width:900px){{.grid,.feedback{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}
 </style></head><body><main class="shell">
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><div class="top-actions"><a class="contact-link" href="{CONTACT_ROUTE}">Nous contacter</a><button id="logout" class="logout" type="button">Se déconnecter</button></div></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
@@ -187,7 +212,11 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="report-actions"><button id="walletToApp" class="primary" type="button">Rattacher à l’app iOS</button></div><div id="walletToAppStatus" class="report-status" role="status" aria-live="polite"></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
-<section class="profile"><div class="eyebrow">PROFIL</div><h2>Particulier ou professionnel</h2>
+<section class="feedback" aria-label="Avis et suggestions">
+<article class="feedback-card"><div class="eyebrow">VOTRE AVIS COMPTE</div><h2>Laisser un avis Google</h2><p>Partagez librement votre expérience avec Checkup Auto. Les avis ne sont ni filtrés ni liés à une récompense.</p><a class="cta primary" href="{google_review_url}" target="_blank" rel="noopener noreferrer external">Donner mon avis sur Google ↗</a></article>
+<article class="feedback-card"><div class="eyebrow">VOS IDÉES</div><h2>Faire une suggestion</h2><p>Une amélioration, une idée de service ou un point à simplifier ? Envoyez-nous votre suggestion depuis votre compte client.</p><a class="cta" href="{CONTACT_ROUTE}?intent=suggestion">Faire une suggestion →</a><p class="feedback-note">Votre suggestion reste liée à votre compte pour permettre un suivi sécurisé.</p></article>
+</section>
+<section class="profile"><div class="eyebrow">PROFIL ET COORDONNÉES</div><h2>Vos informations de contact</h2><p class="sub">Nom, e-mail vérifié, téléphone et adresse sont disponibles pour sécuriser le suivi de vos demandes sans les ressaisir dans chaque message.</p>
 <form id="profileForm">
 <label>Nom affiché<input id="displayName" value="{display}" maxlength="120" required></label>
 <label>Statut<select id="kind"><option value="individual"{" selected" if not pro else ""}>Particulier</option><option value="professional"{" selected" if pro else ""}>Professionnel</option></select></label>
