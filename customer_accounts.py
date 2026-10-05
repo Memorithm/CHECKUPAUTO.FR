@@ -591,8 +591,8 @@ def verify_passage_confirmation(
     return {
         "ok":True,
         "confirmed":True,
-        "action":str(verified["action"]),
-        "confirmedAt":str(verified["confirmedAt"]),
+        "action":str(row["action"]),
+        "confirmedAt":str(row["confirmed_at"]),
     }
 
 
@@ -617,8 +617,8 @@ def consume_passage_confirmation(
     return {
         "ok":True,
         "consumed":True,
-        "action":str(row["action"]),
-        "confirmedAt":str(row["confirmed_at"]),
+        "action":str(verified["action"]),
+        "confirmedAt":str(verified["confirmedAt"]),
         "consumedAt":stamp,
         "confirmationRetained":False,
     }
