@@ -57,6 +57,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
 
     def _access_plan(self, *, wallet_disposition: str = "not_applicable") -> list[dict]:
         rows = [
+            {
+                "adapter": "contact_requests",
+                "disposition": "not_applicable",
+                "justification": "aucune demande de contact n'est liée à cette installation",
+            },
             {"adapter": "mobile_installation", "disposition": "required"},
             {
                 "adapter": "mercure_customer_contact",
@@ -83,6 +88,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
 
     def _mercure_required_access_plan(self) -> list[dict]:
         return [
+            {
+                "adapter": "contact_requests",
+                "disposition": "not_applicable",
+                "justification": "aucune demande de contact n'est liée à cette identité Mercure",
+            },
             {
                 "adapter": "mobile_installation",
                 "disposition": "not_applicable",
@@ -118,6 +128,7 @@ class RightsCompletionPlanTest(unittest.TestCase):
             state["knownAdapters"],
             [
                 "compliance_contracts",
+                "contact_requests",
                 "mercure_customer_contact",
                 "mobile_installation",
                 "referral_wallet",
