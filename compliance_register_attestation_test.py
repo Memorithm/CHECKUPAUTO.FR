@@ -125,13 +125,30 @@ class ComplianceRegisterAttestationTest(unittest.TestCase):
         after = attestation.register_hash(self.db)
         self.assertEqual(before, after)
 
-    def test_blocked_register_cannot_be_attested(self):
+    def test_blocked_register_can_be_attested_without_becoming_ready(self):
         compliance_operations.upsert_processing_activity(
             self.activity(riskLevel="high", dpiaStatus="required_pending"), self.db
         )
-        compliance_operations.upsert_processor(self.processor(), self.db)
-        with self.assertRaises(RuntimeError):
-            attestation.attest(self.db)
+        compliance_operations.upsert_processor(self.processor(dpaStatus="pending"), self.db)
+        self.assertFalse(compliance_operations.summary(self.db)["operationalRegistersReady"])
+        reviewed_hash = attestation.register_hash(self.db)
+        state = attestation.attest(self.db, expected_register_hash=reviewed_hash)
+        self.assertTrue(state["current"])
+        self.assertEqual(state["attestedRegisterHash"], reviewed_hash)
+        self.assertFalse(compliance_operations.summary(self.db)["operationalRegistersReady"])
+
+    def test_pending_dpa_is_preserved_as_blocker_after_current_attestation(self):
+        compliance_operations.upsert_processing_activity(self.activity(), self.db)
+        compliance_operations.upsert_processor(self.processor(dpaStatus="pending"), self.db)
+        reviewed_hash = attestation.register_hash(self.db)
+        state = attestation.attest(self.db, expected_register_hash=reviewed_hash)
+        self.assertTrue(state["current"])
+        operations = compliance_operations.summary(self.db)
+        self.assertFalse(operations["operationalRegistersReady"])
+        self.assertEqual(
+            sorted({row["type"] for row in operations["blockers"]}),
+            ["processor_dpa_pending"],
+        )
 
 
 if __name__ == "__main__":
