@@ -16,7 +16,10 @@ def production_tables():
         name=path.name
         if "__pycache__" in path.parts or ".ci-venv" in path.parts:
             continue
-        if name.endswith("_test.py") or name.startswith("test_") or "tests" in rel.parts:
+        if (
+            (name.endswith("_test.py") or name.startswith("test_"))
+            and name not in {"booking_test.py"}
+        ) or "tests" in rel.parts:
             continue
         text=path.read_text(encoding="utf-8")
         for table in CREATE_RE.findall(text):
