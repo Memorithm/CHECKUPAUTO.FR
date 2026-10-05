@@ -52,10 +52,25 @@ class BookingRouteTest(unittest.TestCase):
         self.terms_error = type("BookingTermsUnavailable", (RuntimeError,), {})
         self.booking = SimpleNamespace(BookingTermsUnavailable=self.terms_error, mercure_prestation=Mock(return_value="allowed"), require_published_terms=Mock(), create_intent=Mock(return_value={"token": "fixture"}), auto_submit_html=Mock(return_value=b"<html>review</html>"))
         self.config = Mock(return_value={"business": {"phone": "01 86 04 63 64", "bookingUrl": "https://rdv.checkupauto.fr/"}})
-        scope = dict(booking=self.booking, booking_page=booking_page, load_config=self.config, parsed=SimpleNamespace(query="service=Contr%C3%B4le+technique"), parse_qs=parse_qs, re=re, esc=lambda v: html.escape(str(v), quote=True), secrets=secrets)
+        self.customer_http = SimpleNamespace(
+            consume_booking_confirmation=Mock(return_value={"required": False, "consumed": False}),
+            booking_confirmation_url=Mock(return_value="/compte/reserver?returnTo=%2Fgo%2Fbooking"),
+        )
+        scope = dict(
+            booking=self.booking,
+            booking_page=booking_page,
+            customer_http=self.customer_http,
+            load_config=self.config,
+            parsed=SimpleNamespace(query="service=Contr%C3%B4le+technique"),
+            path="/go/booking",
+            parse_qs=parse_qs,
+            re=re,
+            esc=lambda v: html.escape(str(v), quote=True),
+            secrets=secrets,
+        )
         exec(compile(module, "actual-checkout-branch", "exec"), scope)
         self.route = scope["route"]
-        self.handler = SimpleNamespace(send_bytes=Mock(), send_json=Mock())
+        self.handler = SimpleNamespace(send_bytes=Mock(), send_json=Mock(), send_redirect=Mock())
 
     def test_missing_terms_is_503_html_and_creates_no_intent(self):
         self.booking.require_published_terms.side_effect = self.terms_error()
@@ -87,6 +102,18 @@ class BookingRouteTest(unittest.TestCase):
         self.handler.send_bytes.assert_called_once_with(b"<html>review</html>", "text/html; charset=utf-8", cache="no-store")
         self.booking.require_published_terms.assert_called_once_with()
         self.booking.create_intent.assert_called_once()
+
+    def test_authenticated_customer_without_confirmation_is_redirected_before_intent(self):
+        self.customer_http.consume_booking_confirmation.side_effect = PermissionError("confirmation required")
+        self.route(self.handler)
+        self.booking.create_intent.assert_not_called()
+        self.handler.send_bytes.assert_not_called()
+        self.handler.send_redirect.assert_called_once_with(
+            "/compte/reserver?returnTo=%2Fgo%2Fbooking",303
+        )
+        self.customer_http.booking_confirmation_url.assert_called_once_with(
+            "/go/booking?service=Contr%C3%B4le+technique"
+        )
 
     def test_other_services_remain_telephone_only(self):
         self.booking.mercure_prestation.return_value = None
