@@ -103,8 +103,9 @@ class CustomerHttpTest(unittest.TestCase):
         body=h.response["data"].decode()
         self.assertEqual(h.response["status"],200)
         self.assertIn("Pour nous contacter, connectez-vous ou créez votre compte client",body)
+        self.assertIn("fournisseur de connexion disponible",body)
         self.assertIn("sécuriser et d’identifier les échanges",body)
-        self.assertIn("Continuer avec",body)
+        self.assertIn('class="providers"',body)
 
     def test_dashboard_uses_csp_nonce_and_server_loyalty_snapshot(self):
         h=Handler("/compte")
