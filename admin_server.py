@@ -553,7 +553,9 @@ class Handler(SimpleHTTPRequestHandler):
    token,account=customer_http._account(self)
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
    csrf=customer_http.customer_accounts.csrf_token(token)
-   return self.send_bytes(contact_request.render_form(account,csrf),'text/html; charset=utf-8',cache='no-store')
+   query=parse_qs(parsed.query,keep_blank_values=True)
+   intent=(query.get('intent') or ['contact'])[0]
+   return self.send_bytes(contact_request.render_form(account,csrf,intent),'text/html; charset=utf-8',cache='no-store')
   if path=='/api/compliance/cookies':
    try: return self.send_json(compliance.cookie_policy())
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
