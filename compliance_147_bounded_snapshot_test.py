@@ -49,6 +49,12 @@ class Compliance147BoundedSnapshotTest(unittest.TestCase):
         self.assertIn("mediatorUrl",state["identity"]["missingFields"])
         self.assertFalse(state["termsEvidence"]["rawContractReferencesExposed"])
         self.assertFalse(state["personalDataExposed"])
+        catalog=state["localPrivacy"]["persistenceCatalog"]
+        self.assertTrue(catalog["complete"])
+        self.assertEqual(catalog["tableCount"],76)
+        self.assertEqual(catalog["state"],"catalogued")
+        self.assertFalse(catalog["privacyExecutionCoverageAsserted"])
+        self.assertNotIn("tableNames",catalog)
         self.assertNotIn("settings",state)
         self.assertNotIn("rightsRequests",state)
 
