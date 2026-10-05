@@ -72,7 +72,18 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$STAGING_KNOWN_HOSTS" \
             "$STAGING_USER@$STAGING_HOST" \
-            /opt/alt/python312/bin/python3 - "$EXPECTED_SHA" <<'PY'
+            bash -s -- "$EXPECTED_SHA" <<'REMOTE'
+          set -euo pipefail
+          expected_sha="$1"
+          root="$HOME/.checkupauto-test"
+          release="$(readlink -f "$root/current")"
+          case "$release" in
+            "$root/releases/$expected_sha") ;;
+            *) echo "runtime revision does not match current main" >&2; exit 1 ;;
+          esac
+          venv_python="$release/.venv/bin/python"
+          test -x "$venv_python"
+          "$venv_python" - "$expected_sha" <<'PY'
           from __future__ import annotations
           import datetime,json,os,sqlite3,sys
           from pathlib import Path
@@ -177,3 +188,4 @@ jobs:
               "readyForPublicContracting":bool((snap.get("summary") or {}).get("readyForPublicContracting")),
           },sort_keys=True,separators=(",",":")))
           PY
+          REMOTE
