@@ -576,7 +576,7 @@ def confirm_passage_contact(
     }
 
 
-def consume_passage_confirmation(
+def verify_passage_confirmation(
     account_id: object,
     passage_token: object,
 ) -> dict:
@@ -588,6 +588,21 @@ def consume_passage_confirmation(
     expected=_contact_hash(account_id,current)
     if not hmac.compare_digest(str(row["contact_hash"] or ""),expected):
         raise PermissionError("customer_passage_contact_changed")
+    return {
+        "ok":True,
+        "confirmed":True,
+        "action":str(verified["action"]),
+        "confirmedAt":str(verified["confirmedAt"]),
+    }
+
+
+def consume_passage_confirmation(
+    account_id: object,
+    passage_token: object,
+) -> dict:
+    account_id=_account_id(account_id)
+    verified=verify_passage_confirmation(account_id,passage_token)
+    row=_passage_row(account_id,passage_token)
     stamp=_now_iso()
     digest=str(row["passage_hash"])
     with _connect() as db:
