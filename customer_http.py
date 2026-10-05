@@ -1,6 +1,7 @@
 """Public customer dashboard and federated-login HTTP surface."""
 from __future__ import annotations
 
+import hmac
 import html
 import json
 import re
