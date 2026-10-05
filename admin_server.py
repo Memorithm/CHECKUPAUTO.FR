@@ -210,7 +210,7 @@ class Handler(SimpleHTTPRequestHandler):
   self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'"+nonce_src+" https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self'; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self' https://rdv.checkupauto.fr")
   self.send_header('Strict-Transport-Security','max-age=31536000; includeSubDomains')
   response_path=urlparse(self.path).path
-  if response_path.startswith('/admin') or response_path.startswith('/payment/test') or response_path.startswith('/auth/customer/') or response_path in {'/app/claim','/compte'}: self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
+  if response_path.startswith('/admin') or response_path.startswith('/payment/test') or response_path.startswith('/auth/customer/') or response_path in {'/app/claim','/compte','/contact'}: self.send_header('X-Robots-Tag','noindex, nofollow, noarchive')
   return super().end_headers()
  def do_OPTIONS(self):
   if not self._guard(): return
@@ -268,7 +268,11 @@ class Handler(SimpleHTTPRequestHandler):
   path=urlparse(self.path).path
   if path in compliance.SLUG_TO_DOCUMENT:
    self.send_response(200); self.send_header('Content-Type','text/html; charset=utf-8'); self.send_header('Content-Disposition','inline'); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
-  dynamic={'/','/index.html','/app','/demo','/compte','/payment/test','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/contact','/go/booking'}
+  if path=='/contact':
+   token,account=customer_http._account(self)
+   if not token or not account: return self.send_redirect('/compte',303)
+   self.send_response(200); self.send_header('Cache-Control','no-store'); self.end_headers(); return
+  dynamic={'/','/index.html','/app','/demo','/compte','/payment/test','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/go/booking'}
   if path in dynamic or path=='/api/booking/availability':
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
@@ -546,7 +550,10 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception:
     return self.send_json({'error':'association_not_ready'},503)
   if path=='/contact':
-   return self.send_bytes(contact_request.render_form(),'text/html; charset=utf-8',cache='no-store')
+   token,account=customer_http._account(self)
+   if not token or not account: return self.send_redirect('/compte',303)
+   csrf=customer_http.customer_accounts.csrf_token(token)
+   return self.send_bytes(contact_request.render_form(account,csrf),'text/html; charset=utf-8',cache='no-store')
   if path=='/api/compliance/cookies':
    try: return self.send_json(compliance.cookie_policy())
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
@@ -616,9 +623,15 @@ class Handler(SimpleHTTPRequestHandler):
   if payment_contract_http.handle(self,secret=PASSWORD): return
   path=urlparse(self.path).path
   if path=='/contact':
+   token,account=customer_http._account(self)
+   if not token or not account: return self.send_redirect('/compte',303)
    try:
     if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
-    result=contact_request.submit(self._read_form())
+    payload=self._read_form()
+    csrf=payload.pop('csrf','')
+    if not customer_http.customer_accounts.verify_csrf(token,csrf):
+     return self.send_bytes(b'Jeton de securite invalide','text/plain; charset=utf-8',403,'no-store')
+    result=contact_request.submit(payload,customer=account)
     return self.send_bytes(contact_request.render_confirmation(result),'text/html; charset=utf-8',201,'no-store')
    except ValueError:
     return self.send_bytes(b'Demande de contact invalide','text/plain; charset=utf-8',400,'no-store')
