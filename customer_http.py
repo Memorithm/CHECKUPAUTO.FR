@@ -301,6 +301,33 @@ def handle(handler) -> bool:
     path=parsed.path
     command=getattr(handler,"command","")
 
+    if command=="GET" and path==PASSAGE_ROUTE:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_redirect(ACCOUNT_ROUTE,303)
+            return True
+        query=parse_qs(parsed.query,keep_blank_values=True)
+        supplied=(query.get("passage") or [""])[0]
+        if supplied:
+            try:
+                customer_accounts.consume_passage_confirmation(account["accountId"],supplied)
+                handler.send_redirect("/#reservation",303)
+                return True
+            except Exception:
+                message="Cette validation a expiré ou les coordonnées ont changé. Merci de les confirmer à nouveau."
+        else:
+            message=""
+        passage=customer_accounts.begin_passage_confirmation(account["accountId"])
+        nonce=secrets.token_urlsafe(18)
+        handler._csp_nonce=nonce
+        fresh=customer_accounts.profile(account["accountId"])
+        handler.send_bytes(
+            _passage_page(token,fresh,passage,nonce,message),
+            "text/html; charset=utf-8",200,"no-store",
+            {"X-Robots-Tag":"noindex, nofollow, noarchive"},
+        )
+        return True
+
     if command=="GET" and path==ACCOUNT_ROUTE:
         token,account=_account(handler)
         if not account:
@@ -503,7 +530,7 @@ def handle(handler) -> bool:
                 handler.send_json({"ok":False,"error":"ct_report_processing_unavailable"},503)
             return True
 
-    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE,WALLET_MOBILE_CLAIM_ROUTE}:
+    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE,WALLET_MOBILE_CLAIM_ROUTE,PASSAGE_CONFIRM_ROUTE}:
         token,account=_account(handler)
         if not token or not account:
             handler.send_json({"ok":False,"error":"customer_auth_required"},401)
@@ -526,6 +553,43 @@ def handle(handler) -> bool:
             return True
         if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
             handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+
+        if path==PASSAGE_CONFIRM_ROUTE:
+            try:
+                payload=_json_body(handler)
+                action=str(payload.get("action") or "")
+                passage_token=str(payload.get("passageToken") or "")
+                if action=="validated":
+                    if set(payload)!={"passageToken","action"}:
+                        raise ValueError
+                elif action=="modified":
+                    if set(payload)!={"passageToken","action","phone","addressLine1","addressLine2","postalCode","city"}:
+                        raise ValueError
+                    customer_accounts.update_contact_details(
+                        account["accountId"],
+                        phone=payload.get("phone"),
+                        address_line1=payload.get("addressLine1"),
+                        address_line2=payload.get("addressLine2"),
+                        postal_code=payload.get("postalCode"),
+                        city=payload.get("city"),
+                    )
+                else:
+                    raise ValueError
+                confirmed=customer_accounts.confirm_passage_contact(
+                    account["accountId"],passage_token,action=action
+                )
+                handler.send_json({
+                    "ok":True,
+                    "confirmed":bool(confirmed.get("confirmed")),
+                    "continueUrl":PASSAGE_ROUTE+"?passage="+quote(passage_token,safe=""),
+                })
+            except customer_accounts.CustomerAccountError as exc:
+                handler.send_json({"ok":False,"error":str(exc)},400)
+            except PermissionError:
+                handler.send_json({"ok":False,"error":"customer_passage_invalid"},403)
+            except Exception:
+                handler.send_json({"ok":False,"error":"customer_passage_confirmation_invalid"},400)
             return True
 
         if path==WALLET_MOBILE_CLAIM_ROUTE:
@@ -558,7 +622,7 @@ def handle(handler) -> bool:
 
         try:
             payload=_json_body(handler)
-            if set(payload)!={"kind","displayName","companyName","siret"}:
+            if set(payload)!={"kind","displayName","companyName","siret","phone","addressLine1","addressLine2","postalCode","city"}:
                 raise ValueError
             updated=customer_accounts.update_profile(
                 account["accountId"],
@@ -566,6 +630,11 @@ def handle(handler) -> bool:
                 display_name=payload.get("displayName"),
                 company_name=payload.get("companyName"),
                 siret=payload.get("siret"),
+                phone=payload.get("phone"),
+                address_line1=payload.get("addressLine1"),
+                address_line2=payload.get("addressLine2"),
+                postal_code=payload.get("postalCode"),
+                city=payload.get("city"),
             )
             handler.send_json(updated)
         except Exception:
