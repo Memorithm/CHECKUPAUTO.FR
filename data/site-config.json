@@ -12,7 +12,8 @@
     "phone": "01 86 04 63 64",
     "address": "1E rue Niépce · Les Mureaux",
     "bookingUrl": "https://rdv.checkupauto.fr/",
-    "bookingMode": "mercureweb-delegated"
+    "bookingMode": "mercureweb-delegated",
+    "googleReviewUrl": "https://search.google.com/local/writereview?placeid=ChIJZ82oNlGS5kcRj99QzDs2Fwo"
   },
   "hero": {
     "kicker": "■ CONTRE-VISITE OFFERTE · CONTRÔLE TECHNIQUE AUX MUREAUX"
