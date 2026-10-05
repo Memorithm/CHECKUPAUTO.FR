@@ -15,6 +15,8 @@ import referral_wallet_claims
 import mobile_auth_ticket
 
 ACCOUNT_ROUTE="/compte"
+PASSAGE_ROUTE="/compte/reserver"
+PASSAGE_CONFIRM_ROUTE="/api/customer/passage/confirm"
 PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
@@ -144,6 +146,11 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     email=html.escape(str(account["email"]))
     company=html.escape(str(account["companyName"]))
     siret=html.escape(str(account["siret"]))
+    phone=html.escape(str(account.get("phone") or ""))
+    address1=html.escape(str(account.get("addressLine1") or ""))
+    address2=html.escape(str(account.get("addressLine2") or ""))
+    postal=html.escape(str(account.get("postalCode") or ""))
+    city=html.escape(str(account.get("city") or ""))
     loyalty=account["loyalty"]
     providers=" · ".join(html.escape(customer_oidc.PROVIDERS.get(str(p),{}).get("label",str(p).title())) for p in account["providers"]) or "—"
     balance=f'{int(loyalty["balanceCents"])/100:.2f} €'
@@ -173,7 +180,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><button id="logout" class="logout" type="button">Se déconnecter</button></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
-<section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="/#reservation">Réserver un contrôle →</a> · <a href="https://rdv.checkupauto.fr/" rel="noreferrer">Consulter mes rendez-vous Mercure →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
+<section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="{PASSAGE_ROUTE}">Réserver un contrôle →</a> · <a href="https://rdv.checkupauto.fr/" rel="noreferrer">Consulter mes rendez-vous Mercure →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
 <section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="report-actions"><button id="walletToApp" class="primary" type="button">Rattacher à l’app iOS</button></div><div id="walletToAppStatus" class="report-status" role="status" aria-live="polite"></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
@@ -183,12 +190,18 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <label>Statut<select id="kind"><option value="individual"{" selected" if not pro else ""}>Particulier</option><option value="professional"{" selected" if pro else ""}>Professionnel</option></select></label>
 <label>Raison sociale<input id="companyName" value="{company}" maxlength="160"></label>
 <label>SIRET<input id="siret" value="{siret}" inputmode="numeric" maxlength="14"></label>
+<label>Téléphone<input id="phone" value="{phone}" autocomplete="tel" maxlength="32"></label>
+<label>Adresse<input id="addressLine1" value="{address1}" autocomplete="street-address" maxlength="180"></label>
+<label>Complément d’adresse<input id="addressLine2" value="{address2}" maxlength="180"></label>
+<label>Code postal<input id="postalCode" value="{postal}" autocomplete="postal-code" maxlength="16"></label>
+<label>Ville<input id="city" value="{city}" autocomplete="address-level2" maxlength="120"></label>
+<label>E-mail vérifié<input value="{email}" readonly aria-readonly="true"></label>
 <div class="actions"><button class="primary" type="submit">Enregistrer</button><span id="profileStatus"></span></div>
 </form></section>
 </main><script nonce="{html.escape(nonce,quote=True)}">
 (()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis'),walletToApp=document.getElementById('walletToApp'),walletToAppStatus=document.getElementById('walletToAppStatus');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
-document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value,phone:document.getElementById('phone').value,addressLine1:document.getElementById('addressLine1').value,addressLine2:document.getElementById('addressLine2').value,postalCode:document.getElementById('postalCode').value,city:document.getElementById('city').value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
 const el=(tag,text='')=>{{const node=document.createElement(tag);if(text)node.textContent=text;return node;}};
 const renderReports=rows=>{{reportList.replaceChildren();for(const row of rows){{const item=el('div');item.className='report-item';const copy=el('div');copy.append(el('strong',row.controlDate||'Rapport CT'));copy.append(el('div',(row.registration||'Véhicule non identifié')+' · '+String(row.defectCount||0)+' défaut(s)'));const open=el('button','Ouvrir');open.type='button';open.addEventListener('click',()=>showReport(row.reportId));item.append(copy,open);reportList.append(item);}}if(!rows.length)reportList.append(el('div','Aucun rapport analysé.'));}};
 const loadReports=async()=>{{try{{const r=await fetch('{REPORTS_ROUTE}',{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.ok)throw new Error();renderReports(d.reports||[]);}}catch(_e){{reportStatus.textContent='Historique des rapports indisponible.';}}}};
@@ -198,6 +211,61 @@ walletToApp.addEventListener('click',async()=>{{walletToApp.disabled=true;wallet
 loadReports();
 document.getElementById('logout').addEventListener('click',async()=>{{await fetch('{LOGOUT_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:'{{}}'}});location.assign('{ACCOUNT_ROUTE}');}});
 }})();</script></body></html>""".encode("utf-8")
+
+
+def _passage_page(
+    token: str,
+    account: dict,
+    passage: dict,
+    nonce: str,
+    message: str = "",
+) -> bytes:
+    csrf=customer_accounts.csrf_token(token)
+    passage_token=str(passage["passageToken"])
+    complete=bool(account.get("contactDetailsComplete"))
+    phone=html.escape(str(account.get("phone") or ""))
+    address1=html.escape(str(account.get("addressLine1") or ""))
+    address2=html.escape(str(account.get("addressLine2") or ""))
+    postal=html.escape(str(account.get("postalCode") or ""))
+    city=html.escape(str(account.get("city") or ""))
+    email=html.escape(str(account.get("email") or ""))
+    note=f'<p class="error">{html.escape(message)}</p>' if message else ""
+    incomplete="" if complete else '<p class="warning">Complétez votre téléphone et votre adresse avant de continuer.</p>'
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive">
+<title>Vérification des coordonnées | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6d796f;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
+main{{width:min(760px,calc(100% - 32px));margin:auto;padding:42px 0 70px}}a{{color:inherit}}.card{{background:#fff;border:1px solid var(--line);padding:clamp(28px,6vw,52px)}}
+.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(38px,7vw,62px)/1 Georgia,serif;letter-spacing:-.04em;margin:14px 0 18px}}
+p{{line-height:1.6;color:var(--muted)}}.summary{{background:var(--soft);padding:18px;margin:20px 0;line-height:1.7}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}}
+button{{padding:13px 18px;border:1px solid var(--green);font-weight:700;cursor:pointer}}button.primary{{background:var(--green);color:#fff}}button.secondary{{background:#fff;color:var(--green)}}
+form{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input{{padding:12px;border:1px solid var(--line)}}.full{{grid-column:1/-1}}.error{{color:#8c3a31}}.warning{{color:#7a5111}}
+@media(max-width:620px){{form{{grid-template-columns:1fr}}.full{{grid-column:1}}}}
+</style></head><body><main><section class="card"><div class="eyebrow">AVANT VOTRE PASSAGE</div>
+<h1>Vos coordonnées sont-elles toujours à jour&nbsp;?</h1>
+<p>Nous vous posons cette question à chaque nouveau passage afin de conserver une adresse et un téléphone corrects.</p>
+{note}{incomplete}
+<div class="summary"><strong>{email}</strong><br>{phone or "Téléphone non renseigné"}<br>{address1 or "Adresse non renseignée"}{("<br>"+address2) if address2 else ""}<br>{postal} {city}</div>
+<div class="actions"><button id="confirmCurrent" class="primary" type="button"{" disabled" if not complete else ""}>Oui, elles sont à jour</button><button id="showEdit" class="secondary" type="button">Modifier</button></div>
+<form id="contactForm"{" style='display:none'" if complete else ""}>
+<label>Téléphone<input id="passagePhone" value="{phone}" autocomplete="tel" maxlength="32" required></label>
+<label>Adresse<input id="passageAddress1" value="{address1}" autocomplete="street-address" maxlength="180" required></label>
+<label>Complément d’adresse<input id="passageAddress2" value="{address2}" maxlength="180"></label>
+<label>Code postal<input id="passagePostal" value="{postal}" autocomplete="postal-code" maxlength="16" required></label>
+<label>Ville<input id="passageCity" value="{city}" autocomplete="address-level2" maxlength="120" required></label>
+<div class="full actions"><button class="primary" type="submit">Enregistrer et continuer</button><span id="passageStatus"></span></div>
+</form>
+<p><a href="{ACCOUNT_ROUTE}">← Retour à mon compte</a></p></section></main>
+<script nonce="{html.escape(nonce,quote=True)}">
+(()=>{{'use strict';const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},form=document.getElementById('contactForm'),status=document.getElementById('passageStatus');
+const send=async payload=>{{status.textContent='Vérification…';const r=await fetch('{PASSAGE_CONFIRM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{passageToken,...payload}})}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'contact_confirmation_failed');location.assign(d.continueUrl);}};
+document.getElementById('showEdit').addEventListener('click',()=>{{form.style.display='grid';}});
+document.getElementById('confirmCurrent').addEventListener('click',async()=>{{try{{await send({{action:'validated'}});}}catch(e){{status.textContent='Validation impossible.';}}}});
+form.addEventListener('submit',async e=>{{e.preventDefault();try{{await send({{action:'modified',phone:document.getElementById('passagePhone').value,addressLine1:document.getElementById('passageAddress1').value,addressLine2:document.getElementById('passageAddress2').value,postalCode:document.getElementById('passagePostal').value,city:document.getElementById('passageCity').value}});}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+}})();
+</script></body></html>""".encode("utf-8")
 
 
 def _browser_origin(handler) -> str:
@@ -232,6 +300,33 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+
+    if command=="GET" and path==PASSAGE_ROUTE:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_redirect(ACCOUNT_ROUTE,303)
+            return True
+        query=parse_qs(parsed.query,keep_blank_values=True)
+        supplied=(query.get("passage") or [""])[0]
+        if supplied:
+            try:
+                customer_accounts.consume_passage_confirmation(account["accountId"],supplied)
+                handler.send_redirect("/#reservation",303)
+                return True
+            except Exception:
+                message="Cette validation a expiré ou les coordonnées ont changé. Merci de les confirmer à nouveau."
+        else:
+            message=""
+        passage=customer_accounts.begin_passage_confirmation(account["accountId"])
+        nonce=secrets.token_urlsafe(18)
+        handler._csp_nonce=nonce
+        fresh=customer_accounts.profile(account["accountId"])
+        handler.send_bytes(
+            _passage_page(token,fresh,passage,nonce,message),
+            "text/html; charset=utf-8",200,"no-store",
+            {"X-Robots-Tag":"noindex, nofollow, noarchive"},
+        )
+        return True
 
     if command=="GET" and path==ACCOUNT_ROUTE:
         token,account=_account(handler)
@@ -435,7 +530,7 @@ def handle(handler) -> bool:
                 handler.send_json({"ok":False,"error":"ct_report_processing_unavailable"},503)
             return True
 
-    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE,WALLET_MOBILE_CLAIM_ROUTE}:
+    if path in {ME_ROUTE,PROFILE_ROUTE,LOGOUT_ROUTE,WALLET_MOBILE_CLAIM_ROUTE,PASSAGE_CONFIRM_ROUTE}:
         token,account=_account(handler)
         if not token or not account:
             handler.send_json({"ok":False,"error":"customer_auth_required"},401)
@@ -458,6 +553,43 @@ def handle(handler) -> bool:
             return True
         if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
             handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+
+        if path==PASSAGE_CONFIRM_ROUTE:
+            try:
+                payload=_json_body(handler)
+                action=str(payload.get("action") or "")
+                passage_token=str(payload.get("passageToken") or "")
+                if action=="validated":
+                    if set(payload)!={"passageToken","action"}:
+                        raise ValueError
+                elif action=="modified":
+                    if set(payload)!={"passageToken","action","phone","addressLine1","addressLine2","postalCode","city"}:
+                        raise ValueError
+                    customer_accounts.update_contact_details(
+                        account["accountId"],
+                        phone=payload.get("phone"),
+                        address_line1=payload.get("addressLine1"),
+                        address_line2=payload.get("addressLine2"),
+                        postal_code=payload.get("postalCode"),
+                        city=payload.get("city"),
+                    )
+                else:
+                    raise ValueError
+                confirmed=customer_accounts.confirm_passage_contact(
+                    account["accountId"],passage_token,action=action
+                )
+                handler.send_json({
+                    "ok":True,
+                    "confirmed":bool(confirmed.get("confirmed")),
+                    "continueUrl":PASSAGE_ROUTE+"?passage="+quote(passage_token,safe=""),
+                })
+            except customer_accounts.CustomerAccountError as exc:
+                handler.send_json({"ok":False,"error":str(exc)},400)
+            except PermissionError:
+                handler.send_json({"ok":False,"error":"customer_passage_invalid"},403)
+            except Exception:
+                handler.send_json({"ok":False,"error":"customer_passage_confirmation_invalid"},400)
             return True
 
         if path==WALLET_MOBILE_CLAIM_ROUTE:
@@ -490,7 +622,7 @@ def handle(handler) -> bool:
 
         try:
             payload=_json_body(handler)
-            if set(payload)!={"kind","displayName","companyName","siret"}:
+            if set(payload)!={"kind","displayName","companyName","siret","phone","addressLine1","addressLine2","postalCode","city"}:
                 raise ValueError
             updated=customer_accounts.update_profile(
                 account["accountId"],
@@ -498,6 +630,11 @@ def handle(handler) -> bool:
                 display_name=payload.get("displayName"),
                 company_name=payload.get("companyName"),
                 siret=payload.get("siret"),
+                phone=payload.get("phone"),
+                address_line1=payload.get("addressLine1"),
+                address_line2=payload.get("addressLine2"),
+                postal_code=payload.get("postalCode"),
+                city=payload.get("city"),
             )
             handler.send_json(updated)
         except Exception:

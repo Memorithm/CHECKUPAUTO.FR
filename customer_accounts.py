@@ -24,6 +24,7 @@ import referral_engine
 PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
 SESSION_TTL_HOURS = 12
+PASSAGE_CONFIRMATION_TTL_MINUTES = 30
 AAD_PREFIX = b"checkupauto-customer-profile-v1\x00"
 
 
@@ -96,6 +97,36 @@ def _email(value: object) -> str:
     raw = str(value or "").strip().lower()
     if len(raw) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", raw):
         raise CustomerAccountError("customer_email_invalid")
+    return raw
+
+
+def _phone(value: object) -> str:
+    raw=" ".join(str(value or "").strip().split())
+    if raw and (len(raw)>32 or not re.fullmatch(r"[+0-9(). /-]{6,32}",raw)):
+        raise CustomerAccountError("customer_phone_invalid")
+    return raw
+
+
+def _address_line(value: object, *, optional: bool = False) -> str:
+    raw=" ".join(str(value or "").strip().split())
+    if not raw:
+        return "" if optional else ""
+    if len(raw)>180 or any(ord(ch)<32 for ch in raw):
+        raise CustomerAccountError("customer_address_invalid")
+    return raw
+
+
+def _postal_code(value: object) -> str:
+    raw=" ".join(str(value or "").strip().upper().split())
+    if raw and (len(raw)>16 or not re.fullmatch(r"[0-9A-Z][0-9A-Z -]{1,15}",raw)):
+        raise CustomerAccountError("customer_postal_code_invalid")
+    return raw
+
+
+def _city(value: object) -> str:
+    raw=" ".join(str(value or "").strip().split())
+    if raw and (len(raw)>120 or any(ord(ch)<32 for ch in raw)):
+        raise CustomerAccountError("customer_city_invalid")
     return raw
 
 
@@ -187,6 +218,18 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_customer_session_account
               ON customer_session(account_id,expires_at);
+            CREATE TABLE IF NOT EXISTS customer_passage_confirmation(
+              passage_hash TEXT PRIMARY KEY,
+              account_id TEXT NOT NULL REFERENCES customer_account(account_id) ON DELETE CASCADE,
+              state TEXT NOT NULL CHECK(state IN ('pending','confirmed')),
+              action TEXT NOT NULL DEFAULT '' CHECK(action IN ('','validated','modified')),
+              contact_hash TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              confirmed_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_customer_passage_account
+              ON customer_passage_confirmation(account_id,state,expires_at);
             """
         )
     try:
@@ -269,6 +312,11 @@ def create_from_verified_identity(
             "displayName": display_name,
             "companyName": "",
             "siret": "",
+            "phone": "",
+            "addressLine1": "",
+            "addressLine2": "",
+            "postalCode": "",
+            "city": "",
         })
         db.execute(
             """INSERT INTO customer_account(
@@ -322,12 +370,22 @@ def update_profile(
     display_name: object,
     company_name: object = "",
     siret: object = "",
+    phone: object = "",
+    address_line1: object = "",
+    address_line2: object = "",
+    postal_code: object = "",
+    city: object = "",
 ) -> dict:
     account_id = _account_id(account_id)
     kind = _kind(kind)
     display_name = _display_name(display_name)
     company_name = _company_name(company_name, kind)
     siret = _siret(siret, kind)
+    phone = _phone(phone)
+    address_line1 = _address_line(address_line1)
+    address_line2 = _address_line(address_line2, optional=True)
+    postal_code = _postal_code(postal_code)
+    city = _city(city)
     init_db()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -342,12 +400,213 @@ def update_profile(
             "displayName": display_name,
             "companyName": company_name,
             "siret": siret,
+            "phone": phone,
+            "addressLine1": address_line1,
+            "addressLine2": address_line2,
+            "postalCode": postal_code,
+            "city": city,
         })
         db.execute(
             "UPDATE customer_account SET kind=?,profile_blob=?,updated_at=? WHERE account_id=?",
             (kind, _encrypt_profile(account_id, current), _now_iso(), account_id),
         )
     return profile(account_id)
+
+
+def update_contact_details(
+    account_id: object,
+    *,
+    phone: object,
+    address_line1: object,
+    address_line2: object = "",
+    postal_code: object,
+    city: object,
+) -> dict:
+    account_id=_account_id(account_id)
+    phone=_phone(phone)
+    address_line1=_address_line(address_line1)
+    address_line2=_address_line(address_line2,optional=True)
+    postal_code=_postal_code(postal_code)
+    city=_city(city)
+    init_db()
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            raise CustomerAccountError("customer_account_not_found")
+        current=_decrypt_profile(account_id,row["profile_blob"])
+        current.update({
+            "phone":phone,
+            "addressLine1":address_line1,
+            "addressLine2":address_line2,
+            "postalCode":postal_code,
+            "city":city,
+        })
+        db.execute(
+            "UPDATE customer_account SET profile_blob=?,updated_at=? WHERE account_id=?",
+            (_encrypt_profile(account_id,current),_now_iso(),account_id),
+        )
+    return profile(account_id)
+
+
+def _contact_details(profile_data: dict) -> dict:
+    return {
+        "email":str(profile_data.get("email") or ""),
+        "phone":str(profile_data.get("phone") or ""),
+        "addressLine1":str(profile_data.get("addressLine1") or ""),
+        "addressLine2":str(profile_data.get("addressLine2") or ""),
+        "postalCode":str(profile_data.get("postalCode") or ""),
+        "city":str(profile_data.get("city") or ""),
+    }
+
+
+def _contact_complete(profile_data: dict) -> bool:
+    contact=_contact_details(profile_data)
+    return bool(
+        contact["email"]
+        and contact["phone"]
+        and contact["addressLine1"]
+        and contact["postalCode"]
+        and contact["city"]
+    )
+
+
+def _contact_hash(account_id: str, profile_data: dict) -> str:
+    canonical=json.dumps(
+        _contact_details(profile_data),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",",":"),
+    )
+    return _hmac("contact-confirmation:"+account_id,canonical)
+
+
+def begin_passage_confirmation(account_id: object) -> dict:
+    account_id=_account_id(account_id)
+    current=profile(account_id)
+    token=secrets.token_urlsafe(32)
+    passage_hash=hashlib.sha256(token.encode("ascii")).hexdigest()
+    now=_now()
+    expires=now+dt.timedelta(minutes=PASSAGE_CONFIRMATION_TTL_MINUTES)
+    init_db()
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "DELETE FROM customer_passage_confirmation WHERE expires_at<?",
+            (now.isoformat(timespec="seconds"),),
+        )
+        db.execute(
+            """INSERT INTO customer_passage_confirmation(
+                 passage_hash,account_id,state,created_at,expires_at
+               ) VALUES(?,?,'pending',?,?)""",
+            (
+                passage_hash,
+                account_id,
+                now.isoformat(timespec="seconds"),
+                expires.isoformat(timespec="seconds"),
+            ),
+        )
+    return {
+        "passageToken":token,
+        "expiresAt":expires.isoformat(timespec="seconds"),
+        "contactDetailsComplete":bool(current.get("contactDetailsComplete")),
+    }
+
+
+def _passage_row(account_id: str, passage_token: object):
+    raw=str(passage_token or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",raw):
+        raise PermissionError("customer_passage_invalid")
+    digest=hashlib.sha256(raw.encode("ascii")).hexdigest()
+    init_db()
+    with _connect() as db:
+        row=db.execute(
+            """SELECT passage_hash,account_id,state,action,contact_hash,
+                      created_at,expires_at,confirmed_at
+               FROM customer_passage_confirmation
+               WHERE passage_hash=? AND account_id=?""",
+            (digest,account_id),
+        ).fetchone()
+    if not row:
+        raise PermissionError("customer_passage_invalid")
+    expires=dt.datetime.fromisoformat(str(row["expires_at"]).replace("Z","+00:00"))
+    if _now()>=expires:
+        raise PermissionError("customer_passage_expired")
+    return row
+
+
+def confirm_passage_contact(
+    account_id: object,
+    passage_token: object,
+    *,
+    action: object,
+) -> dict:
+    account_id=_account_id(account_id)
+    action=str(action or "").strip().lower()
+    if action not in {"validated","modified"}:
+        raise CustomerAccountError("customer_passage_action_invalid")
+    row=_passage_row(account_id,passage_token)
+    if str(row["state"])!="pending":
+        raise RuntimeError("customer_passage_not_pending")
+    current=profile(account_id)
+    if not bool(current.get("contactDetailsComplete")):
+        raise CustomerAccountError("customer_contact_details_incomplete")
+    contact_hash=_contact_hash(account_id,current)
+    stamp=_now_iso()
+    digest=str(row["passage_hash"])
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        updated=db.execute(
+            """UPDATE customer_passage_confirmation
+               SET state='confirmed',action=?,contact_hash=?,confirmed_at=?
+               WHERE passage_hash=? AND account_id=? AND state='pending'""",
+            (action,contact_hash,stamp,digest,account_id),
+        ).rowcount
+        if updated!=1:
+            raise RuntimeError("customer_passage_confirmation_conflict")
+    return {
+        "ok":True,
+        "confirmed":True,
+        "action":action,
+        "confirmedAt":stamp,
+        "contactDetailsComplete":True,
+    }
+
+
+def consume_passage_confirmation(
+    account_id: object,
+    passage_token: object,
+) -> dict:
+    account_id=_account_id(account_id)
+    row=_passage_row(account_id,passage_token)
+    if str(row["state"])!="confirmed":
+        raise PermissionError("customer_passage_not_confirmed")
+    current=profile(account_id)
+    expected=_contact_hash(account_id,current)
+    if not hmac.compare_digest(str(row["contact_hash"] or ""),expected):
+        raise PermissionError("customer_passage_contact_changed")
+    stamp=_now_iso()
+    digest=str(row["passage_hash"])
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        removed=db.execute(
+            """DELETE FROM customer_passage_confirmation
+               WHERE passage_hash=? AND account_id=? AND state='confirmed'""",
+            (digest,account_id),
+        ).rowcount
+        if removed!=1:
+            raise RuntimeError("customer_passage_consume_conflict")
+    return {
+        "ok":True,
+        "consumed":True,
+        "action":str(row["action"]),
+        "confirmedAt":str(row["confirmed_at"]),
+        "consumedAt":stamp,
+        "confirmationRetained":False,
+    }
 
 
 def profile(account_id: object) -> dict:
@@ -379,6 +638,12 @@ def profile(account_id: object) -> dict:
         "email": str(profile_data.get("email") or ""),
         "companyName": str(profile_data.get("companyName") or ""),
         "siret": str(profile_data.get("siret") or ""),
+        "phone": str(profile_data.get("phone") or ""),
+        "addressLine1": str(profile_data.get("addressLine1") or ""),
+        "addressLine2": str(profile_data.get("addressLine2") or ""),
+        "postalCode": str(profile_data.get("postalCode") or ""),
+        "city": str(profile_data.get("city") or ""),
+        "contactDetailsComplete": _contact_complete(profile_data),
         "providers": providers,
         "loyalty": {
             "referralCode": wallet["code"],
