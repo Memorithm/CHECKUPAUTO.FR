@@ -83,6 +83,7 @@ def _connect(path: Path | None = None):
     db.row_factory = sqlite3.Row
     db.execute("""CREATE TABLE IF NOT EXISTS contact_requests(
       request_id TEXT PRIMARY KEY,
+      customer_account_id TEXT NOT NULL DEFAULT '',
       category TEXT NOT NULL CHECK(category IN ('general','booking','payment','refund_request')),
       name TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -91,7 +92,16 @@ def _connect(path: Path | None = None):
       status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
       created_at TEXT NOT NULL
     )""")
+    columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(contact_requests)")}
+    if "customer_account_id" not in columns:
+        db.execute(
+            "ALTER TABLE contact_requests ADD COLUMN customer_account_id TEXT NOT NULL DEFAULT ''"
+        )
     db.execute("CREATE INDEX IF NOT EXISTS contact_requests_created ON contact_requests(created_at)")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS contact_requests_customer "
+        "ON contact_requests(customer_account_id,created_at)"
+    )
     db.commit()
     return db
 
