@@ -132,6 +132,14 @@
       "subjectExecutionRequired": true
     },
     {
+      "table": "customer_passage_confirmation",
+      "module": "customer_accounts.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_accounts",
+      "subjectExecutionRequired": false
+    },
+    {
       "table": "customer_oidc_flow",
       "module": "customer_oidc.py",
       "subjectRelation": "transient",
