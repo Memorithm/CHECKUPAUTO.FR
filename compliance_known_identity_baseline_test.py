@@ -21,9 +21,14 @@ class ComplianceKnownIdentityBaselineTest(unittest.TestCase):
         self.assertEqual(settings["publicationDirector"],"Tarek Zekriti")
         self.assertEqual(settings["approvalAuthority"],"Préfet des Yvelines")
         self.assertEqual(settings["approvalReference"],"S078Z206")
-        for key in ("privacyContact","mediatorName","mediatorUrl","mediatorAddress"):
-            self.assertNotIn(key,settings)
-            self.assertIn(key,data["deliberatelyUnasserted"])
+        self.assertEqual(settings["mediatorName"],"Médiateur FNA – Jean-Pierre CHEVROT")
+        self.assertEqual(settings["mediatorUrl"],"https://www.mediateur.fna.fr/")
+        self.assertIn("Tour Kupka B",settings["mediatorAddress"])
+        self.assertNotIn("mediatorName",data["deliberatelyUnasserted"])
+        self.assertNotIn("mediatorUrl",data["deliberatelyUnasserted"])
+        self.assertNotIn("mediatorAddress",data["deliberatelyUnasserted"])
+        self.assertNotIn("privacyContact",settings)
+        self.assertIn("privacyContact",data["deliberatelyUnasserted"])
 
     def test_apply_is_idempotent_and_does_not_claim_identity_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -32,7 +37,7 @@ class ComplianceKnownIdentityBaselineTest(unittest.TestCase):
             second=identity_seed.apply(db)
             self.assertTrue(first["knownFieldsVerified"])
             self.assertFalse(first["identityComplete"])
-            self.assertEqual(first["missingIdentityFields"],["mediatorName","mediatorUrl","privacyContact"])
+            self.assertEqual(first["missingIdentityFields"],["privacyContact"])
             self.assertTrue(first["changedFields"])
             self.assertEqual(second["changedFields"],[])
 

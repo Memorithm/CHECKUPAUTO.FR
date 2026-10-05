@@ -26,14 +26,17 @@ class CurrentSiteLegalAddendaTest(unittest.TestCase):
             row = legacy_legal_baseline.document(kind)
             self.assertEqual(row["contentHash"], expected)
 
-    def test_new_site_identity_addendum_is_factual_and_does_not_claim_mediator(self):
+    def test_new_site_identity_addendum_is_factual_and_publishes_fna_mediator(self):
         body = legacy_legal_baseline.current_scope_addendum("legal_notice")["body"]
         self.assertIn("CHECK UP AUTO", body)
         self.assertIn("811 945 435", body)
         self.assertIn("1 rue Niépce", body)
         self.assertIn("Tarek Zekriti", body)
         self.assertIn("PlanetHoster", body)
-        self.assertIn("ne vaut pas attestation d'un médiateur", body)
+        self.assertIn("Médiateur FNA", body)
+        self.assertIn("Jean-Pierre CHEVROT", body)
+        self.assertIn("16 rue Hoche", body)
+        self.assertIn("https://www.mediateur.fna.fr/", body)
 
     def test_privacy_addendum_describes_actual_federated_and_ios_boundaries(self):
         body = legacy_legal_baseline.current_scope_addendum("privacy")["body"]

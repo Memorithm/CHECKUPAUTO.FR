@@ -4,7 +4,9 @@
   "sources": [
     "legal/current-site/mentions-complement.md",
     "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033971722/",
-    "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000053003293/"
+    "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000053003293/",
+    "https://www.mediateur.fna.fr/mediateur-fna.htm",
+    "https://www.mediateur.fna.fr/contact.htm"
   ],
   "settings": {
     "controllerName": "CHECK UP AUTO",
@@ -18,13 +20,13 @@
     "hostName": "PlanetHoster Inc.",
     "hostAddress": "4416, rue Louis-B.-Mayer, Laval (Québec) H7P 0G1, Canada",
     "approvalAuthority": "Préfet des Yvelines",
-    "approvalReference": "S078Z206"
+    "approvalReference": "S078Z206",
+    "mediatorName": "Médiateur FNA – Jean-Pierre CHEVROT",
+    "mediatorUrl": "https://www.mediateur.fna.fr/",
+    "mediatorAddress": "Tour Kupka B, 16 rue Hoche, 92906 Paris La Défense Cedex"
   },
   "deliberatelyUnasserted": [
     "privacyContact",
-    "mediatorName",
-    "mediatorUrl",
-    "mediatorAddress",
     "hostPhone"
   ]
 }
