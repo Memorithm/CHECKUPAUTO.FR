@@ -22,6 +22,27 @@ for dir in data private security integrity; do
   install -d -o 10001 -g 10001 -m 0700 "$STATE/$dir"
 done
 
+# OAuth/integration state is application-owned private material. Historical
+# staging operations may have created this directory as root, which makes the
+# UID 10001 container fail with PermissionError. Normalize only this bounded
+# subtree and fail closed on symlinks or unexpected file types.
+INTEGRATIONS="$STATE/private/integrations"
+if [ -L "$INTEGRATIONS" ]; then
+  echo "STAGING_PRIVATE_INTEGRATIONS_SYMLINK_REFUSED"
+  exit 28
+fi
+install -d -o 10001 -g 10001 -m 0700 "$INTEGRATIONS"
+shopt -s nullglob
+for item in "$INTEGRATIONS"/*.json; do
+  if [ -L "$item" ] || [ ! -f "$item" ]; then
+    echo "STAGING_PRIVATE_INTEGRATION_FILE_INVALID=$(basename "$item")"
+    exit 28
+  fi
+  chown 10001:10001 "$item"
+  chmod 0600 "$item"
+done
+shopt -u nullglob
+
 if [ ! -s "$STATE/private/admin-password" ]; then
   python3 - <<'PY'
 from pathlib import Path
