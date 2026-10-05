@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import admin_server
+import migration_write_freeze
 import booking_conversion_reconciliation
 import booking_test
 import mobile_authoritative_sync
@@ -45,6 +46,15 @@ def _run(name: str, fn) -> dict:
 
 
 def tick() -> dict:
+    freeze=migration_write_freeze.status()
+    if freeze.get("active"):
+        return {
+            "schemaVersion":1,
+            "ok":True,
+            "state":"write_frozen",
+            "freezeValid":bool(freeze.get("valid")),
+            "tasks":[],
+        }
     admin_server.initialize_runtime(background=False)
     tasks = [
         ("booking_test_cleanup", booking_test.purge_expired),
