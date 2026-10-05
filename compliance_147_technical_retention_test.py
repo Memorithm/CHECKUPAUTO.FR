@@ -1,14 +1,19 @@
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
 import retention_enforcement
-from scripts import checkupauto_compliance_seed_technical_retention as seed
 
 ROOT=Path(__file__).resolve().parent
 BASELINE=ROOT/"fixtures/compliance-technical-retention-baseline.json"
 WORKFLOW=ROOT/".github/workflows/compliance-147-technical-retention.yml"
+SCRIPT=ROOT/"scripts/checkupauto-compliance-seed-technical-retention.py"
+SPEC=importlib.util.spec_from_file_location("checkupauto_compliance_seed_technical_retention",SCRIPT)
+seed=importlib.util.module_from_spec(SPEC)
+assert SPEC and SPEC.loader
+SPEC.loader.exec_module(seed)
 
 
 class Compliance147TechnicalRetentionTest(unittest.TestCase):
