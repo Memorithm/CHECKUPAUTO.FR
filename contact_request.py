@@ -123,6 +123,67 @@ def submit(payload: dict, *, path: Path | None = None) -> dict:
     }
 
 
+def privacy_snapshot(email: object, *, path: Path | None = None) -> dict:
+    """Return every retained contact row for one exact normalized e-mail subject."""
+    normalized=_email(email)
+    db=_connect(path)
+    try:
+        rows=db.execute(
+            """SELECT request_id,category,name,email,phone,message,status,created_at
+               FROM contact_requests WHERE email=? ORDER BY created_at,request_id""",
+            (normalized,),
+        ).fetchall()
+    finally:
+        db.close()
+    return {
+        "subjectKind":"email",
+        "requestCount":len(rows),
+        "requests":[
+            {
+                "requestId":str(row["request_id"]),
+                "category":str(row["category"]),
+                "name":str(row["name"]),
+                "email":str(row["email"]),
+                "phone":str(row["phone"]),
+                "message":str(row["message"]),
+                "status":str(row["status"]),
+                "createdAt":str(row["created_at"]),
+            }
+            for row in rows
+        ],
+        "retentionDays":RETENTION_DAYS,
+    }
+
+
+def erase_subject(email: object, *, path: Path | None = None) -> dict:
+    """Physically erase all contact requests for one exact normalized e-mail."""
+    normalized=_email(email)
+    db=_connect(path)
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        before=int(db.execute(
+            "SELECT COUNT(*) FROM contact_requests WHERE email=?",
+            (normalized,),
+        ).fetchone()[0])
+        db.execute("DELETE FROM contact_requests WHERE email=?",(normalized,))
+        remaining=int(db.execute(
+            "SELECT COUNT(*) FROM contact_requests WHERE email=?",
+            (normalized,),
+        ).fetchone()[0])
+        if remaining:
+            db.rollback()
+            raise RuntimeError("contact_subject_erasure_incomplete")
+        db.commit()
+    finally:
+        db.close()
+    return {
+        "ok":True,
+        "removedCount":before,
+        "remainingCount":0,
+        "subjectKind":"email",
+    }
+
+
 def render_form() -> bytes:
     options = "".join(
         f'<option value="{html.escape(key)}">{html.escape(label)}</option>'

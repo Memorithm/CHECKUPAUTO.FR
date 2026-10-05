@@ -68,6 +68,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "disposition": "not_applicable",
                 "justification": "aucun contrat CheckupAuto n'est lié à cette installation",
             },
+            {
+                "adapter": "contact_requests",
+                "disposition": "not_applicable",
+                "justification": "aucune demande de contact n'est liée à cette installation",
+            },
         ]
         if wallet_disposition == "required":
             rows.append({"adapter": "referral_wallet", "disposition": "required"})
@@ -83,6 +88,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
 
     def _mercure_required_access_plan(self) -> list[dict]:
         return [
+            {
+                "adapter": "contact_requests",
+                "disposition": "not_applicable",
+                "justification": "aucune demande de contact n'est liée à cette identité Mercure",
+            },
             {
                 "adapter": "mobile_installation",
                 "disposition": "not_applicable",
@@ -118,6 +128,7 @@ class RightsCompletionPlanTest(unittest.TestCase):
             state["knownAdapters"],
             [
                 "compliance_contracts",
+                "contact_requests",
                 "mercure_customer_contact",
                 "mobile_installation",
                 "referral_wallet",

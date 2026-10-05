@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 
 import compliance_store
+import contact_request_rights
 import data_subject_rights
 import referral_wallet_lifecycle
 import referral_wallet_rights
@@ -66,6 +67,8 @@ def _known_adapters(request_type: str) -> list[str]:
         for name, rights in data_subject_rights.SUPPORTED_ADAPTERS.items()
         if request_type in rights
     }
+    if request_type in contact_request_rights.SUPPORTED_RIGHTS:
+        adapters.add(contact_request_rights.ADAPTER)
     if request_type == rights_rectification.capability()["requestType"]:
         adapters.add(rights_rectification.ADAPTER)
     if request_type in referral_wallet_rights.SUPPORTED_RIGHTS:

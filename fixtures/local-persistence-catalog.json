@@ -95,8 +95,8 @@
       "table": "contact_requests",
       "module": "contact_request.py",
       "subjectRelation": "direct",
-      "executionState": "unmapped",
-      "adapter": "",
+      "executionState": "wired",
+      "adapter": "contact_requests",
       "subjectExecutionRequired": true
     },
     {
