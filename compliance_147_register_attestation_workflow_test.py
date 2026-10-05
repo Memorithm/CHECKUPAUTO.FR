@@ -13,6 +13,9 @@ class Compliance147RegisterAttestationWorkflowTest(unittest.TestCase):
         self.assertIn("runtime revision does not match current main",source)
         self.assertIn("StrictHostKeyChecking=yes",source)
         self.assertIn("IdentitiesOnly=yes",source)
+        self.assertIn('venv_python="$release/.venv/bin/python"',source)
+        self.assertIn('"$venv_python" - "$expected_sha"',source)
+        self.assertNotIn("/opt/alt/python312/bin/python3 - \"$EXPECTED_SHA\"",source)
 
     def test_workflow_attests_only_exact_versioned_register_payload(self):
         source=WORKFLOW.read_text(encoding="utf-8")
