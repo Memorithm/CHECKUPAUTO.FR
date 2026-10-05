@@ -33,7 +33,7 @@
     "mobile_inactive_installations",
     "checkout_acceptance_transient"
   ],
-  "legallyReviewedElsewhere": [
+  "requiresLegalReview": [
     "booking_conversions",
     "contract_consent_receipts",
     "withdrawal_evidence",
