@@ -23,12 +23,19 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 def _terms_evidence(db_path: Path | str | None = None) -> dict:
     terms = compliance_store.published_document("terms", db_path)
-    receipts = [
+    all_receipts = [
         row
         for row in compliance_store.consent_receipts(db_path, 500)
         if row.get("purpose") == "contract_terms"
         and row.get("documentType") == "terms"
-        and row.get("source") == "mercure_contract_confirmation"
+    ]
+    receipts = [
+        row for row in all_receipts
+        if row.get("source") == "mercure_contract_confirmation"
+    ]
+    synthetic_receipts = [
+        row for row in all_receipts
+        if row.get("source") == "staging_synthetic_mercure_contract_confirmation"
     ]
     version = str((terms or {}).get("version") or "")
     content_hash = str((terms or {}).get("contentHash") or "").lower()
@@ -44,6 +51,7 @@ def _terms_evidence(db_path: Path | str | None = None) -> dict:
         "publishedTermsVersion": version,
         "publishedTermsContentHash": content_hash if _SHA256.fullmatch(content_hash) else "",
         "mercureContractReceiptCount": len(receipts),
+        "stagingSyntheticMercureContractReceiptCount": len(synthetic_receipts),
         "matchingPublishedTermsReceiptCount": len(matching),
         "allMercureContractReceiptsMatchPublishedTerms": bool(receipts) and len(matching) == len(receipts),
         "immediatePerformanceReceiptCount": immediate,

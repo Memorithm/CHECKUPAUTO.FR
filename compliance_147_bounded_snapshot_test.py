@@ -71,12 +71,23 @@ class Compliance147BoundedSnapshotTest(unittest.TestCase):
                 source="mercure_contract_confirmation",
                 db_path=db,
             )
+            compliance_store.record_acceptance(
+                "synthetic-contract-should-never-be-output",
+                purpose="contract_terms",
+                document_type="terms",
+                immediate_performance=True,
+                source="staging_synthetic_mercure_contract_confirmation",
+                db_path=db,
+            )
             evidence=snapshot147._terms_evidence(db)
         self.assertEqual(evidence["mercureContractReceiptCount"],1)
+        self.assertEqual(evidence["stagingSyntheticMercureContractReceiptCount"],1)
         self.assertEqual(evidence["matchingPublishedTermsReceiptCount"],1)
         self.assertTrue(evidence["allMercureContractReceiptsMatchPublishedTerms"])
         self.assertEqual(evidence["immediatePerformanceReceiptCount"],1)
-        self.assertNotIn("contract-should-never-be-output",json.dumps(evidence))
+        serialized=json.dumps(evidence)
+        self.assertNotIn("contract-should-never-be-output",serialized)
+        self.assertNotIn("synthetic-contract-should-never-be-output",serialized)
 
     def test_operation_rows_expose_ids_and_dpa_states_not_payloads(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -107,6 +107,37 @@ class BookingContractAcceptanceTest(unittest.TestCase):
         terms = compliance.published_document("terms")
         self.assertEqual(receipt["documentVersion"], terms["version"])
         self.assertEqual(receipt["contentHash"], terms["contentHash"])
+        self.assertEqual(receipt["source"], "mercure_contract_confirmation")
+
+    def test_public_conversion_payload_cannot_select_synthetic_receipt_source(self):
+        intent = self.intent()
+        booking.record_terms_acceptance(self.acceptance_payload(intent))
+        result = booking.apply_conversion({
+            "externalId": "provider-contract-1",
+            "status": "confirmed",
+            "ccid": intent["token"],
+            "service": "Contrôle technique",
+            "amount": 80,
+            "acceptanceSource": "staging_synthetic_mercure_contract_confirmation",
+        })
+        self.assertTrue(result["contractAcceptanceBound"])
+        receipt = compliance.contract_acceptance_receipt("provider-contract-1")
+        self.assertEqual(receipt["source"], "mercure_contract_confirmation")
+
+    def test_contract_receipt_source_cannot_drift_for_same_contract(self):
+        intent = self.intent()
+        booking.record_terms_acceptance(self.acceptance_payload(intent))
+        compliance.finalize_checkout_acceptance(
+            intent["token"],
+            "provider-contract-2",
+            source="staging_synthetic_mercure_contract_confirmation",
+        )
+        with self.assertRaisesRegex(ValueError, "provenance"):
+            compliance.finalize_checkout_acceptance(
+                intent["token"],
+                "provider-contract-2",
+                source="mercure_contract_confirmation",
+            )
 
 
 if __name__ == "__main__":
