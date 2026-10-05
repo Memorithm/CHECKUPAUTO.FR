@@ -7,3 +7,8 @@
 .oidc-actions{display:flex;gap:8px;flex-wrap:wrap}.oidc-actions button{flex:1}.oidc-help{font-size:11px;line-height:1.55;color:var(--muted)}
 #oidcMessage{padding:14px 18px;border:1px solid #c6d8cf;background:#fff;margin:18px 0}#oidcMessage.error{border-color:#af4035;color:#822c23}
 @media(max-width:1050px){.oidc-grid{grid-template-columns:1fr}}
+.feedback-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.feedback-tools select{min-height:40px}
+.feedback-list{display:grid;gap:12px}.feedback-entry{border:1px solid var(--line);background:#fff;padding:16px}.feedback-entry.suggestion{border-left:4px solid #6a8f7d}.feedback-entry.contact{border-left:4px solid #a6ada8}
+.feedback-entry-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.feedback-entry-head strong{font:700 10px Consolas,monospace;letter-spacing:.08em}.feedback-entry-head span{font-size:11px;color:var(--muted)}
+.feedback-identity,.feedback-meta,.feedback-body{margin:8px 0 0}.feedback-identity{font-weight:700}.feedback-meta{font-size:11px;color:var(--muted);overflow-wrap:anywhere}.feedback-body{white-space:pre-wrap;line-height:1.55}
+
