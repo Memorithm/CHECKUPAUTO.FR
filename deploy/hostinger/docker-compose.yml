@@ -13,6 +13,7 @@ services:
       CYBERCHECK_BIND_PORT: "8765"
       CYBERCHECK_DATA_DIR: "/var/lib/checkupauto/data"
       CYBERCHECK_PRIVATE_DIR: "/var/lib/checkupauto/private"
+      CYBERCHECK_GSC_CREDENTIALS_PATH: "/var/lib/checkupauto/private/integrations/gsc-service-account.json"
       CYBERCHECK_SECURITY_DIR: "/var/lib/checkupauto/security"
       CYBERCHECK_INTEGRITY_DIR: "/var/lib/checkupauto/integrity"
       CYBERCHECK_MOBILE_PUSH_ENABLED: "0"
