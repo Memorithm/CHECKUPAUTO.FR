@@ -166,20 +166,35 @@ def snapshot() -> dict:
     unresolved_states = {"unresolved", "conditional_unwired", "partial_wired"}
     unresolved = [row for row in stores if row["executionState"] in unresolved_states]
     catalog_complete = bool(persistence_catalog.get("complete"))
+    mapping_complete = bool(persistence_catalog.get("mappingComplete"))
+    catalog_gaps = {
+        str(value)
+        for value in persistence_catalog.get("executionGapTables") or []
+        if str(value)
+    }
+    legacy_gaps = {str(row["store"]) for row in unresolved if str(row.get("store") or "")}
+    combined_gaps = sorted(catalog_gaps | legacy_gaps)
     return {
         "scope": INVENTORY_SCOPE,
-        "inventoryComplete": False,
-        "knownExecutionCoverageComplete": not unresolved,
+        "inventoryComplete": bool(catalog_complete and mapping_complete),
+        "knownExecutionCoverageComplete": not combined_gaps,
         "persistenceCatalog": {
             "scope": str(persistence_catalog.get("scope") or ""),
             "complete": catalog_complete,
+            "mappingComplete": mapping_complete,
             "tableCount": int(persistence_catalog.get("tableCount") or 0),
+            "subjectExecutionRequiredCount": int(
+                persistence_catalog.get("subjectExecutionRequiredCount") or 0
+            ),
+            "executionGapCount": int(persistence_catalog.get("executionGapCount") or 0),
             "state": str(persistence_catalog.get("state") or "unavailable"),
-            "privacyExecutionCoverageAsserted": False,
+            "privacyExecutionCoverageAsserted": bool(
+                persistence_catalog.get("privacyExecutionCoverageAsserted")
+            ),
         },
         "knownStoreCount": len(stores),
-        "unresolvedStoreCount": len(unresolved),
-        "unresolvedStores": [row["store"] for row in unresolved],
+        "unresolvedStoreCount": len(combined_gaps),
+        "unresolvedStores": combined_gaps,
         "stores": stores,
         "analyticsPrivacyProfile": {
             "subjectKeyed": analytics_subject_keyed,
@@ -193,9 +208,13 @@ def snapshot() -> dict:
         "bookingConversionReconciliation": booking_observability,
         "limitations": [
             (
-                "persistence_catalog_complete_privacy_store_mapping_incomplete"
-                if catalog_complete
-                else "persistence_catalog_incomplete"
+                "persistence_catalog_complete_execution_coverage_incomplete"
+                if catalog_complete and mapping_complete and combined_gaps
+                else (
+                    "persistence_catalog_complete_execution_coverage_complete"
+                    if catalog_complete and mapping_complete
+                    else "persistence_catalog_incomplete"
+                )
             ),
             "provider_reference_stores_require_attested_subject_appointment_inventory",
             "local_booking_reconciliation_does_not_prove_provider_coverage",
