@@ -3,6 +3,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parent
 DEPLOY=ROOT/"deploy/hostinger/deploy-staging.sh"
+COMPOSE=ROOT/"deploy/hostinger/docker-compose.yml"
 
 class HostingerPrivatePermissionsTest(unittest.TestCase):
     @classmethod
@@ -20,6 +21,14 @@ class HostingerPrivatePermissionsTest(unittest.TestCase):
         self.assertIn("STAGING_PRIVATE_INTEGRATIONS_SYMLINK_REFUSED",self.text)
         self.assertIn('if [ -L "$item" ] || [ ! -f "$item" ]; then',self.text)
         self.assertIn("STAGING_PRIVATE_INTEGRATION_FILE_INVALID",self.text)
+
+    def test_gsc_credentials_use_the_application_private_volume(self):
+        compose=COMPOSE.read_text(encoding="utf-8")
+        self.assertIn(
+            'CYBERCHECK_GSC_CREDENTIALS_PATH: "/var/lib/checkupauto/private/integrations/gsc-service-account.json"',
+            compose,
+        )
+        self.assertNotIn('/root/.config/cybercheck/gsc-service-account.json',compose)
 
     def test_permission_fix_does_not_recursively_chown_all_private_material(self):
         self.assertNotIn('chown -R 10001:10001 "$STATE/private"',self.text)
