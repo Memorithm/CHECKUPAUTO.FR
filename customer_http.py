@@ -41,14 +41,18 @@ def _google_review_url() -> str:
             or GOOGLE_REVIEW_FALLBACK_URL
         ).strip()
         parsed=urlsplit(raw)
-        if (
+        host=(parsed.hostname or "").lower()
+        valid=(
             parsed.scheme=="https"
-            and (parsed.hostname or "").lower() in {"search.google.com","g.page"}
+            and host in {"search.google.com","g.page"}
             and parsed.port in (None,443)
             and not parsed.username
             and not parsed.password
             and not parsed.fragment
-        ):
+        )
+        if host=="search.google.com":
+            valid=valid and parsed.path=="/local/writereview" and parsed.query.startswith("placeid=")
+        if valid:
             return raw
     except Exception:
         pass
