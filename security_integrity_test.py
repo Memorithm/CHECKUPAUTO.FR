@@ -123,6 +123,54 @@ class SecurityIntegrityTest(unittest.TestCase):
         self.assertEqual(result['recoveredAlerts']['updated'], 2)
         self.assertTrue(result['ok'])
 
+
+    def test_verified_release_rebaseline_binds_active_sha_and_archive(self):
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / ".checkupauto-test"
+            release = private / "releases" / ("a" * 40)
+            release.mkdir(parents=True)
+            (release / "security_integrity.py").write_text("verified release\n", encoding="utf-8")
+            (release / ".checkupauto-release.json").write_text(json.dumps({
+                "schemaVersion": 1,
+                "sha": "a" * 40,
+                "archiveSha256": "b" * 64,
+                "verified": True,
+            }))
+            (private / "current").symlink_to(release)
+            state = private / "shared" / "security"
+            integ = private / "shared" / "integrity"
+            state.mkdir(parents=True)
+            integ.mkdir(parents=True)
+            with mock.patch.object(integrity, "ROOT", release), mock.patch.object(
+                integrity, "CRITICAL_FILES", ("security_integrity.py",)
+            ), mock.patch.object(integrity, "STATE_DIR", state), mock.patch.object(
+                integrity, "INTEGRITY_DIR", integ
+            ), mock.patch.object(integrity, "BASELINE", integ / "integrity-baseline.json"), mock.patch.object(
+                integrity, "LATEST", state / "integrity-latest.json"
+            ), mock.patch.object(integrity, "ALERT_STATE", state / "integrity-alert-state.json"), mock.patch.object(
+                integrity.alerts, "resolve_after_rebaseline"
+            ), mock.patch.object(integrity.alerts, "emit"):
+                result = integrity.rebaseline_verified_release("a" * 40, "b" * 64)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["baselineReleaseSha"], "a" * 40)
+        self.assertFalse(result["releaseChanged"])
+
+    def test_verified_release_rebaseline_rejects_wrong_archive_digest(self):
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / ".checkupauto-test"
+            release = private / "releases" / ("c" * 40)
+            release.mkdir(parents=True)
+            (release / ".checkupauto-release.json").write_text(json.dumps({
+                "schemaVersion": 1,
+                "sha": "c" * 40,
+                "archiveSha256": "d" * 64,
+                "verified": True,
+            }))
+            (private / "current").symlink_to(release)
+            with mock.patch.object(integrity, "ROOT", release):
+                with self.assertRaisesRegex(RuntimeError, "marqueur de release"):
+                    integrity.rebaseline_verified_release("c" * 40, "e" * 64)
+
     def test_failed_refresh_does_not_reuse_cache_for_old_components(self):
         with tempfile.TemporaryDirectory() as td:
             audit = Path(td) / 'audit.json'
