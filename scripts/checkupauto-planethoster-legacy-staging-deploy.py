@@ -30,13 +30,17 @@ TARGET = {
     "authMode": "key",
 }
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _RESULT_PREFIX = "CHECKUPAUTO_LEGACY_ADAPTER_DEPLOY="
 _ACTIVATION_STEP_PREFIX = "CHECKUPAUTO_ACTIVATION_STEP="
 
 
-def _activation_program(sha: str) -> str:
+def _activation_program(sha: str, archive_sha256: str) -> str:
     if not _SHA.fullmatch(sha):
         raise ValueError("SHA invalide")
+    archive_sha256 = str(archive_sha256 or "").strip().lower()
+    if not _DIGEST.fullmatch(archive_sha256):
+        raise ValueError("empreinte d archive invalide")
     return r'''from __future__ import annotations
 import datetime
 import http.client
@@ -50,6 +54,7 @@ import sys
 import time
 
 SHA = __SHA__
+ARCHIVE_SHA256 = __ARCHIVE_SHA256__
 home = Path.home().resolve()
 private = (home / ".checkupauto-test").resolve()
 releases = (private / "releases").resolve()
@@ -101,7 +106,12 @@ def marker(path):
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         fail("release marker invalid")
-    if data.get("sha") != path.name or data.get("verified") is not True:
+    if (
+        data.get("schemaVersion") != 1
+        or data.get("sha") != path.name
+        or data.get("verified") is not True
+        or data.get("archiveSha256") != ARCHIVE_SHA256
+    ):
         fail("release marker mismatch")
     return data
 
@@ -289,6 +299,39 @@ print(json.dumps(out,sort_keys=True,separators=(",",":")))
     }:
         fail("compliance snapshot schema invalid")
 
+    print("__ACTIVATION_STEP_PREFIX__integrity", flush=True)
+    integrity_code = r"""
+import json
+import security_integrity
+result=security_integrity.rebaseline_verified_release(__SHA__,__ARCHIVE_SHA256__)
+print(json.dumps({
+    "ok":bool(result.get("ok")),
+    "baselineReleaseSha":str(result.get("baselineReleaseSha") or ""),
+    "releaseChanged":bool(result.get("releaseChanged")),
+},sort_keys=True,separators=(",",":")))
+"""
+    integrity_probe = subprocess.run(
+        [str(release / ".venv/bin/python"), "-c", integrity_code],
+        cwd=release,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    if integrity_probe.returncode != 0:
+        fail("integrity rebaseline failed")
+    try:
+        integrity_summary = json.loads(integrity_probe.stdout.strip())
+    except Exception:
+        fail("integrity rebaseline response invalid")
+    if (
+        integrity_summary.get("ok") is not True
+        or integrity_summary.get("baselineReleaseSha") != SHA
+        or integrity_summary.get("releaseChanged") is not False
+    ):
+        fail("integrity rebaseline mismatch")
+
     print(__PREFIX__ + json.dumps({
         "ok": True,
         "state": "activated",
@@ -299,6 +342,7 @@ print(json.dumps(out,sort_keys=True,separators=(",",":")))
         "readyForPublicContracting": bool(summary.get("readyForPublicContracting")),
         "phase2Blockers": list(summary.get("phase2Blockers") or []),
         "operationalBlockerTypes": list(summary.get("operationalBlockerTypes") or []),
+        "integrityBaselineSha": str(integrity_summary.get("baselineReleaseSha") or ""),
     }, sort_keys=True, separators=(",", ":")))
 except Exception:
     if switched:
@@ -312,7 +356,7 @@ except Exception:
         os.replace(rollback, current)
         touch_restart()
     raise
-'''.replace("__SHA__", repr(sha)).replace("__PREFIX__", repr(_RESULT_PREFIX)).replace("__ACTIVATION_STEP_PREFIX__", _ACTIVATION_STEP_PREFIX)
+'''.replace("__SHA__", repr(sha)).replace("__ARCHIVE_SHA256__", repr(archive_sha256)).replace("__PREFIX__", repr(_RESULT_PREFIX)).replace("__ACTIVATION_STEP_PREFIX__", _ACTIVATION_STEP_PREFIX)
 
 
 def _qualify_n0c_legacy_runtime(target, known_hosts: str, credential, capabilities, *, timeout: int = 30):
@@ -346,7 +390,7 @@ printf 'passenger_adapter=1\n'
 def _last_activation_step(output: str) -> str:
     allowed = {
         "preflight", "backup", "import", "switch", "restart",
-        "http_verify", "compliance", "rollback",
+        "http_verify", "compliance", "integrity", "rollback",
     }
     last = ""
     for line in str(output or "").splitlines():
@@ -404,7 +448,7 @@ def deploy(sha: str, key: str, known_hosts: str) -> dict:
     args = deployment_transport.ssh_arguments(target, known_hosts, credential)
     result = subprocess.run(
         [*args, "/opt/alt/python312/bin/python3", "-"],
-        input=_activation_program(sha),
+        input=_activation_program(sha, staged.archive_sha256),
         text=True,
         capture_output=True,
         timeout=300,
