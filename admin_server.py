@@ -220,7 +220,11 @@ class Handler(SimpleHTTPRequestHandler):
   return False
  def send_response(self,code,message=None):
   try:
-   if getattr(self,'_security_client','') and not getattr(self,'_security_response_recorded',False):
+   if (
+    getattr(self,'_security_client','')
+    and not getattr(self,'_security_response_recorded',False)
+    and not getattr(self,'_security_expected_auth_challenge',False)
+   ):
     security.observe_response(self._security_client,self.command,getattr(self,'_security_path',urlparse(self.path).path),int(code),getattr(self,'_security_risk',0),getattr(self,'_security_fingerprint','')); self._security_response_recorded=True
   except Exception: pass
   return super().send_response(code,message)
@@ -266,6 +270,7 @@ class Handler(SimpleHTTPRequestHandler):
   token=admin_mfa.token_from_cookie(self.headers.get('Cookie',''))
   return admin_mfa.validate_session(token)
  def require_mfa(self):
+  self._security_expected_auth_challenge=True
   return self.send_json({'ok':False,'error':'two_factor_required'},403)
  def _request_origin(self):
   return canonical_origin(load_config()['seo']['canonicalUrl'])
@@ -280,6 +285,7 @@ class Handler(SimpleHTTPRequestHandler):
   if self.headers.get('Authorization') and getattr(self,'_security_client',''):
    try: security.auth_failure(self._security_client,urlparse(self.path).path)
    except Exception: pass
+  self._security_expected_auth_challenge=True
   self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="CyberCheck Administration", charset="UTF-8"'); self.send_header('Cache-Control','no-store'); self.end_headers();
   if self.command!='HEAD': self.wfile.write(b'Authentication required')
  def log_message(self,format,*args):

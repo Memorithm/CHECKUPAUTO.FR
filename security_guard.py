@@ -25,6 +25,8 @@ _PATHS = defaultdict(deque)
 _NOT_FOUND = defaultdict(deque)
 _PROBES = defaultdict(deque)
 _AUTH_FAIL = defaultdict(deque)
+_AUTH_FAIL_BURST = {}
+_AUTH_FAIL_BURST_SECONDS = 5.0
 _ENDPOINT_REQ = defaultdict(deque)
 _ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/api/events': 60, '/go/booking': 20, '/api/booking-test/create': 10, '/api/booking-test/remove': 10, '/api/mobile/installations/register': 12, '/api/mobile/installations/delete': 12, '/api/mobile/devices/register': 12, '/api/mobile/devices/unregister': 12, '/api/mobile/claims/consume': 20, '/api/mobile/inventory': 30, '/api/mobile/reminders/sync': 30, '/api/admin/mobile/claims/issue': 12, '/api/admin/auth/2fa/setup': 4, '/api/admin/auth/2fa/confirm': 8, '/api/admin/auth/2fa/verify': 8, '/api/payments/payline/start': 8, '/api/payment-test/session': 4, '/api/payment-test/create': 4, '/api/payment-test/result': 8, '/api/payment-test/status': 12, '/api/payment-test/remove': 6, '/api/customer/reports': 6}
 _BANNED = {}
@@ -357,6 +359,10 @@ def system_event(reason: str, risk=80, action='alert', path='-'):
 def auth_failure(client: str, path='/admin/'):
     now = time.monotonic()
     with _LOCK:
+        last = float(_AUTH_FAIL_BURST.get(client, 0.0) or 0.0)
+        if last and now - last < _AUTH_FAIL_BURST_SECONDS:
+            return
+        _AUTH_FAIL_BURST[client] = now
         q = _AUTH_FAIL[client]; q.append(now); _prune(q, now, 600)
         score = _add_risk(client, 20, 'basic_auth_failed', path)
         _record(client, 'AUTH', path, 'auth_failure', 'basic_auth_failed', max(70, int(score)), 401)
