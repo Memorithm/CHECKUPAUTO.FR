@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import customer_account_rights
 import data_subject_rights
 import mercure_rectification_boundary
 import referral_wallet_rights
@@ -82,6 +83,15 @@ def capability(db_path: Path | str | None = None) -> dict:
         partial = set(result.get("partialSystemAdapters") or [])
         partial.add("referral_wallet")
         result["partialSystemAdapters"] = sorted(partial)
+
+    customer_account=customer_account_rights.capability()
+    result["customerAccountExecution"]=customer_account
+    if customer_account.get("bound"):
+        supported=dict(result.get("supportedAdapters") or {})
+        supported[customer_account_rights.ADAPTER]=list(
+            customer_account.get("supportedRights") or []
+        )
+        result["supportedAdapters"]=supported
 
     result["providerKeyedErasureExecution"] = {
         "implemented": True,
