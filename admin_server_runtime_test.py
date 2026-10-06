@@ -101,7 +101,11 @@ class AdminServerRuntimeTest(unittest.TestCase):
         fn = ns["initialize_runtime"]
         fn.__globals__.update(ns)
 
-        with mock.patch.object(ns["os"], "chdir"):
+        with mock.patch.object(
+            ns["migration_write_freeze"],
+            "status",
+            return_value={"active":False,"valid":True,"state":"inactive"},
+        ), mock.patch.object(ns["os"], "chdir"):
             first = fn(background=False)
             second = fn(background=False)
 
@@ -127,14 +131,22 @@ class AdminServerRuntimeTest(unittest.TestCase):
         self.assertEqual(modules["withdrawals"].init_db.call_count, 1)
         self.assertEqual(modules["retention_enforcement"].init_db.call_count, 1)
 
-        with mock.patch.object(ns["os"], "chdir"):
+        with mock.patch.object(
+            ns["migration_write_freeze"],
+            "status",
+            return_value={"active":False,"valid":True,"state":"inactive"},
+        ), mock.patch.object(ns["os"], "chdir"):
             result = fn(background=True)
         self.assertTrue(result["backgroundReady"])
         modules["booking_test"].start.assert_called_once_with(300)
         modules["reviews"].start.assert_called_once_with()
         modules["security_alerts"].start.assert_called_once_with(120)
 
-        with mock.patch.object(ns["os"], "chdir"):
+        with mock.patch.object(
+            ns["migration_write_freeze"],
+            "status",
+            return_value={"active":False,"valid":True,"state":"inactive"},
+        ), mock.patch.object(ns["os"], "chdir"):
             fn(background=True)
         self.assertEqual(modules["security_alerts"].start.call_count, 1)
 
