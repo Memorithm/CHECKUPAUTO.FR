@@ -73,6 +73,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "disposition": "not_applicable",
                 "justification": "aucune demande de contact n'est liée à cette installation",
             },
+            {
+                "adapter": "customer_account",
+                "disposition": "not_applicable",
+                "justification": "aucun compte client web n'est lié à cette installation",
+            },
         ]
         if wallet_disposition == "required":
             rows.append({"adapter": "referral_wallet", "disposition": "required"})
@@ -92,6 +97,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "adapter": "contact_requests",
                 "disposition": "not_applicable",
                 "justification": "aucune demande de contact n'est liée à cette identité Mercure",
+            },
+            {
+                "adapter": "customer_account",
+                "disposition": "not_applicable",
+                "justification": "aucun compte client web n'est lié à cette identité Mercure",
             },
             {
                 "adapter": "mobile_installation",
@@ -129,6 +139,7 @@ class RightsCompletionPlanTest(unittest.TestCase):
             [
                 "compliance_contracts",
                 "contact_requests",
+                "customer_account",
                 "mercure_customer_contact",
                 "mobile_installation",
                 "referral_wallet",

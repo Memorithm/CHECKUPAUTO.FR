@@ -1,6 +1,6 @@
 {
   "schema": "checkupauto.local-persistence-catalog/v2",
-  "reviewedAt": "2026-10-05",
+  "reviewedAt": "2026-10-06",
   "scope": "Production Python CREATE TABLE declarations with technical data-subject linkage review. Classification is fail-closed and does not constitute a legal personal-data determination.",
   "tables": [
     {
@@ -111,24 +111,24 @@
       "table": "customer_account",
       "module": "customer_accounts.py",
       "subjectRelation": "direct",
-      "executionState": "unmapped",
-      "adapter": "",
+      "executionState": "wired",
+      "adapter": "customer_account",
       "subjectExecutionRequired": true
     },
     {
       "table": "customer_ct_report",
       "module": "customer_ct_reports.py",
       "subjectRelation": "direct",
-      "executionState": "unmapped",
-      "adapter": "",
+      "executionState": "wired",
+      "adapter": "customer_account",
       "subjectExecutionRequired": true
     },
     {
       "table": "customer_identity",
       "module": "customer_accounts.py",
       "subjectRelation": "pseudonymous",
-      "executionState": "unmapped",
-      "adapter": "",
+      "executionState": "wired",
+      "adapter": "customer_account",
       "subjectExecutionRequired": true
     },
     {

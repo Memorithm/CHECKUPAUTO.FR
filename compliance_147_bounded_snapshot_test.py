@@ -54,7 +54,7 @@ class Compliance147BoundedSnapshotTest(unittest.TestCase):
         self.assertTrue(catalog["mappingComplete"])
         self.assertEqual(catalog["tableCount"],77)
         self.assertEqual(catalog["subjectExecutionRequiredCount"],21)
-        self.assertEqual(catalog["executionGapCount"],13)
+        self.assertEqual(catalog["executionGapCount"],10)
         self.assertEqual(catalog["state"],"mapped_with_execution_gaps")
         self.assertFalse(catalog["privacyExecutionCoverageAsserted"])
         self.assertNotIn("tableNames",catalog)

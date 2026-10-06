@@ -5,6 +5,7 @@ from pathlib import Path
 
 import compliance_store
 import contact_request_rights
+import customer_account_rights
 import data_subject_rights
 import referral_wallet_lifecycle
 import referral_wallet_rights
@@ -69,6 +70,8 @@ def _known_adapters(request_type: str) -> list[str]:
     }
     if request_type in contact_request_rights.SUPPORTED_RIGHTS:
         adapters.add(contact_request_rights.ADAPTER)
+    if request_type in customer_account_rights.SUPPORTED_RIGHTS:
+        adapters.add(customer_account_rights.ADAPTER)
     if request_type == rights_rectification.capability()["requestType"]:
         adapters.add(rights_rectification.ADAPTER)
     if request_type in referral_wallet_rights.SUPPORTED_RIGHTS:

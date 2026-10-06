@@ -28,7 +28,7 @@ _STOP = threading.Event()
 _THREAD = None
 
 CRITICAL_FILES = (
-    'admin_server.py','migration_write_freeze.py','security_guard.py','security_behavior.py','security_alerts.py','security_ai.py','security_integrity.py',
+    'admin_server.py','migration_write_freeze.py','customer_account_rights.py','customer_account_erasure_plan.py','security_guard.py','security_behavior.py','security_alerts.py','security_ai.py','security_integrity.py',
     'booking_bridge.py','booking_test.py','competitive_intelligence.py','review_followup.py','mercure_admin_client.py','mercure_public_client.py','geo_marketing.py','analytics_store.py','gsc_client.py',
     'index.html','app.js','style.css','admin/index.html','admin/admin.js','admin/control-center.js','admin/gsc-admin.js','admin/competitive.js','admin/review-followup.js','admin/admin.css',
     'data/geo-radius-50.01km.json','requirements.txt','.gitignore','README.md','SECURITY.md',
