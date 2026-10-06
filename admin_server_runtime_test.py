@@ -120,6 +120,7 @@ class AdminServerRuntimeTest(unittest.TestCase):
             "mobile_authoritative_sync",
             "mobile_reminder_dispatch",
             "security_alerts",
+            "retention_enforcement",
             "security_integrity",
             "security_ai",
         ):
@@ -141,6 +142,7 @@ class AdminServerRuntimeTest(unittest.TestCase):
         modules["booking_test"].start.assert_called_once_with(300)
         modules["reviews"].start.assert_called_once_with()
         modules["security_alerts"].start.assert_called_once_with(120)
+        modules["retention_enforcement"].start.assert_called_once_with(3600)
 
         with mock.patch.object(
             ns["migration_write_freeze"],
@@ -149,6 +151,7 @@ class AdminServerRuntimeTest(unittest.TestCase):
         ), mock.patch.object(ns["os"], "chdir"):
             fn(background=True)
         self.assertEqual(modules["security_alerts"].start.call_count, 1)
+        self.assertEqual(modules["retention_enforcement"].start.call_count, 1)
 
 
     def test_frozen_runtime_skips_core_and_background_initialization(self):

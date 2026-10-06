@@ -1402,6 +1402,7 @@ def initialize_runtime(*,background=True):
   if background and not _RUNTIME_BACKGROUND_READY:
    booking_test.start(300); reviews.start(); reminder_dispatch.start()
    mobile_authoritative_sync.start(); mobile_reminder_dispatch.start()
+   retention_enforcement.start(3600)
    security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
    _RUNTIME_BACKGROUND_READY=True
  return {'coreReady':_RUNTIME_CORE_READY,'backgroundReady':_RUNTIME_BACKGROUND_READY,'writeFrozen':False}

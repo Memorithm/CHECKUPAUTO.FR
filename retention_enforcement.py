@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 import uuid
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import analytics_store
 import booking_bridge
 import compliance_store
 import mobile_devices
+import migration_write_freeze
 import notification_broker
 import privacy_suppression
 import referral_engine
@@ -24,6 +26,10 @@ import site_config_store
 
 MAX_RETENTION_DAYS = 36500
 CNIL_OPPOSITION_MIN_DAYS = 1095
+BACKGROUND_INTERVAL_SECONDS = 3600
+_RUN_LOCK = threading.Lock()
+_STOP = threading.Event()
+_THREAD = None
 
 # Rules that can be enforced without inventing a business/legal duration.
 AUTO_RULES = {
@@ -706,7 +712,7 @@ def _run_configurable_rule(
     raise NotImplementedError(rule_id)
 
 
-def run_once(
+def _run_once_unlocked(
     *,
     dry_run: bool = False,
     db_path: Path | str | None = None,
@@ -802,6 +808,16 @@ def run_once(
     }
 
 
+def run_once(
+    *,
+    dry_run: bool = False,
+    db_path: Path | str | None = None,
+) -> dict:
+    """Serialize retention runs so manual and background purges never overlap."""
+    with _RUN_LOCK:
+        return _run_once_unlocked(dry_run=dry_run, db_path=db_path)
+
+
 def process_once(db_path: Path | str | None = None) -> dict:
     """Execute every currently ready rule without treating policy blockers as a job failure."""
     result = run_once(dry_run=False, db_path=db_path)
@@ -811,6 +827,57 @@ def process_once(db_path: Path | str | None = None) -> dict:
     result["policyComplete"] = not blocked
     result["blockerCount"] = len(blocked)
     return result
+
+
+def background_once(db_path: Path | str | None = None) -> dict:
+    """Run one governed retention cycle only while runtime writes are allowed."""
+    try:
+        frozen = migration_write_freeze.active()
+    except Exception:
+        return {
+            "ok": True,
+            "state": "write_frozen_unverified",
+            "policyComplete": False,
+            "blockerCount": 0,
+        }
+    if frozen:
+        return {
+            "ok": True,
+            "state": "write_frozen",
+            "policyComplete": False,
+            "blockerCount": 0,
+        }
+    return process_once(db_path)
+
+
+def _background_loop(interval: int) -> None:
+    while not _STOP.is_set():
+        try:
+            background_once()
+        except Exception:
+            pass
+        if _STOP.wait(interval):
+            break
+
+
+def start(interval: int = BACKGROUND_INTERVAL_SECONDS) -> None:
+    global _THREAD
+    init_db()
+    if _THREAD and _THREAD.is_alive():
+        return
+    _STOP.clear()
+    seconds = max(300, int(interval))
+    _THREAD = threading.Thread(
+        target=_background_loop,
+        args=(seconds,),
+        daemon=True,
+        name="CyberCheckRetention",
+    )
+    _THREAD.start()
+
+
+def stop() -> None:
+    _STOP.set()
 
 
 def audit_rows(db_path: Path | str | None = None, limit: int = 100) -> list[dict]:
