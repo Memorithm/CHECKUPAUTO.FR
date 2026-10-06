@@ -27,6 +27,9 @@ class Compliance147TechnicalRetentionTest(unittest.TestCase):
         self.assertEqual(rows["security_telemetry"]["activeDays"],30)
         self.assertTrue(all(row["legalReviewConfirmed"] is False for row in rows.values()))
         self.assertTrue(all(not retention_enforcement.CONFIGURABLE_RULES[r].get("legalReviewRequired") for r in rows))
+        self.assertEqual(data.get("automaticEventRules"),["checkout_acceptance_transient"])
+        self.assertIn("checkout_acceptance_transient",retention_enforcement.AUTO_RULES)
+        self.assertNotIn("checkout_acceptance_transient",retention_enforcement.CONFIGURABLE_RULES)
 
     def test_sources_remain_grounded_in_product_windows(self):
         review=(ROOT/"review_followup.py").read_text(encoding="utf-8")
@@ -44,7 +47,7 @@ class Compliance147TechnicalRetentionTest(unittest.TestCase):
             second=seed.apply(db)
             self.assertEqual(first["changedRuleIds"],["reminder_targets","review_followup","security_telemetry"])
             self.assertEqual(second["changedRuleIds"],[])
-            self.assertEqual(first["readyRuleCount"],9)
+            self.assertEqual(first["readyRuleCount"],10)
             self.assertFalse(first["retentionBound"])
             for rule_id in (
                 "booking_conversions","contract_consent_receipts","withdrawal_evidence",
