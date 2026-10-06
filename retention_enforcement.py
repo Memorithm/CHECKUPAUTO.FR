@@ -71,6 +71,13 @@ AUTO_RULES = {
         "store": "compliance.privacy_suppression",
         "trigger": "updated_at after deactivation",
     },
+    "checkout_acceptance_transient": {
+        "label": "Liaison technique acceptation→Mercure",
+        "mode": "event",
+        "source": "durable matching terms consent receipt",
+        "store": "checkout_acceptance_intents",
+        "trigger": "finalized_at + matching durable consent receipt",
+    },
 }
 
 # These classes are deliberately not assigned an arbitrary retention period.
@@ -106,12 +113,6 @@ CONFIGURABLE_RULES = {
         "trigger": "updated_at",
         "minimumDays": 1,
         "legalReviewRequired": True,
-    },
-    "checkout_acceptance_transient": {
-        "label": "Liaison technique acceptation→Mercure",
-        "store": "checkout_acceptance_intents",
-        "trigger": "finalized_at",
-        "minimumDays": 1,
     },
     "contract_consent_receipts": {
         "label": "Preuves d'acceptation contractuelle",
@@ -573,38 +574,33 @@ def _purge_booking_conversions(days: int, *, dry_run: bool) -> int:
 
 
 def _purge_checkout_acceptance_transient(
-    days: int,
     *,
     dry_run: bool,
     db_path: Path | str | None = None,
 ) -> int:
-    cutoff = _cutoff(days)
+    """Drop transient checkout linkage once the durable terms receipt exists.
+
+    The intent row exists only to bind a browser acceptance event to the
+    provider contract that is created later. Once finalization has produced the
+    matching immutable consent receipt, retaining a second subject-linked copy
+    serves no remaining technical purpose. Eligibility is therefore an event
+    condition, not a guessed retention duration.
+    """
     compliance_store.init_db(db_path)
+    predicate = """finalized_at<>'' AND EXISTS(
+      SELECT 1 FROM consent_receipts r
+      WHERE r.contract_ref=checkout_acceptance_intents.finalized_contract_ref
+        AND r.document_type='terms'
+        AND r.document_version=checkout_acceptance_intents.terms_version
+        AND r.content_hash=checkout_acceptance_intents.terms_content_hash
+    )"""
     with compliance_store.connect(db_path) as db:
         count = int(db.execute(
-            """SELECT COUNT(*) n FROM checkout_acceptance_intents i
-               WHERE i.finalized_at<>'' AND i.finalized_at<?
-                 AND EXISTS(
-                   SELECT 1 FROM consent_receipts r
-                   WHERE r.contract_ref=i.finalized_contract_ref
-                     AND r.document_type='terms'
-                     AND r.document_version=i.terms_version
-                     AND r.content_hash=i.terms_content_hash
-                 )""",
-            (cutoff,),
+            f"SELECT COUNT(*) n FROM checkout_acceptance_intents WHERE {predicate}"
         ).fetchone()["n"])
-        if not dry_run:
+        if not dry_run and count:
             db.execute(
-                """DELETE FROM checkout_acceptance_intents
-                   WHERE finalized_at<>'' AND finalized_at<?
-                     AND EXISTS(
-                       SELECT 1 FROM consent_receipts r
-                       WHERE r.contract_ref=checkout_acceptance_intents.finalized_contract_ref
-                         AND r.document_type='terms'
-                         AND r.document_version=checkout_acceptance_intents.terms_version
-                         AND r.content_hash=checkout_acceptance_intents.terms_content_hash
-                     )""",
-                (cutoff,),
+                f"DELETE FROM checkout_acceptance_intents WHERE {predicate}"
             )
     return count
 
@@ -699,8 +695,6 @@ def _run_configurable_rule(
         return _purge_inactive_mobile(days, dry_run=dry_run)
     if rule_id == "booking_conversions":
         return _purge_booking_conversions(days, dry_run=dry_run)
-    if rule_id == "checkout_acceptance_transient":
-        return _purge_checkout_acceptance_transient(days, dry_run=dry_run, db_path=db_path)
     if rule_id == "contract_consent_receipts":
         return _purge_consent_receipts(days, dry_run=dry_run, db_path=db_path)
     if rule_id == "withdrawal_evidence":
@@ -751,6 +745,12 @@ def run_once(
         elif rule_id == "inactive_privacy_suppressions":
             cutoff_at = _cutoff(CNIL_OPPOSITION_MIN_DAYS)
             removed = _purge_inactive_suppressions(dry_run=dry_run, db_path=db_path)
+        elif rule_id == "checkout_acceptance_transient":
+            cutoff_at = _now_iso()
+            removed = _purge_checkout_acceptance_transient(
+                dry_run=dry_run,
+                db_path=db_path,
+            )
         else:  # pragma: no cover
             continue
         audit = _record_audit(

@@ -181,6 +181,103 @@ class RetentionEnforcementTest(unittest.TestCase):
         audit = next(item for item in retention.audit_rows(self.db) if item["ruleId"] == "analytics_events")
         self.assertEqual(audit["mode"], "dry_run")
 
+    def test_checkout_acceptance_transient_is_event_purged_only_after_durable_receipt(self):
+        stamp = self._iso(2)
+        with compliance_store.connect(self.db) as db:
+            db.execute(
+                """INSERT INTO checkout_acceptance_intents(
+                     booking_token_hash,terms_version,terms_content_hash,accepted_at,
+                     reviewed,immediate_performance,source,
+                     finalized_contract_ref,finalized_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    "a" * 64, "v1", "1" * 64, stamp,
+                    1, 0, "checkout_review", "contract-ready", stamp,
+                ),
+            )
+            db.execute(
+                """INSERT INTO checkout_acceptance_intents(
+                     booking_token_hash,terms_version,terms_content_hash,accepted_at,
+                     reviewed,immediate_performance,source,
+                     finalized_contract_ref,finalized_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    "b" * 64, "v1", "2" * 64, stamp,
+                    1, 0, "checkout_review", "contract-without-receipt", stamp,
+                ),
+            )
+            db.execute(
+                """INSERT INTO checkout_acceptance_intents(
+                     booking_token_hash,terms_version,terms_content_hash,accepted_at,
+                     reviewed,immediate_performance,source,
+                     finalized_contract_ref,finalized_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    "c" * 64, "v1", "3" * 64, stamp,
+                    1, 0, "checkout_review", "", "",
+                ),
+            )
+            db.execute(
+                """INSERT INTO consent_receipts(
+                     receipt_id,contract_ref,purpose,document_type,document_version,
+                     content_hash,accepted_at,immediate_performance,source
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    "receipt-ready", "contract-ready", "contract_terms", "terms",
+                    "v1", "1" * 64, stamp, 0,
+                    "mercure_contract_confirmation",
+                ),
+            )
+
+        with mock.patch.object(
+            retention.site_config_store,
+            "load",
+            return_value=self._site_config(),
+        ):
+            dry = retention.run_once(dry_run=True, db_path=self.db)
+        dry_row = next(
+            item for item in dry["rules"]
+            if item["ruleId"] == "checkout_acceptance_transient"
+        )
+        self.assertEqual(dry_row["state"], "ready")
+        self.assertEqual(dry_row["removedCount"], 1)
+        with compliance_store.connect(self.db) as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) n FROM checkout_acceptance_intents"
+                ).fetchone()["n"],
+                3,
+            )
+
+        with mock.patch.object(
+            retention.site_config_store,
+            "load",
+            return_value=self._site_config(),
+        ):
+            applied = retention.run_once(dry_run=False, db_path=self.db)
+        row = next(
+            item for item in applied["rules"]
+            if item["ruleId"] == "checkout_acceptance_transient"
+        )
+        self.assertEqual(row["state"], "ready")
+        self.assertEqual(row["removedCount"], 1)
+        with compliance_store.connect(self.db) as db:
+            remaining = {
+                str(item["booking_token_hash"])
+                for item in db.execute(
+                    "SELECT booking_token_hash FROM checkout_acceptance_intents"
+                )
+            }
+        self.assertEqual(remaining, {"b" * 64, "c" * 64})
+        self.assertEqual(
+            retention.policy("checkout_acceptance_transient", self.db)["mode"],
+            "event",
+        )
+        self.assertNotIn(
+            "checkout_acceptance_transient",
+            retention.CONFIGURABLE_RULES,
+        )
+
     def test_legal_evidence_policy_requires_explicit_legal_review(self):
         payload = {
             "ruleId": "contract_consent_receipts",
