@@ -14,6 +14,42 @@ from pathlib import Path
 MARKER_NAME=".migration-write-freeze.json"
 SCHEMA_VERSION=1
 
+READ_ONLY_PATHS=frozenset({
+    "/",
+    "/index.html",
+    "/style.css",
+    "/app.js",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/llms.txt",
+    "/mentions-legales",
+    "/confidentialite",
+    "/cookies",
+    "/cgv",
+    "/retractation",
+    "/zone-tarifs",
+    "/.well-known/security.txt",
+    "/.well-known/apple-app-site-association",
+    "/apple-app-site-association",
+    "/api/site-config",
+    "/api/app/status",
+    "/api/public/deployment-provenance",
+})
+READ_ONLY_PREFIXES=("/assets/","/3d/")
+
+
+def request_allowed(method: object, path: object) -> bool:
+    """Allow only explicitly read-only surfaces while a migration freeze is active."""
+    verb=str(method or "").upper()
+    if verb=="OPTIONS":
+        return True
+    if verb not in {"GET","HEAD"}:
+        return False
+    clean=str(path or "/").split("?",1)[0]
+    if not clean.startswith("/") or "\x00" in clean:
+        return False
+    return clean in READ_ONLY_PATHS or any(clean.startswith(prefix) for prefix in READ_ONLY_PREFIXES)
+
 
 def marker_path() -> Path:
     return Path(os.environ.get("CYBERCHECK_DATA_DIR","/root/CyberCheckData"))/MARKER_NAME
