@@ -20,12 +20,14 @@ jobs:
       github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    # PlanetHoster is a privileged deployment. Pin it to the RemoteOps Mac mini
+    # that owns the dedicated SSH identity instead of the generic internal pool.
+    runs-on: [self-hosted, macOS, ARM64, remoteops, mac-mini]
     timeout-minutes: 25
     env:
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
-      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+      STAGING_KEY: ${{ runner.home }}/.ssh/checkupauto_planethoster_test_ed25519
+      STAGING_KNOWN_HOSTS: ${{ runner.home }}/.ssh/checkupauto_planethoster_test_known_hosts
     steps:
       - uses: actions/checkout@v5
         with:
@@ -53,13 +55,18 @@ jobs:
               raise SystemExit("Security CI SHA is no longer current main; stale deployment refused")
           print("CURRENT_MAIN_VERIFIED="+sha)
           PY
-      - name: Verify dedicated PlanetHoster SSH material
+      - name: Verify RemoteOps PlanetHoster identity
         run: |
           set -euo pipefail
+          test "$(hostname)" = "Mac-mini-de-tarek.local"
           for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
             test -f "$path"
             test ! -L "$path"
           done
+          test "$(ssh-keygen -lf "$STAGING_KNOWN_HOSTS" | awk '{print $2}')" = \
+            "SHA256:bSsRNwbVPWB1mHLo7qwavQPg9TUQOF+I40idG8ezcUs"
+          ssh-keygen -y -f "$STAGING_KEY" >/dev/null
+          echo "PLANETHOSTER_REMOTEOPS_IDENTITY_VERIFIED"
       - name: Deploy exact green main through legacy Passenger adapter
         run: |
           set -euo pipefail
