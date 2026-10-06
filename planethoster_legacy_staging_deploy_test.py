@@ -19,7 +19,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertEqual(m.TARGET["webRootPath"],"test.checkupauto.fr")
 
     def test_activation_preserves_legacy_adapter_and_has_rollback(self):
-        text=m._activation_program("a"*40)
+        text=m._activation_program("a"*40,"1"*64)
         self.assertIn('checkupauto-test-application',text)
         self.assertIn('checkupauto-update-safety.py',text)
         self.assertIn('"backup"',text)
@@ -30,7 +30,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertNotIn('admin-password',text)
 
     def test_activation_http_verification_pins_origin_but_keeps_tls_hostname(self):
-        text=m._activation_program("f"*40)
+        text=m._activation_program("f"*40,"2"*64)
         self.assertIn('origin_ip = "185.221.181.53"', text)
         self.assertIn('socket.create_connection((origin_ip, 443)', text)
         self.assertIn('context.wrap_socket(raw, server_hostname=domain)', text)
@@ -42,7 +42,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertNotIn('request.urlopen("https://" + domain + "/api/app/status"', text)
 
     def test_activation_checks_all_legal_routes_and_phase2(self):
-        text=m._activation_program("b"*40)
+        text=m._activation_program("b"*40,"3"*64)
         for path in ("/mentions-legales","/confidentialite","/cookies","/cgv","/retractation"):
             self.assertIn(path,text)
         self.assertIn("legacy-rdv-2026-10-04",text)
@@ -69,16 +69,19 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn("checkupauto-test-application/passenger_wsgi.py",run.call_args.kwargs["input"])
 
     def test_activation_compliance_snapshot_uses_release_virtualenv(self):
-        text=m._activation_program("9"*40)
+        text=m._activation_program("9"*40,"4"*64)
         self.assertIn('[str(release / ".venv/bin/python"), "-c", compliance_code]',text)
         self.assertIn('cwd=release',text)
         self.assertIn('env=env',text)
         self.assertIn('"compliance snapshot failed"',text)
+        self.assertIn('rebaseline_verified_release',text)
+        self.assertIn('ARCHIVE_SHA256',text)
+        self.assertIn('"integrity rebaseline failed"',text)
         self.assertNotIn('sys.path.insert(0, str(release))\n    import compliance_admin',text)
 
     def test_activation_progress_is_bounded(self):
-        text=m._activation_program("c"*40)
-        for step in ("preflight","backup","import","switch","restart","http_verify","compliance","rollback"):
+        text=m._activation_program("c"*40,"5"*64)
+        for step in ("preflight","backup","import","switch","restart","http_verify","compliance","integrity","rollback"):
             self.assertIn(m._ACTIVATION_STEP_PREFIX+step,text)
         self.assertEqual(
             m._last_activation_step(
@@ -94,7 +97,9 @@ class LegacyStagingDeployTest(unittest.TestCase):
 
     def test_invalid_sha_is_rejected(self):
         with self.assertRaises(ValueError):
-            m._activation_program("bad")
+            m._activation_program("bad","1"*64)
+        with self.assertRaises(ValueError):
+            m._activation_program("a"*40,"bad")
         with self.assertRaises(ValueError):
             m.deploy("bad","/tmp/key","/tmp/hosts")
 
@@ -117,7 +122,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
         probe.return_value=mock.Mock()
         assess.return_value={"ok":True,"blockers":[]}
         status.return_value={"state":"update_available"}
-        stage.return_value=mock.Mock(sha=sha)
+        stage.return_value=mock.Mock(sha=sha,archive_sha256="6"*64)
         ssh_args.return_value=["ssh","target"]
         run.return_value=subprocess.CompletedProcess(
             [],0,stdout=m._RESULT_PREFIX+json.dumps({"ok":True,"state":"activated","sha":sha}),stderr=""

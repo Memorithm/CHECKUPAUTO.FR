@@ -24,6 +24,8 @@ LATEST = STATE_DIR / 'integrity-latest.json'
 SBOM = STATE_DIR / 'sbom.cdx.json'
 VULN_AUDIT = STATE_DIR / 'vulnerability-audit.json'
 ALERT_STATE = STATE_DIR / 'integrity-alert-state.json'
+_SHA_RE = re.compile(r'^[0-9a-f]{40}$')
+_DIGEST_RE = re.compile(r'^[0-9a-f]{64}$')
 _STOP = threading.Event()
 _THREAD = None
 
@@ -124,6 +126,30 @@ def _component_fingerprint(components: list[dict]) -> str:
     return hashlib.sha256("\n".join(rows).encode()).hexdigest()
 
 
+def _release_state() -> dict:
+    marker = ROOT / '.checkupauto-release.json'
+    sha = ROOT.name if ROOT.parent.name == 'releases' else ''
+    if not _SHA_RE.fullmatch(sha) or not marker.is_file() or marker.is_symlink():
+        return {'available': False, 'verified': False, 'sha': '', 'archiveSha256': ''}
+    try:
+        payload = json.loads(marker.read_text(encoding='utf-8'))
+    except Exception as exc:
+        return {'available': True, 'verified': False, 'sha': sha, 'archiveSha256': '', 'error': type(exc).__name__}
+    digest = str(payload.get('archiveSha256') or '').strip().lower()
+    verified = bool(
+        payload.get('schemaVersion') == 1
+        and payload.get('sha') == sha
+        and payload.get('verified') is True
+        and _DIGEST_RE.fullmatch(digest)
+    )
+    return {
+        'available': True,
+        'verified': verified,
+        'sha': sha,
+        'archiveSha256': digest if _DIGEST_RE.fullmatch(digest) else '',
+    }
+
+
 def _snapshot() -> dict:
     files = {}
     for rel in CRITICAL_FILES:
@@ -133,7 +159,7 @@ def _snapshot() -> dict:
             files[rel] = {'sha256': _sha256(p), 'size': st.st_size}
         else:
             files[rel] = {'missing': True}
-    return {'generatedAt':_now(),'files':files,'git':git_state()}
+    return {'generatedAt':_now(),'files':files,'git':git_state(),'release':_release_state()}
 
 
 def create_baseline(force=False):
@@ -193,14 +219,32 @@ def scan() -> dict:
     for rel in now:
         if rel not in before: added.append(rel)
     git=current.get('git') or {}; base_git=baseline.get('git') or {}
+    release=current.get('release') or {}; base_release=baseline.get('release') or {}
     git_head_changed=bool(git.get('available') and base_git.get('head') and git.get('head')!=base_git.get('head'))
     git_dirty=bool(git.get('dirty'))
+    release_changed=bool(
+        base_release.get('verified')
+        and (
+            not release.get('verified')
+            or release.get('sha') != base_release.get('sha')
+            or release.get('archiveSha256') != base_release.get('archiveSha256')
+        )
+    )
     result={'generatedAt':_now(),'baselineAt':baseline.get('generatedAt'),'baselineGitHead':base_git.get('head',''),
+            'baselineReleaseSha':base_release.get('sha',''),'release':release,'releaseChanged':release_changed,
             'git':git,'gitHeadChanged':git_head_changed,'gitDirty':git_dirty,
-            'ok':not changed and not missing and not added and not git_head_changed and not git_dirty,
+            'ok':not changed and not missing and not added and not git_head_changed and not git_dirty and not release_changed,
             'protectedFiles':len(before),'changed':changed,'missing':missing,'added':added}
     LATEST.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n'); LATEST.chmod(0o600)
     _integrity_alert(result); return result
+
+
+def _emit_rebaseline_event(data: dict, identity: str) -> None:
+    try:
+        alerts.resolve_after_rebaseline()
+        alerts.emit('info','integrity_baseline','Baseline d’intégrité mise à jour',identity,cooldown=0)
+    except Exception:
+        pass
 
 
 def rebaseline():
@@ -210,11 +254,40 @@ def rebaseline():
     if git.get('dirty'):
         raise RuntimeError('Dépôt Git modifié : commit/push requis avant recalage de baseline')
     data=create_baseline(True)
-    try:
-        alerts.resolve_after_rebaseline()
-        alerts.emit('info','integrity_baseline','Baseline d’intégrité mise à jour',data.get('git',{}).get('head',''),cooldown=0)
-    except Exception: pass
+    _emit_rebaseline_event(data, data.get('git',{}).get('head',''))
     return scan()
+
+
+def rebaseline_verified_release(expected_sha: str, expected_archive_sha256: str) -> dict:
+    sha = str(expected_sha or '').strip().lower()
+    digest = str(expected_archive_sha256 or '').strip().lower()
+    if not _SHA_RE.fullmatch(sha):
+        raise ValueError('SHA de release invalide')
+    if not _DIGEST_RE.fullmatch(digest):
+        raise ValueError('empreinte d archive invalide')
+    if ROOT.parent.name != 'releases' or ROOT.name != sha:
+        raise RuntimeError('release active hors layout géré')
+    current = ROOT.parent.parent / 'current'
+    try:
+        current_target = current.resolve(strict=True)
+        root_target = ROOT.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError('release active non résolue') from exc
+    if not current.is_symlink() or current_target != root_target:
+        raise RuntimeError('release non active : recalage refusé')
+    release = _release_state()
+    if (
+        release.get('verified') is not True
+        or release.get('sha') != sha
+        or release.get('archiveSha256') != digest
+    ):
+        raise RuntimeError('marqueur de release vérifié incohérent')
+    data=create_baseline(True)
+    _emit_rebaseline_event(data, sha)
+    result=scan()
+    if result.get('baselineReleaseSha') != sha or result.get('releaseChanged'):
+        raise RuntimeError('baseline de release incohérente')
+    return result
 
 
 def generate_sbom() -> dict:
