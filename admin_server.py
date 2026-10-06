@@ -948,10 +948,6 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/deployment/source':
    try: return self.send_json(deployment_admin.delete_update_source_token())
    except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
-  if path=='/api/admin/email/config':
-   try: return self.send_json({'ok':True,'config':email_gateway.delete_private_smtp_config()})
-   except RuntimeError: return self.send_json({'ok':False,'error':'email_configuration_invalid'},409)
-   except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try: return self.send_json(deployment_admin.save_target(self._read_json()),201)
    except ValueError: return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
@@ -1178,6 +1174,10 @@ class Handler(SimpleHTTPRequestHandler):
   if not self.authorized(): return self.require_auth()
   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
   if path.startswith('/api/admin/') and admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
+  if path=='/api/admin/email/config':
+   try: return self.send_json({'ok':True,'config':email_gateway.delete_private_smtp_config()})
+   except RuntimeError: return self.send_json({'ok':False,'error':'email_configuration_invalid'},409)
+   except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try:
     q=parse_qs(parsed.query); name=(q.get('name') or [''])[0]
