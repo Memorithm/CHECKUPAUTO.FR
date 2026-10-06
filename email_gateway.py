@@ -232,9 +232,19 @@ def _load_environment_config() -> SMTPConfig | None:
     )
 
 
+def _private_smtp_exists() -> bool:
+    path = _smtp_private_path()
+    try:
+        return path.exists()
+    except PermissionError as exc:
+        if not _env("CYBERCHECK_PRIVATE_DIR"):
+            return False
+        raise RuntimeError("configuration SMTP privée inaccessible") from exc
+
+
 def _load_private_smtp_payload() -> dict | None:
     path = _smtp_private_path()
-    if not path.exists():
+    if not _private_smtp_exists():
         return None
     if path.is_symlink() or not path.is_file():
         raise RuntimeError("configuration SMTP privée invalide")
@@ -270,7 +280,7 @@ def load_config() -> SMTPConfig | None:
 
 def smtp_config_info() -> dict:
     source = "environment" if _env("CYBERCHECK_SMTP_FROM") else (
-        "private" if _smtp_private_path().exists() else "none"
+        "private" if _private_smtp_exists() else "none"
     )
     try:
         cfg = load_config()
