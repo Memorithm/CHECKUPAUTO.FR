@@ -51,6 +51,7 @@ import data_subject_rights as data_subject_rights
 import rights_execution_dispatch as rights_execution_dispatch
 import withdrawal_service as withdrawals
 import retention_enforcement as retention_enforcement
+import migration_write_freeze
 ROOT=Path(__file__).resolve().parent
 USER='admin'
 PRIVATE_DIR=Path(os.environ.get('CYBERCHECK_PRIVATE_DIR','/root/CyberCheckPrivate'))
@@ -182,9 +183,23 @@ class Handler(SimpleHTTPRequestHandler):
  def version_string(self): return 'CyberCheck'
  def list_directory(self,path):
   self.send_error(404); return None
+ def _migration_write_allowed(self):
+  if str(getattr(self,'command','')).upper() in {'GET','HEAD','OPTIONS'}: return True
+  try: state=migration_write_freeze.status()
+  except Exception: state={'active':True}
+  if not state.get('active'): return True
+  self.send_json(
+   {'ok':False,'error':'migration_write_frozen'},
+   503,
+   headers={'Retry-After':'120','X-CheckupAuto-Migration-Freeze':'active'},
+  )
+  return False
  def _guard(self):
   if getattr(self,'_security_checked',False): return getattr(self,'_security_allowed',True)
   self._security_checked=True
+  if not self._migration_write_allowed():
+   self._security_allowed=False
+   return False
   raw_target=self.path
   if urlparse(raw_target).path=='/api/integrations/google/oauth/callback':
    raw_target=urlparse(raw_target).path
