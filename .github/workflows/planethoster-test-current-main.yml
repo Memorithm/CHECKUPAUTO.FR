@@ -26,8 +26,6 @@ jobs:
     timeout-minutes: 25
     env:
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-      STAGING_KEY: ${{ runner.home }}/.ssh/checkupauto_planethoster_test_ed25519
-      STAGING_KNOWN_HOSTS: ${{ runner.home }}/.ssh/checkupauto_planethoster_test_known_hosts
     steps:
       - uses: actions/checkout@v5
         with:
@@ -59,13 +57,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(hostname)" = "Mac-mini-de-tarek.local"
-          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
+          key="$HOME/.ssh/checkupauto_planethoster_test_ed25519"
+          hosts="$HOME/.ssh/checkupauto_planethoster_test_known_hosts"
+          for path in "$key" "$hosts"; do
             test -f "$path"
             test ! -L "$path"
           done
-          test "$(ssh-keygen -lf "$STAGING_KNOWN_HOSTS" | awk '{print $2}')" = \
+          test "$(ssh-keygen -lf "$hosts" | awk '{print $2}')" = \
             "SHA256:bSsRNwbVPWB1mHLo7qwavQPg9TUQOF+I40idG8ezcUs"
-          ssh-keygen -y -f "$STAGING_KEY" >/dev/null
+          ssh-keygen -y -f "$key" >/dev/null
+          printf 'STAGING_KEY=%s\nSTAGING_KNOWN_HOSTS=%s\n' "$key" "$hosts" >> "$GITHUB_ENV"
           echo "PLANETHOSTER_REMOTEOPS_IDENTITY_VERIFIED"
       - name: Deploy exact green main through legacy Passenger adapter
         run: |
