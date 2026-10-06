@@ -1,15 +1,12 @@
 name: Hostinger staging release gate
 
 on:
+  # Every main revision is deployable application state. Keep this gate
+  # unfiltered so RemoteOps never receives a runtime SHA that skipped the
+  # Hostinger image/deployment contract merely because the changed file was
+  # outside deploy/hostinger.
   push:
     branches: [main]
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'admin_server.py'
-      - 'deploy/hostinger/**'
-      - 'hostinger_staging_*_test.py'
-      - '.github/workflows/hostinger-staging-deploy.yml'
   workflow_dispatch:
 
 permissions:
