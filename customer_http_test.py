@@ -145,6 +145,20 @@ class CustomerHttpTest(unittest.TestCase):
         }):
             self.assertEqual(http._google_review_url(),http.GOOGLE_REVIEW_FALLBACK_URL)
 
+    def test_dashboard_review_defaults_to_five_stars_before_google_confirmation(self):
+        h=Handler("/compte")
+        with patch.object(http,"_account",return_value=("session-token",self.account())), \
+             patch.object(http.customer_accounts,"csrf_token",return_value="c"*64), \
+             patch.object(http,"_google_review_url",return_value="https://g.page/r/example/review"):
+            self.assertTrue(http.handle(h))
+        body=h.response["data"].decode()
+        self.assertEqual(body.count('class="review-star selected"'),5)
+        self.assertIn('data-rating="5" role="radio" aria-checked="true"',body)
+        self.assertIn("5 étoiles sélectionnées par défaut.",body)
+        self.assertIn("Le commentaire reste vide tant que vous ne le saisissez pas dans Google.",body)
+        self.assertIn('href="https://g.page/r/example/review"',body)
+        self.assertIn("Google demande la confirmation finale de la note.",body)
+
     @unittest.skipUnless(shutil.which("node"),"Node.js is required for inline dashboard syntax validation")
     def test_dashboard_inline_javascript_parses(self):
         h=Handler("/compte")
