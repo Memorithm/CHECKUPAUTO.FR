@@ -21,13 +21,15 @@ class PlanetHosterCurrentMainControlPlaneTest(unittest.TestCase):
 
     def test_existing_remoteops_planethoster_identity_is_required(self):
         self.assertIn(
-            '${{ runner.home }}/.ssh/checkupauto_planethoster_test_ed25519',
+            'key="$HOME/.ssh/checkupauto_planethoster_test_ed25519"',
             self.text,
         )
         self.assertIn(
-            '${{ runner.home }}/.ssh/checkupauto_planethoster_test_known_hosts',
+            'hosts="$HOME/.ssh/checkupauto_planethoster_test_known_hosts"',
             self.text,
         )
+        self.assertIn("STAGING_KEY=%s",self.text)
+        self.assertIn("STAGING_KNOWN_HOSTS=%s",self.text)
         self.assertIn(
             "SHA256:bSsRNwbVPWB1mHLo7qwavQPg9TUQOF+I40idG8ezcUs",
             self.text,
@@ -35,6 +37,7 @@ class PlanetHosterCurrentMainControlPlaneTest(unittest.TestCase):
         self.assertIn('ssh-keygen -y -f "$STAGING_KEY"',self.text)
         self.assertNotIn("ssh-keygen -t",self.text)
         self.assertNotIn("ssh-keyscan",self.text)
+        self.assertNotIn("runner.home",self.text)
 
     def test_release_is_still_exact_green_current_main(self):
         self.assertIn('workflows: ["Security CI"]',self.text)
