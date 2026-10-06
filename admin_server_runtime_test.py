@@ -139,6 +139,42 @@ class AdminServerRuntimeTest(unittest.TestCase):
         self.assertEqual(modules["security_alerts"].start.call_count, 1)
 
 
+    def test_frozen_runtime_skips_core_and_background_initialization(self):
+        tmp, ns = self.load_server()
+        self.addCleanup(tmp.cleanup)
+
+        modules={}
+        for name in (
+            "analytics","referrals","notifications","mobile_devices","reminder_dispatch",
+            "booking","booking_test","reviews","withdrawals","retention_enforcement",
+            "security","security_alerts","competitive","mobile_authoritative_sync",
+            "mobile_reminder_dispatch","security_integrity","security_ai",
+        ):
+            modules[name]=mock.Mock(name=name)
+            ns[name]=modules[name]
+
+        ns["_RUNTIME_CORE_READY"]=False
+        ns["_RUNTIME_BACKGROUND_READY"]=False
+        fn=ns["initialize_runtime"]
+        fn.__globals__.update(ns)
+
+        with mock.patch.object(
+            ns["migration_write_freeze"],
+            "status",
+            return_value={"active":True,"valid":True,"state":"frozen"},
+        ), mock.patch.object(ns["os"],"chdir") as chdir:
+            result=fn(background=True)
+
+        self.assertEqual(result,{
+            "coreReady":False,
+            "backgroundReady":False,
+            "writeFrozen":True,
+        })
+        chdir.assert_not_called()
+        for module in modules.values():
+            for method in ("init_db","start","seed_public_baseline","seed_review_baseline"):
+                getattr(module,method).assert_not_called()
+
     def test_server_bind_address_defaults_to_loopback(self):
         tmp, ns = self.load_server()
         self.addCleanup(tmp.cleanup)
