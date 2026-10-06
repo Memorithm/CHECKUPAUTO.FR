@@ -57,14 +57,28 @@ class AdminServerMigrationFreezeTest(unittest.TestCase):
             self.assertFalse(handler._migration_write_allowed())
         self.assertEqual(handler.responses[0]["body"]["error"],"migration_write_frozen")
 
-    def test_safe_methods_remain_readable_without_touching_freeze_state(self):
-        for method in ("GET","HEAD","OPTIONS"):
-            with self.subTest(method=method):
+    def test_explicit_read_only_surface_remains_available(self):
+        for method,path in (("GET","/"),("HEAD","/cgv"),("OPTIONS","/contact")):
+            with self.subTest(method=method,path=path):
                 handler=self.handler(method)
-                with mock.patch("admin_server.migration_write_freeze.status") as status:
+                handler.path=path
+                with mock.patch(
+                    "admin_server.migration_write_freeze.status",
+                    return_value={"active":True,"valid":True,"state":"frozen"},
+                ):
                     self.assertTrue(handler._migration_write_allowed())
-                status.assert_not_called()
+                self.assertTrue(handler._migration_frozen_readonly)
                 self.assertEqual(handler.responses,[])
+
+    def test_transactional_get_is_blocked(self):
+        handler=self.handler("GET")
+        handler.path="/go/booking"
+        with mock.patch(
+            "admin_server.migration_write_freeze.status",
+            return_value={"active":True,"valid":True,"state":"frozen"},
+        ):
+            self.assertFalse(handler._migration_write_allowed())
+        self.assertEqual(handler.responses[0]["status"],503)
 
     def test_guard_stops_mutations_before_security_or_route_handlers(self):
         handler=self.handler("POST")
@@ -75,6 +89,17 @@ class AdminServerMigrationFreezeTest(unittest.TestCase):
             self.assertFalse(handler._guard())
         evaluate.assert_not_called()
         self.assertFalse(handler._security_allowed)
+
+    def test_guard_bypasses_security_writes_for_frozen_read_only_surface(self):
+        handler=self.handler("GET")
+        handler.path="/"
+        with mock.patch(
+            "admin_server.migration_write_freeze.status",
+            return_value={"active":True,"valid":True,"state":"frozen"},
+        ), mock.patch("admin_server.security.evaluate") as evaluate:
+            self.assertTrue(handler._guard())
+        evaluate.assert_not_called()
+        self.assertTrue(handler._security_allowed)
 
     def test_freeze_gate_is_runtime_integrity_critical(self):
         self.assertIn("migration_write_freeze.py",security_integrity.CRITICAL_FILES)
