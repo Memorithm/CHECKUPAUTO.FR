@@ -37,6 +37,16 @@ class HostingerStagingMigrationFinalizeTest(unittest.TestCase):
         self.assertIn("freeze --reason hostinger_finalize_failed",text)
         self.assertIn("HOSTINGER_MIGRATION_FINALIZE_ROLLED_BACK_TO_FREEZE",text)
 
+    def test_finalize_requires_verified_import_rollback_state(self):
+        text=SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('IMPORT_RECEIPT="$ROOT/migration-last-import.json"',text)
+        receipt=text.index("HOSTINGER_MIGRATION_IMPORT_RECEIPT_INVALID")
+        previous=text.index("HOSTINGER_MIGRATION_ROLLBACK_STATE_VERIFIED")
+        freeze=text.index("HOSTINGER_MIGRATION_PRE_FINALIZE_FREEZE_VERIFIED")
+        self.assertLess(receipt,previous)
+        self.assertLess(previous,freeze)
+        self.assertIn(r"\.migration-previous-[0-9a-f]{32}",text)
+
     def test_success_revalidates_https_exact_release_and_inactive_freeze(self):
         text=SCRIPT.read_text(encoding="utf-8")
         self.assertIn('"https://$HOST/"',text)
@@ -45,8 +55,12 @@ class HostingerStagingMigrationFinalizeTest(unittest.TestCase):
         self.assertIn('"source":"remoteops-approved-git-archive"',text)
         self.assertIn('state.get("state")!="inactive"',text)
         unfreeze_verified=text.index("HOSTINGER_MIGRATION_UNFREEZE_VERIFIED")
+        purge=text.index("HOSTINGER_MIGRATION_ROLLBACK_STATE_PURGED")
         success=text.index("HOSTINGER_MIGRATION_STATE_ACTIVE=")
-        self.assertLess(unfreeze_verified,success)
+        self.assertLess(unfreeze_verified,purge)
+        self.assertLess(purge,success)
+        self.assertIn("shutil.rmtree(previous)",text)
+        self.assertIn("receipt.unlink()",text)
 
 
 if __name__=="__main__":
