@@ -203,7 +203,7 @@ def _smtp_config_from_values(
             raise ValueError("identifiant SMTP invalide")
         clean_password = _clean_secret(clean_password)
         if clean_mode == "plain":
-            raise ValueError("authentification SMTP chiffrée requise")
+            raise ValueError("SMTP authentication requires starttls or ssl")
     return SMTPConfig(
         host=clean_host,
         port=clean_port,
