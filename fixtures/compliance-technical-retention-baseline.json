@@ -30,8 +30,7 @@
   ],
   "deliberatelyUnconfigured": [
     "notification_delivery",
-    "mobile_inactive_installations",
-    "checkout_acceptance_transient"
+    "mobile_inactive_installations"
   ],
   "requiresLegalReview": [
     "booking_conversions",
@@ -39,5 +38,8 @@
     "withdrawal_evidence",
     "rights_requests_and_audit",
     "referral_ledger"
+  ],
+  "automaticEventRules": [
+    "checkout_acceptance_transient"
   ]
 }
