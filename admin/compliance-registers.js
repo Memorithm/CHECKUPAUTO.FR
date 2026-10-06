@@ -181,6 +181,11 @@ function render(snapshot){
  if($('#operationsProcessors'))$('#operationsProcessors').textContent=String(summary.activeProcessorCount??0)+' / '+String(summary.processorCount??0);
  if($('#operationsBlockers'))$('#operationsBlockers').textContent=String(summary.blockerCount??0);
  if($('#operationsAttestation'))$('#operationsAttestation').textContent=attestation.current?'À JOUR':(attestation.stale?'OBSOLÈTE':'À ATTESTER');
+ const detail=$('#operationsAttestationDetail');
+ if(detail){detail.textContent=attestation.current?'À JOUR':(attestation.stale?'OBSOLÈTE':'À ATTESTER');detail.className='gsc-status '+(attestation.current?'online':'warning');}
+ value('#operationsRegisterHash',attestation.currentRegisterHash||'');
+ if($('#operationsReviewedAt'))$('#operationsReviewedAt').textContent=attestation.reviewedAt?new Date(attestation.reviewedAt).toLocaleString('fr-FR'):'Jamais';
+ if($('#operationsAttest'))$('#operationsAttest').disabled=!attestation.currentRegisterHash||attestation.current===true;
  renderBlockers(summary.blockers);renderActivities(operations.processingActivities);renderProcessors(operations.processors);renderBookingReconciliation(snapshot);
 }
 
@@ -201,6 +206,21 @@ async function postJson(path,payload){
 }
 
 $('#operationsRefresh')?.addEventListener('click',()=>load().catch(error=>setMessage(error.message,true)));
+$('#operationsAttest')?.addEventListener('click',async()=>{
+ const confirmed=$('#operationsReviewConfirm')?.checked===true;
+ const expected=text($('#operationsRegisterHash')?.value).trim().toLowerCase();
+ if(!confirmed){setMessage('Confirmez explicitement la revue des registres avant l’attestation.',true);return;}
+ if(!/^[0-9a-f]{64}$/.test(expected)){setMessage('Empreinte de registre invalide ou absente.',true);return;}
+ try{
+  await postJson('/api/admin/compliance/register-attestation',{
+   confirm:'CURRENT-REGISTERS-REVIEWED',
+   expectedRegisterHash:expected
+  });
+  if($('#operationsReviewConfirm'))$('#operationsReviewConfirm').checked=false;
+  await load();
+  setMessage('Revue attestée pour l’empreinte exacte affichée.');
+ }catch(error){setMessage(error.message,true);}
+});
 $('#activityReset')?.addEventListener('click',resetActivity);
 $('#processorReset')?.addEventListener('click',resetProcessor);
 $('#activityForm')?.addEventListener('submit',async event=>{

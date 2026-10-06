@@ -34,6 +34,13 @@
       <p class="hint">Toute modification sémantique change l’empreinte des registres et rend l’attestation précédente obsolète jusqu’à une nouvelle revue explicite.</p>
 
       <div class="integration-box">
+        <div class="panel-head compact"><div><h2>Attestation de revue</h2><p class="hint">Attestez uniquement après avoir relu les activités et sous-traitants affichés ci-dessous. L’attestation est liée à l’empreinte SHA-256 exacte du registre courant ; toute modification l’invalide automatiquement.</p></div><span id="operationsAttestationDetail" class="gsc-status warning">À vérifier</span></div>
+        <label>Empreinte courante<input id="operationsRegisterHash" readonly></label>
+        <label><input id="operationsReviewConfirm" type="checkbox"> Je confirme avoir relu les registres affichés pour cette empreinte.</label>
+        <div class="button-row"><button type="button" id="operationsAttest">Attester cette revue</button><span id="operationsReviewedAt" class="hint">Jamais</span></div>
+      </div>
+
+      <div class="integration-box">
         <div class="panel-head compact"><div><h2>Blocages opérationnels</h2><p class="hint">Un registre vide, une revue dépassée, un DPA en attente, un transfert non documenté ou une revue de risque incomplète maintient la garde de mise en production fermée.</p></div></div>
         <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Type</th><th>Objet</th><th>Identifiant</th></tr></thead><tbody id="operationsBlockerRows"><tr><td colspan="3">Chargement…</td></tr></tbody></table></div>
       </div>

@@ -40,6 +40,22 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
         self.assertNotIn("insertAdjacentHTML", self.js)
         self.assertNotIn("document.write", self.js)
 
+    def test_view_exposes_hash_bound_register_attestation(self):
+        for element_id in (
+            "operationsAttestationDetail",
+            "operationsRegisterHash",
+            "operationsReviewConfirm",
+            "operationsAttest",
+            "operationsReviewedAt",
+        ):
+            self.assertIn(f'id="{element_id}"', self.html)
+        self.assertIn("/api/admin/compliance/register-attestation", self.js)
+        self.assertIn("CURRENT-REGISTERS-REVIEWED", self.js)
+        self.assertIn("expectedRegisterHash:expected", self.js)
+        self.assertIn("/^[0-9a-f]{64}$/.test(expected)", self.js)
+        self.assertIn("attestation.currentRegisterHash", self.js)
+        self.assertNotIn("attestation.attestedRegisterHash||attestation.currentRegisterHash", self.js)
+
     def test_view_exposes_bounded_write_forms_and_endpoints(self):
         for element_id in (
             "activityForm", "activityId", "activityName", "activityPurposes",
