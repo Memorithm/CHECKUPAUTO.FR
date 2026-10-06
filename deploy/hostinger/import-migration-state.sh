@@ -65,4 +65,6 @@ if not state.get("active") or not state.get("valid") or state.get("state")!="fro
 print("HOSTINGER_MIGRATION_FREEZE_VERIFIED")
 PY
 
+rm -rf -- "$snapshot"
+echo "HOSTINGER_MIGRATION_SNAPSHOT_REMOVED"
 echo "HOSTINGER_MIGRATION_STATE_IMPORTED"
