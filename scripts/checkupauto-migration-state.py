@@ -322,6 +322,10 @@ def import_snapshot(snapshot: str|Path,target_root: str|Path,*,uid: int|None=Non
     try:
         for group in GROUPS:
             _copy_group(source/group,incoming/group)
+        shutil.copyfile(source/"manifest.json",incoming/"manifest.json")
+        os.chmod(incoming/"manifest.json",0o600)
+        verify_snapshot(incoming)
+        (incoming/"manifest.json").unlink()
         _normalize_hostinger_private(incoming/"private")
         _freeze_marker(incoming/"data")
         _secure_tree(incoming,uid,gid)
