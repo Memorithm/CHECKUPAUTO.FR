@@ -60,6 +60,24 @@ class AdminMFAServerContractTest(unittest.TestCase):
         )
         self.assertIn("return self.require_mfa()", block)
 
+    def test_expected_auth_challenges_do_not_feed_generic_response_risk(self):
+        source = (ROOT / "admin_server.py").read_text(encoding="utf-8")
+        self.assertIn("_security_expected_auth_challenge=True", source)
+        self.assertIn(
+            "and not getattr(self,'_security_expected_auth_challenge',False)",
+            source,
+        )
+        require_mfa = source.index(" def require_mfa(self):")
+        require_auth = source.index(" def require_auth(self):")
+        self.assertIn(
+            "_security_expected_auth_challenge=True",
+            source[require_mfa:require_mfa + 180],
+        )
+        self.assertIn(
+            "_security_expected_auth_challenge=True",
+            source[require_auth:require_auth + 520],
+        )
+
     def test_security_guard_rate_limits_mfa_attempts(self):
         source = (ROOT / "security_guard.py").read_text(encoding="utf-8")
         self.assertIn("'/api/admin/auth/2fa/setup': 4", source)
