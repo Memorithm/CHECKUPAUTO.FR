@@ -55,6 +55,11 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
         self.assertIn("JSON.stringify(payload)", self.js)
         self.assertIn("actionCell('Modifier'", self.js)
 
+    def test_main_compliance_center_links_to_operational_registers(self):
+        main = Path("admin/index.html").read_text(encoding="utf-8")
+        self.assertIn('href="/admin/compliance-registers.html"', main)
+        self.assertIn("Registres opérationnels", main)
+
     def test_page_does_not_embed_secrets_or_inline_script(self):
         self.assertIn('<script src="/admin/compliance-registers.js" defer></script>', self.html)
         self.assertNotIn("<script>", self.html)
