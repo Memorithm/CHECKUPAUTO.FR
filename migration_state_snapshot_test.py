@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT=Path(__file__).resolve().parent
@@ -78,6 +79,8 @@ class MigrationStateSnapshotTest(unittest.TestCase):
         for path in snapshot.rglob("*"):
             if path.is_file():
                 self.assertEqual(path.stat().st_mode & 0o777,0o600)
+            elif path.is_dir():
+                self.assertEqual(path.stat().st_mode & 0o777,0o700)
 
     def test_export_refuses_state_without_active_freeze(self):
         (self.shared/"data"/".migration-write-freeze.json").unlink()
@@ -127,6 +130,56 @@ class MigrationStateSnapshotTest(unittest.TestCase):
         previous=target/result["previousState"]
         self.assertEqual((previous/"data"/"old.txt").read_text(encoding="utf-8"),"old")
         self.assertEqual((previous/"private"/"old.secret").read_text(encoding="utf-8"),"old")
+
+    def test_export_aborts_if_source_is_unfrozen_during_copy(self):
+        snapshot=self.root/"snapshot"
+        real_copy=self.mod._copy_file
+        changed={"done":False}
+
+        def copy_then_unfreeze(source,destination):
+            result=real_copy(source,destination)
+            if not changed["done"]:
+                changed["done"]=True
+                (self.shared/"data"/".migration-write-freeze.json").unlink()
+            return result
+
+        with mock.patch.object(self.mod,"_copy_file",side_effect=copy_then_unfreeze):
+            with self.assertRaisesRegex(RuntimeError,"freeze marker"):
+                self.mod.export_snapshot(self.shared,snapshot)
+        self.assertFalse(snapshot.exists())
+
+    def test_import_rolls_back_all_groups_if_swap_fails_midway(self):
+        (self.shared/"private"/"gsc-service-account.json").unlink()
+        snapshot=self.export()
+        target=self.root/"target"
+        target.mkdir()
+        for group in self.mod.GROUPS:
+            (target/group).mkdir()
+        (target/"data"/"old.txt").write_text("old-data",encoding="utf-8")
+        (target/"private"/"old.secret").write_text("old-private",encoding="utf-8")
+        (target/"security"/"old.log").write_text("old-security",encoding="utf-8")
+
+        real_replace=self.mod.os.replace
+
+        def fail_private_swap(source,destination):
+            src=Path(source)
+            dst=Path(destination)
+            if (
+                src.name=="private"
+                and src.parent.name.startswith(".migration-incoming-")
+                and dst==target/"private"
+            ):
+                raise OSError("injected swap failure")
+            return real_replace(source,destination)
+
+        with mock.patch.object(self.mod.os,"replace",side_effect=fail_private_swap):
+            with self.assertRaisesRegex(OSError,"injected swap failure"):
+                self.mod.import_snapshot(snapshot,target)
+
+        self.assertEqual((target/"data"/"old.txt").read_text(encoding="utf-8"),"old-data")
+        self.assertEqual((target/"private"/"old.secret").read_text(encoding="utf-8"),"old-private")
+        self.assertEqual((target/"security"/"old.log").read_text(encoding="utf-8"),"old-security")
+        self.assertFalse((target/"data"/"customer-accounts.sqlite3").exists())
 
     def test_gsc_migration_refuses_conflicting_dual_credentials(self):
         integrations=self.shared/"private"/"integrations"
