@@ -32,6 +32,7 @@ import reminder_engine as reminders
 import reminder_dispatch as reminder_dispatch
 import notification_broker as notifications
 import notification_preflight as notification_preflight
+import email_gateway as email_gateway
 import production_readiness as production_readiness
 import deployment_admin as deployment_admin
 import admin_mfa as admin_mfa
@@ -448,6 +449,15 @@ class Handler(SimpleHTTPRequestHandler):
     q=parse_qs(parsed.query); limit=int((q.get('limit') or ['20'])[0])
     return self.send_json(notifications.status(limit))
    except Exception as exc: return self.send_json({'ok':False,'error':'notification_status_unavailable'},400)
+  if path=='/api/admin/email/config':
+   if not self.authorized(): return self.require_auth()
+   try:
+    return self.send_json({
+     'ok':True,
+     'config':email_gateway.smtp_config_info(),
+     'transport':email_gateway.transport_status(),
+    })
+   except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
   if path=='/api/admin/analytics':
    if not self.authorized(): return self.require_auth()
    try:
@@ -938,6 +948,10 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/admin/deployment/source':
    try: return self.send_json(deployment_admin.delete_update_source_token())
    except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
+  if path=='/api/admin/email/config':
+   try: return self.send_json({'ok':True,'config':email_gateway.delete_private_smtp_config()})
+   except RuntimeError: return self.send_json({'ok':False,'error':'email_configuration_invalid'},409)
+   except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try: return self.send_json(deployment_admin.save_target(self._read_json()),201)
    except ValueError: return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
@@ -1041,6 +1055,13 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     self._read_json(allow_empty=True); return self.send_json(notification_preflight.run())
    except Exception as exc: return self.send_json({'ok':False,'error':'notification_preflight_failed'},400)
+  if path=='/api/admin/email/config':
+   try:
+    payload=self._read_json()
+    info=email_gateway.save_private_smtp_config(payload)
+    return self.send_json({'ok':True,'config':info,'preflight':email_gateway.smtp_preflight()})
+   except (ValueError,RuntimeError): return self.send_json({'ok':False,'error':'email_configuration_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
   if path=='/api/admin/notifications/permanent/recipient-check':
    try:
     payload=self._read_json(); return self.send_json(reminder_dispatch.permanent_recipient_check(payload.get('incidentId')))
