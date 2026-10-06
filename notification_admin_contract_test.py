@@ -77,6 +77,46 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("/api/admin/notifications/preflight", javascript)
         self.assertIn("/api/admin/notifications/preflight", server)
 
+    def test_admin_exposes_private_smtp_configuration_without_secret_echo(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        server = (ROOT / "admin_server.py").read_text()
+        for element in (
+            'id="smtpHost"',
+            'id="smtpPort"',
+            'id="smtpMode"',
+            'id="smtpSender"',
+            'id="smtpUsername"',
+            'id="smtpPassword"',
+            'id="smtpSave"',
+            'id="smtpDelete"',
+        ):
+            self.assertIn(element, html)
+        self.assertIn('type="password"', html)
+        self.assertIn("/api/admin/email/config", javascript)
+        self.assertIn("/api/admin/email/config", server)
+        self.assertIn("email_gateway.save_private_smtp_config", server)
+        self.assertIn("email_gateway.delete_private_smtp_config", server)
+        self.assertIn("email_gateway.smtp_preflight()", server)
+        self.assertNotIn("config.password", javascript)
+        self.assertNotIn("private-mailbox-secret", html)
+        self.assertNotIn("private-mailbox-secret", javascript)
+
+    def test_smtp_admin_route_is_inside_existing_mfa_protected_admin_boundary(self):
+        server = (ROOT / "admin_server.py").read_text()
+        post = server.index(" def do_POST(self):")
+        guard = server.index("if path.startswith('/api/admin/'):", post)
+        email_post = server.index("if path=='/api/admin/email/config':", guard)
+        self.assertLess(guard, email_post)
+        guard_block = server[guard:email_post]
+        self.assertIn("if not self.authorized(): return self.require_auth()", guard_block)
+        self.assertIn("admin_mfa.configured() and not self._mfa_session_valid()", guard_block)
+        delete = server.index(" def do_DELETE(self):")
+        email_delete = server.index("if path=='/api/admin/email/config':", delete)
+        delete_guard = server[delete:email_delete]
+        self.assertIn("if not self.authorized(): return self.require_auth()", delete_guard)
+        self.assertIn("admin_mfa.configured() and not self._mfa_session_valid()", delete_guard)
+
     def test_admin_exposes_ios_distribution_channel(self):
         html = (ROOT / "admin" / "index.html").read_text()
         javascript = (ROOT / "admin" / "notifications.js").read_text()
