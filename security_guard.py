@@ -360,7 +360,7 @@ def auth_failure(client: str, path='/admin/'):
     now = time.monotonic()
     with _LOCK:
         last = float(_AUTH_FAIL_BURST.get(client, 0.0) or 0.0)
-        if last and now - last < AUTH_FAIL_BURST_SECONDS:
+        if last and now - last < _AUTH_FAIL_BURST_SECONDS:
             return
         _AUTH_FAIL_BURST[client] = now
         q = _AUTH_FAIL[client]; q.append(now); _prune(q, now, 600)
