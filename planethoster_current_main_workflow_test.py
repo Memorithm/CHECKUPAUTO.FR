@@ -11,8 +11,10 @@ class PlanetHosterCurrentMainWorkflowTest(unittest.TestCase):
   self.assertIn("stale deployment refused",text)
  def test_workflow_uses_existing_dedicated_key_and_strict_deployer(self):
   text=(ROOT/".github/workflows/planethoster-test-current-main.yml").read_text()
-  self.assertIn("/opt/actions-runner/.ssh/checkupauto_planethoster_ed25519",text)
-  self.assertIn("/opt/actions-runner/.ssh/planethoster_known_hosts",text)
+  self.assertIn('key="$HOME/.ssh/checkupauto_planethoster_test_ed25519"',text)
+  self.assertIn('hosts="$HOME/.ssh/checkupauto_planethoster_test_known_hosts"',text)
+  self.assertIn("runs-on: [self-hosted, macOS, ARM64, remoteops, mac-mini]",text)
+  self.assertIn("PLANETHOSTER_REMOTEOPS_IDENTITY_VERIFIED",text)
   self.assertIn("checkupauto-planethoster-legacy-staging-deploy.py",text)
   self.assertNotIn("StrictHostKeyChecking=no",text)
 if __name__=="__main__": unittest.main()
