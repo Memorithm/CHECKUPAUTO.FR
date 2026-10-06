@@ -43,6 +43,7 @@ jobs:
             hostinger_staging_control_plane_test.py \
             hostinger_staging_deployment_provenance_test.py \
             hostinger_staging_migration_import_test.py \
+            hostinger_staging_migration_finalize_test.py \
             public_redirect_test.py
       - name: Validate Docker compose model
         shell: bash
