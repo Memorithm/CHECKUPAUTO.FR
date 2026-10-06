@@ -6,6 +6,7 @@ ROOT=/srv/checkupauto/staging
 STATE="$ROOT/state"
 CURRENT="$ROOT/current"
 CONTAINER=checkupauto-staging-web
+IMPORT_RECEIPT="$ROOT/migration-last-import.json"
 HOST="${CHECKUPAUTO_STAGING_HOST:-stage.179.198.210.187.sslip.io}"
 
 if [ "$#" -ne 2 ] || [ "$1" != "--confirm" ] || [ "$2" != "ACTIVATE_MIGRATED_STATE" ]; then
@@ -31,6 +32,36 @@ fi
 tool="$release/migration_write_freeze.py"
 test -f "$tool"
 export CYBERCHECK_DATA_DIR="$STATE/data"
+if [ -L "$IMPORT_RECEIPT" ] || [ ! -f "$IMPORT_RECEIPT" ]; then
+  echo "HOSTINGER_MIGRATION_IMPORT_RECEIPT_INVALID"
+  exit 74
+fi
+previous_state="$(python3 - "$IMPORT_RECEIPT" "$STATE" <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+
+receipt=Path(sys.argv[1])
+state=Path(sys.argv[2]).resolve()
+raw=receipt.read_bytes()
+if not raw or len(raw)>4096:
+    raise SystemExit("migration import receipt invalid")
+payload=json.loads(raw.decode("utf-8"))
+name=str(payload.get("previousState") or "")
+if (
+    payload.get("schemaVersion")!=1
+    or payload.get("purpose")!="hostinger-migration-import-rollback"
+    or re.fullmatch(r"\.migration-previous-[0-9a-f]{32}",name) is None
+):
+    raise SystemExit("migration import receipt invalid")
+previous=state/name
+if previous.is_symlink() or not previous.is_dir() or previous.parent.resolve()!=state:
+    raise SystemExit("migration previous state invalid")
+print(name)
+PY
+)"
+echo "HOSTINGER_MIGRATION_ROLLBACK_STATE_VERIFIED=$previous_state"
 
 python3 - "$release" <<'PY'
 from pathlib import Path
@@ -141,6 +172,38 @@ if state.get("active") or not state.get("valid") or state.get("state")!="inactiv
     raise SystemExit("migration state unexpectedly frozen after finalize")
 print("HOSTINGER_MIGRATION_UNFREEZE_VERIFIED")
 PY
+
+python3 - "$IMPORT_RECEIPT" "$STATE" "$previous_state" <<'PY'
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import sys
+
+receipt=Path(sys.argv[1])
+state=Path(sys.argv[2]).resolve()
+expected=sys.argv[3]
+payload=json.loads(receipt.read_text(encoding="utf-8"))
+name=str(payload.get("previousState") or "")
+if (
+    name!=expected
+    or re.fullmatch(r"\.migration-previous-[0-9a-f]{32}",name) is None
+):
+    raise SystemExit("migration rollback cleanup receipt mismatch")
+previous=state/name
+if previous.is_symlink() or not previous.is_dir() or previous.parent.resolve()!=state:
+    raise SystemExit("migration rollback cleanup target invalid")
+shutil.rmtree(previous)
+receipt.unlink()
+for directory in (state,receipt.parent):
+    fd=os.open(directory,os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+PY
+echo "HOSTINGER_MIGRATION_ROLLBACK_STATE_PURGED=$previous_state"
 
 trap - ERR
 echo "HOSTINGER_MIGRATION_STATE_ACTIVE=$sha"
