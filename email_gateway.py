@@ -5,9 +5,13 @@ import ipaddress
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 from email.utils import parseaddr
+import json
 import os
+from pathlib import Path
+import re
 import smtplib
 import ssl
+import tempfile
 
 import requests
 
@@ -42,6 +46,9 @@ GMAIL_STATUS_REASON_MAP = {
     "DEADLINE_EXCEEDED": "backendError",
 }
 SMTP_CONFIGURATION_CODES = {530, 534, 535, 538}
+SMTP_PRIVATE_SCHEMA = "checkupauto.smtp-private/v1"
+SMTP_PRIVATE_FILENAME = "smtp-transport.json"
+_HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 
 
 class EmailDeliveryError(RuntimeError):
@@ -127,30 +134,264 @@ def valid_email(value: object) -> bool:
     return bool(local and "." in domain and not domain.startswith(".") and not domain.endswith("."))
 
 
-def load_config() -> SMTPConfig | None:
+def _private_dir() -> Path:
+    return Path(
+        os.environ.get("CYBERCHECK_PRIVATE_DIR", "/root/CyberCheckPrivate")
+    ).expanduser()
+
+
+def _smtp_private_path() -> Path:
+    return _private_dir() / "integrations" / SMTP_PRIVATE_FILENAME
+
+
+def _ensure_smtp_private_dir() -> Path:
+    root = _smtp_private_path().parent
+    if root.exists() and root.is_symlink():
+        raise RuntimeError("répertoire SMTP privé invalide")
+    root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o700)
+    return root
+
+
+def _clean_host(value: object) -> str:
+    host = str(value or "").strip().lower()
+    if (
+        not _HOST_RE.fullmatch(host)
+        or host.startswith(".")
+        or host.endswith(".")
+        or ".." in host
+    ):
+        raise ValueError("hôte SMTP invalide")
+    return host
+
+
+def _clean_secret(value: object) -> str:
+    secret = str(value or "")
+    if not secret or len(secret) > 512 or any(ord(ch) < 32 for ch in secret):
+        raise ValueError("mot de passe SMTP invalide")
+    return secret
+
+
+def _smtp_config_from_values(
+    *,
+    host: object,
+    port: object,
+    sender: object,
+    mode: object,
+    username: object = "",
+    password: object = "",
+    allow_unauthenticated_remote: bool = False,
+) -> SMTPConfig:
+    clean_host = _clean_host(host)
+    clean_mode = str(mode or "").strip().lower()
+    if clean_mode not in {"starttls", "ssl", "plain"}:
+        raise ValueError("mode SMTP invalide")
+    try:
+        clean_port = int(port)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("port SMTP invalide") from exc
+    if clean_port < 1 or clean_port > 65535:
+        raise ValueError("port SMTP invalide")
+    clean_sender = str(sender or "").strip()
+    if not valid_email(clean_sender):
+        raise ValueError("expéditeur SMTP invalide")
+    clean_username = str(username or "").strip()
+    clean_password = str(password or "")
+    if bool(clean_username) != bool(clean_password):
+        raise ValueError("identifiant et mot de passe SMTP requis ensemble")
+    if clean_username:
+        if len(clean_username) > 254 or any(ord(ch) < 32 for ch in clean_username):
+            raise ValueError("identifiant SMTP invalide")
+        clean_password = _clean_secret(clean_password)
+        if clean_mode == "plain":
+            raise ValueError("authentification SMTP chiffrée requise")
+    elif not _local_smtp_host(clean_host) and not allow_unauthenticated_remote:
+        raise ValueError("authentification SMTP distante requise")
+    return SMTPConfig(
+        host=clean_host,
+        port=clean_port,
+        sender=clean_sender,
+        mode=clean_mode,
+        username=clean_username,
+        password=clean_password,
+    )
+
+
+def _load_environment_config() -> SMTPConfig | None:
     sender = _env("CYBERCHECK_SMTP_FROM")
     if not sender:
         return None
     host = _env("CYBERCHECK_SMTP_HOST") or "127.0.0.1"
     mode = (_env("CYBERCHECK_SMTP_MODE") or "plain").lower()
-    if mode not in {"starttls", "ssl", "plain"}:
-        raise ValueError("CYBERCHECK_SMTP_MODE must be starttls, ssl or plain")
     default_port = 465 if mode == "ssl" else (587 if mode == "starttls" else 25)
+    port = _env("CYBERCHECK_SMTP_PORT") or str(default_port)
+    return _smtp_config_from_values(
+        host=host,
+        port=port,
+        sender=sender,
+        mode=mode,
+        username=_env("CYBERCHECK_SMTP_USERNAME"),
+        password=_env("CYBERCHECK_SMTP_PASSWORD"),
+        allow_unauthenticated_remote=_bool_env(
+            "CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE"
+        ),
+    )
+
+
+def _load_private_smtp_payload() -> dict | None:
+    path = _smtp_private_path()
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("configuration SMTP privée invalide")
     try:
-        port = int(_env("CYBERCHECK_SMTP_PORT") or default_port)
-    except ValueError as exc:
-        raise ValueError("CYBERCHECK_SMTP_PORT invalid") from exc
-    if port < 1 or port > 65535:
-        raise ValueError("CYBERCHECK_SMTP_PORT invalid")
-    if not valid_email(sender):
-        raise ValueError("CYBERCHECK_SMTP_FROM invalid")
-    username = _env("CYBERCHECK_SMTP_USERNAME")
-    password = _env("CYBERCHECK_SMTP_PASSWORD")
-    if bool(username) != bool(password):
-        raise ValueError("CYBERCHECK_SMTP_USERNAME and CYBERCHECK_SMTP_PASSWORD must be configured together")
-    if username and mode == "plain":
-        raise ValueError("SMTP authentication requires starttls or ssl")
-    return SMTPConfig(host=host, port=port, sender=sender, mode=mode, username=username, password=password)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("configuration SMTP privée invalide") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != SMTP_PRIVATE_SCHEMA:
+        raise RuntimeError("configuration SMTP privée invalide")
+    return payload
+
+
+def _private_smtp_config() -> SMTPConfig | None:
+    payload = _load_private_smtp_payload()
+    if payload is None:
+        return None
+    return _smtp_config_from_values(
+        host=payload.get("host"),
+        port=payload.get("port"),
+        sender=payload.get("sender"),
+        mode=payload.get("mode"),
+        username=payload.get("username"),
+        password=payload.get("password"),
+    )
+
+
+def load_config() -> SMTPConfig | None:
+    environment = _load_environment_config()
+    if environment is not None:
+        return environment
+    return _private_smtp_config()
+
+
+def smtp_config_info() -> dict:
+    source = "environment" if _env("CYBERCHECK_SMTP_FROM") else (
+        "private" if _smtp_private_path().exists() else "none"
+    )
+    try:
+        cfg = load_config()
+    except Exception:
+        return {
+            "configured": False,
+            "source": source,
+            "state": "invalid_configuration",
+            "host": "",
+            "port": 0,
+            "mode": "",
+            "sender": "",
+            "username": "",
+            "usernameConfigured": False,
+            "passwordConfigured": False,
+        }
+    if cfg is None:
+        return {
+            "configured": False,
+            "source": "none",
+            "state": "awaiting_configuration",
+            "host": "",
+            "port": 0,
+            "mode": "",
+            "sender": "",
+            "username": "",
+            "usernameConfigured": False,
+            "passwordConfigured": False,
+        }
+    return {
+        "configured": True,
+        "source": source,
+        "state": "configured",
+        "host": cfg.host,
+        "port": cfg.port,
+        "mode": cfg.mode,
+        "sender": cfg.sender,
+        "username": cfg.username,
+        "usernameConfigured": bool(cfg.username),
+        "passwordConfigured": bool(cfg.password),
+    }
+
+
+def save_private_smtp_config(payload: object) -> dict:
+    if _env("CYBERCHECK_SMTP_FROM"):
+        raise RuntimeError("configuration SMTP pilotée par environnement")
+    if not isinstance(payload, dict):
+        raise ValueError("configuration SMTP invalide")
+    allowed = {"host", "port", "mode", "sender", "username", "password"}
+    if set(payload) - allowed:
+        raise ValueError("champ SMTP inattendu")
+    required = {"host", "port", "mode", "sender", "username"}
+    if not required.issubset(payload):
+        raise ValueError("configuration SMTP incomplète")
+
+    previous = _load_private_smtp_payload() or {}
+    username = str(payload.get("username") or "").strip()
+    supplied_password = str(payload.get("password") or "")
+    if supplied_password:
+        password = supplied_password
+    elif username and username == str(previous.get("username") or "").strip():
+        password = str(previous.get("password") or "")
+    else:
+        password = ""
+
+    cfg = _smtp_config_from_values(
+        host=payload.get("host"),
+        port=payload.get("port"),
+        sender=payload.get("sender"),
+        mode=payload.get("mode"),
+        username=username,
+        password=password,
+    )
+    data = {
+        "schema": SMTP_PRIVATE_SCHEMA,
+        "host": cfg.host,
+        "port": cfg.port,
+        "mode": cfg.mode,
+        "sender": cfg.sender,
+        "username": cfg.username,
+        "password": cfg.password,
+    }
+    root = _ensure_smtp_private_dir()
+    target = _smtp_private_path()
+    if target.exists() and target.is_symlink():
+        raise RuntimeError("configuration SMTP privée invalide")
+    fd, temporary = tempfile.mkstemp(prefix=".smtp-", suffix=".json", dir=root)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        target.chmod(0o600)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+    return smtp_config_info()
+
+
+def delete_private_smtp_config() -> dict:
+    path = _smtp_private_path()
+    if path.is_symlink():
+        raise RuntimeError("configuration SMTP privée invalide")
+    if path.exists() and not path.is_file():
+        raise RuntimeError("configuration SMTP privée invalide")
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    return smtp_config_info()
 
 
 def _transport_mode() -> str:
