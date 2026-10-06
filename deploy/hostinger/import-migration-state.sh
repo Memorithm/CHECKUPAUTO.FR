@@ -58,9 +58,10 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 
-target=Path(os.sys.argv[1])
+target=Path(sys.argv[1])
 payload=json.loads(os.environ["MIGRATION_IMPORT_RESULT"])
 previous=str(payload.get("previousState") or "")
 freeze=str(payload.get("sourceFreezeCreatedAt") or "")
@@ -91,6 +92,11 @@ try:
     if target.exists() or target.is_symlink():
         raise SystemExit("migration import receipt appeared concurrently")
     os.replace(temp,target)
+    directory_fd=os.open(target.parent,os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 finally:
     temp.unlink(missing_ok=True)
 PY
