@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import sys
 import uuid
+from urllib.parse import quote
 
 SCHEMA_VERSION=1
 PURPOSE="planethoster-to-hostinger-cutover"
@@ -38,7 +39,7 @@ def _sqlite_file(path: Path) -> bool:
 
 def _sqlite_backup(source: Path,destination: Path) -> None:
     destination.parent.mkdir(parents=True,exist_ok=True)
-    source_uri="file:"+str(source.resolve())+"?mode=ro"
+    source_uri="file:"+quote(str(source.resolve()),safe="/")+"?mode=ro"
     src=sqlite3.connect(source_uri,uri=True,timeout=15)
     dst=sqlite3.connect(destination,timeout=15)
     try:
@@ -52,7 +53,7 @@ def _sqlite_backup(source: Path,destination: Path) -> None:
 
 
 def _sqlite_quick_check(path: Path) -> None:
-    uri="file:"+str(path.resolve())+"?mode=ro"
+    uri="file:"+quote(str(path.resolve()),safe="/")+"?mode=ro"
     con=sqlite3.connect(uri,uri=True,timeout=15)
     try:
         row=con.execute("PRAGMA quick_check").fetchone()
@@ -153,6 +154,10 @@ def export_snapshot(shared_root: str|Path,output: str|Path,*,now: dt.datetime|No
                     "sha256":_sha256(dest),
                 })
 
+        freeze_after=_freeze_marker(data)
+        if freeze_after["createdAt"]!=freeze["createdAt"]:
+            raise RuntimeError("migration freeze changed during snapshot")
+
         stamp=now or dt.datetime.now(dt.timezone.utc)
         if stamp.tzinfo is None:
             raise ValueError("snapshot timestamp must be timezone-aware")
@@ -170,6 +175,7 @@ def export_snapshot(shared_root: str|Path,output: str|Path,*,now: dt.datetime|No
         manifest_path=out/"manifest.json"
         manifest_path.write_bytes(raw)
         os.chmod(manifest_path,0o600)
+        _secure_tree(out,None,None)
         verified=verify_snapshot(out)
         return {
             "ok":True,
@@ -323,11 +329,18 @@ def import_snapshot(snapshot: str|Path,target_root: str|Path,*,uid: int|None=Non
         for group in GROUPS:
             current=target/group
             old=previous/group
+            had_current=False
             if current.exists():
                 if current.is_symlink() or not current.is_dir():
                     raise RuntimeError("target group invalid")
                 os.replace(current,old)
-            os.replace(incoming/group,current)
+                had_current=True
+            try:
+                os.replace(incoming/group,current)
+            except Exception:
+                if had_current and old.exists() and not current.exists():
+                    os.replace(old,current)
+                raise
             swapped.append((group,old,current))
 
         incoming.rmdir()
