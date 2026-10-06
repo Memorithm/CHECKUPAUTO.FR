@@ -120,6 +120,11 @@ class ReferralWalletPurgeRightsTest(unittest.TestCase):
                     "disposition": "not_applicable",
                     "justification": "Aucune demande de contact n'est liée à cette demande de test.",
                 },
+                {
+                    "adapter": "customer_account",
+                    "disposition": "not_applicable",
+                    "justification": "Aucun compte client web n'est lié à cette demande de test.",
+                },
                 {"adapter": "referral_wallet", "disposition": "required"},
             ],
             self.compliance_db,
