@@ -15,6 +15,13 @@ class HostingerStagingControlPlaneTest(unittest.TestCase):
         self.assertIn("HOSTINGER_RELEASE_READY_FOR_REMOTEOPS=$GITHUB_SHA", self.text)
         self.assertIn("Memorithm/RemoteOps is the privileged deployment control plane", self.text)
 
+    def test_release_gate_qualifies_every_main_revision(self):
+        trigger=self.text.split("permissions:",1)[0]
+        self.assertIn("push:",trigger)
+        self.assertIn("branches: [main]",trigger)
+        self.assertNotIn("paths:",trigger)
+        self.assertNotIn("paths-ignore:",trigger)
+
     def test_release_gate_uses_repository_runner(self):
         self.assertIn("runs-on: [self-hosted, Linux, ARM64, internal]", self.text)
         self.assertNotIn("runs-on: [self-hosted, Linux, ARM64, remoteops, thor]", self.text)
