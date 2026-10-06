@@ -85,6 +85,43 @@ def _parse_requirement_line(raw: str) -> dict | None:
     return {'name': name, 'extras': extras, 'required': version, 'pinned': pinned, 'requirement': requirement}
 
 
+def _runtime_distribution_paths() -> list[str]:
+    roots: list[Path] = []
+    embedded = ROOT / ".venv"
+    if embedded.is_dir():
+        roots.append(embedded)
+    try:
+        prefix = Path(sys.prefix).resolve()
+        base_prefix = Path(getattr(sys, "base_prefix", sys.prefix)).resolve()
+        if prefix != base_prefix:
+            roots.append(prefix)
+    except Exception:
+        pass
+
+    paths: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        candidates = list((root / "lib").glob("python*/site-packages"))
+        candidates.append(root / "Lib" / "site-packages")
+        for candidate in sorted(candidates, key=lambda value: str(value)):
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            raw = str(resolved)
+            if candidate.is_dir() and raw not in seen:
+                seen.add(raw)
+                paths.append(raw)
+    return paths
+
+
+def _runtime_distributions():
+    paths = _runtime_distribution_paths()
+    if paths:
+        return list(importlib.metadata.distributions(path=paths))
+    return list(importlib.metadata.distributions())
+
+
 def dependency_state() -> dict:
     required = []
     req = ROOT / 'requirements.txt'
@@ -94,7 +131,7 @@ def dependency_state() -> dict:
             required.append(parsed)
     installed = {
         _canonical_distribution_name(d.metadata.get('Name', '')): d.version
-        for d in importlib.metadata.distributions()
+        for d in _runtime_distributions()
         if d.metadata.get('Name')
     }
     rows = []
@@ -292,7 +329,7 @@ def rebaseline_verified_release(expected_sha: str, expected_archive_sha256: str)
 
 def generate_sbom() -> dict:
     components=[]
-    for dist in importlib.metadata.distributions():
+    for dist in _runtime_distributions():
         name=(dist.metadata.get('Name') or '').strip()
         if not name: continue
         version=str(dist.version); purl=f"pkg:pypi/{quote(name.lower())}@{quote(version)}"
