@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import os
 from pathlib import Path
@@ -69,6 +70,71 @@ class MigrationWriteFreezeTest(unittest.TestCase):
                 self.assertTrue(freeze.request_allowed(method,path))
         self.assertFalse(freeze.request_allowed("POST","/"))
         self.assertFalse(freeze.request_allowed("GET","/api/admin/readiness"))
+
+    def test_engage_is_atomic_private_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CYBERCHECK_DATA_DIR": tmp}
+        ):
+            first=freeze.engage(
+                "hostinger_cutover",
+                now=dt.datetime(2026,10,6,4,30,tzinfo=dt.timezone.utc),
+            )
+            path=Path(tmp)/freeze.MARKER_NAME
+            self.assertTrue(first["active"])
+            self.assertTrue(first["valid"])
+            self.assertEqual(first["createdAt"],"2026-10-06T04:30:00+00:00")
+            self.assertEqual(path.stat().st_mode & 0o777,0o600)
+
+            second=freeze.engage(
+                "different_reason",
+                now=dt.datetime(2026,10,6,5,0,tzinfo=dt.timezone.utc),
+            )
+            self.assertEqual(second["createdAt"],first["createdAt"])
+            self.assertEqual(second["reason"],"hostinger_cutover")
+
+    def test_release_requires_explicit_confirmation_and_valid_marker(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CYBERCHECK_DATA_DIR": tmp}
+        ):
+            freeze.engage("hostinger_cutover")
+            with self.assertRaises(PermissionError):
+                freeze.release("yes")
+            self.assertTrue(freeze.active())
+
+            result=freeze.release("UNFREEZE")
+            self.assertFalse(result["active"])
+            self.assertFalse((Path(tmp)/freeze.MARKER_NAME).exists())
+
+    def test_engage_refuses_to_overwrite_invalid_marker(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CYBERCHECK_DATA_DIR": tmp}
+        ):
+            path=Path(tmp)/freeze.MARKER_NAME
+            path.write_text("{bad",encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError,"invalid migration marker"):
+                freeze.engage("hostinger_cutover")
+            self.assertEqual(path.read_text(encoding="utf-8"),"{bad")
+
+    def test_release_refuses_invalid_marker_even_with_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CYBERCHECK_DATA_DIR": tmp}
+        ):
+            path=Path(tmp)/freeze.MARKER_NAME
+            path.write_text("{bad",encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError,"cannot be removed automatically"):
+                freeze.release("UNFREEZE")
+            self.assertTrue(path.exists())
+
+    def test_engage_requires_real_private_data_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            real=root/"real"
+            real.mkdir()
+            link=root/"link"
+            link.symlink_to(real,target_is_directory=True)
+            with mock.patch.dict(os.environ,{"CYBERCHECK_DATA_DIR":str(link)}):
+                with self.assertRaisesRegex(RuntimeError,"data directory invalid"):
+                    freeze.engage("hostinger_cutover")
 
     def test_shared_tick_checks_freeze_before_runtime_initialization(self):
         script=(Path(__file__).parent/"scripts/checkupauto-shared-tick.py").read_text()
