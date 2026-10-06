@@ -98,7 +98,8 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("email_gateway.save_private_smtp_config", server)
         self.assertIn("email_gateway.delete_private_smtp_config", server)
         self.assertIn("email_gateway.smtp_preflight()", server)
-        self.assertNotIn("String(config.password ||", javascript)\n        self.assertIn("config.passwordConfigured", javascript)
+        self.assertNotIn("String(config.password ||", javascript)
+        self.assertIn("config.passwordConfigured", javascript)
         self.assertNotIn("private-mailbox-secret", html)
         self.assertNotIn("private-mailbox-secret", javascript)
 
