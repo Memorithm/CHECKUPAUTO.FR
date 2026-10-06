@@ -213,10 +213,11 @@ def _public_provenance_response(environ: dict, start_response):
 
 def _write_freeze_response(environ: dict, start_response):
     method = str(environ.get("REQUEST_METHOD") or "GET").upper()
-    if method in {"GET", "HEAD", "OPTIONS"}:
-        return None
+    path = str(environ.get("PATH_INFO") or "/")
     state = migration_write_freeze.status()
     if not state.get("active"):
+        return None
+    if migration_write_freeze.request_allowed(method, path):
         return None
     payload = b'{"ok":false,"error":"migration_write_frozen"}'
     start_response(

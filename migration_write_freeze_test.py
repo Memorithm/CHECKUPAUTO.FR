@@ -44,6 +44,32 @@ class MigrationWriteFreezeTest(unittest.TestCase):
             self.assertFalse(state["valid"])
             self.assertEqual(state["state"],"invalid_marker")
 
+    def test_request_policy_blocks_transactional_gets(self):
+        for path in (
+            "/go/booking",
+            "/go/app",
+            "/compte",
+            "/contact",
+            "/auth/customer/google/callback",
+            "/api/integrations/google/oauth/callback",
+            "/payment/payline/callback",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(freeze.request_allowed("GET",path))
+
+    def test_request_policy_keeps_bounded_read_only_surface(self):
+        for method,path in (
+            ("GET","/"),
+            ("HEAD","/cgv"),
+            ("GET","/assets/cybercheck-deployment-provenance.bin"),
+            ("GET","/style.css"),
+            ("OPTIONS","/contact"),
+        ):
+            with self.subTest(method=method,path=path):
+                self.assertTrue(freeze.request_allowed(method,path))
+        self.assertFalse(freeze.request_allowed("POST","/"))
+        self.assertFalse(freeze.request_allowed("GET","/api/admin/readiness"))
+
     def test_shared_tick_checks_freeze_before_runtime_initialization(self):
         script=(Path(__file__).parent/"scripts/checkupauto-shared-tick.py").read_text()
         freeze_check=script.index("freeze=migration_write_freeze.status()")

@@ -184,10 +184,14 @@ class Handler(SimpleHTTPRequestHandler):
  def list_directory(self,path):
   self.send_error(404); return None
  def _migration_write_allowed(self):
-  if str(getattr(self,'command','')).upper() in {'GET','HEAD','OPTIONS'}: return True
   try: state=migration_write_freeze.status()
   except Exception: state={'active':True}
   if not state.get('active'): return True
+  if migration_write_freeze.request_allowed(
+   getattr(self,'command',''),urlparse(self.path).path
+  ):
+   self._migration_frozen_readonly=True
+   return True
   self.send_json(
    {'ok':False,'error':'migration_write_frozen'},
    503,
@@ -200,6 +204,9 @@ class Handler(SimpleHTTPRequestHandler):
   if not self._migration_write_allowed():
    self._security_allowed=False
    return False
+  if getattr(self,'_migration_frozen_readonly',False):
+   self._security_allowed=True
+   return True
   raw_target=self.path
   if urlparse(raw_target).path=='/api/integrations/google/oauth/callback':
    raw_target=urlparse(raw_target).path
@@ -1349,6 +1356,14 @@ def validate_config(c):
  return out
 def initialize_runtime(*,background=True):
  global _RUNTIME_CORE_READY,_RUNTIME_BACKGROUND_READY
+ try: freeze=migration_write_freeze.status()
+ except Exception: freeze={'active':True}
+ if freeze.get('active'):
+  return {
+   'coreReady':_RUNTIME_CORE_READY,
+   'backgroundReady':_RUNTIME_BACKGROUND_READY,
+   'writeFrozen':True,
+  }
  with _RUNTIME_LOCK:
   if not _RUNTIME_CORE_READY:
    os.chdir(ROOT)
@@ -1362,7 +1377,7 @@ def initialize_runtime(*,background=True):
    mobile_authoritative_sync.start(); mobile_reminder_dispatch.start()
    security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
    _RUNTIME_BACKGROUND_READY=True
- return {'coreReady':_RUNTIME_CORE_READY,'backgroundReady':_RUNTIME_BACKGROUND_READY}
+ return {'coreReady':_RUNTIME_CORE_READY,'backgroundReady':_RUNTIME_BACKGROUND_READY,'writeFrozen':False}
 
 def server_bind_address(environment=None):
  env = os.environ if environment is None else environment
