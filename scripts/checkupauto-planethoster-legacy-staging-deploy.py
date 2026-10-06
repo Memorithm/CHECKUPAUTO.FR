@@ -100,19 +100,23 @@ def origin_get(path, *, limit):
         tls.close()
 
 
-def marker(path):
+def marker(path, expected_archive_sha256=None):
     p = path / ".checkupauto-release.json"
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         fail("release marker invalid")
+    digest = str(data.get("archiveSha256") or "").strip().lower()
     if (
         data.get("schemaVersion") != 1
         or data.get("sha") != path.name
         or data.get("verified") is not True
-        or data.get("archiveSha256") != ARCHIVE_SHA256
+        or len(digest) != 64
+        or any(ch not in "0123456789abcdef" for ch in digest)
     ):
         fail("release marker mismatch")
+    if expected_archive_sha256 is not None and digest != expected_archive_sha256:
+        fail("release marker digest mismatch")
     return data
 
 
@@ -128,7 +132,7 @@ if not private.is_dir() or not releases.is_dir() or not shared.is_dir():
     fail("legacy staging layout missing")
 if not release.is_dir() or not under(release, releases):
     fail("staged release missing")
-marker(release)
+marker(release, ARCHIVE_SHA256)
 print("__ACTIVATION_STEP_PREFIX__preflight", flush=True)
 if not (release / ".venv/bin/python").is_file():
     fail("staged Python missing")

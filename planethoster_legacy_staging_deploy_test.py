@@ -79,6 +79,15 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn('"integrity rebaseline failed"',text)
         self.assertNotIn('sys.path.insert(0, str(release))\n    import compliance_admin',text)
 
+
+    def test_activation_pins_incoming_archive_but_accepts_verified_previous_digest(self):
+        text=m._activation_program("7"*40,"8"*64)
+        self.assertIn("def marker(path, expected_archive_sha256=None):",text)
+        self.assertIn("marker(release, ARCHIVE_SHA256)",text)
+        self.assertIn("marker(previous)",text)
+        self.assertIn('fail("release marker digest mismatch")',text)
+        self.assertNotIn("marker(previous, ARCHIVE_SHA256)",text)
+
     def test_activation_progress_is_bounded(self):
         text=m._activation_program("c"*40,"5"*64)
         for step in ("preflight","backup","import","switch","restart","http_verify","compliance","integrity","rollback"):
