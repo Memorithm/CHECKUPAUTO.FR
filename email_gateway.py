@@ -180,7 +180,6 @@ def _smtp_config_from_values(
     mode: object,
     username: object = "",
     password: object = "",
-    allow_unauthenticated_remote: bool = False,
 ) -> SMTPConfig:
     clean_host = _clean_host(host)
     clean_mode = str(mode or "").strip().lower()
@@ -205,8 +204,6 @@ def _smtp_config_from_values(
         clean_password = _clean_secret(clean_password)
         if clean_mode == "plain":
             raise ValueError("authentification SMTP chiffrée requise")
-    elif not _local_smtp_host(clean_host) and not allow_unauthenticated_remote:
-        raise ValueError("authentification SMTP distante requise")
     return SMTPConfig(
         host=clean_host,
         port=clean_port,
@@ -232,9 +229,6 @@ def _load_environment_config() -> SMTPConfig | None:
         mode=mode,
         username=_env("CYBERCHECK_SMTP_USERNAME"),
         password=_env("CYBERCHECK_SMTP_PASSWORD"),
-        allow_unauthenticated_remote=_bool_env(
-            "CYBERCHECK_SMTP_ALLOW_UNAUTHENTICATED_REMOTE"
-        ),
     )
 
 
