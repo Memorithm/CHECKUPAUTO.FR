@@ -36,6 +36,11 @@ class RightsContractCompletionPlanTest(unittest.TestCase):
                 "justification": "aucune demande de contact applicable",
             },
             {
+                "adapter": "customer_account",
+                "disposition": "not_applicable",
+                "justification": "aucun compte client web applicable",
+            },
+            {
                 "adapter": "referral_wallet",
                 "disposition": "not_applicable",
                 "justification": "aucune cagnotte applicable",
