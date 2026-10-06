@@ -165,6 +165,105 @@ function renderPermanentFailures(items) {
   }
 }
 
+function renderEmailConfig(config = {}) {
+  const configured = Boolean(config.configured);
+  const source = String(config.source || 'none');
+  const host = notificationEl('smtpHost');
+  const port = notificationEl('smtpPort');
+  const mode = notificationEl('smtpMode');
+  const sender = notificationEl('smtpSender');
+  const username = notificationEl('smtpUsername');
+  const password = notificationEl('smtpPassword');
+  const state = notificationEl('smtpConfigState');
+
+  if (host) host.value = configured ? String(config.host || '') : 'mail.checkupauto.fr';
+  if (port) port.value = configured ? String(config.port || 465) : '465';
+  if (mode) mode.value = configured && ['ssl', 'starttls'].includes(String(config.mode || ''))
+    ? String(config.mode)
+    : 'ssl';
+  if (sender) sender.value = configured ? String(config.sender || '') : '';
+  if (username) username.value = configured ? String(config.username || '') : '';
+  if (password) {
+    password.value = '';
+    password.placeholder = config.passwordConfigured
+      ? 'Secret enregistré · laisser vide pour le conserver'
+      : 'Mot de passe SMTP requis';
+  }
+  if (state) {
+    state.textContent = configured
+      ? `Configuré · source ${source} · secret ${config.passwordConfigured ? 'présent' : 'absent'}`
+      : 'SMTP non configuré';
+  }
+}
+
+async function loadEmailConfig() {
+  const state = notificationEl('smtpConfigState');
+  try {
+    const response = await fetch('/api/admin/email/config', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Configuration indisponible');
+    renderEmailConfig(data.config || {});
+  } catch {
+    if (state) state.textContent = 'Configuration SMTP indisponible';
+  }
+}
+
+async function saveEmailConfig() {
+  const button = notificationEl('smtpSave');
+  const state = notificationEl('smtpConfigState');
+  if (button) button.disabled = true;
+  if (state) state.textContent = 'Enregistrement et préflight…';
+  try {
+    const payload = {
+      host: String(notificationEl('smtpHost')?.value || '').trim(),
+      port: Number(notificationEl('smtpPort')?.value || 0),
+      mode: String(notificationEl('smtpMode')?.value || '').trim(),
+      sender: String(notificationEl('smtpSender')?.value || '').trim(),
+      username: String(notificationEl('smtpUsername')?.value || '').trim(),
+      password: String(notificationEl('smtpPassword')?.value || ''),
+    };
+    const response = await fetch('/api/admin/email/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Configuration refusée');
+    renderEmailConfig(data.config || {});
+    const preflight = data.preflight || {};
+    if (state) {
+      state.textContent = preflight.ready
+        ? 'SMTP prêt · TLS/authentification et expéditeur validés'
+        : `Configuration enregistrée · préflight: ${preflight.reason || preflight.state || 'non prêt'}`;
+    }
+    await loadNotificationStatus();
+  } catch (error) {
+    if (state) state.textContent = error.message || 'Configuration SMTP impossible';
+  } finally {
+    const password = notificationEl('smtpPassword');
+    if (password) password.value = '';
+    if (button) button.disabled = false;
+  }
+}
+
+async function deleteEmailConfig() {
+  const button = notificationEl('smtpDelete');
+  const state = notificationEl('smtpConfigState');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/admin/email/config', { method: 'DELETE' });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Suppression refusée');
+    renderEmailConfig(data.config || {});
+    if (state) state.textContent = 'Configuration SMTP privée supprimée';
+    await loadNotificationStatus();
+  } catch (error) {
+    if (state) state.textContent = error.message || 'Suppression SMTP impossible';
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadNotificationStatus() {
   const state = notificationEl('notificationState');
   try {
@@ -427,8 +526,11 @@ notificationEl('notificationPermanentRows')?.addEventListener('click', async eve
 });
 notificationEl('notificationRefresh')?.addEventListener('click', loadNotificationStatus);
 notificationEl('notificationPreflight')?.addEventListener('click', runNotificationPreflight);
+notificationEl('smtpSave')?.addEventListener('click', saveEmailConfig);
+notificationEl('smtpDelete')?.addEventListener('click', deleteEmailConfig);
 notificationEl('reminderProcess')?.addEventListener('click', processRemindersNow);
 notificationEl('claimRefresh')?.addEventListener('click', loadClaimCandidates);
 notificationEl('claimIssue')?.addEventListener('click', issueVehicleClaim);
 loadNotificationStatus();
+loadEmailConfig();
 loadClaimCandidates();
