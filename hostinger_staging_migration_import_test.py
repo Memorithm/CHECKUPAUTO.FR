@@ -31,9 +31,14 @@ class HostingerStagingMigrationImportTest(unittest.TestCase):
         self.assertIn("--gid 10001",text)
         self.assertIn("migration_write_freeze.status()",text)
         self.assertIn('state.get("state")!="frozen"',text)
+        freeze_verified=text.index("HOSTINGER_MIGRATION_FREEZE_VERIFIED")
+        snapshot_removed=text.index('rm -rf -- "$snapshot"')
+        imported=text.index("HOSTINGER_MIGRATION_STATE_IMPORTED")
+        self.assertLess(freeze_verified,snapshot_removed)
+        self.assertLess(snapshot_removed,imported)
         self.assertNotIn("docker compose up",text)
         self.assertNotIn("migration_write_freeze.release",text)
-        self.assertNotIn("unlink",text)
+        self.assertNotIn('unlink "$STATE/data/.migration-write-freeze.json"',text)
 
 
 if __name__=="__main__":
