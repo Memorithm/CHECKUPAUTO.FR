@@ -34,7 +34,7 @@ class PlanetHosterCurrentMainControlPlaneTest(unittest.TestCase):
             "SHA256:bSsRNwbVPWB1mHLo7qwavQPg9TUQOF+I40idG8ezcUs",
             self.text,
         )
-        self.assertIn('ssh-keygen -y -f "$STAGING_KEY"',self.text)
+        self.assertIn('ssh-keygen -y -f "$key"',self.text)
         self.assertNotIn("ssh-keygen -t",self.text)
         self.assertNotIn("ssh-keyscan",self.text)
         self.assertNotIn("runner.home",self.text)
