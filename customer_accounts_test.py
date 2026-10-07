@@ -212,7 +212,7 @@ class CustomerAccountsTest(unittest.TestCase):
             created["accountId"],
             registration_system="siv",
             registration="aa 123 aa",
-            formula_number="AB12CD34EF5",
+            formula_number="2020AB12345",
         )
         self.assertEqual(siv["registration"],"AA-123-AA")
         self.assertEqual(siv["registrationSystem"],"siv")
@@ -232,9 +232,9 @@ class CustomerAccountsTest(unittest.TestCase):
 
         summaries=accounts.list_vehicles(created["accountId"])
         self.assertEqual({row["vehicleId"] for row in summaries},{siv["vehicleId"],fni["vehicleId"]})
-        self.assertNotIn("AB12CD34EF5",repr(summaries))
+        self.assertNotIn("2020AB12345",repr(summaries))
         raw=accounts.data_path().read_bytes()
-        for private in (b"AA-123-AA",b"AB12CD34EF5",b"1234 AB 78",b"2008-05-17"):
+        for private in (b"AA-123-AA",b"2020AB12345",b"1234 AB 78",b"2008-05-17"):
             self.assertNotIn(private,raw)
 
     def test_vehicle_registration_branch_requires_formula_or_card_issue_date(self):
@@ -252,25 +252,25 @@ class CustomerAccountsTest(unittest.TestCase):
         with self.assertRaisesRegex(accounts.CustomerAccountError,"registration_invalid"):
             accounts.save_vehicle(
                 created["accountId"],registration_system="siv",
-                registration="1234 AB 78",formula_number="AB12CD34EF5",
+                registration="1234 AB 78",formula_number="2020AB12345",
             )
         for invalid in ("AI-123-AA","AA-123-OU","SS-123-AA","AA-123-SS"):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(accounts.CustomerAccountError,"registration_invalid"):
                 accounts.save_vehicle(
                     created["accountId"],registration_system="siv",
-                    registration=invalid,formula_number="AB12CD34EF5",
+                    registration=invalid,formula_number="2020AB12345",
                 )
 
     def test_vehicle_can_be_updated_by_id_and_deleted_from_customer_space(self):
         created=self.create()
         first=accounts.save_vehicle(
             created["accountId"],registration_system="siv",
-            registration="AA-123-AA",formula_number="AB12CD34EF5",
+            registration="AA-123-AA",formula_number="2020AB12345",
         )
         updated=accounts.save_vehicle(
             created["accountId"],vehicle_id=first["vehicleId"],
             registration_system="siv",registration="AB-456-CD",
-            formula_number="ZX98YU76TR5",
+            formula_number="2021ZX98765",
         )
         self.assertEqual(updated["vehicleId"],first["vehicleId"])
         self.assertEqual(updated["registration"],"AB-456-CD")
@@ -279,7 +279,7 @@ class CustomerAccountsTest(unittest.TestCase):
         self.assertEqual(removed["registration"],"AB-456-CD")
         self.assertEqual(accounts.list_vehicles(created["accountId"]),[])
         raw=accounts.data_path().read_bytes()
-        self.assertNotIn(b"ZX98YU76TR5",raw)
+        self.assertNotIn(b"2021ZX98765",raw)
 
     def test_vehicle_linked_to_active_booking_confirmation_cannot_be_deleted(self):
         created=self.create()
@@ -311,7 +311,7 @@ class CustomerAccountsTest(unittest.TestCase):
         )
         vehicle=accounts.save_vehicle(
             created["accountId"],registration_system="siv",
-            registration="AB-123-CD",formula_number="AB12CD34EF5",
+            registration="AB-123-CD",formula_number="2020AB12345",
         )
         target="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-15&preferredTime=10%3A30"
         other="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-16&preferredTime=10%3A30"
