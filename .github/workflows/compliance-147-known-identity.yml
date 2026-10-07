@@ -132,11 +132,11 @@ jobs:
               result=json.loads(applied.stdout.strip()) if applied.returncode==0 else {}
           except Exception:
               result={}
-          expected_missing=["privacyContact"]
+          expected_missing=[]
           ok=(
               result.get("schema")=="checkupauto.compliance-known-identity-result/v1"
               and result.get("knownFieldsVerified") is True
-              and result.get("identityComplete") is False
+              and result.get("identityComplete") is True
               and result.get("missingIdentityFields")==expected_missing
           )
           if not ok:
@@ -154,7 +154,7 @@ jobs:
               "knownFieldsVerified":True,
               "changedFields":result.get("changedFields") or [],
               "missingIdentityFields":result["missingIdentityFields"],
-              "identityComplete":False,
+              "identityComplete":True,
               "backupCreated":True,
           },sort_keys=True,separators=(",",":")))
           PY
