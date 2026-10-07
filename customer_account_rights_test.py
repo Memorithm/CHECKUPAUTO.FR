@@ -87,6 +87,24 @@ class CustomerAccountRightsTest(unittest.TestCase):
         self.assertEqual(audit[0]["action"],"export_complete")
         self.assertNotIn("alice@example.test",repr(audit))
 
+    def test_access_exports_vehicle_registration_and_card_grise_fields(self):
+        alice=self.account()
+        customer_accounts.save_vehicle(
+            alice["accountId"],registration_system="siv",
+            registration="AA-123-AA",formula_number="AB12CD34EF5",
+        )
+        customer_accounts.save_vehicle(
+            alice["accountId"],registration_system="fni",
+            registration="1234 AB 78",card_issue_date="2008-05-17",
+        )
+        data=customer_account_rights.snapshot("alice@example.test")
+        self.assertEqual(data["vehicleCount"],2)
+        rendered=repr(data["account"]["vehicles"])
+        self.assertIn("AA-123-AA",rendered)
+        self.assertIn("AB12CD34EF5",rendered)
+        self.assertIn("1234 AB 78",rendered)
+        self.assertIn("2008-05-17",rendered)
+
     def test_wrong_subject_is_rejected_before_customer_store_execution(self):
         self.account()
         req=self.request("access")

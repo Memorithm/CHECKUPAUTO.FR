@@ -73,6 +73,20 @@ class BookingContractAcceptanceTest(unittest.TestCase):
         self.assertNotIn('href="/cgv" target="_blank"', page)
         self.assertIn("Modifier mon choix", page)
 
+    def test_review_page_shows_selected_vehicle_without_card_grise_secret(self):
+        intent=self.intent()
+        page=booking.auto_submit_html(
+            intent["token"],"Contrôle technique","nonce",
+            vehicle={
+                "vehicleId":"11111111-1111-4111-8111-111111111111",
+                "registrationSystem":"siv","registration":"AA-123-AA",
+                "formulaNumberPresent":True,
+            },
+        ).decode()
+        self.assertIn("Véhicule : SIV · AA-123-AA",page)
+        self.assertNotIn("formula",page.lower())
+        self.assertNotIn("AB12CD34EF5",page)
+
     def test_early_performance_acknowledgement_is_required_server_side(self):
         intent = self.intent()
         payload = self.acceptance_payload(intent)

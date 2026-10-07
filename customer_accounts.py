@@ -25,6 +25,7 @@ PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
 SESSION_TTL_HOURS = 12
 PASSAGE_CONFIRMATION_TTL_MINUTES = 30
+MAX_CUSTOMER_VEHICLES = 12
 AAD_PREFIX = b"checkupauto-customer-profile-v1\x00"
 
 
@@ -173,6 +174,105 @@ def _account_id(value: object) -> str:
     return raw
 
 
+def _registration_system(value: object) -> str:
+    raw=str(value or "").strip().lower()
+    if raw not in {"siv","fni"}:
+        raise CustomerAccountError("customer_vehicle_registration_system_invalid")
+    return raw
+
+
+def _registration(value: object, system: str) -> str:
+    raw=str(value or "").strip().upper()
+    if not raw or len(raw)>32 or any(ord(ch)<32 for ch in raw):
+        raise CustomerAccountError("customer_vehicle_registration_invalid")
+    compact=re.sub(r"[\s-]+","",raw)
+    if system=="siv":
+        if not re.fullmatch(r"[A-HJ-NP-TV-Z]{2}[0-9]{3}[A-HJ-NP-TV-Z]{2}",compact):
+            raise CustomerAccountError("customer_vehicle_registration_invalid")
+        if compact[:2]=="SS" or compact[5:]=="SS":
+            raise CustomerAccountError("customer_vehicle_registration_invalid")
+        return f"{compact[:2]}-{compact[2:5]}-{compact[5:]}"
+    match=re.fullmatch(r"([0-9]{1,4})([A-Z]{1,3})([0-9A-Z]{2,3})",compact)
+    if not match:
+        raise CustomerAccountError("customer_vehicle_registration_invalid")
+    return " ".join(match.groups())
+
+
+def _formula_number(value: object) -> str:
+    compact=re.sub(r"[\s-]+","",str(value or "").strip().upper())
+    if not re.fullmatch(r"[A-Z0-9]{11}",compact):
+        raise CustomerAccountError("customer_vehicle_formula_number_invalid")
+    return compact
+
+
+def _card_issue_date(value: object) -> str:
+    raw=str(value or "").strip()
+    try:
+        parsed=dt.date.fromisoformat(raw)
+    except ValueError as exc:
+        raise CustomerAccountError("customer_vehicle_card_issue_date_invalid") from exc
+    if parsed<dt.date(1900,1,1) or parsed>_now().date():
+        raise CustomerAccountError("customer_vehicle_card_issue_date_invalid")
+    return parsed.isoformat()
+
+
+def _vehicle_id(value: object) -> str:
+    raw=str(value or "").strip().lower()
+    try:
+        parsed=uuid.UUID(raw)
+    except (ValueError,AttributeError) as exc:
+        raise CustomerAccountError("customer_vehicle_id_invalid") from exc
+    if str(parsed)!=raw:
+        raise CustomerAccountError("customer_vehicle_id_invalid")
+    return raw
+
+
+def _vehicle_records(profile_data: dict) -> list[dict]:
+    raw=profile_data.get("vehicles")
+    if raw is None:
+        return []
+    if not isinstance(raw,list):
+        raise RuntimeError("customer_vehicle_store_invalid")
+    rows=[]
+    for item in raw:
+        if not isinstance(item,dict):
+            raise RuntimeError("customer_vehicle_store_invalid")
+        rows.append(item)
+    return rows
+
+
+def _vehicle_summary(item: dict) -> dict:
+    return {
+        "vehicleId":str(item.get("vehicleId") or ""),
+        "registrationSystem":str(item.get("registrationSystem") or ""),
+        "registration":str(item.get("registration") or ""),
+        "formulaNumberPresent":bool(item.get("formulaNumber")),
+        "cardIssueDate":str(item.get("cardIssueDate") or ""),
+        "updatedAt":str(item.get("updatedAt") or ""),
+    }
+
+
+def _vehicle_summaries(profile_data: dict) -> list[dict]:
+    return [_vehicle_summary(item) for item in _vehicle_records(profile_data)]
+
+
+def _vehicle_from_profile(profile_data: dict, vehicle_id: object) -> dict:
+    wanted=_vehicle_id(vehicle_id)
+    for item in _vehicle_records(profile_data):
+        if hmac.compare_digest(str(item.get("vehicleId") or ""),wanted):
+            return item
+    raise CustomerAccountError("customer_vehicle_not_found")
+
+
+def _booking_hash(account_id: str, booking_target: object) -> str:
+    raw=str(booking_target or "").strip()
+    if not raw:
+        return ""
+    if len(raw)>2048 or any(ord(ch)<32 for ch in raw):
+        raise CustomerAccountError("customer_booking_target_invalid")
+    return _hmac("booking-target:"+account_id,raw)
+
+
 def _connect() -> sqlite3.Connection:
     path = data_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,12 +326,21 @@ def init_db() -> None:
               contact_hash TEXT NOT NULL DEFAULT '',
               created_at TEXT NOT NULL,
               expires_at TEXT NOT NULL,
-              confirmed_at TEXT NOT NULL DEFAULT ''
+              confirmed_at TEXT NOT NULL DEFAULT '',
+              vehicle_id TEXT NOT NULL DEFAULT '',
+              booking_hash TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_customer_passage_account
               ON customer_passage_confirmation(account_id,state,expires_at);
             """
         )
+        passage_columns={row[1] for row in db.execute("PRAGMA table_info(customer_passage_confirmation)")}
+        if "vehicle_id" not in passage_columns:
+            db.execute("ALTER TABLE customer_passage_confirmation ADD COLUMN vehicle_id TEXT NOT NULL DEFAULT ''")
+        if "booking_hash" not in passage_columns:
+            db.execute("ALTER TABLE customer_passage_confirmation ADD COLUMN booking_hash TEXT NOT NULL DEFAULT ''")
+        db.execute("""CREATE INDEX IF NOT EXISTS idx_customer_passage_booking
+                      ON customer_passage_confirmation(account_id,booking_hash,state,expires_at)""")
     try:
         data_path().chmod(0o600)
     except PermissionError:
@@ -474,6 +583,96 @@ def _contact_complete(profile_data: dict) -> bool:
     )
 
 
+def save_vehicle(
+    account_id: object,
+    *,
+    registration_system: object,
+    registration: object,
+    formula_number: object = "",
+    card_issue_date: object = "",
+) -> dict:
+    account_id=_account_id(account_id)
+    system=_registration_system(registration_system)
+    normalized_registration=_registration(registration,system)
+    if system=="siv":
+        formula=_formula_number(formula_number)
+        issued=""
+    else:
+        if str(formula_number or "").strip():
+            raise CustomerAccountError("customer_vehicle_formula_number_not_allowed")
+        formula=""
+        issued=_card_issue_date(card_issue_date)
+    now=_now_iso()
+    init_db()
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            raise CustomerAccountError("customer_account_not_found")
+        current=_decrypt_profile(account_id,row["profile_blob"])
+        vehicles=_vehicle_records(current)
+        existing=next(
+            (
+                item for item in vehicles
+                if str(item.get("registrationSystem") or "")==system
+                and hmac.compare_digest(
+                    str(item.get("registration") or ""),normalized_registration
+                )
+            ),
+            None,
+        )
+        if existing is None:
+            if len(vehicles)>=MAX_CUSTOMER_VEHICLES:
+                raise CustomerAccountError("customer_vehicle_limit_reached")
+            existing={
+                "vehicleId":str(uuid.uuid4()),
+                "createdAt":now,
+            }
+            vehicles.append(existing)
+        existing.update({
+            "registrationSystem":system,
+            "registration":normalized_registration,
+            "formulaNumber":formula,
+            "cardIssueDate":issued,
+            "updatedAt":now,
+        })
+        current["vehicles"]=vehicles
+        db.execute(
+            "UPDATE customer_account SET profile_blob=?,updated_at=? WHERE account_id=?",
+            (_encrypt_profile(account_id,current),now,account_id),
+        )
+    return _vehicle_summary(existing)
+
+
+def list_vehicles(account_id: object) -> list[dict]:
+    account_id=_account_id(account_id)
+    init_db()
+    with _connect() as db:
+        row=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+    if not row:
+        raise CustomerAccountError("customer_account_not_found")
+    return _vehicle_summaries(_decrypt_profile(account_id,row["profile_blob"]))
+
+
+def vehicle_summary(account_id: object, vehicle_id: object) -> dict:
+    account_id=_account_id(account_id)
+    init_db()
+    with _connect() as db:
+        row=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+    if not row:
+        raise CustomerAccountError("customer_account_not_found")
+    return _vehicle_summary(_vehicle_from_profile(_decrypt_profile(account_id,row["profile_blob"]),vehicle_id))
+
+
 def _contact_hash(account_id: str, profile_data: dict) -> str:
     canonical=json.dumps(
         _contact_details(profile_data),
@@ -484,9 +683,10 @@ def _contact_hash(account_id: str, profile_data: dict) -> str:
     return _hmac("contact-confirmation:"+account_id,canonical)
 
 
-def begin_passage_confirmation(account_id: object) -> dict:
+def begin_passage_confirmation(account_id: object, booking_target: object = "") -> dict:
     account_id=_account_id(account_id)
     current=profile(account_id)
+    booking_hash=_booking_hash(account_id,booking_target)
     token=secrets.token_urlsafe(32)
     passage_hash=hashlib.sha256(token.encode("ascii")).hexdigest()
     now=_now()
@@ -500,13 +700,14 @@ def begin_passage_confirmation(account_id: object) -> dict:
         )
         db.execute(
             """INSERT INTO customer_passage_confirmation(
-                 passage_hash,account_id,state,created_at,expires_at
-               ) VALUES(?,?,'pending',?,?)""",
+                 passage_hash,account_id,state,created_at,expires_at,booking_hash
+               ) VALUES(?,?,'pending',?,?,?)""",
             (
                 passage_hash,
                 account_id,
                 now.isoformat(timespec="seconds"),
                 expires.isoformat(timespec="seconds"),
+                booking_hash,
             ),
         )
     return {
@@ -525,7 +726,7 @@ def _passage_row(account_id: str, passage_token: object):
     with _connect() as db:
         row=db.execute(
             """SELECT passage_hash,account_id,state,action,contact_hash,
-                      created_at,expires_at,confirmed_at
+                      created_at,expires_at,confirmed_at,vehicle_id,booking_hash
                FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=?""",
             (digest,account_id),
@@ -543,6 +744,8 @@ def confirm_passage_contact(
     passage_token: object,
     *,
     action: object,
+    vehicle_id: object = "",
+    booking_target: object = "",
 ) -> dict:
     account_id=_account_id(account_id)
     action=str(action or "").strip().lower()
@@ -554,6 +757,7 @@ def confirm_passage_contact(
     digest=hashlib.sha256(raw.encode("ascii")).hexdigest()
     now=_now()
     stamp=now.isoformat(timespec="seconds")
+    booking_hash=_booking_hash(account_id,booking_target)
     init_db()
     with _connect() as db:
         # Hold the write lock while reading both the contact profile and passage
@@ -561,7 +765,7 @@ def confirm_passage_contact(
         # confirmation.
         db.execute("BEGIN IMMEDIATE")
         row=db.execute(
-            """SELECT passage_hash,state,expires_at
+            """SELECT passage_hash,state,expires_at,booking_hash
                FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=?""",
             (digest,account_id),
@@ -581,12 +785,23 @@ def confirm_passage_contact(
         current=_decrypt_profile(account_id,account["profile_blob"])
         if not _contact_complete(current):
             raise CustomerAccountError("customer_contact_details_incomplete")
+        stored_booking_hash=str(row["booking_hash"] or "")
+        resolved_vehicle_id=""
+        if stored_booking_hash:
+            expected_booking_hash=_booking_hash(account_id,booking_target)
+            if not expected_booking_hash or not hmac.compare_digest(stored_booking_hash,expected_booking_hash):
+                raise PermissionError("customer_passage_booking_changed")
+            resolved_vehicle_id=_vehicle_id(vehicle_id)
+            _vehicle_from_profile(current,resolved_vehicle_id)
+        elif str(vehicle_id or "").strip():
+            resolved_vehicle_id=_vehicle_id(vehicle_id)
+            _vehicle_from_profile(current,resolved_vehicle_id)
         contact_hash=_contact_hash(account_id,current)
         updated=db.execute(
             """UPDATE customer_passage_confirmation
-               SET state='confirmed',action=?,contact_hash=?,confirmed_at=?
+               SET state='confirmed',action=?,contact_hash=?,confirmed_at=?,vehicle_id=?
                WHERE passage_hash=? AND account_id=? AND state='pending'""",
-            (action,contact_hash,stamp,digest,account_id),
+            (action,contact_hash,stamp,resolved_vehicle_id,digest,account_id),
         ).rowcount
         if updated!=1:
             raise RuntimeError("customer_passage_confirmation_conflict")
@@ -596,10 +811,11 @@ def confirm_passage_contact(
         "action":action,
         "confirmedAt":stamp,
         "contactDetailsComplete":True,
+        "vehicleId":resolved_vehicle_id,
     }
 
 
-def _validated_passage_row(account_id: str, passage_token: object):
+def _validated_passage_row(account_id: str, passage_token: object, booking_target: object = ""):
     row=_passage_row(account_id,passage_token)
     if str(row["state"])!="confirmed":
         raise PermissionError("customer_passage_not_confirmed")
@@ -607,15 +823,22 @@ def _validated_passage_row(account_id: str, passage_token: object):
     expected=_contact_hash(account_id,current)
     if not hmac.compare_digest(str(row["contact_hash"] or ""),expected):
         raise PermissionError("customer_passage_contact_changed")
+    stored_booking_hash=str(row["booking_hash"] or "")
+    if stored_booking_hash:
+        expected_booking_hash=_booking_hash(account_id,booking_target)
+        if not expected_booking_hash or not hmac.compare_digest(stored_booking_hash,expected_booking_hash):
+            raise PermissionError("customer_passage_booking_changed")
+        _vehicle_from_profile(current,row["vehicle_id"])
     return row
 
 
 def validate_passage_confirmation(
     account_id: object,
     passage_token: object,
+    booking_target: object = "",
 ) -> dict:
     account_id=_account_id(account_id)
-    row=_validated_passage_row(account_id,passage_token)
+    row=_validated_passage_row(account_id,passage_token,booking_target)
     return {
         "ok":True,
         "confirmed":True,
@@ -627,9 +850,10 @@ def validate_passage_confirmation(
 def consume_passage_confirmation(
     account_id: object,
     passage_token: object,
+    booking_target: object = "",
 ) -> dict:
     account_id=_account_id(account_id)
-    row=_validated_passage_row(account_id,passage_token)
+    row=_validated_passage_row(account_id,passage_token,booking_target)
     stamp=_now_iso()
     digest=str(row["passage_hash"])
     with _connect() as db:
@@ -651,10 +875,11 @@ def consume_passage_confirmation(
     }
 
 
-def consume_latest_passage_confirmation(account_id: object) -> dict:
+def consume_latest_passage_confirmation(account_id: object, booking_target: object = "") -> dict:
     account_id=_account_id(account_id)
     now=_now()
     stamp=now.isoformat(timespec="seconds")
+    booking_hash=_booking_hash(account_id,booking_target)
     init_db()
     with _connect() as db:
         # One write transaction makes the contact snapshot and one-time consume
@@ -672,18 +897,33 @@ def consume_latest_passage_confirmation(account_id: object) -> dict:
             "DELETE FROM customer_passage_confirmation WHERE expires_at<?",
             (stamp,),
         )
-        row=db.execute(
-            """SELECT passage_hash,action,contact_hash,confirmed_at
-               FROM customer_passage_confirmation
-               WHERE account_id=? AND state='confirmed' AND expires_at>=?
-               ORDER BY confirmed_at DESC,created_at DESC
-               LIMIT 1""",
-            (account_id,stamp),
-        ).fetchone()
+        if booking_hash:
+            row=db.execute(
+                """SELECT passage_hash,action,contact_hash,confirmed_at,vehicle_id,booking_hash
+                   FROM customer_passage_confirmation
+                   WHERE account_id=? AND state='confirmed' AND expires_at>=? AND booking_hash=?
+                   ORDER BY confirmed_at DESC,created_at DESC
+                   LIMIT 1""",
+                (account_id,stamp,booking_hash),
+            ).fetchone()
+        else:
+            row=db.execute(
+                """SELECT passage_hash,action,contact_hash,confirmed_at,vehicle_id,booking_hash
+                   FROM customer_passage_confirmation
+                   WHERE account_id=? AND state='confirmed' AND expires_at>=?
+                   ORDER BY confirmed_at DESC,created_at DESC
+                   LIMIT 1""",
+                (account_id,stamp),
+            ).fetchone()
         if not row:
             raise PermissionError("customer_passage_confirmation_required")
         if not hmac.compare_digest(str(row["contact_hash"] or ""),expected):
             raise PermissionError("customer_passage_contact_changed")
+        vehicle=None
+        if booking_hash:
+            if not hmac.compare_digest(str(row["booking_hash"] or ""),booking_hash):
+                raise PermissionError("customer_passage_booking_changed")
+            vehicle=_vehicle_summary(_vehicle_from_profile(current,row["vehicle_id"]))
         removed=db.execute(
             """DELETE FROM customer_passage_confirmation
                WHERE passage_hash=? AND account_id=? AND state='confirmed'""",
@@ -698,6 +938,8 @@ def consume_latest_passage_confirmation(account_id: object) -> dict:
         "confirmedAt":str(row["confirmed_at"]),
         "consumedAt":stamp,
         "confirmationRetained":False,
+        "vehicleId":str(row["vehicle_id"] or ""),
+        "vehicle":vehicle,
     }
 
 
@@ -736,6 +978,7 @@ def profile(account_id: object) -> dict:
         "postalCode": str(profile_data.get("postalCode") or ""),
         "city": str(profile_data.get("city") or ""),
         "contactDetailsComplete": _contact_complete(profile_data),
+        "vehicles": _vehicle_summaries(profile_data),
         "providers": providers,
         "loyalty": {
             "referralCode": wallet["code"],

@@ -127,6 +127,23 @@ class CustomerOIDCTest(unittest.TestCase):
         self.assertNotIn("google-client",repr(status))
         self.assertNotIn("google-secret",repr(status))
 
+    def test_browser_flow_retains_only_local_return_target(self):
+        target="/compte/reserver?returnTo=%2Fgo%2Fbooking%3Fservice%3DControle"
+        url=oidc.begin(
+            "google","https://stage.example",browser_binding="b"*43,return_to=target
+        )
+        from urllib.parse import urlparse,parse_qs
+        state=parse_qs(urlparse(url).query)["state"][0]
+        row=oidc._consume_flow(
+            "google",state,browser_binding="b"*43,origin="https://stage.example"
+        )
+        self.assertEqual(row["return_to"],target)
+        with self.assertRaisesRegex(oidc.CustomerOIDCError,"return_invalid"):
+            oidc.begin(
+                "google","https://stage.example",browser_binding="b"*43,
+                return_to="https://evil.example/compte",
+            )
+
     def test_begin_uses_state_nonce_pkce_and_expected_response_mode(self):
         state,nonce,url=self.flow("apple")
         self.assertIn("code_challenge=",url)
