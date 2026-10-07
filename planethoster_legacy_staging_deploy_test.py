@@ -33,6 +33,15 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertNotIn('.htaccess',text)
         self.assertNotIn('admin-password',text)
 
+    def test_public_static_copy_normalizes_web_readable_permissions(self):
+        text=m._activation_program("e"*40,"6"*64)
+        self.assertIn("os.chmod(target, 0o644)", text)
+        self.assertIn("os.chmod(assets_target, 0o755)", text)
+        self.assertIn("os.chmod(path, 0o755)", text)
+        self.assertIn("os.chmod(path, 0o644)", text)
+        self.assertIn("prepared static tree contains unsupported entry", text)
+        self.assertNotIn("os.chmod(source", text)
+
     def test_activation_http_verification_pins_origin_but_keeps_tls_hostname(self):
         text=m._activation_program("f"*40,"2"*64)
         self.assertIn('origin_ip = "185.221.181.53"', text)

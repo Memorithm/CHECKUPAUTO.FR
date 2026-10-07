@@ -145,8 +145,19 @@ def _prepare_static(source, label):
     staging.mkdir(mode=0o700)
     try:
         for name in STATIC_FILES:
-            shutil.copy2(source / name, staging / name)
-        shutil.copytree(source / "assets", staging / "assets", symlinks=False)
+            target = staging / name
+            shutil.copy2(source / name, target)
+            os.chmod(target, 0o644)
+        assets_target = staging / "assets"
+        shutil.copytree(source / "assets", assets_target, symlinks=False)
+        os.chmod(assets_target, 0o755)
+        for path in assets_target.rglob("*"):
+            if path.is_dir():
+                os.chmod(path, 0o755)
+            elif path.is_file():
+                os.chmod(path, 0o644)
+            else:
+                fail("prepared static tree contains unsupported entry")
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
