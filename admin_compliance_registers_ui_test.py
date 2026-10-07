@@ -61,7 +61,7 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
             "activityForm", "activityId", "activityName", "activityPurposes",
             "activityLegalBases", "activitySystems", "activitySave", "activityReset",
             "processorForm", "processorId", "processorName", "processorDpa",
-            "processorTransferRequired", "processorSave", "processorReset",
+            "processorDpaEvidence", "processorTransferRequired", "processorSave", "processorReset",
         ):
             self.assertIn(f'id="{element_id}"', self.html)
         self.assertIn("/api/admin/compliance/processing-activity", self.js)
@@ -70,6 +70,9 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
         self.assertIn("'Content-Type':'application/json'", self.js)
         self.assertIn("JSON.stringify(payload)", self.js)
         self.assertIn("actionCell('Modifier'", self.js)
+        self.assertIn("dpaEvidenceSha256", self.js)
+        self.assertIn("processorDpaEvidence", self.js)
+        self.assertIn("dpaEvidence.slice(0,16)", self.js)
 
     def test_main_compliance_center_links_to_operational_registers(self):
         main = Path("admin/index.html").read_text(encoding="utf-8")
