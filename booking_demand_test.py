@@ -143,6 +143,21 @@ class PromotionPublicationTest(unittest.TestCase):
         self.assertEqual(demand.candidate_slots(
             sample_history(), POLICY, {'technical': response()}, TODAY), [])
 
+    def test_standard_control_wins_equal_low_demand_service_ties(self):
+        # Both services share centre capacity; matching physical slots must
+        # not preferentially consume the VASP offering by alphabetic order.
+        common = response(discounted=False)
+        fitted = {**common, 'service': {'key': 'fitted'},
+                  'days': [{**common['days'][0], 'slots': [{
+                      **slot, 'basePrice': 90.0, 'price': 90.0
+                  } for slot in common['days'][0]['slots']]}]}
+        candidates = demand.candidate_slots(
+            sample_history(), POLICY,
+            {'fitted': fitted, 'technical': common}, TODAY)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]['service'], 'technical')
+        self.assertEqual(candidates[0]['finalPrice'], 75.0)
+
     def test_publication_requires_explicit_prod_flag(self):
         with patch.dict(os.environ, {demand.PUBLISH_ENV: ''}):
             with patch.object(demand.mercure_admin, 'plan_promotion_slot') as write:
