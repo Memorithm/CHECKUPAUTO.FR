@@ -43,10 +43,12 @@ def _activation_program(sha: str, archive_sha256: str) -> str:
         raise ValueError("empreinte d archive invalide")
     return r'''from __future__ import annotations
 import datetime
+import hashlib
 import http.client
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import ssl
 import subprocess
@@ -62,9 +64,11 @@ release = (releases / SHA).resolve()
 current = private / "current"
 shared = (private / "shared").resolve()
 app = (home / "checkupauto-test-application").resolve()
+webroot = (home / "test.checkupauto.fr").resolve()
 restart = app / "tmp/restart.txt"
 domain = "test.checkupauto.fr"
 origin_ip = "185.221.181.53"
+STATIC_FILES = ("style.css", "app.js", "consent.js")
 
 
 def fail(message):
@@ -118,6 +122,64 @@ def marker(path, expected_archive_sha256=None):
     if expected_archive_sha256 is not None and digest != expected_archive_sha256:
         fail("release marker digest mismatch")
     return data
+
+
+def _validate_static_source(source):
+    for name in STATIC_FILES:
+        path = source / name
+        if path.is_symlink() or not path.is_file():
+            fail("release static file invalid: " + name)
+    assets = source / "assets"
+    if assets.is_symlink() or not assets.is_dir():
+        fail("release assets directory invalid")
+    for path in assets.rglob("*"):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            fail("release assets tree contains unsupported entry")
+
+
+def _prepare_static(source, label):
+    _validate_static_source(source)
+    staging = private / (".static-" + label + "-" + str(os.getpid()))
+    if staging.exists() or staging.is_symlink():
+        fail("static staging path already exists")
+    staging.mkdir(mode=0o700)
+    try:
+        for name in STATIC_FILES:
+            shutil.copy2(source / name, staging / name)
+        shutil.copytree(source / "assets", staging / "assets", symlinks=False)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return staging
+
+
+def _activate_static(staging):
+    if not webroot.is_dir() or not under(webroot, home):
+        fail("legacy webroot invalid")
+    for name in STATIC_FILES:
+        target = webroot / name
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            fail("legacy static target invalid: " + name)
+    live_assets = webroot / "assets"
+    if live_assets.is_symlink() or (live_assets.exists() and not live_assets.is_dir()):
+        fail("legacy assets target invalid")
+    old_assets = webroot / (".assets-old-" + str(os.getpid()))
+    if old_assets.exists() or old_assets.is_symlink():
+        fail("legacy assets rollback path already exists")
+    if live_assets.exists():
+        os.replace(live_assets, old_assets)
+    try:
+        for name in STATIC_FILES:
+            os.replace(staging / name, webroot / name)
+        os.replace(staging / "assets", live_assets)
+    except Exception:
+        if old_assets.exists():
+            if live_assets.exists():
+                shutil.rmtree(live_assets)
+            os.replace(old_assets, live_assets)
+        raise
+    if old_assets.exists():
+        shutil.rmtree(old_assets)
 
 
 def touch_restart():
@@ -197,6 +259,8 @@ probe = subprocess.run(
 if probe.returncode != 0 or "IMPORT_OK" not in probe.stdout:
     fail("staged application import failed")
 
+static_new = _prepare_static(release, "incoming")
+static_rollback = _prepare_static(previous, "rollback")
 incoming = private / (".current-" + str(os.getpid()))
 try:
     incoming.unlink()
@@ -205,10 +269,14 @@ except FileNotFoundError:
 os.symlink(release, incoming)
 
 switched = False
+static_attempted = False
 try:
     print("__ACTIVATION_STEP_PREFIX__switch", flush=True)
     os.replace(incoming, current)
     switched = True
+    print("__ACTIVATION_STEP_PREFIX__static", flush=True)
+    static_attempted = True
+    _activate_static(static_new)
     print("__ACTIVATION_STEP_PREFIX__restart", flush=True)
     touch_restart()
 
@@ -245,6 +313,13 @@ try:
                 or provenance.get("clean") is not True
             ):
                 fail("deployment provenance mismatch")
+            for public_path in ("style.css", "app.js", "consent.js", "assets/cybercheck-runtime-marker.bin"):
+                static_status, static_body = origin_get("/" + public_path + "?release=" + SHA, limit=2_000_000)
+                if static_status != 200:
+                    fail("static asset status invalid: " + public_path)
+                expected_static = (release / public_path).read_bytes()
+                if hashlib.sha256(static_body).digest() != hashlib.sha256(expected_static).digest():
+                    fail("static asset digest mismatch: " + public_path)
             for path, version in legal.items():
                 status, raw_body = origin_get(path, limit=300000)
                 if status != 200:
@@ -351,6 +426,8 @@ print(json.dumps({
 except Exception:
     if switched:
         print("__ACTIVATION_STEP_PREFIX__rollback", flush=True)
+        if static_attempted:
+            _activate_static(static_rollback)
         rollback = private / (".rollback-" + str(os.getpid()))
         try:
             rollback.unlink()
@@ -360,6 +437,9 @@ except Exception:
         os.replace(rollback, current)
         touch_restart()
     raise
+finally:
+    shutil.rmtree(static_new, ignore_errors=True)
+    shutil.rmtree(static_rollback, ignore_errors=True)
 '''.replace("__SHA__", repr(sha)).replace("__ARCHIVE_SHA256__", repr(archive_sha256)).replace("__PREFIX__", repr(_RESULT_PREFIX)).replace("__ACTIVATION_STEP_PREFIX__", _ACTIVATION_STEP_PREFIX)
 
 
@@ -393,7 +473,7 @@ printf 'passenger_adapter=1\n'
 
 def _last_activation_step(output: str) -> str:
     allowed = {
-        "preflight", "backup", "import", "switch", "restart",
+        "preflight", "backup", "import", "switch", "static", "restart",
         "http_verify", "compliance", "integrity", "rollback",
     }
     last = ""
