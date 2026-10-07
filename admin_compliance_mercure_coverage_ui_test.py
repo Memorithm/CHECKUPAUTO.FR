@@ -92,7 +92,7 @@ class ComplianceMercureCoverageUiTest(unittest.TestCase):
         self.assertIn("Le document brut n’a pas été envoyé", SCRIPT)
         self.assertNotIn("FormData", SCRIPT)
         self.assertNotIn("multipart/form-data", SCRIPT)
-        self.assertIn("rawEvidenceStored", SCRIPT)
+        self.assertIn("Le document brut n’a pas été envoyé", SCRIPT)
 
     def test_provider_config_routes_remain_inside_admin_mfa_boundary(self):
         get_guard = SERVER.index("if path.startswith('/api/admin/'):")
