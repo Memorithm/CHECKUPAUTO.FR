@@ -29,7 +29,7 @@ class ComplianceRuntimeBaselineTest(unittest.TestCase):
             for x in data["processingActivities"]
         ))
         processors={x["id"]:x for x in data["processors"]}
-        self.assertEqual(processors["autobilan_mercure"]["dpaStatus"],"pending")
+        self.assertEqual(processors["autobilan_mercure"]["dpaStatus"],"reviewed_insufficient")
         self.assertEqual(processors["planethoster"]["dpaStatus"],"pending")
 
     def test_apply_is_idempotent_and_replaces_missing_inventory_with_exact_pending_dpa_blocker(self):
@@ -41,8 +41,8 @@ class ComplianceRuntimeBaselineTest(unittest.TestCase):
             self.assertEqual(first["processorCount"],2)
             self.assertEqual(len(ops.processing_activities(db)),5)
             self.assertEqual(len(ops.processors(db)),2)
-            self.assertEqual(first["blockerTypes"],["processor_dpa_pending"])
-            self.assertEqual(second["blockerTypes"],["processor_dpa_pending"])
+            self.assertEqual(first["blockerTypes"],["processor_dpa_insufficient","processor_dpa_pending"])
+            self.assertEqual(second["blockerTypes"],["processor_dpa_insufficient","processor_dpa_pending"])
             self.assertFalse(first["operationalRegistersReady"])
             self.assertTrue(first["externalEvidencePending"])
 

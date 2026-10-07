@@ -72,6 +72,8 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
         self.assertIn("actionCell('Modifier'", self.js)
         self.assertIn("dpaEvidenceSha256", self.js)
         self.assertIn("processorDpaEvidence", self.js)
+        self.assertIn('value="reviewed_insufficient"', self.html)
+        self.assertIn("reviewed_insufficient:'Contrat revu · DPA insuffisant'", self.js)
         self.assertIn("dpaEvidence.slice(0,16)", self.js)
 
     def test_dpa_evidence_file_is_hashed_locally_without_upload(self):

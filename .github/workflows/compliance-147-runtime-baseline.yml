@@ -197,7 +197,7 @@ jobs:
                       seed_result.get("activityCount")==5
                       and seed_result.get("processorCount")==2
                       and seed_result.get("externalEvidencePending") is True
-                      and seed_result.get("blockerTypes")==["processor_dpa_pending"]
+                      and seed_result.get("blockerTypes")==["processor_dpa_insufficient","processor_dpa_pending"]
                   )
               except Exception:
                   seed_ok=False

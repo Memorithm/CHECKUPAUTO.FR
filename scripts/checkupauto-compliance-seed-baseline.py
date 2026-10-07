@@ -31,7 +31,7 @@ def apply(db_path=None) -> dict:
       "processorCount":len(saved_processors),
       "operationalRegistersReady":bool(state.get("operationalRegistersReady")),
       "blockerTypes":sorted({str(x.get("type") or "") for x in state.get("blockers") or []}),
-      "externalEvidencePending":any(str(x.get("dpaStatus") or "")=="pending" for x in saved_processors),
+      "externalEvidencePending":any(str(x.get("dpaStatus") or "") in {"pending","reviewed_insufficient"} for x in saved_processors),
     }
 
 def main() -> int:
