@@ -17,6 +17,10 @@ class ResponsiveLayoutTest(unittest.TestCase):
             self.assertIn(breakpoint, css)
         self.assertIn(".vehicle-option{flex:0 0 100%", css)
         self.assertIn(".booking-slots{grid-template-columns:1fr}", css)
+        self.assertIn("Mobile interaction refinement v2", css)
+        self.assertIn(".booking-days{display:flex;grid-template-columns:none", css)
+        self.assertIn(".booking-day{flex:0 0 92%;scroll-snap-align:start", css)
+        self.assertIn(".vehicle-carousel-arrow{min-width:44px;width:44px}", css)
         self.assertIn(".app-qr-card{grid-template-columns:1fr", css)
         self.assertIn("env(safe-area-inset-left)", css)
 

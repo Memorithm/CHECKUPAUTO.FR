@@ -127,3 +127,17 @@ footer span{min-width:0;overflow-wrap:anywhere}
  .hero h1{font-size:38px}.hero-visual{min-height:280px}.offer-seal{width:108px}
  .reservation,.booking-planner{margin-left:12px;margin-right:12px}
 }
+
+/* Mobile interaction refinement v2 */
+@media(max-width:640px){
+ .hero{overflow:hidden}
+ .booking-days{display:flex;grid-template-columns:none;gap:12px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scroll-padding-inline:0;padding-bottom:10px;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}
+ .booking-days::-webkit-scrollbar{height:6px}
+ .booking-day{flex:0 0 92%;scroll-snap-align:start;scroll-snap-stop:always}
+ .vehicle-carousel-arrow{min-width:44px;width:44px}
+ .actions>a:not(.primary),.cards a,.booking-call-only a{min-height:44px;display:flex;align-items:center}
+}
+@media(max-width:480px){
+ .vehicle-carousel-shell{padding-left:22px;padding-right:22px}
+ .vehicle-carousel-arrow{min-width:44px;width:44px}
+}
