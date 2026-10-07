@@ -42,11 +42,11 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         self.assertTrue(state["complete"])
         self.assertEqual(state["tableCount"],77)
         self.assertTrue(state["mappingComplete"])
-        self.assertEqual(state["subjectExecutionRequiredCount"],21)
-        self.assertEqual(state["executionGapCount"],10)
+        self.assertEqual(state["subjectExecutionRequiredCount"],20)
+        self.assertEqual(state["executionGapCount"],9)
         self.assertEqual(
             state["executionGapTables"],
-            ["booking_conversions","checkout_acceptance_intents","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
         self.assertFalse(state["privacyExecutionCoverageAsserted"])
         self.assertEqual(state["state"],"mapped_with_execution_gaps")
@@ -56,13 +56,23 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
     def test_every_required_subject_table_is_wired_or_explicit_gap(self):
         data=catalog.load()
         required=[row for row in data["tables"] if row["subjectExecutionRequired"]]
-        self.assertEqual(len(required),21)
+        self.assertEqual(len(required),20)
         self.assertEqual(
             sorted(row["table"] for row in required if row["executionState"]!="wired"),
             ["booking_conversions","checkout_acceptance_intents","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
         for row in required:
             self.assertIn(row["executionState"],{"wired","partial","unmapped"})
+
+    def test_checkout_acceptance_intents_are_transient_and_retention_governed(self):
+        row=next(
+            item for item in catalog.load()["tables"]
+            if item["table"]=="checkout_acceptance_intents"
+        )
+        self.assertEqual(row["subjectRelation"],"transient")
+        self.assertEqual(row["executionState"],"retention_only")
+        self.assertEqual(row["adapter"],"retention_enforcement")
+        self.assertFalse(row["subjectExecutionRequired"])
 
     def test_catalog_contains_no_test_module(self):
         data=catalog.load()
