@@ -254,7 +254,7 @@ class CustomerHttpTest(unittest.TestCase):
 
         payload={
             "vehicleId":"","registrationSystem":"siv","registration":"aa 123 aa",
-            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+            "formulaNumber":"2020AB12345","cardIssueDate":"",
         }
         saving=Handler("/api/customer/vehicles","POST",payload,headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
         with patch.object(http,"_account",return_value=("token",self.account())), \
@@ -266,7 +266,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertTrue(saving.response["json"]["ok"])
         save.assert_called_once_with(
             self.account()["accountId"],vehicle_id="",registration_system="siv",
-            registration="aa 123 aa",formula_number="AB12CD34EF5",card_issue_date="",
+            registration="aa 123 aa",formula_number="2020AB12345",card_issue_date="",
         )
 
         deleting=Handler("/api/customer/vehicles/delete","POST",{"vehicleId":vehicle["vehicleId"]},headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
@@ -282,7 +282,7 @@ class CustomerHttpTest(unittest.TestCase):
     def test_customer_vehicle_mutations_require_csrf(self):
         h=Handler("/api/customer/vehicles","POST",{
             "vehicleId":"","registrationSystem":"siv","registration":"AA-123-AA",
-            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+            "formulaNumber":"2020AB12345","cardIssueDate":"",
         })
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=False), \
@@ -577,7 +577,7 @@ class CustomerHttpTest(unittest.TestCase):
         h=Handler("/api/customer/passage/confirm","POST",{
             "passageToken":passage,"returnTo":return_to,"action":"validated",
             "vehicleMode":"new","registrationSystem":"siv","registration":"AA-123-AA",
-            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+            "formulaNumber":"2020AB12345","cardIssueDate":"",
         },headers={"Cookie":"checkupauto_customer=token","X-CheckupAuto-Customer-CSRF":"c"*64})
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
@@ -587,7 +587,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],200)
         save.assert_called_once_with(
             self.account()["accountId"],registration_system="siv",
-            registration="AA-123-AA",formula_number="AB12CD34EF5",card_issue_date="",
+            registration="AA-123-AA",formula_number="2020AB12345",card_issue_date="",
         )
         confirm.assert_called_once_with(
             self.account()["accountId"],passage,action="validated",
