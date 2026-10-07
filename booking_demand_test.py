@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import booking_demand as demand
@@ -187,6 +188,50 @@ class PromotionPublicationTest(unittest.TestCase):
         for limit in (0, 5, -1, True, '1'):
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 demand.run_once(POLICY, max_new_promotions=limit)
+
+    def test_private_ledger_isolated_from_app_database_and_requires_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            secure = Path(td) / 'secure'
+            secure.mkdir(mode=0o700)
+            ledger = secure / 'promotions.sqlite3'
+            env = {demand.PUBLISH_ENV: '1',
+                   demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER,
+                   'CYBERCHECK_LOW_DEMAND_PROMO_LEDGER_DB': str(ledger)}
+            with patch.dict(os.environ, env):
+                demand.init_db()
+                self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+                with sqlite3.connect(ledger) as connection:
+                    names = [row[0] for row in connection.execute(
+                        'SELECT name FROM sqlite_master WHERE type="table"')]
+                self.assertIn('booking_demand_promotion_attempts', names)
+                secure.chmod(0o755)
+                with self.assertRaises(PermissionError):
+                    demand.init_db()
+                secure.chmod(0o700)
+            env[demand.CONTROLLER_ENV] = 'hostinger-staging'
+            with patch.dict(os.environ, env), self.assertRaises(PermissionError):
+                demand.init_db()
+
+    def test_migration_freeze_uses_primary_dir_not_promotion_ledger(self):
+        with tempfile.TemporaryDirectory() as td:
+            main = Path(td) / 'primary'
+            main.mkdir()
+            (main / '.migration-write-freeze.json').write_text('{}')
+            secure = Path(td) / 'secure'
+            secure.mkdir(mode=0o700)
+            env = {demand.PUBLISH_ENV: '1',
+                   demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER,
+                   'CYBERCHECK_DATA_DIR': str(main),
+                   'CYBERCHECK_LOW_DEMAND_PROMO_LEDGER_DB':
+                       str(secure / 'promotions.sqlite3')}
+            with patch.dict(os.environ, env), patch.object(
+                demand, 'snapshot',
+                side_effect=AssertionError('no provider access during freeze')
+            ):
+                self.assertTrue(demand.migration_write_freeze.status()['active'])
+                self.assertEqual(
+                    demand.run_once(POLICY, max_new_promotions=1)['status'],
+                    'blocked')
 
     def test_ledger_prevents_duplicate_publication_even_after_restart(self):
         with tempfile.TemporaryDirectory() as td, \
