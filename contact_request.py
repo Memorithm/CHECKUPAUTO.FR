@@ -306,7 +306,7 @@ def render_form(customer: dict, csrf_token: str, intent: str = "contact") -> byt
         '<div class="notice"><strong>Demande concernant un remboursement :</strong> ce formulaire ouvre uniquement une demande de contact. Il ne déclenche aucun remboursement ni aucune opération Payline. La demande est étudiée séparément.</div>'
     )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow,noarchive"><title>{"Suggestion" if is_suggestion else "Contact client"} | Checkup Auto</title>
 <style>
 :root{{--paper:#f6f7f2;--ink:#213b30;--muted:#747d71;--line:#d9dfd3;--green:#1f5443}}
@@ -319,7 +319,7 @@ input,select,textarea{{width:100%;border:1px solid var(--line);background:#fbfcf
 .consent{{display:flex;gap:10px;align-items:flex-start;font-weight:400;line-height:1.5}}.consent input{{width:auto;margin-top:3px}}
 button{{border:0;background:var(--green);color:#fff;padding:15px 20px;font-weight:700;cursor:pointer;justify-self:start}}.notice{{padding:14px 16px;background:#eef3ed;border-left:3px solid var(--green);font-size:12px}}
 .identity{{padding:16px;background:#fbfcfa;border:1px solid var(--line);line-height:1.6}}.identity a{{color:var(--green);font-size:12px}}
-.hp{{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}}
+.hp{{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}}\n@media(max-width:520px){{main{{width:min(100% - 24px,860px);padding:24px 0 44px}}.card{{margin-top:20px;padding:22px}}h1{{font-size:clamp(38px,13vw,52px)}}button{{width:100%;min-height:46px}}.identity{{overflow-wrap:anywhere}}}}
 </style></head><body><main><a class="brand" href="/compte">✓ CHECKUP AUTO · ESPACE CLIENT</a><section class="card">
 <div class="eyebrow">{eyebrow}</div><h1>{title}</h1>
 <p>{intro}</p>
@@ -344,10 +344,10 @@ def render_confirmation(result: dict) -> bytes:
         "Votre demande a été transmise pour traitement manuel. Aucune opération bancaire ni aucun remboursement n’a été déclenché."
     )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow">
 <title>{title} | Checkup Auto</title><style>
 body{{margin:0;background:#f6f7f2;color:#213b30;font-family:Arial,sans-serif}}main{{max-width:760px;margin:auto;padding:64px 24px}}
-.card{{background:#fff;border:1px solid #d9dfd3;padding:42px}}h1{{font:400 48px/1 Georgia,serif}}p{{line-height:1.7;color:#66776e}}code{{font-size:12px}}a{{color:#1f5443}}
+.card{{background:#fff;border:1px solid #d9dfd3;padding:42px}}h1{{font:400 48px/1 Georgia,serif}}@media(max-width:520px){{main{{padding:28px 14px}}.card{{padding:24px}}h1{{font-size:clamp(36px,12vw,48px)}}code{{overflow-wrap:anywhere}}}}p{{line-height:1.7;color:#66776e}}code{{font-size:12px}}a{{color:#1f5443}}
 </style></head><body><main><div class="card"><h1>{title}</h1>
 <p>{copy}</p>
 <p>Référence : <code>{request_id}</code></p><p><a href="/compte">Revenir à mon espace client →</a></p></div></main></body></html>""".encode("utf-8")

@@ -7,3 +7,9 @@
 #paymentsAudit td,#paymentsAudit th,#paymentsActivity td,#paymentsActivity th{padding:10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
 #paymentsAudit,#paymentsActivity{font-size:13px}
 @media(max-width:760px){.payment-fields{grid-template-columns:1fr}.shell{display:block}.shell>aside{position:static;width:auto;height:auto}.shell>main{margin:0;padding:20px}}
+
+/* Responsive adaptive layer v1 */
+@media(max-width:520px){
+ #paymentsMessage{padding:12px 14px}
+ #paymentsAudit{min-width:560px}
+}

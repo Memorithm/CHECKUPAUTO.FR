@@ -12,3 +12,9 @@
 .feedback-entry-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.feedback-entry-head strong{font:700 10px Consolas,monospace;letter-spacing:.08em}.feedback-entry-head span{font-size:11px;color:var(--muted)}
 .feedback-identity,.feedback-meta,.feedback-body{margin:8px 0 0}.feedback-identity{font-weight:700}.feedback-meta{font-size:11px;color:var(--muted);overflow-wrap:anywhere}.feedback-body{white-space:pre-wrap;line-height:1.55}
 
+/* Responsive adaptive layer v1 */
+@media(max-width:760px){
+ .feedback-entry-head{align-items:flex-start;flex-direction:column}
+ .feedback-tools{align-items:stretch;flex-direction:column;width:100%}.feedback-tools select,.feedback-tools button{width:100%}
+ .oidc-actions{align-items:stretch;flex-direction:column}.oidc-actions button{width:100%}
+}

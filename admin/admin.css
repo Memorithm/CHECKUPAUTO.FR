@@ -69,3 +69,34 @@ select{margin-top:8px;width:100%;border:1px solid var(--line);border-radius:9px;
 .mfa-locked .shell{filter:blur(7px);pointer-events:none;user-select:none}
 @media(max-width:600px){.mfa-gate{padding:12px}.mfa-card{padding:20px}.mfa-card h2{font-size:23px}.mfa-qr{width:190px;height:190px}}
 
+/* Responsive adaptive layer v1 */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+img,svg,canvas{max-width:100%;height:auto}
+.shell,main,.panel,.panel-head,.metric-grid,.control-tables,.gsc-tables,.gsc-tools,.integration-grid,.mercure-grid,.promo-form-grid{min-width:0}
+button,input,select,textarea{min-width:0;font:inherit}button,.button-row button,nav a{min-height:44px}
+.table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-inline:contain}
+table{max-width:100%}
+@media(max-width:900px){
+ main{max-width:none}.panel-head{align-items:flex-start;flex-wrap:wrap}.panel-head>div{min-width:0}
+ header h1,h1{font-size:clamp(32px,6vw,44px)}
+}
+@media(max-width:760px){
+ .shell{display:block}.shell>aside,aside{position:relative;height:auto;min-height:0;padding:18px max(18px,env(safe-area-inset-right)) 18px max(18px,env(safe-area-inset-left))}
+ aside nav{display:flex!important;gap:8px;margin-top:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:thin}
+ aside nav a{flex:0 0 auto;white-space:nowrap;padding:11px 13px}
+ .preview{position:static;align-self:flex-start;margin-top:14px}
+ main{margin:0!important;padding:26px max(16px,env(safe-area-inset-right)) max(86px,calc(70px + env(safe-area-inset-bottom))) max(16px,env(safe-area-inset-left));width:100%}
+ header{display:block}.status{max-width:100%;width:max-content}
+ .panel{padding:20px}.panel-head{display:grid;grid-template-columns:1fr;gap:14px}
+ .button-row{display:flex;flex-wrap:wrap;gap:10px}
+ .actions{gap:10px;flex-wrap:wrap}
+}
+@media(max-width:520px){
+ .logo{font-size:19px}.panel{padding:16px;border-radius:12px}
+ h1,header h1{font-size:clamp(30px,10vw,38px)}
+ .metric-grid,.business-metrics,.security-metrics,.referral-metrics{grid-template-columns:1fr!important}
+ .actions{align-items:stretch;flex-direction:column}.actions button,.button-row button{width:100%}
+ .button-row{align-items:stretch;flex-direction:column}
+ .health-summary{align-items:stretch;flex-direction:column}.health-summary span{border-radius:10px}
+ .funnel-table{min-width:560px}
+}
