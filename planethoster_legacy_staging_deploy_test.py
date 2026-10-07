@@ -25,6 +25,10 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn('"backup"',text)
         self.assertIn('os.replace(incoming, current)',text)
         self.assertIn('os.replace(rollback, current)',text)
+        self.assertIn('_prepare_static(release, "incoming")',text)
+        self.assertIn('_prepare_static(previous, "rollback")',text)
+        self.assertIn('_activate_static(static_new)',text)
+        self.assertIn('_activate_static(static_rollback)',text)
         self.assertIn('touch_restart()',text)
         self.assertNotIn('.htaccess',text)
         self.assertNotIn('admin-password',text)
@@ -39,6 +43,9 @@ class LegacyStagingDeployTest(unittest.TestCase):
         self.assertIn('origin_get("/api/public/deployment-provenance"', text)
         self.assertIn('provenance.get("gitSha") != SHA', text)
         self.assertIn('"deployment provenance mismatch"', text)
+        self.assertIn('"style.css", "app.js", "consent.js", "assets/cybercheck-runtime-marker.bin"', text)
+        self.assertIn('hashlib.sha256(static_body).digest()', text)
+        self.assertIn('"static asset digest mismatch: " + public_path', text)
         self.assertNotIn('request.urlopen("https://" + domain + "/api/app/status"', text)
 
     def test_activation_checks_all_legal_routes_and_phase2(self):
@@ -90,7 +97,7 @@ class LegacyStagingDeployTest(unittest.TestCase):
 
     def test_activation_progress_is_bounded(self):
         text=m._activation_program("c"*40,"5"*64)
-        for step in ("preflight","backup","import","switch","restart","http_verify","compliance","integrity","rollback"):
+        for step in ("preflight","backup","import","switch","static","restart","http_verify","compliance","integrity","rollback"):
             self.assertIn(m._ACTIVATION_STEP_PREFIX+step,text)
         self.assertEqual(
             m._last_activation_step(
