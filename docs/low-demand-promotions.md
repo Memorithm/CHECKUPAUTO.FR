@@ -34,3 +34,9 @@ Le point d'entrée scripts/booking_demand_publish.py accepte les modes suivants 
 Les écritures sont précédées d'une réservation transactionnelle dans le registre SQLite de l'unique contrôleur (le journal doit être conservé entre exécutions). Les tentatives incertaines bloquent également leur créneau et comptent dans le budget. Une limite de réduction administrateur non nulle est respectée. L'absence de confirmation du prix public dans Mercure fait échouer le contrôle du déploiement ; un échec ambigu n'autorise aucun nouvel essai automatique sur le même créneau.
 
 La publication du tout premier créneau doit être déclenchée une seule fois depuis un workflow RemoteOps contrôlé et observée depuis l'API publique de Mercure avant toute programmation récurrente. Le statut « verified » n'atteste que la disponibilité et le **prix retourné par Mercure**, jamais un encaissement ou une réservation finalisée.
+
+## Aperçu visuel temporaire, staging uniquement (8–11 octobre 2026)
+
+Sur le seul hôte Hostinger staging, `/?promoPreview=1#reservation` affiche quatre créneaux **fictifs** les 9 et 10 octobre 2026 (deux par journée), avec une flamme et une baisse **simulée** de 5 € (80 → 75 €, 90 → 85 € selon la prestation). Un avertissement permanent indique qu’aucun créneau Mercure ni prix réel n’est modifié. La sélection est possible pour vérifier l’interface, mais le bouton de réservation demeure désactivé.
+
+L’API dédiée `/api/booking/promo-preview` refuse toute requête hors de l’hôte de staging configuré, hors `CYBERCHECK_RUNTIME_ENV=staging` et `CYBERCHECK_PROMO_PREVIEW=1`, si la publication Mercure est autorisée ou après le 11 octobre 2026 (heure de Paris). L’aperçu ne lit pas l’historique client et ne réalise aucune écriture fournisseur. La route réelle `/api/booking/availability` et son exigence de prix certifié Mercure restent inchangées.

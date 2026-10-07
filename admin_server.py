@@ -8,6 +8,7 @@ import analytics_store as analytics
 import app_download as app_download
 import booking_bridge as booking
 import booking_demand
+import booking_promo_preview
 import booking_page
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
@@ -518,7 +519,7 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception: return self.send_json({'ok':False,'error':'booking_test_status_unavailable'},400)
   if path=='/api/booking/services':
    c=load_config(); policy=incentive_config(c); today=mercure_admin.business_today(); horizon=today+datetime.timedelta(days=int(policy['horizonDays']))
-   return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':policy,'businessDate':today.isoformat(),'horizonEnd':horizon.isoformat()})
+   return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':policy,'businessDate':today.isoformat(),'horizonEnd':horizon.isoformat(),'promoPreviewAllowed':booking_promo_preview.enabled(self.headers.get('Host',''))})
   if path=='/api/geo/coverage':
    try: return self.send_json(geo_marketing.coverage(load_config(),mercure_public.public_services()))
    except Exception: return self.send_json({'ok':False,'error':'geo_coverage_unavailable'},400)
@@ -528,6 +529,13 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json(geo_marketing.quote(load_config(),city,mercure_public.public_services()))
    except ValueError: return self.send_json({'ok':False,'error':'geo_quote_invalid'},400)
    except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)
+  if path=='/api/booking/promo-preview':
+   if not booking_promo_preview.enabled(self.headers.get('Host','')):
+    return self.send_json({'ok':False,'error':'not_found'},404)
+   try:
+    q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]
+    return self.send_json(booking_promo_preview.build(service,incentive_config(load_config())),headers={'X-Robots-Tag':'noindex, nofollow'})
+   except ValueError: return self.send_json({'ok':False,'error':'invalid_promo_preview_request'},400)
   if path=='/api/booking/availability':
    try:
     today=mercure_admin.business_today(); q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [today.isoformat()])[0]; c=load_config(); policy=incentive_config(c)

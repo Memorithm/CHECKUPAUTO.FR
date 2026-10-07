@@ -52,6 +52,7 @@ jobs:
           "$RUNNER_TEMP/checkupauto-hostinger-release-gate/bin/pip" install --disable-pip-version-check --quiet -r requirements.txt
           "$RUNNER_TEMP/checkupauto-hostinger-release-gate/bin/python" -m unittest -v \
             admin_server_runtime_test.py \
+            booking_promo_preview_test.py \
             hostinger_staging_tls_readiness_test.py \
             hostinger_staging_control_plane_test.py \
             hostinger_staging_private_permissions_test.py \
