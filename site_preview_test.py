@@ -38,6 +38,12 @@ class SitePreviewTest(unittest.TestCase):
         self.assertNotIn('src="/app.js', self.page)
         self.assertNotIn('src="/consent.js', self.page)
 
+    def test_preview_embeds_the_real_local_centre_map_with_attribution(self):
+        self.assertIn('Carte OpenStreetMap montrant le centre Checkup Auto', self.page)
+        self.assertIn('© OpenStreetMap contributors', self.page)
+        self.assertIn('class="centre-map-pin"', self.page)
+        self.assertNotIn('<span>78</span>', self.page)
+
     def test_no_network_or_real_transaction_code_is_executed(self):
         self.assertEqual(self.parsed.scripts, [{}])
         for forbidden in ('fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket(', 'localStorage', 'sessionStorage'):
