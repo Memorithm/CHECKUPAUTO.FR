@@ -6,6 +6,7 @@ import customer_account_rights
 import data_subject_rights
 import mercure_rectification_boundary
 import referral_wallet_rights
+import review_followup_rights
 import rights_rectification
 import rights_subject_bindings
 import withdrawal_readiness
@@ -83,6 +84,15 @@ def capability(db_path: Path | str | None = None) -> dict:
         partial = set(result.get("partialSystemAdapters") or [])
         partial.add("referral_wallet")
         result["partialSystemAdapters"] = sorted(partial)
+
+    review_followup=review_followup_rights.capability()
+    result["reviewFollowupExecution"]=review_followup
+    if review_followup.get("bound"):
+        supported=dict(result.get("supportedAdapters") or {})
+        supported[review_followup_rights.ADAPTER]=list(
+            review_followup.get("supportedRights") or []
+        )
+        result["supportedAdapters"]=supported
 
     customer_account=customer_account_rights.capability()
     result["customerAccountExecution"]=customer_account
