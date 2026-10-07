@@ -269,6 +269,37 @@ def _reset_mail(handler, result: dict, return_to: str) -> None:
     _password_mail(handler,payload,return_to)
 
 
+VEHICLE_DOCUMENT_GUIDES_CSS = """
+.carte-grise-photo{margin:14px 0;max-width:800px}
+.carte-grise-photo img{display:block;width:100%;height:auto;object-fit:contain;border:1px solid #cdd9ce;border-radius:8px}
+.carte-grise-photo figcaption{font-size:10px;color:#586c60;margin-top:6px}
+.document-guides{grid-column:1/-1;min-width:0}
+.document-guide{margin:0 0 9px;border:1px solid #cad6cb;border-radius:9px;padding:12px;background:#f4f8f3;overflow-wrap:anywhere}
+.document-guide summary{color:#1f5443;cursor:pointer;font-size:13px;font-weight:700;line-height:1.5;min-height:44px;display:flex;align-items:center}
+.document-guide summary:focus-visible{outline:2px solid #1f5443;outline-offset:4px}
+.document-guide p{font-size:12px;line-height:1.6;margin:8px 0}
+.document-footnote{font-size:11px!important;color:#596a5d}
+"""
+
+
+def _vehicle_document_guides() -> str:
+    """Render the same approved photographs in vehicle management and booking."""
+    return """<div class="document-guides" aria-label="Aide pour lire la carte grise">
+<details id="vehicleFormulaGuide" class="document-guide">
+<summary id="vehicleFormulaGuideSummary">ⓘ Où trouver le numéro de formule ?</summary>
+<p>Sur une carte grise SIV, ce numéro de <strong>11 caractères</strong> identifie le certificat, et non le véhicule. Il apparaît notamment sur le recto sous « Certificat d’immatriculation », sur le coupon détachable sous l’immatriculation ou dans la zone de lecture automatique en bas du certificat.</p>
+<figure class="carte-grise-photo"><img loading="lazy" src="/assets/guides/carte-grise-formule-photo.webp" width="800" height="252" alt="Photographie de carte grise SIV avec trois exemples de position du numéro de formule encadrés en rouge."><figcaption>Extrait officiel : © Direction de l’information légale et administrative, Service-Public.</figcaption></figure>
+<p class="document-footnote">Photographie indicative : la présentation peut varier selon le modèle de certificat. Ne communiquez pas votre carte grise dans ce formulaire.</p>
+</details>
+<details id="vehicleDateGuide" class="document-guide" hidden>
+<summary id="vehicleDateGuideSummary">ⓘ Où trouver la date d’établissement de ma carte grise ?</summary>
+<p>Pour une ancienne carte grise FNI, recherchez la <strong>date d’établissement ou de délivrance du certificat</strong>, et non la date de première mise en circulation du véhicule. Sur les certificats portant des rubriques européennes, la référence <strong>I</strong> correspond à la date de l’immatriculation visée par le certificat ; la rubrique <strong>B</strong> indique la première immatriculation.</p>
+<figure class="carte-grise-photo"><img loading="lazy" src="/assets/guides/carte-grise-date-photo.webp" width="400" height="222" alt="Photographie d’ancienne carte grise FNI avec la date d’établissement du certificat encadrée en rouge à la rubrique I."><figcaption>Extrait photographique indicatif : date du certificat (I) et non première immatriculation (B).</figcaption></figure>
+<p class="document-footnote">La disposition et les intitulés varient sur les anciennes cartes grises : reportez la date imprimée relative à l’établissement du document.</p>
+</details>
+</div>"""
+
+
 def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     csrf=customer_accounts.csrf_token(token)
     kind=str(account["kind"])
@@ -316,7 +347,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 .vehicles-section{{margin-top:14px;background:#fff;border:1px solid var(--line);padding:24px}}.vehicles-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}}.vehicles-head h2{{font:400 32px Georgia,serif;margin:8px 0 8px}}.vehicles-head p{{max-width:720px;margin:0}}.vehicles-head .cta{{border:1px solid var(--green);padding:12px 15px;font-weight:700;color:var(--green);white-space:nowrap}}
 .vehicle-list{{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:20px}}.vehicle-card{{border:1px solid var(--line);background:#fafbf8;padding:18px;display:grid;gap:14px;min-width:0}}.vehicle-card-head{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.vehicle-card h3{{font:400 26px Georgia,serif;margin:5px 0 0;overflow-wrap:anywhere}}.vehicle-kind{{font:700 8px Consolas,monospace;letter-spacing:.1em;color:var(--green);border:1px solid #b5c3b8;padding:6px 8px}}.vehicle-detail{{font-size:11px;color:var(--muted)}}.vehicle-actions{{display:flex;gap:8px;flex-wrap:wrap}}.vehicle-actions a,.vehicle-actions button{{border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 11px;min-height:40px;cursor:pointer;font:700 10px Arial,sans-serif}}.vehicle-actions .danger{{color:#8c3a31}}.vehicle-empty{{grid-column:1/-1;border:1px dashed #aebbb2;padding:18px;background:#fafbf8}}
 .vehicle-editor{{margin-top:18px;border-top:1px solid var(--line);padding-top:16px}}.vehicle-editor summary{{cursor:pointer;font-weight:700;color:var(--green);min-height:44px;display:flex;align-items:center}}.vehicle-editor form{{margin-top:16px}}.vehicle-editor .hint{{font-size:10px;color:var(--muted);font-weight:400}}.vehicle-editor [hidden]{{display:none!important}}.vehicle-editor .secondary{{border:1px solid var(--line);background:#fff;color:var(--ink);padding:12px 16px;cursor:pointer}}
-.carte-grise-photo{{margin:14px 0;max-width:800px}}.carte-grise-photo img{{display:block;width:100%;height:auto;object-fit:contain;border:1px solid #cdd9ce;border-radius:8px}}.carte-grise-photo figcaption{{font-size:10px;color:#586c60;margin-top:6px}}.document-guides{{grid-column:1/-1;min-width:0}}.document-guide{{margin:0 0 9px;border:1px solid #cad6cb;border-radius:9px;padding:12px;background:#f4f8f3}}.document-guide summary{{color:#1f5443;cursor:pointer;font-size:13px;font-weight:700;min-height:44px;display:flex;align-items:center}}.document-guide p{{font-size:12px;line-height:1.6;margin:8px 0}}.document-diagram{{border:2px solid #aabcb0;background:#fff;max-width:480px;padding:15px;display:grid;gap:10px;margin:14px 0;font-size:12px;min-width:0}}.document-title{{font-weight:800;letter-spacing:.08em;border-bottom:1px solid #cad6cb;padding-bottom:10px}}.document-line{{padding:4px 2px}}.document-line.faint{{color:#77857a}}.document-focus{{background:#e7f2e7;border:2px solid #2d7454;padding:12px;display:grid;gap:6px;overflow-wrap:anywhere}}.document-focus strong{{font-size:17px;letter-spacing:.07em}}.document-focus span{{font-size:11px}}.document-footnote{{font-size:11px!important;color:#596a5d}}
+{VEHICLE_DOCUMENT_GUIDES_CSS}
 .vehicle-status{{font-size:11px;color:var(--muted)}}
 .feedback{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}}.feedback-card{{background:#fff;border:1px solid var(--line);padding:24px}}.feedback-card h2{{font:400 28px Georgia,serif;margin:8px 0 12px}}.feedback-card .cta{{display:inline-block;margin-top:8px;border:1px solid var(--green);padding:12px 15px;font-weight:700;color:var(--green)}}.feedback-card .cta.primary{{background:var(--green);color:#fff}}.feedback-note{{font-size:11px;color:var(--muted)}}.review-rating{{display:flex;gap:4px;margin:14px 0 6px}}.review-star{{border:0;background:transparent;color:#a7ada8;font-size:34px;line-height:1;padding:2px;cursor:pointer}}.review-star.selected{{color:#c78b16}}.review-star:focus-visible{{outline:2px solid var(--green);outline-offset:3px}}
 @media(max-width:900px){{.grid,.feedback{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:700px){{.shell{{width:min(100% - 24px,1240px);padding:18px 0 48px}}.top{{align-items:flex-start;gap:14px;flex-direction:column}}.top-actions{{width:100%;gap:12px;flex-wrap:wrap;justify-content:space-between}}.hero,.panel,.profile,.feedback-card,.vehicles-section{{padding:20px}}.vehicles-head{{flex-direction:column}}.vehicles-head .cta{{width:100%;text-align:center}}.report-item{{align-items:stretch;flex-direction:column}}.report-item button{{min-height:44px;width:100%}}.report-controls>*{{max-width:100%}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}@media(max-width:480px){{h1{{font-size:clamp(38px,13vw,52px)}}.actions,.report-actions,.vehicle-actions{{align-items:stretch;flex-direction:column}}.actions button,.report-actions button,.report-actions a,.report-controls button,.vehicle-actions button,.vehicle-actions a{{width:100%;min-height:44px;text-align:center}}.metric{{font-size:38px}}.review-rating{{justify-content:space-between;max-width:260px}}}}
@@ -338,22 +369,9 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <input id="vehicleId" type="hidden" value="">
 <label>Type d’immatriculation<select id="vehicleRegistrationSystem"><option value="siv">SIV · format AA-123-AA</option><option value="fni">Ancien format FNI</option></select></label>
 <label>Immatriculation<input id="vehicleRegistration" maxlength="32" autocomplete="off" placeholder="AA-123-AA" required></label>
-<label id="vehicleFormulaLabel">Numéro de formule<input id="vehicleFormulaNumber" maxlength="11" autocomplete="off" placeholder="11 caractères"><span class="hint">Champ obligatoire pour une carte grise SIV. Le numéro complet n’est jamais réaffiché.</span></label>
-<label id="vehicleCardIssueLabel" hidden>Date d’établissement de la carte grise<input id="vehicleCardIssueDate" type="date"></label>
-<div class="document-guides" aria-label="Aide pour lire la carte grise">
-<details id="vehicleFormulaGuide" class="document-guide">
-<summary>ⓘ Où trouver le numéro de formule ?</summary>
-<p>Sur une carte grise SIV, ce numéro de <strong>11 caractères</strong> identifie le certificat, et non le véhicule. Il apparaît notamment sur le recto sous « Certificat d’immatriculation », sur le coupon détachable sous l’immatriculation ou dans la zone de lecture automatique en bas du certificat.</p>
-<figure class="carte-grise-photo"><img loading="lazy" src="/assets/guides/carte-grise-formule-photo.webp" width="800" height="252" alt="Photographie de carte grise SIV avec trois exemples de position du numéro de formule encadrés en rouge."><figcaption>Extrait officiel : © Direction de l’information légale et administrative, Service-Public.</figcaption></figure>
-<p class="document-footnote">Photographie indicative : la présentation peut varier selon le modèle de certificat. Ne communiquez pas votre carte grise dans ce formulaire.</p>
-</details>
-<details id="vehicleDateGuide" class="document-guide" hidden>
-<summary>ⓘ Où trouver la date d’établissement de ma carte grise ?</summary>
-<p>Pour une ancienne carte grise FNI, recherchez la <strong>date d’établissement ou de délivrance du certificat</strong>, et non la date de première mise en circulation du véhicule. Sur les certificats portant des rubriques européennes, la référence <strong>I</strong> correspond à la date de l’immatriculation visée par le certificat ; la rubrique <strong>B</strong> indique la première immatriculation.</p>
-<figure class="carte-grise-photo"><img loading="lazy" src="/assets/guides/carte-grise-date-photo.webp" width="400" height="222" alt="Photographie d’ancienne carte grise FNI avec la date d’établissement du certificat encadrée en rouge à la rubrique I."><figcaption>Extrait photographique indicatif : date du certificat (I) et non première immatriculation (B).</figcaption></figure>
-<p class="document-footnote">La disposition et les intitulés varient sur les anciennes cartes grises : reportez la date imprimée relative à l’établissement du document.</p>
-</details>
-</div>
+<label id="vehicleFormulaLabel">Numéro de formule<input id="vehicleFormulaNumber" aria-describedby="vehicleFormulaGuideSummary" maxlength="11" autocomplete="off" placeholder="11 caractères"><span class="hint">Champ obligatoire pour une carte grise SIV. Le numéro complet n’est jamais réaffiché.</span></label>
+<label id="vehicleCardIssueLabel" hidden>Date d’établissement de la carte grise<input id="vehicleCardIssueDate" aria-describedby="vehicleDateGuideSummary" type="date"></label>
+{_vehicle_document_guides()}
 <div class="actions"><button id="vehicleSave" class="primary" type="submit">Ajouter le véhicule</button><button id="vehicleCancel" class="secondary" type="button" hidden>Annuler la modification</button><span id="vehicleStatus" class="vehicle-status" role="status" aria-live="polite"></span></div>
 </form></details>
 </section>
@@ -549,6 +567,7 @@ h2{{font:400 28px Georgia,serif;margin:8px 0 14px}}p{{line-height:1.6;color:var(
 form{{display:grid;gap:18px}}.fields{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}}label{{display:grid;gap:7px;font-size:12px;font-weight:700}}input,select{{width:100%;min-width:0;padding:12px;border:1px solid var(--line);background:#fff;font:16px Arial,sans-serif}}label small{{font-weight:400;color:var(--muted);line-height:1.4}}
 .full{{grid-column:1/-1}}.error{{color:#8c3a31}}.warning{{color:#7a5111}}[hidden]{{display:none!important}}#passageStatus{{font-size:12px;color:var(--muted)}}
 @media(max-width:620px){{.fields{{grid-template-columns:1fr}}.full{{grid-column:1}}main{{width:min(100% - 24px,820px);padding:20px 0 44px}}.card{{padding:20px}}.actions{{align-items:stretch;flex-direction:column}}.actions button{{width:100%}}}}
+{VEHICLE_DOCUMENT_GUIDES_CSS}
 {FORM_RESPONSIVE_CSS}
 </style></head><body><main><section class="card"><div class="eyebrow">RÉSERVATION · ÉTAPE CLIENT</div>
 <h1>Votre véhicule pour ce contrôle.</h1>
@@ -571,8 +590,9 @@ form{{display:grid;gap:18px}}.fields{{display:grid;grid-template-columns:1fr 1fr
 <div id="newVehicleFields" class="fields">
 <label>Système d’immatriculation<select id="registrationSystem"><option value="siv">SIV · format AA-123-AA</option><option value="fni">Ancien format FNI</option></select></label>
 <label>Immatriculation<input id="registration" autocomplete="off" autocapitalize="characters" maxlength="32" placeholder="AA-123-AA" required><small>SIV : AA-123-AA. FNI : par exemple 1234 AB 78.</small></label>
-<label id="formulaField" class="full">Numéro de formule<input id="formulaNumber" autocomplete="off" autocapitalize="characters" maxlength="11" minlength="11" pattern="[A-Za-z0-9]{{11}}" placeholder="11 chiffres et lettres" required><small>Pour une carte grise SIV, saisissez les 11 caractères du numéro de formule.</small></label>
-<label id="issueDateField" class="full" hidden>Date d’établissement de la carte grise<input id="cardIssueDate" type="date"><small>Demandée pour une immatriculation dans l’ancien système FNI.</small></label>
+<label id="formulaField" class="full">Numéro de formule<input id="formulaNumber" aria-describedby="vehicleFormulaGuideSummary" autocomplete="off" autocapitalize="characters" maxlength="11" minlength="11" pattern="[A-Za-z0-9]{{11}}" placeholder="11 chiffres et lettres" required><small>Pour une carte grise SIV, saisissez les 11 caractères du numéro de formule.</small></label>
+<label id="issueDateField" class="full" hidden>Date d’établissement de la carte grise<input id="cardIssueDate" aria-describedby="vehicleDateGuideSummary" type="date"><small>Demandée pour une immatriculation dans l’ancien système FNI.</small></label>
+{_vehicle_document_guides()}
 </div>
 <div class="actions"><button class="primary" id="continueBooking" type="submit">Réserver avec ce véhicule →</button><span id="passageStatus" role="status" aria-live="polite"></span></div>
 </section>
@@ -584,7 +604,7 @@ const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},returnTo=
 const form=document.getElementById('bookingClientForm'),status=document.getElementById('passageStatus'),contactFields=document.getElementById('contactFields'),vehicleChoice=document.getElementById('vehicleChoice'),newFields=document.getElementById('newVehicleFields'),system=document.getElementById('registrationSystem'),formulaField=document.getElementById('formulaField'),issueDateField=document.getElementById('issueDateField'),formula=document.getElementById('formulaNumber'),issueDate=document.getElementById('cardIssueDate'),registration=document.getElementById('registration');
 let contactEditing=!complete;
 document.getElementById('showEdit').addEventListener('click',()=>{{contactEditing=true;contactFields.hidden=false;}});
-const syncVehicle=()=>{{const existing=!!vehicleChoice.value;newFields.hidden=existing;registration.required=!existing;system.required=!existing;const fni=system.value==='fni';formulaField.hidden=existing||fni;issueDateField.hidden=existing||!fni;formula.required=!existing&&!fni;issueDate.required=!existing&&fni;registration.placeholder=fni?'1234 AB 78':'AA-123-AA';}};
+const syncVehicle=()=>{{const existing=!!vehicleChoice.value;newFields.hidden=existing;registration.required=!existing;system.required=!existing;const fni=system.value==='fni';formulaField.hidden=existing||fni;issueDateField.hidden=existing||!fni;document.getElementById('vehicleFormulaGuide').hidden=existing||fni;document.getElementById('vehicleDateGuide').hidden=existing||!fni;formula.required=!existing&&!fni;issueDate.required=!existing&&fni;registration.placeholder=fni?'1234 AB 78':'AA-123-AA';}};
 vehicleChoice.addEventListener('change',syncVehicle);system.addEventListener('change',syncVehicle);syncVehicle();
 form.addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Vérification du véhicule…';const payload={{passageToken,returnTo,action:contactEditing?'modified':'validated',vehicleMode:vehicleChoice.value?'existing':'new'}};
 if(contactEditing)Object.assign(payload,{{phone:document.getElementById('passagePhone').value,addressLine1:document.getElementById('passageAddress1').value,addressLine2:document.getElementById('passageAddress2').value,postalCode:document.getElementById('passagePostal').value,city:document.getElementById('passageCity').value}});

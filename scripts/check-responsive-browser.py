@@ -77,6 +77,29 @@ def fixtures() -> dict[str,bytes]:
     return pages
 
 
+async def check_document_guide(page, guide_id: str, photo: str, width: int) -> None:
+    """Exercise native disclosure, real image loading and expanded mobile layout."""
+    guide = page.locator('#'+guide_id)
+    assert await guide.is_visible(), guide_id
+    summary = guide.locator('summary')
+    box = await summary.bounding_box()
+    assert box['height'] >= 44, box
+    await summary.focus()
+    await page.keyboard.press('Enter')
+    assert await guide.get_attribute('open') is not None, guide_id
+    image = guide.locator('img')
+    await image.scroll_into_view_if_needed()
+    assert await image.get_attribute('src') == f'/assets/guides/carte-grise-{photo}-photo.webp'
+    await page.wait_for_function(
+        "id => {const image=document.querySelector('#'+id+' img'); return image.complete && image.naturalWidth>0;}",
+        arg=guide_id,
+    )
+    assert await image.is_visible()
+    data = await page.evaluate(GEOMETRY)
+    assert data['scrollWidth'] <= width+1, data
+    assert not data['outside'], data['outside']
+
+
 async def run(args) -> int:
     from playwright.async_api import async_playwright
     out=Path(args.output).resolve();out.mkdir(parents=True,exist_ok=True)
@@ -137,13 +160,39 @@ async def run(args) -> int:
                             assert data['scrollWidth']<=width+1, f'page width overflow: {data}'
                             assert abs(data['innerWidth']-width)<=1, f'mobile viewport expanded: {data}'
                             assert not data['outside'], f'elements outside viewport: {data["outside"]}'
-                            if path=='/compte/reserver':
-                                assert await page.locator('#formulaField').is_visible()
-                                assert not await page.locator('#issueDateField').is_visible()
-                                await page.locator('#registrationSystem').select_option('fni')
-                                assert not await page.locator('#formulaField').is_visible()
-                                assert await page.locator('#issueDateField').is_visible()
-                                assert await page.locator('#cardIssueDate').get_attribute('required') is not None
+                            if path in ('/compte/reserver', '/qa/dashboard'):
+                                booking = path == '/compte/reserver'
+                                system_id = 'registrationSystem' if booking else 'vehicleRegistrationSystem'
+                                formula_id = 'formulaField' if booking else 'vehicleFormulaLabel'
+                                date_id = 'issueDateField' if booking else 'vehicleCardIssueLabel'
+                                if not booking:
+                                    await page.locator('#vehicleEditor > summary').click()
+                                assert await page.locator('#'+formula_id).is_visible()
+                                assert not await page.locator('#'+date_id).is_visible()
+                                assert not await page.locator('#vehicleDateGuide').is_visible()
+                                await check_document_guide(page, 'vehicleFormulaGuide', 'formule', width)
+                                if booking and width in (375,430):
+                                    await page.screenshot(path=str(out/f'{args.browser}-{width}-booking-formule.png'), full_page=True)
+                                await page.locator('#'+system_id).select_option('fni')
+                                assert not await page.locator('#'+formula_id).is_visible()
+                                assert await page.locator('#'+date_id).is_visible()
+                                assert not await page.locator('#vehicleFormulaGuide').is_visible()
+                                date_input = 'cardIssueDate' if booking else 'vehicleCardIssueDate'
+                                assert await page.locator('#'+date_input).get_attribute('required') is not None
+                                await check_document_guide(page, 'vehicleDateGuide', 'date', width)
+                                if booking:
+                                    if width in (375,430):
+                                        await page.screenshot(path=str(out/f'{args.browser}-{width}-booking-date.png'), full_page=True)
+                                    await page.locator('#vehicleChoice').select_option('11111111-1111-4111-8111-111111111111')
+                                    assert not await page.locator('#newVehicleFields').is_visible()
+                                    assert not await page.locator('#vehicleFormulaGuide').is_visible()
+                                    assert not await page.locator('#vehicleDateGuide').is_visible()
+                                    assert await page.locator('#cardIssueDate').get_attribute('required') is None
+                                    await page.locator('#vehicleChoice').select_option('')
+                                    assert await page.locator('#vehicleDateGuide').is_visible()
+                                await page.locator('#'+system_id).select_option('siv')
+                                assert await page.locator('#vehicleFormulaGuide').is_visible()
+                                assert not await page.locator('#vehicleDateGuide').is_visible()
                             if path=='/':
                                 # A previously hidden, tall reservation section cannot stay invisible.
                                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
