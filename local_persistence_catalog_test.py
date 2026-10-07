@@ -40,7 +40,7 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
     def test_catalog_is_technical_discovery_not_privacy_completion(self):
         state=catalog.snapshot()
         self.assertTrue(state["complete"])
-        self.assertEqual(state["tableCount"],79)
+        self.assertEqual(state["tableCount"],80)
         self.assertTrue(state["mappingComplete"])
         self.assertEqual(state["subjectExecutionRequiredCount"],21)
         self.assertEqual(state["executionGapCount"],9)
@@ -63,6 +63,14 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         )
         for row in required:
             self.assertIn(row["executionState"],{"wired","partial","unmapped"})
+
+    def test_promotion_attempts_contain_no_customer_subject(self):
+        row=next(row for row in catalog.load()["tables"]
+                 if row["table"]=="booking_demand_promotion_attempts")
+        self.assertEqual(row["module"],"booking_demand.py")
+        self.assertEqual(row["subjectRelation"],"none")
+        self.assertEqual(row["executionState"],"not_applicable")
+        self.assertFalse(row["subjectExecutionRequired"])
 
     def test_checkout_acceptance_intents_are_transient_and_retention_governed(self):
         row=next(

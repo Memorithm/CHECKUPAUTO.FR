@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import analytics_store as analytics
@@ -86,6 +87,33 @@ class BookingContractAcceptanceTest(unittest.TestCase):
         self.assertIn("Véhicule : SIV · AA-123-AA",page)
         self.assertNotIn("formula",page.lower())
         self.assertNotIn("AB12CD34EF5",page)
+
+    def test_review_uses_actual_provider_promotion_for_selected_slot(self):
+        intent=booking.create_intent({
+            'service':'Contrôle technique','preferredDate':'2026-10-12',
+            'preferredTime':'15:30',
+        },'https://rdv.checkupauto.fr/')
+        provider={'days':[{'date':'2026-10-12','slots':[
+            {'time':'15:30','price':75.0,'saving':5.0},
+        ]}]}
+        with patch('mercure_public_client.availability',return_value=provider) as check:
+            page=booking.auto_submit_html(
+                intent['token'],'Contrôle technique','nonce').decode()
+        check.assert_called_once_with('technical','2026-10-12')
+        self.assertIn('Tarif du créneau constaté dans Mercure : 75 € TTC',page)
+        self.assertIn('le tarif final est celui confirmé avant le paiement',page)
+        self.assertNotIn('Prix affiché : 80 €',page)
+
+    def test_provider_failure_never_displays_an_unverified_saving(self):
+        intent=booking.create_intent({
+            'service':'Contrôle technique','preferredDate':'2026-10-12',
+            'preferredTime':'15:30',
+        },'https://rdv.checkupauto.fr/')
+        with patch('mercure_public_client.availability',side_effect=RuntimeError('Mercure unavailable')):
+            page=booking.auto_submit_html(
+                intent['token'],'Contrôle technique','nonce').decode()
+        self.assertIn('Tarif standard indicatif : 80 € TTC',page)
+        self.assertNotIn('75 € TTC',page)
 
     def test_early_performance_acknowledgement_is_required_server_side(self):
         intent = self.intent()

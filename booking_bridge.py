@@ -263,6 +263,33 @@ def require_published_terms():
     return terms
 
 
+def preferred_mercure_quote(service, preferred_date, preferred_time):
+    """Return the matching provider price, never a customer-supplied price."""
+    if not preferred_date or not preferred_time:
+        return None
+    import mercure_public_client as mercure_public
+    key = next(
+        (key for key, item in mercure_public.SERVICES.items()
+         if _fold(item['label']) == _fold(service)), ''
+    )
+    if not key:
+        return None
+    try:
+        data = mercure_public.availability(key, preferred_date)
+        for day in data.get('days', []):
+            if day.get('date') != preferred_date:
+                continue
+            for slot in day.get('slots', []):
+                if str(slot.get('time')) == preferred_time:
+                    return {
+                        'price': round(float(slot['price']), 2),
+                        'saving': round(float(slot.get('saving', 0)), 2),
+                    }
+    except Exception:
+        pass  # Provider unavailability must never invent an eligible price.
+    return None
+
+
 def auto_submit_html(token, service, nonce="", vehicle=None):
     prestation=mercure_prestation(service)
     if not prestation: return None
@@ -270,8 +297,16 @@ def auto_submit_html(token, service, nonce="", vehicle=None):
     cct=browser_token(token)
     action='https://rdv.checkupauto.fr/prendre_rdv?ccid='+token+'&cct='+cct
     parts=prestation.split('|')
-    price=parts[2] if len(parts)>2 else ''
     requirements=_checkout_requirements(token)
+    quote=preferred_mercure_quote(
+        service,requirements['preferredDate'],requirements['preferredTime'])
+    price=(f"{quote['price']:g}" if quote else
+           (parts[2] if len(parts)>2 else ''))
+    price_label=('Tarif du créneau constaté dans Mercure'
+                 if quote else 'Tarif standard indicatif')
+    notice=('Ce créneau n’est pas bloqué. La remise n’est valable '
+            'que si vous choisissez ce même horaire dans Mercure ; '
+            'le tarif final est celui confirmé avant le paiement.')
     preferred=' · '.join(
         x for x in (requirements['preferredDate'],requirements['preferredTime']) if x
     )
@@ -299,7 +334,7 @@ def auto_submit_html(token, service, nonce="", vehicle=None):
     version_js=json.dumps(terms["version"])
     hash_js=json.dumps(terms["contentHash"])
     immediate_required_js='true' if immediate_required else 'false'
-    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>Prix affiché : {html.escape(str(price))} € TTC{preferred_markup}{vehicle_markup}</div><p><a href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</label>{immediate_markup}<button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error'),requiresImmediate={immediate_required_js};const update=()=>{{button.disabled=!terms.checked||(requiresImmediate&&!immediate.checked)}};terms.addEventListener('change',update);if(requiresImmediate)immediate.addEventListener('change',update);form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked||(requiresImmediate&&!immediate.checked))return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:requiresImmediate?immediate.checked:false}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
+    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>{html.escape(price_label)} : {html.escape(str(price))} € TTC{preferred_markup}{vehicle_markup}<br><small>{html.escape(notice)}</small></div><p><a href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</label>{immediate_markup}<button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error'),requiresImmediate={immediate_required_js};const update=()=>{{button.disabled=!terms.checked||(requiresImmediate&&!immediate.checked)}};terms.addEventListener('change',update);if(requiresImmediate)immediate.addEventListener('change',update);form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked||(requiresImmediate&&!immediate.checked))return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:requiresImmediate?immediate.checked:false}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
 
 
 def create_intent(params, booking_url):

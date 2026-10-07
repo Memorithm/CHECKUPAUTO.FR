@@ -301,3 +301,14 @@ footer span{min-width:0;overflow-wrap:anywhere}
 .directions-note{font:400 11px/1.55 var(--sans);color:#738177;margin:16px 0 0}
 @media(max-width:480px){.directions-dialog-content{padding:20px}.directions-dialog h2{font-size:26px}.directions-address{margin:14px 0 20px}}
 @media(prefers-reduced-motion:reduce){.directions-option{transition:none}}
+
+
+/* Prix réduits sur créneaux historiquement moins demandés : prix Mercure vérifiés. */
+.slot-button.low-demand{position:relative;border:2px solid #df914f;background:#fff7ec}
+.slot-button.low-demand .slot-time{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
+.slot-button.low-demand .slot-flame{display:inline-flex;align-items:center;justify-content:center;min-width:22px;min-height:22px;font-size:19px;line-height:1;filter:drop-shadow(0 1px 1px #d3a27c)}
+.slot-button.low-demand em{font-size:10px;font-weight:700;color:#8f3f0e;letter-spacing:0}
+.slot-button.low-demand small b{color:#74401a;font-size:12px}
+.slot-button.low-demand:hover,.slot-button.low-demand:focus-visible{border-color:#a4511a;background:#ffeed5}
+.slot-button.low-demand.selected{border-color:#8f431b;background:#ffedd4}
+@media(prefers-reduced-motion:no-preference){.slot-button.low-demand .slot-flame{animation:booking-flame 2.4s ease-in-out infinite alternate}@keyframes booking-flame{from{transform:scale(1)}to{transform:scale(1.12)}}}

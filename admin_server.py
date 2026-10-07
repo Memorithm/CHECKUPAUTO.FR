@@ -7,6 +7,7 @@ import gsc_client as gsc
 import analytics_store as analytics
 import app_download as app_download
 import booking_bridge as booking
+import booking_demand
 import booking_page
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
@@ -532,7 +533,11 @@ class Handler(SimpleHTTPRequestHandler):
     today=mercure_admin.business_today(); q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [today.isoformat()])[0]; c=load_config(); policy=incentive_config(c)
     requested=datetime.date.fromisoformat(date); limit=today+datetime.timedelta(days=int(policy['horizonDays']))
     if requested>limit: raise ValueError(f"Date hors horizon de réservation ({policy['horizonDays']} jours)")
-    result=mercure_public.availability(service,date); result['incentives']=policy; return self.send_json(result)
+    result=booking_demand.decorate_availability(
+     mercure_public.availability(service,date),
+     authenticated=bool(customer_http._account(self)[1]), policy=policy,
+    )
+    result['incentives']=policy; return self.send_json(result)
    except ValueError: return self.send_json({'ok':False,'error':'booking_availability_invalid'},400)
    except Exception: return self.send_json({'ok':False,'error':'booking_availability_unavailable'},502)
   if path=='/go/app':
@@ -569,7 +574,7 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     c=load_config(); days=int(parse_qs(parsed.query).get('days',['30'])[0])
     if path=='/api/admin/mercure/status':
-     return self.send_json({'provider':'AutoBilan-Systems / Mercure RDV','centreId':240,'bookingUrl':c['business']['bookingUrl'],'secret':booking.secret_info(False),'stats':booking.stats(days),'providerProtection':mercure_public.provider_health(),'webhookUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/booking-confirmed','browserCallbackUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/browser-confirmed'})
+     return self.send_json({'provider':'AutoBilan-Systems / Mercure RDV','centreId':240,'bookingUrl':c['business']['bookingUrl'],'secret':booking.secret_info(False),'stats':booking.stats(days),'providerProtection':mercure_public.provider_health(),'lowDemandPromotions':booking_demand.worker_status(),'webhookUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/booking-confirmed','browserCallbackUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/browser-confirmed'})
     if path=='/api/admin/mercure/live-summary': return self.send_json(mercure_admin.live_summary(days))
     if path=='/api/admin/mercure/session-status': return self.send_json(mercure_admin.session_status())
     if path=='/api/admin/mercure/promotions':
@@ -1424,6 +1429,7 @@ def initialize_runtime(*,background=True):
    _RUNTIME_CORE_READY=True
   if background and not _RUNTIME_BACKGROUND_READY:
    booking_test.start(300); reviews.start(); reminder_dispatch.start()
+   booking_demand.start(lambda: incentive_config(load_config()))
    mobile_authoritative_sync.start(); mobile_reminder_dispatch.start()
    retention_enforcement.start(3600)
    security_alerts.start(120); security_integrity.start(60); security_ai.start(300)
