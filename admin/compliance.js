@@ -10,6 +10,82 @@ async function api(path,body){
  if(!r.ok||data.ok===false)throw new Error(data.error||('HTTP '+r.status));
  return data
 }
+async function apiDelete(path){
+ const r=await fetch(path,{method:'DELETE',cache:'no-store',headers:{'Accept':'application/json'}});
+ let data={};try{data=await r.json()}catch(_){}
+ if(!r.ok||data.ok===false)throw new Error(data.error||('HTTP '+r.status));
+ return data
+}
+const MERCURE_EVIDENCE_MAX_BYTES=20*1024*1024;
+async function hashMercureEvidenceFile(file,target,label){
+ if(!file)return;
+ if(!(globalThis.crypto&&globalThis.crypto.subtle))throw new Error('SHA-256 navigateur indisponible');
+ if(!Number.isFinite(file.size)||file.size<1||file.size>MERCURE_EVIDENCE_MAX_BYTES){
+  throw new Error('Preuve '+label+' invalide ou supérieure à 20 Mo');
+ }
+ const digest=await globalThis.crypto.subtle.digest('SHA-256',await file.arrayBuffer());
+ const hex=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+ if(!/^[0-9a-f]{64}$/.test(hex))throw new Error('Empreinte '+label+' invalide');
+ const node=$(target);if(node)node.value=hex;
+ setMessage('Empreinte '+label+' calculée localement. Le document brut n’a pas été envoyé.');
+}
+function mercureCoverageEditable(enabled){
+ for(const selector of [
+  '#mercureCoverageHistoryStart','#mercureCoverageFutureDays','#mercureCoverageEvidence',
+  '#mercureCoverageEvidenceFile','#mercureAppointmentEvidence','#mercureAppointmentEvidenceFile',
+  '#mercureVehicleEvidence','#mercureVehicleEvidenceFile','#mercureCoverageConfirm',
+  '#mercureAppointmentConfirm','#mercureVehicleConfirm','#mercureCoverageSave','#mercureCoverageDelete'
+ ]){
+  const node=$(selector);if(node)node.disabled=!enabled;
+ }
+}
+async function loadMercureCoverageConfig(){
+ const state=$('#mercureCoverageConfigState'),sourceNode=$('#mercureCoverageConfigSource');
+ try{
+  const data=await api('/api/admin/compliance/mercure-provider-coverage-config');
+  const config=data.config||{},boundary=config.boundary||{},appointment=boundary.appointmentInventory||{},vehicle=boundary.vehicleInventory||{};
+  if($('#mercureCoverageHistoryStart'))$('#mercureCoverageHistoryStart').value=boundary.historyStart||'';
+  if($('#mercureCoverageFutureDays'))$('#mercureCoverageFutureDays').value=Number.isInteger(boundary.futureDays)?String(boundary.futureDays):'';
+  if($('#mercureCoverageEvidence'))$('#mercureCoverageEvidence').value=/^[0-9a-f]{64}$/.test(String(boundary.evidenceSha256||''))?String(boundary.evidenceSha256):'';
+  if($('#mercureAppointmentSource'))$('#mercureAppointmentSource').value=config.appointmentAuthoritativeSource||'';
+  if($('#mercureAppointmentEvidence'))$('#mercureAppointmentEvidence').value=/^[0-9a-f]{64}$/.test(String(appointment.evidenceSha256||''))?String(appointment.evidenceSha256):'';
+  if($('#mercureVehicleSource'))$('#mercureVehicleSource').value=config.vehicleAuthoritativeSource||'';
+  if($('#mercureVehicleEvidence'))$('#mercureVehicleEvidence').value=/^[0-9a-f]{64}$/.test(String(vehicle.evidenceSha256||''))?String(vehicle.evidenceSha256):'';
+  for(const selector of ['#mercureCoverageConfirm','#mercureAppointmentConfirm','#mercureVehicleConfirm']){const node=$(selector);if(node)node.checked=false;}
+  const editable=config.editable!==false;
+  mercureCoverageEditable(editable);
+  if(sourceNode)sourceNode.textContent='Source : '+String(config.source||'none')+(editable?'':' · lecture seule');
+  if(state){
+   const attested=boundary.state==='attested'&&boundary.attested===true;
+   state.textContent=attested?'ATTESTÉ':(boundary.state==='invalid'?'INVALIDE':'À CONFIGURER');
+   state.className='gsc-status '+(attested?'online':'warning');
+  }
+ }catch(error){
+  if(state){state.textContent='INDISPONIBLE';state.className='gsc-status warning';}
+  if(sourceNode)sourceNode.textContent='Configuration Mercure indisponible';
+ }
+}
+async function saveMercureCoverageConfig(){
+ if(!$('#mercureCoverageConfirm')?.checked)throw new Error('Confirmez la preuve de frontière temporelle.');
+ if(!$('#mercureAppointmentConfirm')?.checked)throw new Error('Confirmez la preuve d’exhaustivité des rendez-vous.');
+ const vehicleEvidence=String($('#mercureVehicleEvidence')?.value||'').trim().toLowerCase();
+ if(vehicleEvidence&&!$('#mercureVehicleConfirm')?.checked)throw new Error('Confirmez la preuve d’exhaustivité des véhicules.');
+ const payload={
+  historyStart:String($('#mercureCoverageHistoryStart')?.value||'').trim(),
+  futureDays:Number($('#mercureCoverageFutureDays')?.value||0),
+  evidenceSha256:String($('#mercureCoverageEvidence')?.value||'').trim().toLowerCase(),
+  appointmentEvidenceSha256:String($('#mercureAppointmentEvidence')?.value||'').trim().toLowerCase(),
+  vehicleEvidenceSha256:vehicleEvidence,
+  confirmBoundary:'PROVIDER-BOUNDARY-EVIDENCE-REVIEWED',
+  confirmAppointment:'PROVIDER-APPOINTMENT-INVENTORY-EVIDENCE-REVIEWED',
+  confirmVehicle:vehicleEvidence?'PROVIDER-VEHICLE-INVENTORY-EVIDENCE-REVIEWED':''
+ };
+ await api('/api/admin/compliance/mercure-provider-coverage-config',payload);
+ await load();
+ await loadMercureCoverageConfig();
+ setMessage('Frontière Mercure enregistrée à partir des preuves explicitement confirmées.');
+}
+
 function retentionPolicyFor(id){return (snapshot?.retention?.policies||[]).find(row=>row.id===id)||null}
 function retentionDurationLabel(row){
  if(row.activeHours!==undefined&&row.activeHours!==null)return String(row.activeHours)+' h';
@@ -308,7 +384,31 @@ function render(){
  document.querySelectorAll('.compliance-close-incident').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/compliance/incident-status',{id:b.dataset.id,status:'closed'});await load()}catch(e){setMessage(e.message,true)}});
 }
 async function load(){setMessage('Chargement de la conformité…');snapshot=await api('/api/admin/compliance');render();setMessage('Registre de conformité chargé.')}
-$('#complianceRefresh')?.addEventListener('click',()=>load().catch(e=>setMessage(e.message,true)));
+$('#complianceRefresh')?.addEventListener('click',()=>Promise.all([load(),loadMercureCoverageConfig()]).catch(e=>setMessage(e.message,true)));
+for(const [selector,target,label] of [
+ ['#mercureCoverageEvidenceFile','#mercureCoverageEvidence','temporelle'],
+ ['#mercureAppointmentEvidenceFile','#mercureAppointmentEvidence','rendez-vous'],
+ ['#mercureVehicleEvidenceFile','#mercureVehicleEvidence','véhicules']
+]){
+ $(selector)?.addEventListener('change',async event=>{
+  const file=event.target?.files?.[0];if(!file)return;
+  try{await hashMercureEvidenceFile(file,target,label);}
+  catch(error){const node=$(target);if(node)node.value='';setMessage(error.message,true);}
+  finally{event.target.value='';}
+ });
+}
+$('#mercureCoverageSave')?.addEventListener('click',async()=>{
+ const button=$('#mercureCoverageSave');if(button)button.disabled=true;
+ try{await saveMercureCoverageConfig();}catch(error){setMessage(error.message,true);}
+ finally{if(button&&$('#mercureCoverageConfigSource')?.textContent?.includes('lecture seule')!==true)button.disabled=false;}
+});
+$('#mercureCoverageDelete')?.addEventListener('click',async()=>{
+ if(!window.confirm('Supprimer uniquement la configuration privée de couverture Mercure ?'))return;
+ try{
+  await apiDelete('/api/admin/compliance/mercure-provider-coverage-config');
+  await load();await loadMercureCoverageConfig();setMessage('Configuration privée Mercure supprimée.');
+ }catch(error){setMessage(error.message,true);}
+});
 $('#complianceSaveIdentity')?.addEventListener('click',async()=>{
  const payload={};for(const key of ['controllerName','legalForm','capital','registeredAddress','registrationId','vatNumber','publicationDirector','contactEmail','privacyContact','mediatorName','mediatorUrl','mediatorAddress','hostName','hostAddress','hostPhone','approvalAuthority','approvalReference'])payload[key]=$('#compliance_'+key)?.value||'';
  try{await api('/api/admin/compliance/settings',payload);await load();setMessage('Identité légale enregistrée.')}catch(e){setMessage(e.message,true)}
@@ -403,5 +503,5 @@ $('#complianceProcessingReviewSubmit')?.addEventListener('click',async()=>{
 $('#complianceIncidentCreate')?.addEventListener('click',async()=>{
  try{await api('/api/admin/compliance/incident',{riskLevel:$('#complianceIncidentRisk').value,summary:$('#complianceIncidentSummary').value,notes:$('#complianceIncidentNotes').value});$('#complianceIncidentSummary').value='';$('#complianceIncidentNotes').value='';await load();setMessage('Incident enregistré.')}catch(e){setMessage(e.message,true)}
 });
-load().catch(e=>setMessage(e.message,true));
+Promise.all([load(),loadMercureCoverageConfig()]).catch(e=>setMessage(e.message,true));
 })();
