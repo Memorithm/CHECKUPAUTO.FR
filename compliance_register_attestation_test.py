@@ -40,7 +40,7 @@ class ComplianceRegisterAttestationTest(unittest.TestCase):
         payload = {
             "name": "Prestataire documenté",
             "service": "Service externe documenté",
-            "dpaStatus": "signed",
+            "dpaStatus": "signed",\n            "dpaEvidenceSha256": "d" * 64,
             "hostingLocation": "France",
             "transferRequired": False,
             "transferMechanism": "",
