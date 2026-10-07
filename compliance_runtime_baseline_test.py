@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 import compliance_operations as ops
+import compliance_register_attestation as register_attestation
 
 ROOT=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("compliance_seed",ROOT/"scripts/checkupauto-compliance-seed-baseline.py")
@@ -44,6 +45,24 @@ class ComplianceRuntimeBaselineTest(unittest.TestCase):
             self.assertEqual(second["blockerTypes"],["processor_dpa_pending"])
             self.assertFalse(first["operationalRegistersReady"])
             self.assertTrue(first["externalEvidencePending"])
+
+    def test_seeded_register_matches_reviewed_baseline_canonically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db=Path(tmp)/"compliance.sqlite3"
+            seed.apply(db)
+            data=seed.load_baseline()
+            expected={
+                "schema":"checkupauto.operational-registers.v1",
+                "processingActivities":sorted(
+                    data["processingActivities"],
+                    key=lambda row:str(row.get("id") or ""),
+                ),
+                "processors":sorted(
+                    data["processors"],
+                    key=lambda row:str(row.get("id") or ""),
+                ),
+            }
+            self.assertEqual(register_attestation.register_payload(db),expected)
 
     def test_output_does_not_claim_external_contracts_are_satisfied(self):
         with tempfile.TemporaryDirectory() as tmp:
