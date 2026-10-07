@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,6 +51,62 @@ class ComplianceOperationsTest(unittest.TestCase):
         }
         payload.update(overrides)
         return payload
+
+    def test_existing_processor_table_is_migrated_without_losing_rows(self):
+        with sqlite3.connect(self.db) as db:
+            db.execute(
+                """CREATE TABLE processor_inventory(
+                  processor_id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  service TEXT NOT NULL,
+                  dpa_status TEXT NOT NULL,
+                  hosting_location TEXT NOT NULL,
+                  transfer_required INTEGER NOT NULL,
+                  transfer_mechanism TEXT NOT NULL,
+                  subprocessors_json TEXT NOT NULL,
+                  review_due_at TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                )"""
+            )
+            db.execute(
+                """INSERT INTO processor_inventory(
+                  processor_id,name,service,dpa_status,hosting_location,
+                  transfer_required,transfer_mechanism,subprocessors_json,
+                  review_due_at,status,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    "processor-existing",
+                    "Prestataire existant",
+                    "Service existant",
+                    "pending",
+                    "France",
+                    0,
+                    "",
+                    "[]",
+                    "2099-12-31",
+                    "active",
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:00:00+00:00",
+                ),
+            )
+
+        ops.init_db(self.db)
+
+        with sqlite3.connect(self.db) as db:
+            columns = {
+                row[1] for row in db.execute(
+                    "PRAGMA table_info(processor_inventory)"
+                )
+            }
+            row = db.execute(
+                """SELECT processor_id,dpa_status,dpa_evidence_sha256
+                   FROM processor_inventory WHERE processor_id=?""",
+                ("processor-existing",),
+            ).fetchone()
+        self.assertIn("dpa_evidence_sha256", columns)
+        self.assertEqual(row, ("processor-existing", "pending", ""))
 
     def test_article_30_register_persists_required_operational_fields(self):
         saved = ops.upsert_processing_activity(self.activity_payload(), self.db)
