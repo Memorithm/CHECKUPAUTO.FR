@@ -76,6 +76,24 @@ X-CyberCheck-Signature: sha256=HMAC_SHA256(secret, raw_body)
 <div class="metric-grid"><article><small>IDENTITÉ LÉGALE</small><strong id="complianceIdentity">—</strong></article><article><small>DOCUMENTS PUBLIÉS</small><strong id="complianceDocs">—</strong></article><article><small>TRACEURS</small><strong id="complianceCookies">—</strong></article><article><small>DROITS OUVERTS</small><strong id="complianceRights">—</strong></article><article><small>INCIDENTS OUVERTS</small><strong id="complianceIncidents">—</strong></article><article><small>CGV / CONTRAT</small><strong id="complianceCheckout">—</strong></article><article><small>RÉTRACTATION EN LIGNE</small><strong id="complianceWithdrawal">—</strong></article></div>
 <p id="complianceMessage" class="hint">Chargement…</p>
 
+<div class="integration-box" id="mercureCoverageConfigPanel">
+<div class="panel-head compact"><div><h3>Frontière DSAR Mercure · preuves externes</h3><p class="hint">Cette configuration ne crée aucune attestation automatiquement. Elle enregistre uniquement les paramètres que vous confirmez après lecture d’une preuve fournisseur ou contractuelle externe. Les fichiers sélectionnés sont hachés localement ; leur contenu brut n’est jamais envoyé.</p></div><span id="mercureCoverageConfigState" class="gsc-status warning">Diagnostic…</span></div>
+<div class="promo-form-grid">
+<label>Début historique attesté<input id="mercureCoverageHistoryStart" type="date"></label>
+<label>Horizon futur attesté en jours<input id="mercureCoverageFutureDays" type="number" min="0" max="3650"></label>
+<label>Preuve temporelle · SHA-256<input id="mercureCoverageEvidence" maxlength="64" pattern="[0-9a-fA-F]{64}" autocomplete="off"></label>
+<label>Calculer depuis la preuve temporelle<input id="mercureCoverageEvidenceFile" type="file"><small>SHA-256 local · 20 Mo maximum.</small></label>
+<label>Source inventaire rendez-vous<input id="mercureAppointmentSource" readonly autocomplete="off"></label>
+<label>Preuve inventaire rendez-vous · SHA-256<input id="mercureAppointmentEvidence" maxlength="64" pattern="[0-9a-fA-F]{64}" autocomplete="off"></label>
+<label>Calculer depuis la preuve rendez-vous<input id="mercureAppointmentEvidenceFile" type="file"><small>Le document ne quitte pas le navigateur.</small></label>
+<label>Source inventaire véhicules<input id="mercureVehicleSource" readonly autocomplete="off"></label>
+<label>Preuve inventaire véhicules · SHA-256<input id="mercureVehicleEvidence" maxlength="64" pattern="[0-9a-fA-F]{64}" autocomplete="off"></label>
+<label>Calculer depuis la preuve véhicules<input id="mercureVehicleEvidenceFile" type="file"><small>Optionnel tant que la couverture véhicule n’est pas attestée.</small></label>
+</div>
+<div class="incentive-service-row"><label><input id="mercureCoverageConfirm" type="checkbox">Je confirme que la preuve temporelle établit la frontière historique/future saisie</label><label><input id="mercureAppointmentConfirm" type="checkbox">Je confirme que la preuve atteste l’exhaustivité de la source rendez-vous affichée</label><label><input id="mercureVehicleConfirm" type="checkbox">Je confirme que la preuve véhicule atteste l’exhaustivité de la source véhicule affichée</label></div>
+<div class="button-row"><button type="button" id="mercureCoverageSave">Enregistrer l’attestation privée</button><button type="button" id="mercureCoverageDelete" class="secondary">Supprimer la configuration privée</button><span id="mercureCoverageConfigSource" class="hint">Source : —</span></div>
+</div>
+
 <div class="integration-box">
 <div class="panel-head compact"><div><h3>1 · Identité légale & interlocuteurs</h3><p class="hint">Aucune donnée légale n’est inventée. Renseignez les informations exactes de l’exploitant, du médiateur, de l’hébergeur et de l’autorité d’agrément.</p></div><button type="button" id="complianceSaveIdentity">Enregistrer</button></div>
 <div class="promo-form-grid">
