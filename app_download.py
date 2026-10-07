@@ -153,7 +153,7 @@ def landing_html(config: dict, source: object, nonce: str) -> bytes:
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f6f7f2">
 <meta name="robots" content="{robots}">
 <link rel="canonical" href="{html.escape(canonical, quote=True)}">
@@ -175,7 +175,7 @@ h1{{font:400 clamp(44px,8vw,74px)/1.02 Georgia,serif;letter-spacing:-.05em;margi
 .download{{display:inline-flex;background:var(--green);color:#fff;padding:16px 22px;text-decoration:none;font-size:13px}}
 .download.disabled{{opacity:.58;cursor:not-allowed}} .note{{margin-top:14px;font-size:12px;line-height:1.6;color:var(--muted)}}
 .back{{display:inline-block;margin-top:34px;color:var(--ink);font-size:12px;text-underline-offset:4px;text-decoration:underline}}
-@media(max-width:640px){{.features{{grid-template-columns:1fr}} .feature{{min-height:0}}}}
+@media(max-width:640px){{main{{padding:18px max(14px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}}.features{{grid-template-columns:1fr}} .feature{{min-height:0}}.card{{padding:26px 22px}}h1{{font-size:clamp(40px,13vw,58px)}}.download{{width:100%;min-height:46px;justify-content:center;text-align:center}}}}
 </style>
 </head>
 <body>
