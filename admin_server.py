@@ -11,6 +11,7 @@ import booking_page
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
+import mercure_provider_coverage as mercure_provider_coverage
 import mobile_bootstrap as mobile_bootstrap
 import mobile_devices as mobile_devices
 import mobile_claim_dispatch as mobile_claim_dispatch
@@ -458,6 +459,15 @@ class Handler(SimpleHTTPRequestHandler):
      'transport':email_gateway.transport_status(),
     })
    except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
+  if path=='/api/admin/compliance/mercure-provider-coverage-config':
+   if not self.authorized(): return self.require_auth()
+   try:
+    return self.send_json({
+     'ok':True,
+     'config':mercure_provider_coverage.configuration_info(),
+     'capability':mercure_provider_coverage.capability(),
+    })
+   except Exception: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_unavailable'},500)
   if path=='/api/admin/analytics':
    if not self.authorized(): return self.require_auth()
    try:
@@ -901,6 +911,14 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json({'ok':True,'processor':result},201 if created else 200)
    except ValueError: return self.send_json({'ok':False,'error':'compliance_processor_invalid'},400)
    except Exception: return self.send_json({'ok':False,'error':'compliance_processor_unavailable'},500)
+  if path=='/api/admin/compliance/mercure-provider-coverage-config':
+   try:
+    result=mercure_provider_coverage.save_private_configuration(self._read_json())
+    return self.send_json({'ok':True,'config':result},201)
+   except PermissionError: return self.send_json({'ok':False,'error':'mercure_provider_coverage_confirmation_required'},403)
+   except ValueError: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_invalid'},400)
+   except RuntimeError: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_locked'},409)
+   except Exception: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_unavailable'},500)
   if path=='/api/admin/compliance/processing-review':
    try: payload=self._read_json()
    except Exception: return self.send_json({'ok':False,'error':'compliance_processing_review_invalid'},400)
@@ -1178,6 +1196,11 @@ class Handler(SimpleHTTPRequestHandler):
    try: return self.send_json({'ok':True,'config':email_gateway.delete_private_smtp_config()})
    except RuntimeError: return self.send_json({'ok':False,'error':'email_configuration_invalid'},409)
    except Exception: return self.send_json({'ok':False,'error':'email_configuration_unavailable'},500)
+  if path=='/api/admin/compliance/mercure-provider-coverage-config':
+   try:
+    return self.send_json({'ok':True,'config':mercure_provider_coverage.delete_private_configuration()})
+   except RuntimeError: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_locked'},409)
+   except Exception: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try:
     q=parse_qs(parsed.query); name=(q.get('name') or [''])[0]
