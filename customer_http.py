@@ -27,6 +27,8 @@ PASSAGE_CONFIRM_ROUTE="/api/customer/passage/confirm"
 PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
+VEHICLES_ROUTE="/api/customer/vehicles"
+VEHICLE_DELETE_ROUTE="/api/customer/vehicles/delete"
 LOGOUT_ROUTE="/api/customer/logout"
 REPORTS_ROUTE="/api/customer/reports"
 REPORT_DELETE_ROUTE="/api/customer/reports/delete"
@@ -289,6 +291,8 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     balance=f'{int(loyalty["balanceCents"])/100:.2f} €'
     pending=f'{int(loyalty["pendingCents"])/100:.2f} €'
     google_review_url=html.escape(_google_review_url(),quote=True)
+    vehicle_rows=account.get("vehicles") if isinstance(account.get("vehicles"),list) else []
+    vehicles_json=json.dumps(vehicle_rows,ensure_ascii=True,separators=(",",":"),sort_keys=True).replace("<","\u003c")
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive">
 <title>Tableau de bord | Checkup Auto</title>
@@ -309,17 +313,35 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 .report-list{{display:grid;gap:8px;margin-top:14px}}.report-item{{border:1px solid var(--line);background:#fff;padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center}}
 .report-item button,.report-actions button{{border:1px solid var(--line);background:#fff;padding:9px 11px;cursor:pointer;color:var(--ink)}}.report-analysis{{margin-top:14px;border-top:1px solid var(--line);padding-top:14px}}
 .report-analysis h3{{font:400 22px Georgia,serif;margin:12px 0 6px}}.report-analysis ul{{padding-left:18px;color:var(--muted)}}.report-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.report-status{{font-size:11px;color:var(--muted);margin-top:8px}}
+
+.vehicles-section{{margin-top:14px;background:#fff;border:1px solid var(--line);padding:24px}}.vehicles-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}}.vehicles-head h2{{font:400 32px Georgia,serif;margin:8px 0 8px}}.vehicles-head p{{max-width:720px;margin:0}}.vehicles-head .cta{{border:1px solid var(--green);padding:12px 15px;font-weight:700;color:var(--green);white-space:nowrap}}
+.vehicle-list{{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:20px}}.vehicle-card{{border:1px solid var(--line);background:#fafbf8;padding:18px;display:grid;gap:14px;min-width:0}}.vehicle-card-head{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}}.vehicle-card h3{{font:400 26px Georgia,serif;margin:5px 0 0;overflow-wrap:anywhere}}.vehicle-kind{{font:700 8px Consolas,monospace;letter-spacing:.1em;color:var(--green);border:1px solid #b5c3b8;padding:6px 8px}}.vehicle-detail{{font-size:11px;color:var(--muted)}}.vehicle-actions{{display:flex;gap:8px;flex-wrap:wrap}}.vehicle-actions a,.vehicle-actions button{{border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 11px;min-height:40px;cursor:pointer;font:700 10px Arial,sans-serif}}.vehicle-actions .danger{{color:#8c3a31}}.vehicle-empty{{grid-column:1/-1;border:1px dashed #aebbb2;padding:18px;background:#fafbf8}}
+.vehicle-editor{{margin-top:18px;border-top:1px solid var(--line);padding-top:16px}}.vehicle-editor summary{{cursor:pointer;font-weight:700;color:var(--green);min-height:44px;display:flex;align-items:center}}.vehicle-editor form{{margin-top:16px}}.vehicle-editor .hint{{font-size:10px;color:var(--muted);font-weight:400}}.vehicle-editor [hidden]{{display:none!important}}.vehicle-editor .secondary{{border:1px solid var(--line);background:#fff;color:var(--ink);padding:12px 16px;cursor:pointer}}.vehicle-status{{font-size:11px;color:var(--muted)}}
 .feedback{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}}.feedback-card{{background:#fff;border:1px solid var(--line);padding:24px}}.feedback-card h2{{font:400 28px Georgia,serif;margin:8px 0 12px}}.feedback-card .cta{{display:inline-block;margin-top:8px;border:1px solid var(--green);padding:12px 15px;font-weight:700;color:var(--green)}}.feedback-card .cta.primary{{background:var(--green);color:#fff}}.feedback-note{{font-size:11px;color:var(--muted)}}.review-rating{{display:flex;gap:4px;margin:14px 0 6px}}.review-star{{border:0;background:transparent;color:#a7ada8;font-size:34px;line-height:1;padding:2px;cursor:pointer}}.review-star.selected{{color:#c78b16}}.review-star:focus-visible{{outline:2px solid var(--green);outline-offset:3px}}
-@media(max-width:900px){{.grid,.feedback{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:700px){{.shell{{width:min(100% - 24px,1240px);padding:18px 0 48px}}.top{{align-items:flex-start;gap:14px;flex-direction:column}}.top-actions{{width:100%;gap:12px;flex-wrap:wrap;justify-content:space-between}}.hero,.panel,.profile,.feedback-card{{padding:20px}}.report-item{{align-items:stretch;flex-direction:column}}.report-item button{{min-height:44px;width:100%}}.report-controls>*{{max-width:100%}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}@media(max-width:480px){{h1{{font-size:clamp(38px,13vw,52px)}}.actions,.report-actions{{align-items:stretch;flex-direction:column}}.actions button,.report-actions button,.report-actions a,.report-controls button{{width:100%;min-height:44px;text-align:center}}.metric{{font-size:38px}}.review-rating{{justify-content:space-between;max-width:260px}}}}
+@media(max-width:900px){{.grid,.feedback{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:700px){{.shell{{width:min(100% - 24px,1240px);padding:18px 0 48px}}.top{{align-items:flex-start;gap:14px;flex-direction:column}}.top-actions{{width:100%;gap:12px;flex-wrap:wrap;justify-content:space-between}}.hero,.panel,.profile,.feedback-card,.vehicles-section{{padding:20px}}.vehicles-head{{flex-direction:column}}.vehicles-head .cta{{width:100%;text-align:center}}.report-item{{align-items:stretch;flex-direction:column}}.report-item button{{min-height:44px;width:100%}}.report-controls>*{{max-width:100%}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}@media(max-width:480px){{h1{{font-size:clamp(38px,13vw,52px)}}.actions,.report-actions,.vehicle-actions{{align-items:stretch;flex-direction:column}}.actions button,.report-actions button,.report-actions a,.report-controls button,.vehicle-actions button,.vehicle-actions a{{width:100%;min-height:44px;text-align:center}}.metric{{font-size:38px}}.review-rating{{justify-content:space-between;max-width:260px}}}}
 {FORM_RESPONSIVE_CSS}
 </style></head><body><main class="shell">
-<div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><div class="top-actions"><a class="contact-link" href="{CONTACT_ROUTE}">Nous contacter</a><button id="logout" class="logout" type="button">Se déconnecter</button></div></div>
+<div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><div class="top-actions"><a class="contact-link" href="#mes-vehicules">Mes véhicules</a><a class="contact-link" href="{CONTACT_ROUTE}">Nous contacter</a><button id="logout" class="logout" type="button">Se déconnecter</button></div></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
 <section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="/#reservation">Réserver un contrôle →</a> · <a href="https://rdv.checkupauto.fr/" rel="noreferrer">Consulter mes rendez-vous Mercure →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
 <section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="report-actions"><button id="walletToApp" class="primary" type="button">Rattacher à l’app iOS</button></div><div id="walletToAppStatus" class="report-status" role="status" aria-live="polite"></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
+
+<section class="vehicles-section" id="mes-vehicules" aria-labelledby="vehiclesTitle">
+<div class="vehicles-head"><div><div class="eyebrow">MES VÉHICULES</div><h2 id="vehiclesTitle">Vos véhicules enregistrés</h2><p>Ajoutez ici les véhicules associés à votre compte. Ils seront proposés automatiquement après le choix d’un créneau de réservation.</p></div><a class="cta" href="/#reservation">Réserver un contrôle →</a></div>
+<div id="vehicleList" class="vehicle-list" aria-live="polite"><p class="vehicle-empty">Chargement de vos véhicules…</p></div>
+<details id="vehicleEditor" class="vehicle-editor"><summary id="vehicleEditorSummary">Ajouter un véhicule</summary>
+<form id="vehicleForm">
+<input id="vehicleId" type="hidden" value="">
+<label>Type d’immatriculation<select id="vehicleRegistrationSystem"><option value="siv">SIV · format AA-123-AA</option><option value="fni">Ancien format FNI</option></select></label>
+<label>Immatriculation<input id="vehicleRegistration" maxlength="32" autocomplete="off" placeholder="AA-123-AA" required></label>
+<label id="vehicleFormulaLabel">Numéro de formule<input id="vehicleFormulaNumber" maxlength="11" autocomplete="off" placeholder="11 caractères"><span class="hint">Champ obligatoire pour une carte grise SIV. Le numéro complet n’est jamais réaffiché.</span></label>
+<label id="vehicleCardIssueLabel" hidden>Date d’établissement de la carte grise<input id="vehicleCardIssueDate" type="date"></label>
+<div class="actions"><button id="vehicleSave" class="primary" type="submit">Ajouter le véhicule</button><button id="vehicleCancel" class="secondary" type="button" hidden>Annuler la modification</button><span id="vehicleStatus" class="vehicle-status" role="status" aria-live="polite"></span></div>
+</form></details>
+</section>
 <section class="feedback" aria-label="Avis et suggestions">
 <article class="feedback-card"><div class="eyebrow">VOTRE AVIS COMPTE</div><h2>Laisser un avis Google</h2><p>Partagez librement votre expérience avec Checkup Auto. Les avis ne sont ni filtrés ni liés à une récompense.</p><div class="review-rating" role="radiogroup" aria-label="Votre note"><button class="review-star selected" type="button" data-rating="1" role="radio" aria-checked="false" aria-label="1 étoile">★</button><button class="review-star selected" type="button" data-rating="2" role="radio" aria-checked="false" aria-label="2 étoiles">★</button><button class="review-star selected" type="button" data-rating="3" role="radio" aria-checked="false" aria-label="3 étoiles">★</button><button class="review-star selected" type="button" data-rating="4" role="radio" aria-checked="false" aria-label="4 étoiles">★</button><button class="review-star selected" type="button" data-rating="5" role="radio" aria-checked="true" aria-label="5 étoiles">★</button></div><p id="reviewRatingText" class="feedback-note">5 étoiles sélectionnées par défaut.</p><a class="cta primary" href="{google_review_url}" target="_blank" rel="noopener noreferrer external">Donner mon avis sur Google ↗</a><p class="feedback-note">La note affichée ici est modifiable avant de continuer. Google demande la confirmation finale de la note. Le commentaire reste vide tant que vous ne le saisissez pas dans Google.</p></article>
 <article class="feedback-card"><div class="eyebrow">VOS IDÉES</div><h2>Faire une suggestion</h2><p>Une amélioration, une idée de service ou un point à simplifier ? Envoyez-nous votre suggestion depuis votre compte client.</p><a class="cta" href="{CONTACT_ROUTE}?intent=suggestion">Faire une suggestion →</a><p class="feedback-note">Votre suggestion reste liée à votre compte pour permettre un suivi sécurisé.</p></article>
@@ -340,11 +362,33 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 </form></section>
 </main><script nonce="{html.escape(nonce,quote=True)}">
 (()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reportInput=document.getElementById('ctReportFile'),reportUpload=document.getElementById('ctReportUpload'),reportStatus=document.getElementById('ctReportStatus'),reportList=document.getElementById('ctReportList'),reportAnalysis=document.getElementById('ctReportAnalysis'),walletToApp=document.getElementById('walletToApp'),walletToAppStatus=document.getElementById('walletToAppStatus'),reviewStars=[...document.querySelectorAll('.review-star')],reviewRatingText=document.getElementById('reviewRatingText');
+let vehicleRows={vehicles_json};
+const vehicleList=document.getElementById('vehicleList'),vehicleEditor=document.getElementById('vehicleEditor'),vehicleEditorSummary=document.getElementById('vehicleEditorSummary'),vehicleForm=document.getElementById('vehicleForm'),vehicleId=document.getElementById('vehicleId'),vehicleSystem=document.getElementById('vehicleRegistrationSystem'),vehicleRegistration=document.getElementById('vehicleRegistration'),vehicleFormula=document.getElementById('vehicleFormulaNumber'),vehicleFormulaLabel=document.getElementById('vehicleFormulaLabel'),vehicleCardIssueDate=document.getElementById('vehicleCardIssueDate'),vehicleCardIssueLabel=document.getElementById('vehicleCardIssueLabel'),vehicleSave=document.getElementById('vehicleSave'),vehicleCancel=document.getElementById('vehicleCancel'),vehicleStatus=document.getElementById('vehicleStatus');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
 const setReviewRating=rating=>{{reviewStars.forEach(star=>{{const value=Number(star.dataset.rating);star.classList.toggle('selected',value<=rating);star.setAttribute('aria-checked',String(value===rating));}});reviewRatingText.textContent=rating+' étoile'+(rating>1?'s':'')+' sélectionnée'+(rating>1?'s':'')+'.';}};
 reviewStars.forEach(star=>star.addEventListener('click',()=>setReviewRating(Number(star.dataset.rating))));
 document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value,phone:document.getElementById('phone').value,addressLine1:document.getElementById('addressLine1').value,addressLine2:document.getElementById('addressLine2').value,postalCode:document.getElementById('postalCode').value,city:document.getElementById('city').value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
 const el=(tag,text='')=>{{const node=document.createElement(tag);if(text)node.textContent=text;return node;}};
+
+const vehicleMessage=code=>({{
+ customer_vehicle_registration_invalid:'Vérifiez le format de l’immatriculation.',
+ customer_vehicle_formula_number_invalid:'Le numéro de formule SIV doit contenir exactement 11 caractères.',
+ customer_vehicle_card_issue_date_invalid:'Indiquez une date valide figurant sur la carte grise.',
+ customer_vehicle_formula_number_not_allowed:'Le numéro de formule ne doit pas être renseigné pour une ancienne immatriculation FNI.',
+ customer_vehicle_duplicate:'Ce véhicule est déjà enregistré dans votre compte.',
+ customer_vehicle_limit_reached:'La limite de 12 véhicules enregistrés est atteinte.',
+ customer_vehicle_in_use:'Ce véhicule est lié à une réservation en cours et ne peut pas encore être supprimé.',
+ customer_vehicle_not_found:'Ce véhicule n’existe plus dans votre compte.'
+}})[code]||'L’opération sur le véhicule n’a pas pu être effectuée.';
+const vehicleDateLabel=value=>{{const parts=String(value||'').split('-');return parts.length===3?parts.reverse().join('/'):'date inconnue';}};
+const syncVehicleFields=()=>{{const siv=vehicleSystem.value==='siv';vehicleFormulaLabel.hidden=!siv;vehicleCardIssueLabel.hidden=siv;vehicleFormula.required=siv;vehicleCardIssueDate.required=!siv;vehicleRegistration.placeholder=siv?'AA-123-AA':'1234 AB 78';if(siv)vehicleCardIssueDate.value='';else vehicleFormula.value='';}};
+const resetVehicleForm=()=>{{vehicleForm.reset();vehicleId.value='';vehicleSystem.value='siv';vehicleEditorSummary.textContent='Ajouter un véhicule';vehicleSave.textContent='Ajouter le véhicule';vehicleCancel.hidden=true;vehicleStatus.textContent='';syncVehicleFields();}};
+const editVehicle=row=>{{vehicleId.value=row.vehicleId;vehicleSystem.value=row.registrationSystem;vehicleRegistration.value=row.registration;vehicleFormula.value='';vehicleCardIssueDate.value=row.cardIssueDate||'';vehicleEditorSummary.textContent='Modifier '+row.registration;vehicleSave.textContent='Enregistrer les modifications';vehicleCancel.hidden=false;vehicleEditor.open=true;syncVehicleFields();if(row.registrationSystem==='siv')vehicleStatus.textContent='Pour confirmer une modification SIV, retapez le numéro de formule à 11 caractères.';else vehicleStatus.textContent='';vehicleRegistration.focus();vehicleEditor.scrollIntoView({{behavior:'smooth',block:'nearest'}});}};
+const removeVehicle=async row=>{{if(!confirm('Supprimer '+row.registration+' de votre espace client ?'))return;vehicleStatus.textContent='Suppression…';try{{const r=await fetch('{VEHICLE_DELETE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{vehicleId:row.vehicleId}})}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'vehicle_delete_failed');vehicleRows=d.vehicles||vehicleRows.filter(item=>item.vehicleId!==row.vehicleId);renderVehicles();if(vehicleId.value===row.vehicleId)resetVehicleForm();vehicleStatus.textContent='Véhicule supprimé.';}}catch(error){{vehicleStatus.textContent=vehicleMessage(error.message);}}}};
+const renderVehicles=()=>{{vehicleList.replaceChildren();if(!vehicleRows.length){{const empty=el('p','Aucun véhicule enregistré. Ajoutez votre premier véhicule pour le retrouver automatiquement lors de la réservation.');empty.className='vehicle-empty';vehicleList.append(empty);return;}}for(const row of vehicleRows){{const card=el('article');card.className='vehicle-card';const head=el('div');head.className='vehicle-card-head';const copy=el('div');copy.append(el('div',row.registrationSystem==='siv'?'IMMATRICULATION SIV':'IMMATRICULATION FNI'));copy.append(el('h3',row.registration));const kind=el('span',row.registrationSystem.toUpperCase());kind.className='vehicle-kind';head.append(copy,kind);const detail=el('p',row.registrationSystem==='siv'?(row.formulaNumberPresent?'Numéro de formule enregistré et chiffré.':'Numéro de formule à compléter.'):'Carte grise établie le '+vehicleDateLabel(row.cardIssueDate)+'.');detail.className='vehicle-detail';const actions=el('div');actions.className='vehicle-actions';const reserve=el('a','Réserver un contrôle');reserve.href='/#reservation';const edit=el('button','Modifier');edit.type='button';edit.addEventListener('click',()=>editVehicle(row));const remove=el('button','Supprimer');remove.type='button';remove.className='danger';remove.addEventListener('click',()=>removeVehicle(row));actions.append(reserve,edit,remove);card.append(head,detail,actions);vehicleList.append(card);}}}};
+vehicleSystem.addEventListener('change',syncVehicleFields);vehicleCancel.addEventListener('click',resetVehicleForm);
+vehicleForm.addEventListener('submit',async event=>{{event.preventDefault();vehicleSave.disabled=true;vehicleStatus.textContent=vehicleId.value?'Enregistrement des modifications…':'Ajout du véhicule…';const payload={{vehicleId:vehicleId.value,registrationSystem:vehicleSystem.value,registration:vehicleRegistration.value,formulaNumber:vehicleFormula.value,cardIssueDate:vehicleCardIssueDate.value}};try{{const r=await fetch('{VEHICLES_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'vehicle_save_failed');vehicleRows=d.vehicles||vehicleRows;renderVehicles();resetVehicleForm();vehicleStatus.textContent='Véhicule enregistré.';}}catch(error){{vehicleStatus.textContent=vehicleMessage(error.message);}}finally{{vehicleSave.disabled=false;}}}});
+renderVehicles();syncVehicleFields();
 const renderReports=rows=>{{reportList.replaceChildren();for(const row of rows){{const item=el('div');item.className='report-item';const copy=el('div');copy.append(el('strong',row.controlDate||'Rapport CT'));copy.append(el('div',(row.registration||'Véhicule non identifié')+' · '+String(row.defectCount||0)+' défaut(s)'));const open=el('button','Ouvrir');open.type='button';open.addEventListener('click',()=>showReport(row.reportId));item.append(copy,open);reportList.append(item);}}if(!rows.length)reportList.append(el('div','Aucun rapport analysé.'));}};
 const loadReports=async()=>{{try{{const r=await fetch('{REPORTS_ROUTE}',{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.ok)throw new Error();renderReports(d.reports||[]);}}catch(_e){{reportStatus.textContent='Historique des rapports indisponible.';}}}};
 const showReport=async id=>{{reportStatus.textContent='Lecture du rapport…';try{{const r=await fetch('{REPORTS_ROUTE}/'+encodeURIComponent(id),{{cache:'no-store',credentials:'same-origin'}});const d=await r.json();if(!r.ok||!d.reportId)throw new Error();reportAnalysis.replaceChildren();reportAnalysis.hidden=false;reportAnalysis.append(el('h3','Analyse du contrôle technique'));reportAnalysis.append(el('p',(d.result||'Résultat non détecté')+' · '+String(d.defectCount||0)+' défaut(s) structuré(s)'));const list=el('ul');for(const finding of (d.advice||[])){{const li=el('li');const title=el('strong',finding.title||'Point à surveiller');li.append(title,document.createTextNode(' — '+(finding.prevention||'')));list.append(li);}}reportAnalysis.append(list);const actions=el('div');actions.className='report-actions';const download=el('a','Télécharger le Markdown');download.href='{REPORTS_ROUTE}/'+encodeURIComponent(id)+'?format=md';download.className='primary';const remove=el('button','Supprimer');remove.type='button';remove.addEventListener('click',async()=>{{if(!confirm('Supprimer ce rapport de votre espace client ?'))return;const rr=await fetch('{REPORT_DELETE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{reportId:id}})}});if(rr.ok){{reportAnalysis.hidden=true;await loadReports();}}}});actions.append(download,remove);reportAnalysis.append(actions);reportStatus.textContent='Analyse prête.';}}catch(_e){{reportStatus.textContent='Lecture du rapport impossible.';}}}};
@@ -826,6 +870,50 @@ def handle(handler) -> bool:
             })
         except Exception:
             handler.send_json({"ok":False,"error":"customer_apple_auth_failed"},401)
+        return True
+
+
+    if path in {VEHICLES_ROUTE,VEHICLE_DELETE_ROUTE}:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        account_id=account["accountId"]
+        if command=="GET" and path==VEHICLES_ROUTE:
+            handler.send_json({"ok":True,"vehicles":customer_accounts.list_vehicles(account_id)})
+            return True
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+        try:
+            payload=_json_body(handler)
+            if path==VEHICLE_DELETE_ROUTE:
+                if set(payload)!={"vehicleId"}:
+                    raise ValueError
+                removed=customer_accounts.delete_vehicle(account_id,payload.get("vehicleId"))
+                handler.send_json({"ok":True,"removed":removed,"vehicles":customer_accounts.list_vehicles(account_id)})
+            else:
+                if set(payload)!={"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate"}:
+                    raise ValueError
+                vehicle=customer_accounts.save_vehicle(
+                    account_id,
+                    vehicle_id=payload.get("vehicleId"),
+                    registration_system=payload.get("registrationSystem"),
+                    registration=payload.get("registration"),
+                    formula_number=payload.get("formulaNumber"),
+                    card_issue_date=payload.get("cardIssueDate"),
+                )
+                handler.send_json({"ok":True,"vehicle":vehicle,"vehicles":customer_accounts.list_vehicles(account_id)},201)
+        except customer_accounts.CustomerAccountError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},400)
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_vehicle_payload_invalid"},400)
         return True
 
     report_match=re.fullmatch(r"/api/customer/reports/([0-9a-f-]{36})",path)

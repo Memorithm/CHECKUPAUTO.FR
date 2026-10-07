@@ -610,10 +610,12 @@ def save_vehicle(
     registration: object,
     formula_number: object = "",
     card_issue_date: object = "",
+    vehicle_id: object = "",
 ) -> dict:
     account_id=_account_id(account_id)
     system=_registration_system(registration_system)
     normalized_registration=_registration(registration,system)
+    wanted_vehicle_id=_vehicle_id(vehicle_id) if str(vehicle_id or "").strip() else ""
     if system=="siv":
         formula=_formula_number(formula_number)
         issued=""
@@ -634,24 +636,48 @@ def save_vehicle(
             raise CustomerAccountError("customer_account_not_found")
         current=_decrypt_profile(account_id,row["profile_blob"])
         vehicles=_vehicle_records(current)
-        existing=next(
-            (
-                item for item in vehicles
-                if str(item.get("registrationSystem") or "")==system
-                and hmac.compare_digest(
-                    str(item.get("registration") or ""),normalized_registration
-                )
-            ),
-            None,
-        )
-        if existing is None:
-            if len(vehicles)>=MAX_CUSTOMER_VEHICLES:
-                raise CustomerAccountError("customer_vehicle_limit_reached")
-            existing={
-                "vehicleId":str(uuid.uuid4()),
-                "createdAt":now,
-            }
-            vehicles.append(existing)
+        if wanted_vehicle_id:
+            existing=next(
+                (
+                    item for item in vehicles
+                    if hmac.compare_digest(str(item.get("vehicleId") or ""),wanted_vehicle_id)
+                ),
+                None,
+            )
+            if existing is None:
+                raise CustomerAccountError("customer_vehicle_not_found")
+            duplicate=next(
+                (
+                    item for item in vehicles
+                    if not hmac.compare_digest(str(item.get("vehicleId") or ""),wanted_vehicle_id)
+                    and str(item.get("registrationSystem") or "")==system
+                    and hmac.compare_digest(
+                        str(item.get("registration") or ""),normalized_registration
+                    )
+                ),
+                None,
+            )
+            if duplicate is not None:
+                raise CustomerAccountError("customer_vehicle_duplicate")
+        else:
+            existing=next(
+                (
+                    item for item in vehicles
+                    if str(item.get("registrationSystem") or "")==system
+                    and hmac.compare_digest(
+                        str(item.get("registration") or ""),normalized_registration
+                    )
+                ),
+                None,
+            )
+            if existing is None:
+                if len(vehicles)>=MAX_CUSTOMER_VEHICLES:
+                    raise CustomerAccountError("customer_vehicle_limit_reached")
+                existing={
+                    "vehicleId":str(uuid.uuid4()),
+                    "createdAt":now,
+                }
+                vehicles.append(existing)
         existing.update({
             "registrationSystem":system,
             "registration":normalized_registration,
@@ -666,6 +692,50 @@ def save_vehicle(
         )
     return _vehicle_summary(existing)
 
+
+def delete_vehicle(account_id: object, vehicle_id: object) -> dict:
+    account_id=_account_id(account_id)
+    wanted=_vehicle_id(vehicle_id)
+    now=_now()
+    stamp=now.isoformat(timespec="seconds")
+    init_db()
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            raise CustomerAccountError("customer_account_not_found")
+        active_rows=db.execute(
+            """SELECT expires_at FROM customer_passage_confirmation
+               WHERE account_id=? AND vehicle_id=?""",
+            (account_id,wanted),
+        ).fetchall()
+        for active in active_rows:
+            try:
+                expires=dt.datetime.fromisoformat(str(active["expires_at"]).replace("Z","+00:00"))
+            except ValueError as exc:
+                raise RuntimeError("customer_passage_expiry_invalid") from exc
+            if now<expires:
+                raise CustomerAccountError("customer_vehicle_in_use")
+        current=_decrypt_profile(account_id,row["profile_blob"])
+        vehicles=_vehicle_records(current)
+        removed=next(
+            (item for item in vehicles if hmac.compare_digest(str(item.get("vehicleId") or ""),wanted)),
+            None,
+        )
+        if removed is None:
+            raise CustomerAccountError("customer_vehicle_not_found")
+        current["vehicles"]=[
+            item for item in vehicles
+            if not hmac.compare_digest(str(item.get("vehicleId") or ""),wanted)
+        ]
+        db.execute(
+            "UPDATE customer_account SET profile_blob=?,updated_at=? WHERE account_id=?",
+            (_encrypt_profile(account_id,current),stamp,account_id),
+        )
+    return _vehicle_summary(removed)
 
 def list_vehicles(account_id: object) -> list[dict]:
     account_id=_account_id(account_id)

@@ -122,6 +122,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Rattacher à l’app iOS",body)
         self.assertIn('id="ct-report"',body)
         self.assertIn('href="/#reservation">Réserver un contrôle',body)
+        self.assertIn('href="#mes-vehicules">Mes véhicules',body)
         self.assertIn('href="/contact">Nous contacter',body)
         self.assertIn('href="/contact?intent=suggestion">Faire une suggestion',body)
         self.assertIn("Donner mon avis sur Google",body)
@@ -137,6 +138,79 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertNotIn('Réserver ou consulter mes rendez-vous sur le planning actuel',body)
         self.assertIn('nonce="',body)
         self.assertTrue(h._csp_nonce)
+
+    def test_dashboard_exposes_mes_vehicules_section_and_existing_vehicle(self):
+        account=self.account()
+        account["vehicles"]=[{
+            "vehicleId":"11111111-1111-4111-8111-111111111111",
+            "registrationSystem":"siv","registration":"AA-123-AA",
+            "formulaNumberPresent":True,"cardIssueDate":"","updatedAt":"2026-10-07T00:00:00+00:00",
+        }]
+        h=Handler("/compte")
+        with patch.object(http,"_account",return_value=("session-token",account)), \
+             patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
+            self.assertTrue(http.handle(h))
+        body=h.response["data"].decode()
+        self.assertIn("MES VÉHICULES",body)
+        self.assertIn("Vos véhicules enregistrés",body)
+        self.assertIn('id="vehicleList"',body)
+        self.assertIn('id="vehicleForm"',body)
+        self.assertIn("AA-123-AA",body)
+        self.assertIn("Numéro de formule",body)
+        self.assertIn("Réserver un contrôle",body)
+
+    def test_customer_vehicle_api_lists_saves_and_deletes_account_scoped_vehicles(self):
+        vehicle={
+            "vehicleId":"11111111-1111-4111-8111-111111111111",
+            "registrationSystem":"siv","registration":"AA-123-AA",
+            "formulaNumberPresent":True,"cardIssueDate":"","updatedAt":"2026-10-07T00:00:00+00:00",
+        }
+        listing=Handler("/api/customer/vehicles")
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"list_vehicles",return_value=[vehicle]) as list_vehicles:
+            self.assertTrue(http.handle(listing))
+        self.assertEqual(listing.response["status"],200)
+        self.assertEqual(listing.response["json"]["vehicles"],[vehicle])
+        list_vehicles.assert_called_once_with(self.account()["accountId"])
+
+        payload={
+            "vehicleId":"","registrationSystem":"siv","registration":"aa 123 aa",
+            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+        }
+        saving=Handler("/api/customer/vehicles","POST",payload,headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_accounts,"save_vehicle",return_value=vehicle) as save, \
+             patch.object(http.customer_accounts,"list_vehicles",return_value=[vehicle]):
+            self.assertTrue(http.handle(saving))
+        self.assertEqual(saving.response["status"],201)
+        self.assertTrue(saving.response["json"]["ok"])
+        save.assert_called_once_with(
+            self.account()["accountId"],vehicle_id="",registration_system="siv",
+            registration="aa 123 aa",formula_number="AB12CD34EF5",card_issue_date="",
+        )
+
+        deleting=Handler("/api/customer/vehicles/delete","POST",{"vehicleId":vehicle["vehicleId"]},headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_accounts,"delete_vehicle",return_value=vehicle) as delete, \
+             patch.object(http.customer_accounts,"list_vehicles",return_value=[]):
+            self.assertTrue(http.handle(deleting))
+        self.assertEqual(deleting.response["status"],200)
+        self.assertEqual(deleting.response["json"]["vehicles"],[])
+        delete.assert_called_once_with(self.account()["accountId"],vehicle["vehicleId"])
+
+    def test_customer_vehicle_mutations_require_csrf(self):
+        h=Handler("/api/customer/vehicles","POST",{
+            "vehicleId":"","registrationSystem":"siv","registration":"AA-123-AA",
+            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+        })
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=False), \
+             patch.object(http.customer_accounts,"save_vehicle") as save:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],403)
+        save.assert_not_called()
 
     def test_google_review_url_uses_valid_configured_google_host(self):
         with patch.object(http.site_config_store,"load",return_value={

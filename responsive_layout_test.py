@@ -41,6 +41,16 @@ class ResponsiveLayoutTest(unittest.TestCase):
         self.assertEqual(raw[:4], b'RIFF')
         self.assertEqual(raw[8:12], b'WEBP')
 
+    def test_customer_dashboard_has_responsive_mes_vehicules_management(self):
+        source=(ROOT / "customer_http.py").read_text()
+        self.assertIn('id="mes-vehicules"',source)
+        self.assertIn('id="vehicleList"',source)
+        self.assertIn('id="vehicleForm"',source)
+        self.assertIn(".vehicle-list{{display:grid",source)
+        self.assertIn(".vehicle-actions button,.vehicle-actions a",source)
+        self.assertIn('VEHICLES_ROUTE="/api/customer/vehicles"',source)
+        self.assertIn('VEHICLE_DELETE_ROUTE="/api/customer/vehicles/delete"',source)
+
     def test_admin_keeps_navigation_accessible_on_mobile(self):
         css = (ROOT / "admin" / "admin.css").read_text()
         self.assertIn("Responsive adaptive layer v1", css)
