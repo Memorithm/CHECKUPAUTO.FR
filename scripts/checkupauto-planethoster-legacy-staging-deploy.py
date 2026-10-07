@@ -146,7 +146,11 @@ def _prepare_static(source, label):
     try:
         for name in STATIC_FILES:
             shutil.copy2(source / name, staging / name)
+            os.chmod(staging / name, 0o644)
         shutil.copytree(source / "assets", staging / "assets", symlinks=False)
+        os.chmod(staging / "assets", 0o755)
+        for path in (staging / "assets").rglob("*"):
+            os.chmod(path, 0o755 if path.is_dir() else 0o644)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
