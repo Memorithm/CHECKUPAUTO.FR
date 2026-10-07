@@ -77,6 +77,19 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertIn("/api/admin/notifications/preflight", javascript)
         self.assertIn("/api/admin/notifications/preflight", server)
 
+    def test_unconfigured_smtp_prefills_public_relay_without_persisting_it(self):
+        html = (ROOT / "admin" / "index.html").read_text()
+        javascript = (ROOT / "admin" / "notifications.js").read_text()
+        self.assertIn("const DEFAULT_SMTP = Object.freeze({", javascript)
+        self.assertIn("host: 'mail.checkupauto.fr'", javascript)
+        self.assertIn("port: 465", javascript)
+        self.assertIn("mode: 'ssl'", javascript)
+        self.assertIn("sender: 'contact@checkupauto.fr'", javascript)
+        self.assertIn("username: 'contact@checkupauto.fr'", javascript)
+        self.assertIn("valeurs proposées non enregistrées", javascript)
+        self.assertIn("ne sont enregistrés qu’après", html)
+        self.assertNotIn("password:", javascript.split("const DEFAULT_SMTP", 1)[1].split("});", 1)[0])
+
     def test_admin_exposes_private_smtp_configuration_without_secret_echo(self):
         html = (ROOT / "admin" / "index.html").read_text()
         javascript = (ROOT / "admin" / "notifications.js").read_text()
