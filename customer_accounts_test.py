@@ -261,6 +261,31 @@ class CustomerAccountsTest(unittest.TestCase):
                     registration=invalid,formula_number="2020AB12345",
                 )
 
+    def test_formula_number_rejects_wrong_groups_and_year(self):
+        for value in ("AB12CD34EF5", "2020A123456", "2020ABC1234",
+                      "2008AB12345", "9999AB12345", "2020AB1234",
+                      "2020AB123456", "2020AB1234?"):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                accounts.CustomerAccountError, "formula_number_invalid"
+            ):
+                accounts._formula_number(value)
+        self.assertEqual(accounts._formula_number("2020 ab 12345"), "2020AB12345")
+
+    def test_registration_rejects_invalid_siv_and_fni_without_guessing(self):
+        for value, system in (
+            ("AB-000-CD", "siv"), ("AB-12-CD", "siv"),
+            ("AB-123-CD4", "siv"), ("AI-123-CD", "siv"),
+            ("12345 AB 78", "fni"), ("123 AB 2C", "fni"),
+            ("0000 AB 78", "fni"), ("123 AB 00", "fni"),
+            ("123 AB ZZ", "fni"),
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                accounts.CustomerAccountError, "registration_invalid"
+            ):
+                accounts._registration(value, system)
+        self.assertEqual(accounts._registration("123 ab 2a", "fni"), "123 AB 2A")
+        self.assertEqual(accounts._registration("123 abc 971", "fni"), "123 ABC 971")
+
     def test_vehicle_can_be_updated_by_id_and_deleted_from_customer_space(self):
         created=self.create()
         first=accounts.save_vehicle(
