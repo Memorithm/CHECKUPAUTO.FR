@@ -40,6 +40,7 @@ class ComplianceOperationsTest(unittest.TestCase):
             "name": "Prestataire exemple",
             "service": "Hébergement applicatif",
             "dpaStatus": "signed",
+            "dpaEvidenceSha256": "a" * 64,
             "hostingLocation": "Lieu documenté par le contrat",
             "transferRequired": False,
             "transferMechanism": "",
@@ -90,6 +91,39 @@ class ComplianceOperationsTest(unittest.TestCase):
         self.assertTrue(saved["transferRequired"])
         self.assertEqual(saved["subprocessors"], ["Sous-traitant déclaré"])
         self.assertTrue(ops.summary(self.db)["operationalRegistersReady"])
+
+    def test_signed_dpa_requires_external_evidence_hash(self):
+        with self.assertRaisesRegex(ValueError, "preuve DPA requise"):
+            ops.upsert_processor(
+                self.processor_payload(dpaEvidenceSha256=""),
+                self.db,
+            )
+        with self.assertRaisesRegex(ValueError, "empreinte de preuve DPA invalide"):
+            ops.upsert_processor(
+                self.processor_payload(dpaEvidenceSha256="not-a-sha"),
+                self.db,
+            )
+
+        saved = ops.upsert_processor(self.processor_payload(), self.db)
+        self.assertEqual(saved["dpaEvidenceSha256"], "a" * 64)
+        self.assertTrue(ops.summary(self.db)["operationalRegistersReady"])
+
+    def test_pending_dpa_drops_stale_evidence_hash(self):
+        saved = ops.upsert_processor(self.processor_payload(), self.db)
+        pending = ops.upsert_processor(
+            self.processor_payload(
+                id=saved["id"],
+                dpaStatus="pending",
+                dpaEvidenceSha256="b" * 64,
+            ),
+            self.db,
+        )
+        self.assertEqual(pending["dpaStatus"], "pending")
+        self.assertEqual(pending["dpaEvidenceSha256"], "")
+        self.assertIn(
+            "processor_dpa_pending",
+            {item["type"] for item in ops.summary(self.db)["blockers"]},
+        )
 
     def test_pending_dpa_blocks_operational_readiness(self):
         ops.upsert_processor(self.processor_payload(dpaStatus="pending"), self.db)
