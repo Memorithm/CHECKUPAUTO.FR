@@ -133,10 +133,61 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Où trouver la date d’établissement",body)
         self.assertIn("11 caractères",body)
         self.assertIn("première mise en circulation",body)
-        self.assertIn("document-focus",body)
+        self.assertIn("carte-grise-photo",body)
         self.assertIn("document.getElementById('vehicleFormulaGuide').hidden=!siv",body)
         self.assertIn("document.getElementById('vehicleDateGuide').hidden=siv",body)
         self.assertNotIn("<iframe",body)
+
+    def test_booking_and_dashboard_share_the_same_document_guides(self):
+        with patch.object(http.customer_accounts, "csrf_token", return_value="c"*64):
+            pages = {
+                "dashboard": http._dashboard_page("synthetic", self.account(), "nonce").decode(),
+                "booking": http._passage_page(
+                    "synthetic", self.account(), {"passageToken": "p"*43}, "nonce"
+                ).decode(),
+            }
+        for name, page in pages.items():
+            with self.subTest(page=name):
+                self.assertIn(http._vehicle_document_guides(), page)
+                self.assertIn(http.VEHICLE_DOCUMENT_GUIDES_CSS, page)
+                for guide in ("vehicleFormulaGuide", "vehicleDateGuide"):
+                    self.assertEqual(page.count(f'id="{guide}"'), 1)
+                    self.assertEqual(page.count(f'id="{guide}Summary"'), 1)
+                    self.assertIn(f'aria-describedby="{guide}Summary"', page)
+                for photo in ("formule", "date"):
+                    self.assertIn(f'/assets/guides/carte-grise-{photo}-photo.webp', page)
+                self.assertNotIn('class="document-diagram"', page)
+
+    def test_booking_document_help_is_inside_new_vehicle_fields_and_contextual(self):
+        with patch.object(http.customer_accounts, "csrf_token", return_value="c"*64):
+            page = http._passage_page(
+                "synthetic", self.account(), {"passageToken": "p"*43}, "nonce"
+            ).decode()
+        vehicle_fields = page.split('<div id="newVehicleFields"', 1)[1].split(
+            '<div class="actions">', 1
+        )[0]
+        self.assertIn(http._vehicle_document_guides(), vehicle_fields)
+        self.assertIn('<details id="vehicleDateGuide" class="document-guide" hidden>', page)
+        self.assertIn("document.getElementById('vehicleFormulaGuide').hidden=existing||fni", page)
+        self.assertIn("document.getElementById('vehicleDateGuide').hidden=existing||!fni", page)
+        self.assertIn("newFields.hidden=existing", page)
+        self.assertIn("et non la date de première mise en circulation", page)
+        self.assertNotIn('<iframe', vehicle_fields)
+        self.assertNotIn('type="file"', vehicle_fields)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for booking script validation")
+    def test_booking_inline_javascript_parses_with_document_guides(self):
+        with patch.object(http.customer_accounts, "csrf_token", return_value="c"*64):
+            page = http._passage_page(
+                "synthetic", self.account(), {"passageToken": "p"*43}, "nonce"
+            ).decode()
+        match = re.search(r'<script nonce="[^"]+">(.*?)</script>', page, re.S)
+        self.assertIsNotNone(match)
+        result = subprocess.run(
+            ["node", "--check"], input=match.group(1),
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_dashboard_uses_csp_nonce_and_server_loyalty_snapshot(self):
         h=Handler("/compte")
