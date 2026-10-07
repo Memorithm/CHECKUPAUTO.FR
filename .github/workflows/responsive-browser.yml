@@ -1,0 +1,67 @@
+name: Responsive browser regression
+
+on:
+  pull_request:
+    paths:
+      - '*.html'
+      - '*.css'
+      - '*.js'
+      - 'admin/**'
+      - 'assets/**'
+      - '*_http.py'
+      - 'contact_request.py'
+      - 'app_download.py'
+      - 'responsive_ui.py'
+      - 'scripts/check-responsive-browser.py'
+      - '.github/workflows/responsive-browser.yml'
+  push:
+    branches: [main]
+    paths:
+      - '*.html'
+      - '*.css'
+      - '*.js'
+      - 'admin/**'
+      - 'assets/**'
+      - '*_http.py'
+      - 'contact_request.py'
+      - 'app_download.py'
+      - 'responsive_ui.py'
+      - 'scripts/check-responsive-browser.py'
+      - '.github/workflows/responsive-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: responsive-browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install isolated browser tooling
+        run: |
+          python3 -m venv .browser-venv
+          .browser-venv/bin/pip install --disable-pip-version-check -r requirements.txt playwright==1.55.0
+          .browser-venv/bin/python -m playwright install chromium webkit
+      - name: Check Chromium geometry and interactions
+        run: .browser-venv/bin/python scripts/check-responsive-browser.py --browser chromium --output "$RUNNER_TEMP/responsive-evidence-${{ github.run_id }}"
+      - name: Check WebKit geometry and interactions
+        if: success() || failure()
+        run: .browser-venv/bin/python scripts/check-responsive-browser.py --browser webkit --output "$RUNNER_TEMP/responsive-evidence-${{ github.run_id }}"
+      - name: Publish synthetic screenshots and measurements
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: responsive-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/responsive-evidence-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn

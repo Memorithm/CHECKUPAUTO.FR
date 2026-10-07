@@ -8,7 +8,7 @@ class ResponsiveLayoutTest(unittest.TestCase):
     def test_public_page_uses_safe_area_viewport_and_cache_busted_css(self):
         page = (ROOT / "index.html").read_text()
         self.assertIn("width=device-width,initial-scale=1,viewport-fit=cover", page)
-        self.assertIn("/style.css?v=responsive-1", page)
+        self.assertIn("/style.css?v=responsive-3", page)
 
     def test_public_css_covers_phone_tablet_and_touch_layouts(self):
         css = (ROOT / "style.css").read_text()
@@ -40,6 +40,24 @@ class ResponsiveLayoutTest(unittest.TestCase):
         self.assertIn("@media(max-width:480px)", customer)
         self.assertIn("@media(max-width:520px)", contact)
         self.assertIn("@media(max-width:640px)", app)
+
+    def test_mobile_navigation_exists_without_hiding_customer_access(self):
+        page = (ROOT / "index.html").read_text()
+        self.assertIn('<details class="mobile-navigation">', page)
+        self.assertIn('aria-label="Navigation mobile"', page)
+        self.assertIn('/app.js?v=responsive-3', page)
+
+    def test_essential_booking_is_never_hidden_by_reveal_observer(self):
+        source = (ROOT / "app.js").read_text()
+        self.assertNotIn("el.style.opacity='0'", source)
+        self.assertNotIn('threshold:.12', source)
+        self.assertIn("{threshold:0}", source)
+
+    def test_glb_module_is_allowed_without_exposing_arbitrary_scripts(self):
+        import security_guard
+        self.assertTrue(security_guard.static_allowed('/assets/cybercheck-glb-hero.js'))
+        self.assertFalse(security_guard.static_allowed('/assets/private-helper.js'))
+        self.assertFalse(security_guard.static_allowed('/customer_http.py'))
 
     def test_static_admin_pages_use_safe_area_viewport(self):
         for relative in (

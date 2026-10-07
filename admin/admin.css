@@ -100,3 +100,10 @@ table{max-width:100%}
  .health-summary{align-items:stretch;flex-direction:column}.health-summary span{border-radius:10px}
  .funnel-table{min-width:560px}
 }
+
+/* Keep tablet dashboard grids within the space left by the sidebar. */
+@media(min-width:761px){.shell{grid-template-columns:260px minmax(0,1fr)}}
+.shell main :where(article,section,div,form,label,fieldset){min-width:0}
+.shell main{overflow-wrap:anywhere}
+.mfa-gate{overflow-y:auto}
+@media(max-height:600px){.mfa-gate{align-items:start}}

@@ -24,14 +24,14 @@ function publish(state){
 }
 function button(label,action,secondary){
  const b=document.createElement('button');b.type='button';b.textContent=label;
- b.style.cssText='border:1px solid #214f40;border-radius:999px;padding:10px 15px;font-weight:700;cursor:pointer;'+(secondary?'background:#fff;color:#214f40':'background:#214f40;color:#fff');
+ b.style.cssText='border:1px solid #214f40;border-radius:999px;padding:10px 15px;font-weight:700;cursor:pointer;min-height:44px;font-size:14px;'+(secondary?'background:#fff;color:#214f40':'background:#214f40;color:#fff');
  b.addEventListener('click',action);return b;
 }
 function shell(){
  let root=document.getElementById('cc-consent-panel');
  if(root)root.remove();
  root=document.createElement('section');root.id='cc-consent-panel';root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-label','Préférences de confidentialité');
- root.style.cssText='position:fixed;z-index:2147483000;left:16px;right:16px;bottom:16px;max-width:760px;margin:auto;background:#fff;color:#17372b;border:1px solid #cfd8d2;border-radius:18px;box-shadow:0 18px 60px rgba(20,45,36,.18);padding:20px;font-family:system-ui,sans-serif';
+ root.style.cssText='position:fixed;z-index:2147483000;left:16px;right:16px;bottom:16px;max-width:760px;margin:auto;background:#fff;color:#17372b;border:1px solid #cfd8d2;border-radius:18px;box-shadow:0 18px 60px rgba(20,45,36,.18);padding:20px;font-family:system-ui,sans-serif;box-sizing:border-box;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain';
  document.body.appendChild(root);return root;
 }
 function saveAndClose(choice){

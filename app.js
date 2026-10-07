@@ -1,8 +1,23 @@
 const service=document.querySelector('#service');const price=document.querySelector('#price');service?.addEventListener('change',()=>{const cfg=window.cyberCheckConfig?.services?.[service.value];if(cfg&&price)price.textContent=String(cfg.price)});
 const video=document.querySelector('#vehicleVideo');const stage=document.querySelector('.stage');let px=0,py=0,tx=0,ty=0;
 if(stage&&video&&!matchMedia('(prefers-reduced-motion: reduce)').matches){stage.addEventListener('pointermove',e=>{const r=stage.getBoundingClientRect();tx=((e.clientX-r.left)/r.width-.5)*2;ty=((e.clientY-r.top)/r.height-.5)*2});stage.addEventListener('pointerleave',()=>{tx=0;ty=0});const tick=()=>{px+=(tx-px)*.045;py+=(ty-py)*.045;video.style.transform=`perspective(1200px) rotateY(${px*1.8}deg) rotateX(${-py*.8}deg) translate3d(${px*5}px,${py*3}px,35px)`;requestAnimationFrame(tick)};requestAnimationFrame(tick)}
-const observer=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')}),{threshold:.12});document.querySelectorAll('.section article,.section h2,.section .kicker,.reservation,.trust').forEach(el=>{el.style.opacity='0';el.style.transform='translateY(18px)';el.style.transition='opacity .7s ease,transform .7s ease';observer.observe(el)});new MutationObserver(()=>{});document.addEventListener('scroll',()=>document.querySelectorAll('.section .visible,.reservation.visible,.trust.visible').forEach(el=>{}),{passive:true});observer.takeRecords();
-const style=document.createElement('style');style.textContent='.visible{opacity:1!important;transform:none!important}';document.head.appendChild(style);
+// Essential booking controls must never depend on intersection ratios.
+// A tall mobile planner may never reach a fractional visibility threshold.
+const revealTargets=document.querySelectorAll('.section article,.section h2,.section .kicker');
+if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+ const revealObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{
+  if(entry.isIntersecting){entry.target.classList.add('visible');revealObserver.unobserve(entry.target)}
+ }),{threshold:0});
+ revealTargets.forEach(el=>{el.classList.add('reveal-pending');revealObserver.observe(el)});
+}
+const mobileNavigation=document.querySelector('.mobile-navigation');
+mobileNavigation?.addEventListener('click',event=>{
+ if(event.target.closest('a'))mobileNavigation.removeAttribute('open');
+});
+mobileNavigation?.addEventListener('keydown',event=>{
+ if(event.key==='Escape'){mobileNavigation.removeAttribute('open');mobileNavigation.querySelector('summary').focus()}
+});
+
 
 
 async function loadSiteConfig(){
@@ -37,7 +52,7 @@ function initVehicleSelector(){
  const select=document.querySelector('#service'),buttons=[...document.querySelectorAll('.vehicle-option')],catalog=window.cyberCheckConfig?.vehicleCatalog||{},services=window.cyberCheckConfig?.services||{};if(!select||!buttons.length)return;
  let currentKey=(buttons.find(b=>b.classList.contains('selected'))||buttons[0]).dataset.vehicle;
  for(const b of buttons){const row=catalog[b.dataset.vehicle]||{},serviceKey=row.service||b.dataset.service||'technical',svc=services[serviceKey]||{};b.dataset.service=serviceKey;const st=b.querySelector('.vehicle-option-copy strong'),em=b.querySelector('.vehicle-option-copy em');if(st){st.replaceChildren(document.createTextNode((row.label||b.dataset.vehicle)+' '));const price=document.createElement('b');price.textContent=Number(svc.price||0).toLocaleString('fr-FR')+' €';st.appendChild(price)}if(em)em.textContent=svc.label||serviceKey}
- const sync=(scroll=false)=>{for(const b of buttons){const active=b.dataset.vehicle===currentKey;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));if(active&&scroll)b.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'})}};
+ const sync=(scroll=false)=>{for(const b of buttons){const active=b.dataset.vehicle===currentKey;b.classList.toggle('selected',active);b.setAttribute('aria-pressed',String(active));if(active&&scroll)b.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'nearest',inline:'center'})}};
  const choose=b=>{currentKey=b.dataset.vehicle;select.value=b.dataset.service;select.dispatchEvent(new Event('change',{bubbles:true}));trackEvent('service_selected',{service:select.options[select.selectedIndex]?.textContent||'',vehicle:currentKey});sync(true)};
  for(const b of buttons)b.addEventListener('click',()=>choose(b));
  select.addEventListener('change',()=>{const active=buttons.find(b=>b.dataset.vehicle===currentKey);if(!active||active.dataset.service!==select.value){const first=buttons.find(b=>b.dataset.service===select.value);if(first)currentKey=first.dataset.vehicle}sync(false)});

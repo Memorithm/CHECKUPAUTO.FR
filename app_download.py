@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from responsive_ui import FORM_RESPONSIVE_CSS
+
 import html
 import json
 import os
@@ -176,6 +178,7 @@ h1{{font:400 clamp(44px,8vw,74px)/1.02 Georgia,serif;letter-spacing:-.05em;margi
 .download.disabled{{opacity:.58;cursor:not-allowed}} .note{{margin-top:14px;font-size:12px;line-height:1.6;color:var(--muted)}}
 .back{{display:inline-block;margin-top:34px;color:var(--ink);font-size:12px;text-underline-offset:4px;text-decoration:underline}}
 @media(max-width:640px){{main{{padding:18px max(14px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}}.features{{grid-template-columns:1fr}} .feature{{min-height:0}}.card{{padding:26px 22px}}h1{{font-size:clamp(40px,13vw,58px)}}.download{{width:100%;min-height:46px;justify-content:center;text-align:center}}}}
+{FORM_RESPONSIVE_CSS}
 </style>
 </head>
 <body>
