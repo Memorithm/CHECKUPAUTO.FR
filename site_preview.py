@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 MEDIA = {
     "assets/vehicle.mp4": "video/mp4",
+    "assets/checkupauto-centre-map-osm.webp": "image/webp",
     **{
         "assets/premium/vehicle-" + name + "-premium.webp": "image/webp"
         for name in ("peugeot208", "suv4x4", "utility", "ambulance", "foodtruck")

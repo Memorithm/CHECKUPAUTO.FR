@@ -8,7 +8,7 @@ class ResponsiveLayoutTest(unittest.TestCase):
     def test_public_page_uses_safe_area_viewport_and_cache_busted_css(self):
         page = (ROOT / "index.html").read_text()
         self.assertIn("width=device-width,initial-scale=1,viewport-fit=cover", page)
-        self.assertIn("/style.css?v=responsive-4", page)
+        self.assertIn("/style.css?v=centre-map-1", page)
 
     def test_public_css_covers_phone_tablet_and_touch_layouts(self):
         css = (ROOT / "style.css").read_text()
@@ -23,6 +23,23 @@ class ResponsiveLayoutTest(unittest.TestCase):
         self.assertIn(".vehicle-carousel-arrow{min-width:44px;width:44px}", css)
         self.assertIn(".app-qr-card{grid-template-columns:1fr", css)
         self.assertIn("env(safe-area-inset-left)", css)
+
+    def test_centre_uses_a_real_local_map_instead_of_the_fake_department_card(self):
+        page = (ROOT / "index.html").read_text()
+        css = (ROOT / "style.css").read_text()
+        asset = ROOT / "assets" / "checkupauto-centre-map-osm.webp"
+        self.assertIn('/assets/checkupauto-centre-map-osm.webp', page)
+        self.assertIn('48.980120', page)
+        self.assertIn('1.890251', page)
+        self.assertIn('© OpenStreetMap contributors', page)
+        self.assertIn('class="centre-map-pin"', page)
+        self.assertNotIn('<div class="map-card"><span>78</span>', page)
+        self.assertIn('Real centre map: local OpenStreetMap asset', css)
+        self.assertTrue(asset.is_file())
+        raw = asset.read_bytes()
+        self.assertGreater(len(raw), 10_000)
+        self.assertEqual(raw[:4], b'RIFF')
+        self.assertEqual(raw[8:12], b'WEBP')
 
     def test_admin_keeps_navigation_accessible_on_mobile(self):
         css = (ROOT / "admin" / "admin.css").read_text()
