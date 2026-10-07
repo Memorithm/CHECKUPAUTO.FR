@@ -48,6 +48,35 @@ class CustomerPasswordAuthTest(unittest.TestCase):
         self.assertNotIn(pending["token"].encode(),raw)
         self.assertNotIn(b"client@example.test",raw)
 
+    def test_registration_without_name_defers_identity_to_customer_profile(self):
+        for index,name in enumerate((None,"")):
+            with self.subTest(name=name):
+                email=f"client-{index}@example.test"
+                password="Correct horse battery 42"
+                pending=passwords.begin_registration(email,name,password)
+                with self.assertRaisesRegex(accounts.CustomerAccountError,"customer_email_not_verified"):
+                    passwords.authenticate(email,password)
+                profile=passwords.verify_registration(pending["token"])
+                self.assertEqual(profile["displayName"],"")
+                self.assertTrue(profile["emailVerified"])
+                self.assertEqual(passwords.authenticate(email,password)["accountId"],profile["accountId"])
+                updated=accounts.update_profile(
+                    profile["accountId"],kind="individual",display_name="Client Test",
+                    phone="0612345678",address_line1="1 rue du Test",postal_code="75001",city="Paris",
+                )
+                self.assertEqual(updated["displayName"],"Client Test")
+                self.assertEqual(passwords.authenticate(email,password)["displayName"],"Client Test")
+
+    def test_registration_without_name_preserves_existing_federated_profile(self):
+        federated=accounts.create_from_verified_identity(
+            "google","subject-1","client@example.test","Client Test",email_verified=True,
+        )
+        pending=passwords.begin_registration("client@example.test",None,"Correct horse battery 42")
+        verified=passwords.verify_registration(pending["token"])
+        self.assertEqual(verified["accountId"],federated["accountId"])
+        self.assertEqual(verified["displayName"],"Client Test")
+        self.assertEqual(verified["providers"],["google"])
+
     def test_existing_federated_account_can_add_verified_email_password_without_duplicate(self):
         federated=accounts.create_from_verified_identity(
             "google","subject-1","client@example.test","Client Test",email_verified=True,

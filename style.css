@@ -272,3 +272,8 @@ footer span{min-width:0;overflow-wrap:anywhere}
 @media(max-width:980px){.centre-map-link,.centre-map-link>img{min-height:330px;height:330px}}
 @media(max-width:640px){.centre-map-link,.centre-map-link>img{min-height:300px;height:300px}.centre-map-address{left:12px;bottom:12px;max-width:calc(100% - 24px);padding:12px 13px}.centre-map-address strong{font-size:19px}.centre-map-pin{width:36px;height:36px}.centre-map-pin:after{inset:9px}.centre-map figcaption{font-size:7px}}
 @media(prefers-reduced-motion:reduce){.centre-map-link>img{transition:none}.centre-map-link:hover>img{transform:none}}
+
+/* Hero: keep the offer on the left, clear of the vehicle on narrow screens. */
+.hero-visual .offer-seal{left:2%;right:auto;top:68px}
+@media(max-width:640px){.hero-visual .offer-seal{left:8px;right:auto;top:12px;width:126px;max-width:42vw}}
+@media(max-width:360px){.hero-visual .offer-seal{left:4px;top:8px;width:108px}}

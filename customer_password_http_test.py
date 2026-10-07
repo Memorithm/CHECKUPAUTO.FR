@@ -48,18 +48,50 @@ class CustomerPasswordHttpTest(unittest.TestCase):
         self.assertIn("Mot de passe oublié",body)
         self.assertIn('autocomplete="current-password"',body)
         self.assertIn('autocomplete="new-password"',body)
+        self.assertNotIn("Nom et prénom",body)
+        self.assertNotIn('name="displayName"',body)
 
-    def test_registration_sends_verification_link(self):
+    def test_registration_without_name_sends_verification_link(self):
         target="/compte/reserver?returnTo=%2Fgo%2Fbooking%3Fservice%3DContr%25C3%25B4le%2Btechnique%26preferredDate%3D2026-10-08%26preferredTime%3D10%253A30"
         password="A long customer passphrase 42"
-        h=form_handler("/compte/inscription",{"displayName":"Client Test","email":"client@example.test","password":password,"passwordConfirm":password,"returnTo":target})
+        h=form_handler("/compte/inscription",{"email":"client@example.test","password":password,"passwordConfirm":password,"returnTo":target})
         pending={"email":"client@example.test","token":"v"*43,"purpose":"verify"}
         with patch.object(http.email_gateway,"configured",return_value=True), patch.object(http.customer_password_auth,"begin_registration",return_value=pending) as begin, patch.object(http.email_gateway,"send_email",return_value={"ok":True}) as send:
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],200)
-        begin.assert_called_once_with("client@example.test","Client Test",password)
+        begin.assert_called_once_with("client@example.test",None,password)
         self.assertIn("/compte/verifier-email?",send.call_args.args[2])
         self.assertNotIn(password,h.response["data"].decode())
+
+    def test_already_open_registration_page_can_still_submit_name(self):
+        password="A long customer passphrase 42"
+        h=form_handler("/compte/inscription",{"displayName":"Client Test","email":"client@example.test","password":password,"passwordConfirm":password,"returnTo":""})
+        pending={"email":"client@example.test","token":"v"*43,"purpose":"verify"}
+        with patch.object(http.email_gateway,"configured",return_value=True), patch.object(http.customer_password_auth,"begin_registration",return_value=pending) as begin, patch.object(http.email_gateway,"send_email",return_value={"ok":True}):
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        begin.assert_called_once_with("client@example.test","Client Test",password)
+
+    def test_registration_still_rejects_missing_required_or_unexpected_fields(self):
+        password="A long customer passphrase 42"
+        valid={"email":"client@example.test","password":password,"passwordConfirm":password,"returnTo":""}
+        invalid=[{k:v for k,v in valid.items() if k!=missing} for missing in valid]
+        invalid.append({**valid,"role":"admin"})
+        for payload in invalid:
+            with self.subTest(fields=sorted(payload)), patch.object(http.customer_password_auth,"begin_registration") as begin, patch.object(http.email_gateway,"send_email") as send:
+                h=form_handler("/compte/inscription",payload)
+                self.assertTrue(http.handle(h))
+                self.assertEqual(h.response["status"],400)
+                begin.assert_not_called()
+                send.assert_not_called()
+
+    def test_registration_without_name_still_requires_password_confirmation(self):
+        h=form_handler("/compte/inscription",{"email":"client@example.test","password":"A long customer passphrase 42","passwordConfirm":"A different customer passphrase 42","returnTo":""})
+        with patch.object(http.customer_password_auth,"begin_registration") as begin:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],400)
+        self.assertIn("Les deux mots de passe ne correspondent pas.",h.response["data"].decode())
+        begin.assert_not_called()
 
     def test_login_sets_secure_cookie_and_preserves_target(self):
         target="/compte/reserver?returnTo=%2Fgo%2Fbooking%3Fservice%3DContr%25C3%25B4le%2Btechnique%26preferredDate%3D2026-10-08%26preferredTime%3D10%253A30"
