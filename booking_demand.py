@@ -296,7 +296,8 @@ def candidate_slots(history, policy, availability_by_service, today=None):
     for day in sorted(grouped):
         seen_times = set()
         for candidate in sorted(grouped[day], key=lambda item:
-                                (item['score'], item['time'], item['service'])):
+                                (item['score'], item['time'],
+                                 item['service'] != 'technical')):
             if candidate['time'] in seen_times:
                 continue
             ranked.append(candidate)
