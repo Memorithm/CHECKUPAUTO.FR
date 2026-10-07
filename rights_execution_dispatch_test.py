@@ -143,6 +143,25 @@ class RightsExecutionDispatchTest(unittest.TestCase):
             Path("/tmp/compliance.sqlite3"),
         )
 
+    def test_routes_review_followup_with_exact_base_payload(self):
+        expected={"ok":True,"adapter":"review_followup"}
+        db=Path("/tmp/compliance.sqlite3")
+        with mock.patch.object(
+            rights_execution_dispatch.review_followup_rights,
+            "execute",
+            return_value=expected,
+        ) as execute:
+            result=rights_execution_dispatch.execute(
+                {
+                    "id":"f"*32,
+                    "subjectRef":"account:42",
+                    "adapter":"review_followup",
+                },
+                db,
+            )
+        self.assertEqual(result,expected)
+        execute.assert_called_once_with("f"*32,"account:42",db)
+
     def test_routes_referral_wallet_with_explicit_account_id(self):
         account = "44444444-4444-4444-4444-444444444444"
         expected = {"ok": True, "adapter": "referral_wallet"}
@@ -227,6 +246,10 @@ class RightsExecutionDispatchTest(unittest.TestCase):
         self.assertEqual(
             state["supportedAdapters"]["referral_wallet"],
             ["access", "portability"],
+        )
+        self.assertEqual(
+            state["supportedAdapters"]["review_followup"],
+            ["access", "portability", "erasure"],
         )
         self.assertFalse(state["rawPayloadPersistedByDispatcher"])
 
