@@ -188,6 +188,18 @@ class ComplianceOperationsTest(unittest.TestCase):
         self.assertFalse(state["operationalRegistersReady"])
         self.assertIn("processor_dpa_pending", {item["type"] for item in state["blockers"]})
 
+    def test_reviewed_insufficient_dpa_is_distinct_and_blocks_readiness(self):
+        saved = ops.upsert_processor(
+            self.processor_payload(dpaStatus="reviewed_insufficient", dpaEvidenceSha256="b" * 64),
+            self.db,
+        )
+        self.assertEqual(saved["dpaStatus"], "reviewed_insufficient")
+        self.assertEqual(saved["dpaEvidenceSha256"], "")
+        state = ops.summary(self.db)
+        self.assertFalse(state["operationalRegistersReady"])
+        self.assertIn("processor_dpa_insufficient", {item["type"] for item in state["blockers"]})
+        self.assertNotIn("processor_dpa_pending", {item["type"] for item in state["blockers"]})
+
     def test_transfer_required_rejects_non_boolean_json_values(self):
         with self.assertRaisesRegex(ValueError, "transferRequired doit être booléen"):
             ops.upsert_processor(self.processor_payload(transferRequired="false"), self.db)

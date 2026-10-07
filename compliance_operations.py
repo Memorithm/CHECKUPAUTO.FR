@@ -15,7 +15,7 @@ ACTIVITY_STATUSES = {"active", "inactive"}
 RISK_LEVELS = {"standard", "high"}
 DPIA_STATUSES = {"not_screened", "not_required", "required_pending", "in_progress", "approved"}
 PROCESSOR_STATUSES = {"active", "inactive"}
-DPA_STATUSES = {"pending", "signed", "not_required"}
+DPA_STATUSES = {"pending", "reviewed_insufficient", "signed", "not_required"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -445,6 +445,8 @@ def summary(db_path: Path | str | None = None) -> dict:
             continue
         if row["dpaStatus"] == "pending":
             blockers.append({"type": "processor_dpa_pending", "id": row["id"], "name": row["name"]})
+        elif row["dpaStatus"] == "reviewed_insufficient":
+            blockers.append({"type": "processor_dpa_insufficient", "id": row["id"], "name": row["name"]})
         elif row["dpaStatus"] == "signed" and not row["dpaEvidenceSha256"]:
             blockers.append({"type": "processor_dpa_evidence_missing", "id": row["id"], "name": row["name"]})
         if row["transferRequired"] and not row["transferMechanism"]:

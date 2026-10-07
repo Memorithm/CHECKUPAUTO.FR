@@ -245,7 +245,7 @@
       "id": "autobilan_mercure",
       "name": "AutoBilan-Systems / Mercure",
       "service": "Planning MercureWeb, logiciel Mercure et traitements nécessaires à la réservation et au contrôle technique",
-      "dpaStatus": "pending",
+      "dpaStatus": "reviewed_insufficient",
       "dpaEvidenceSha256": "",
       "hostingLocation": "France selon les mentions publiques actives de MercureWeb ; périmètre contractuel en cours de confirmation",
       "transferRequired": false,

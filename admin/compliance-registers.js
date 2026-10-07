@@ -46,7 +46,7 @@ function statusLabel(value){
   controller:'Responsable',processor:'Sous-traitant',joint_controller:'Responsables conjoints',
   standard:'Standard',high:'Élevé',not_screened:'Non évaluée',not_required:'Non requis',
   required_pending:'Requise · en attente',in_progress:'En cours',approved:'Approuvée',
-  signed:'Signé',pending:'En attente',inactive:'Inactif',active:'Actif'
+  signed:'Signé',pending:'En attente',reviewed_insufficient:'Contrat revu · DPA insuffisant',inactive:'Inactif',active:'Actif'
  };
  return labels[text(value)]||text(value)||'—';
 }

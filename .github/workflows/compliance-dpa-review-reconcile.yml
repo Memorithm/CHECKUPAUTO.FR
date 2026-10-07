@@ -1,0 +1,226 @@
+name: Compliance DPA review reconcile
+
+on:
+  push:
+    branches:
+      - ops/compliance-dpa-review-reconcile
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkupauto-compliance-dpa-review-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.ref == 'refs/heads/ops/compliance-dpa-review-reconcile'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 10
+    env:
+      STAGING_KEY: /opt/actions-runner/.ssh/checkupauto_planethoster_ed25519
+      STAGING_KNOWN_HOSTS: /opt/actions-runner/.ssh/planethoster_known_hosts
+      STAGING_HOST: nodels49-eu.n0c.com
+      STAGING_PORT: "5022"
+      STAGING_USER: eqcrhuya
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import json,os,urllib.request
+          req=urllib.request.Request(
+              os.environ["GH_API"].rstrip("/")+"/repos/"+os.environ["GH_REPOSITORY"]+"/branches/main",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(req,timeout=15) as response:
+              current=(json.load(response).get("commit") or {}).get("sha")
+          if current != os.environ["EXPECTED_SHA"]:
+              raise SystemExit("ops branch is not exact current main")
+          print("CURRENT_MAIN_VERIFIED="+current)
+          PY
+
+      - name: Verify dedicated PlanetHoster SSH material
+        run: |
+          set -euo pipefail
+          for path in "$STAGING_KEY" "$STAGING_KNOWN_HOSTS"; do
+            test -f "$path"
+            test ! -L "$path"
+          done
+
+      - name: Reconcile reviewed insufficient DPA state with rollback
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$STAGING_KEY" \
+            -p "$STAGING_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$STAGING_KNOWN_HOSTS" \
+            "$STAGING_USER@$STAGING_HOST" \
+            /opt/alt/python312/bin/python3 - "$EXPECTED_SHA" <<'PY'
+          from __future__ import annotations
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+          import sqlite3
+          import subprocess
+          import sys
+          import textwrap
+
+          expected=sys.argv[1]
+          if len(expected)!=40 or any(ch not in "0123456789abcdef" for ch in expected):
+              raise SystemExit("expected revision invalid")
+
+          home=Path.home().resolve()
+          root=(home/".checkupauto-test").resolve()
+          releases=(root/"releases").resolve()
+          current=root/"current"
+          if not current.is_symlink():
+              raise SystemExit("managed current release missing")
+          release=current.resolve(strict=True)
+          if releases not in release.parents or release.name!=expected:
+              raise SystemExit("runtime revision does not match current main")
+
+          shared=(root/"shared").resolve()
+          data=(shared/"data").resolve()
+          private=(shared/"private").resolve()
+          db_path=data/"compliance.sqlite3"
+          if not db_path.is_file() or db_path.is_symlink():
+              raise SystemExit("runtime compliance database invalid")
+          db=db_path.resolve()
+          if data not in db.parents:
+              raise SystemExit("runtime compliance database invalid")
+
+          transition_script=release/"scripts/checkupauto-compliance-transition-dpa-review.py"
+          if not transition_script.is_file():
+              raise SystemExit("DPA transition helper unavailable")
+          venv_python=release/".venv/bin/python"
+          if not venv_python.is_file():
+              raise SystemExit("runtime virtualenv unavailable")
+
+          env=os.environ.copy()
+          env.update({
+              "CYBERCHECK_DATA_DIR":str(data),
+              "CYBERCHECK_PRIVATE_DIR":str(private),
+              "CYBERCHECK_SECURITY_DIR":str((shared/"security").resolve()),
+              "CYBERCHECK_INTEGRITY_DIR":str((shared/"integrity").resolve()),
+              "CYBERCHECK_SITE_CONFIG_PATH":str(data/"site-config.json"),
+              "CYBERCHECK_MOBILE_PUSH_ENABLED":"0",
+          })
+
+          backup_dir=private/"compliance-backups"
+          backup_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
+          os.chmod(backup_dir,0o700)
+          stamp=datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+          backup=backup_dir/("compliance-before-dpa-review-"+stamp+".sqlite3")
+          source=sqlite3.connect("file:"+str(db)+"?mode=ro",uri=True,timeout=10)
+          target=sqlite3.connect(backup,timeout=10)
+          try:
+              source.backup(target)
+          finally:
+              target.close()
+              source.close()
+          os.chmod(backup,0o600)
+
+          try:
+              proc=subprocess.run(
+                  [
+                      str(venv_python),
+                      str(transition_script),
+                      "--db",str(db),
+                      "--processor-id","autobilan_mercure",
+                      "--confirm","TRANSITION-PROCESSOR-DPA-REVIEW",
+                  ],
+                  cwd=release,
+                  env=env,
+                  text=True,
+                  capture_output=True,
+                  timeout=90,
+                  check=False,
+              )
+              if proc.returncode!=0:
+                  raise RuntimeError("DPA review transition failed")
+              result=json.loads(proc.stdout.strip())
+              if result.get("schema")!="checkupauto.processor-dpa-review-transition/v1":
+                  raise RuntimeError("DPA review transition response invalid")
+              if result.get("processorId")!="autobilan_mercure":
+                  raise RuntimeError("DPA review transition target mismatch")
+              if result.get("state") not in {"transitioned","already_target","already_resolved"}:
+                  raise RuntimeError("DPA review transition state invalid")
+
+              verify_code=textwrap.dedent(r"""
+          import json
+          import compliance_operations as operations
+          rows={row["id"]:row for row in operations.processors()}
+          row=rows.get("autobilan_mercure")
+          if row is None:
+              raise SystemExit("processor missing after transition")
+          status=str(row.get("dpaStatus") or "")
+          evidence=str(row.get("dpaEvidenceSha256") or "")
+          blockers={item["type"] for item in operations.summary().get("blockers") or []}
+          if status=="reviewed_insufficient":
+              if evidence:
+                  raise SystemExit("insufficient DPA must not carry signed evidence")
+              if "processor_dpa_insufficient" not in blockers:
+                  raise SystemExit("insufficient DPA blocker missing")
+          elif status=="signed":
+              if len(evidence)!=64:
+                  raise SystemExit("signed DPA evidence missing")
+          elif status!="not_required":
+              raise SystemExit("unexpected DPA state after transition")
+          print(json.dumps({"status":status,"blockers":sorted(blockers)},sort_keys=True,separators=(",",":")))
+          """)
+              verified=subprocess.run(
+                  [str(venv_python),"-c",verify_code],
+                  cwd=release,
+                  env=env,
+                  text=True,
+                  capture_output=True,
+                  timeout=90,
+                  check=False,
+              )
+              if verified.returncode!=0:
+                  raise RuntimeError("DPA review transition verification failed")
+              verification=json.loads(verified.stdout.strip())
+          except Exception:
+              backup_source=sqlite3.connect("file:"+str(backup)+"?mode=ro",uri=True,timeout=10)
+              runtime_target=sqlite3.connect(db,timeout=10)
+              try:
+                  backup_source.backup(runtime_target)
+              finally:
+                  runtime_target.close()
+                  backup_source.close()
+              raise
+
+          backup_kept=result.get("state")=="transitioned"
+          if not backup_kept:
+              backup.unlink(missing_ok=True)
+
+          print("CHECKUPAUTO_DPA_REVIEW_RECONCILE="+json.dumps({
+              "schema":"checkupauto.dpa-review-reconcile/v1",
+              "runtimeSha":expected,
+              "processorId":"autobilan_mercure",
+              "state":result.get("state"),
+              "currentStatus":verification.get("status"),
+              "backupKept":backup_kept,
+          },sort_keys=True,separators=(",",":")))
+          PY
