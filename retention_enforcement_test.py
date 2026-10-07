@@ -181,8 +181,9 @@ class RetentionEnforcementTest(unittest.TestCase):
         audit = next(item for item in retention.audit_rows(self.db) if item["ruleId"] == "analytics_events")
         self.assertEqual(audit["mode"], "dry_run")
 
-    def test_checkout_acceptance_transient_is_event_purged_only_after_durable_receipt(self):
-        stamp = self._iso(2)
+    def test_checkout_acceptance_transient_uses_durable_receipt_or_browser_ttl(self):
+        old = self._iso(3)
+        fresh = self._iso(1)
         with compliance_store.connect(self.db) as db:
             db.execute(
                 """INSERT INTO checkout_acceptance_intents(
@@ -191,8 +192,8 @@ class RetentionEnforcementTest(unittest.TestCase):
                      finalized_contract_ref,finalized_at
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (
-                    "a" * 64, "v1", "1" * 64, stamp,
-                    1, 0, "checkout_review", "contract-ready", stamp,
+                    "a" * 64, "v1", "1" * 64, old,
+                    1, 0, "checkout_review", "contract-ready", old,
                 ),
             )
             db.execute(
@@ -202,8 +203,8 @@ class RetentionEnforcementTest(unittest.TestCase):
                      finalized_contract_ref,finalized_at
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (
-                    "b" * 64, "v1", "2" * 64, stamp,
-                    1, 0, "checkout_review", "contract-without-receipt", stamp,
+                    "b" * 64, "v1", "2" * 64, old,
+                    1, 0, "checkout_review", "contract-without-receipt", old,
                 ),
             )
             db.execute(
@@ -213,7 +214,18 @@ class RetentionEnforcementTest(unittest.TestCase):
                      finalized_contract_ref,finalized_at
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (
-                    "c" * 64, "v1", "3" * 64, stamp,
+                    "c" * 64, "v1", "3" * 64, fresh,
+                    1, 0, "checkout_review", "", "",
+                ),
+            )
+            db.execute(
+                """INSERT INTO checkout_acceptance_intents(
+                     booking_token_hash,terms_version,terms_content_hash,accepted_at,
+                     reviewed,immediate_performance,source,
+                     finalized_contract_ref,finalized_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    "d" * 64, "v1", "4" * 64, old,
                     1, 0, "checkout_review", "", "",
                 ),
             )
@@ -224,7 +236,7 @@ class RetentionEnforcementTest(unittest.TestCase):
                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (
                     "receipt-ready", "contract-ready", "contract_terms", "terms",
-                    "v1", "1" * 64, stamp, 0,
+                    "v1", "1" * 64, old, 0,
                     "mercure_contract_confirmation",
                 ),
             )
@@ -240,13 +252,13 @@ class RetentionEnforcementTest(unittest.TestCase):
             if item["ruleId"] == "checkout_acceptance_transient"
         )
         self.assertEqual(dry_row["state"], "ready")
-        self.assertEqual(dry_row["removedCount"], 1)
+        self.assertEqual(dry_row["removedCount"], 2)
         with compliance_store.connect(self.db) as db:
             self.assertEqual(
                 db.execute(
                     "SELECT COUNT(*) n FROM checkout_acceptance_intents"
                 ).fetchone()["n"],
-                3,
+                4,
             )
 
         with mock.patch.object(
@@ -260,7 +272,7 @@ class RetentionEnforcementTest(unittest.TestCase):
             if item["ruleId"] == "checkout_acceptance_transient"
         )
         self.assertEqual(row["state"], "ready")
-        self.assertEqual(row["removedCount"], 1)
+        self.assertEqual(row["removedCount"], 2)
         with compliance_store.connect(self.db) as db:
             remaining = {
                 str(item["booking_token_hash"])
@@ -272,6 +284,10 @@ class RetentionEnforcementTest(unittest.TestCase):
         self.assertEqual(
             retention.policy("checkout_acceptance_transient", self.db)["mode"],
             "event",
+        )
+        self.assertEqual(
+            retention.AUTO_RULES["checkout_acceptance_transient"]["source"],
+            "durable receipt or booking browser token TTL",
         )
         self.assertNotIn(
             "checkout_acceptance_transient",
