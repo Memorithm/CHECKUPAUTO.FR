@@ -33,6 +33,14 @@ class MercureProviderCoverageDocumentationTest(unittest.TestCase):
             RUNBOOK,
         )
 
+    def test_runbook_documents_private_admin_path_and_environment_precedence(self):
+        self.assertIn("Compliance Center → Frontière DSAR Mercure", RUNBOOK)
+        self.assertIn("integrations/mercure-provider-coverage.json", RUNBOOK)
+        self.assertIn("Environment variables remain authoritative", RUNBOOK)
+        self.assertIn("hashed locally with Web Crypto", RUNBOOK)
+        self.assertIn("raw bytes are never uploaded", RUNBOOK)
+        self.assertIn("MFA-protected Compliance Center form", RUNBOOK)
+
     def test_runbook_preserves_fail_closed_evidence_semantics(self):
         required_statements = [
             "do not prove that the observed appointment calendar is the provider's exhaustive inventory",
