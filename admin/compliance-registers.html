@@ -95,6 +95,7 @@
           <label>Statut<select id="processorStatus"><option value="active">Actif</option><option value="inactive">Inactif</option></select></label>
           <label>DPA<select id="processorDpa"><option value="pending">En attente</option><option value="signed">Signé</option><option value="not_required">Non requis</option></select></label>
           <label>Preuve DPA · SHA-256<input id="processorDpaEvidence" maxlength="64" pattern="[0-9a-fA-F]{64}" autocomplete="off" placeholder="64 caractères hexadécimaux"></label>
+          <label>Calculer depuis le document DPA<input id="processorDpaEvidenceFile" type="file"><small>Calcul SHA-256 local dans le navigateur · le fichier brut n’est jamais envoyé au serveur.</small></label>
           <label>Hébergement<input id="processorHosting" maxlength="180"></label>
           <label>Revue due le<input id="processorReviewDue" type="date"></label>
           <label><input id="processorTransferRequired" type="checkbox"> Transfert hors cadre local/EEE à documenter</label>
