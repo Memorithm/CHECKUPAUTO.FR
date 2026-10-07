@@ -312,3 +312,9 @@ footer span{min-width:0;overflow-wrap:anywhere}
 .slot-button.low-demand:hover,.slot-button.low-demand:focus-visible{border-color:#a4511a;background:#ffeed5}
 .slot-button.low-demand.selected{border-color:#8f431b;background:#ffedd4}
 @media(prefers-reduced-motion:no-preference){.slot-button.low-demand .slot-flame{animation:booking-flame 2.4s ease-in-out infinite alternate}@keyframes booking-flame{from{transform:scale(1)}to{transform:scale(1.12)}}}
+
+/* Staging-only visual test. Clearly distinguish synthetic, nonbookable offers. */
+.booking-promo-preview-banner{margin:14px 0 0;border:1px solid #dfa66f;border-radius:8px;background:#fff8ed;padding:14px 18px;display:flex;flex-direction:column;gap:5px;color:#74401a;font-size:12px;line-height:1.45}
+.booking-promo-preview-banner strong{font:700 11px var(--mono);letter-spacing:.06em}
+.slot-button.low-demand[data-preview-only="true"] em{font-size:9px}
+@media(max-width:640px){.booking-promo-preview-banner{margin:14px 0 0;padding:12px}}
