@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci, trusted-main]
     timeout-minutes: 10
     steps:
       - name: Validate signed main commit and Security CI
@@ -97,7 +97,11 @@ jobs:
         env:
           DEPLOY_SHA: ${{ inputs.sha }}
         run: sudo -n /usr/local/sbin/cybercheck-deploy "$DEPLOY_SHA"
-      - name: Verify canonical public CyberCheck surface and revision
+      # During the hosting migration, the canonical public domain can still
+      # intentionally point at the legacy redirect. Re-run the root-owned
+      # helper instead: its already-current path verifies exact origin/main,
+      # service activity, HTTP health and authenticated readiness.
+      - name: Verify deployed runtime health and revision
         env:
           DEPLOY_SHA: ${{ inputs.sha }}
-        run: python3 scripts/check-public-surface.py https://www.checkupauto.fr/ "$DEPLOY_SHA"
+        run: sudo -n /usr/local/sbin/cybercheck-deploy "$DEPLOY_SHA"
