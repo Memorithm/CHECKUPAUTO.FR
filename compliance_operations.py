@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -15,6 +16,7 @@ RISK_LEVELS = {"standard", "high"}
 DPIA_STATUSES = {"not_screened", "not_required", "required_pending", "in_progress", "approved"}
 PROCESSOR_STATUSES = {"active", "inactive"}
 DPA_STATUSES = {"pending", "signed", "not_required"}
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _now() -> datetime.datetime:
@@ -107,6 +109,7 @@ def init_db(db_path: Path | str | None = None) -> None:
               name TEXT NOT NULL,
               service TEXT NOT NULL,
               dpa_status TEXT NOT NULL,
+              dpa_evidence_sha256 TEXT NOT NULL DEFAULT '',
               hosting_location TEXT NOT NULL,
               transfer_required INTEGER NOT NULL,
               transfer_mechanism TEXT NOT NULL,
@@ -130,6 +133,15 @@ def init_db(db_path: Path | str | None = None) -> None:
               ON compliance_operation_audit(object_type,object_id,created_at);
             """
         )
+        processor_columns = {
+            str(row["name"])
+            for row in db.execute("PRAGMA table_info(processor_inventory)")
+        }
+        if "dpa_evidence_sha256" not in processor_columns:
+            db.execute(
+                "ALTER TABLE processor_inventory "
+                "ADD COLUMN dpa_evidence_sha256 TEXT NOT NULL DEFAULT ''"
+            )
 
 
 def _audit(db, object_type: str, object_id: str, action: str, evidence: dict) -> None:
@@ -295,6 +307,13 @@ def upsert_processor(payload: dict, db_path: Path | str | None = None) -> dict:
     dpa_status = str(payload.get("dpaStatus") or "pending").strip()
     if dpa_status not in DPA_STATUSES:
         raise ValueError("statut DPA invalide")
+    dpa_evidence_sha256 = str(payload.get("dpaEvidenceSha256") or "").strip().lower()
+    if dpa_evidence_sha256 and not _SHA256_RE.fullmatch(dpa_evidence_sha256):
+        raise ValueError("empreinte de preuve DPA invalide")
+    if dpa_status == "signed" and not dpa_evidence_sha256:
+        raise ValueError("preuve DPA requise pour le statut signé")
+    if dpa_status != "signed":
+        dpa_evidence_sha256 = ""
     hosting_location = _text(payload.get("hostingLocation"), "hostingLocation", 180, required=status == "active")
     raw_transfer_required = payload.get("transferRequired", False)
     if not isinstance(raw_transfer_required, bool):
@@ -313,6 +332,7 @@ def upsert_processor(payload: dict, db_path: Path | str | None = None) -> dict:
         "name": name,
         "service": service,
         "dpaStatus": dpa_status,
+        "dpaEvidenceSha256": dpa_evidence_sha256,
         "hostingLocation": hosting_location,
         "transferRequired": transfer_required,
         "transferMechanism": transfer_mechanism,
@@ -327,11 +347,12 @@ def upsert_processor(payload: dict, db_path: Path | str | None = None) -> dict:
         created = existing["created_at"] if existing else stamp
         db.execute(
             """INSERT INTO processor_inventory(
-              processor_id,name,service,dpa_status,hosting_location,transfer_required,
+              processor_id,name,service,dpa_status,dpa_evidence_sha256,hosting_location,transfer_required,
               transfer_mechanism,subprocessors_json,review_due_at,status,created_at,updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(processor_id) DO UPDATE SET
               name=excluded.name,service=excluded.service,dpa_status=excluded.dpa_status,
+              dpa_evidence_sha256=excluded.dpa_evidence_sha256,
               hosting_location=excluded.hosting_location,transfer_required=excluded.transfer_required,
               transfer_mechanism=excluded.transfer_mechanism,subprocessors_json=excluded.subprocessors_json,
               review_due_at=excluded.review_due_at,status=excluded.status,updated_at=excluded.updated_at""",
@@ -340,6 +361,7 @@ def upsert_processor(payload: dict, db_path: Path | str | None = None) -> dict:
                 name,
                 service,
                 dpa_status,
+                dpa_evidence_sha256,
                 hosting_location,
                 int(transfer_required),
                 transfer_mechanism,
@@ -365,6 +387,7 @@ def processors(db_path: Path | str | None = None) -> list[dict]:
             "name": row["name"],
             "service": row["service"],
             "dpaStatus": row["dpa_status"],
+            "dpaEvidenceSha256": str(row["dpa_evidence_sha256"] or ""),
             "hostingLocation": row["hosting_location"],
             "transferRequired": bool(row["transfer_required"]),
             "transferMechanism": row["transfer_mechanism"],
@@ -422,6 +445,8 @@ def summary(db_path: Path | str | None = None) -> dict:
             continue
         if row["dpaStatus"] == "pending":
             blockers.append({"type": "processor_dpa_pending", "id": row["id"], "name": row["name"]})
+        elif row["dpaStatus"] == "signed" and not row["dpaEvidenceSha256"]:
+            blockers.append({"type": "processor_dpa_evidence_missing", "id": row["id"], "name": row["name"]})
         if row["transferRequired"] and not row["transferMechanism"]:
             blockers.append({"type": "processor_transfer_unresolved", "id": row["id"], "name": row["name"]})
         if row["reviewOverdue"]:
