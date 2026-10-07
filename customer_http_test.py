@@ -111,6 +111,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn('class="providers"',body)
 
     def test_vehicle_help_uses_real_cropped_photographs_not_diagrams(self):
+        from pathlib import Path
         from unittest.mock import patch
         with patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
             page=http._dashboard_page("test-session",self.account(),"nonce").decode()
