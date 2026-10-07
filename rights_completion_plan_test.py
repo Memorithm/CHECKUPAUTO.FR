@@ -78,6 +78,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "disposition": "not_applicable",
                 "justification": "aucun compte client web n'est lié à cette installation",
             },
+            {
+                "adapter": "review_followup",
+                "disposition": "not_applicable",
+                "justification": "aucun suivi de demande d'avis n'est lié à cette installation",
+            },
         ]
         if wallet_disposition == "required":
             rows.append({"adapter": "referral_wallet", "disposition": "required"})
@@ -119,6 +124,11 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "disposition": "not_applicable",
                 "justification": "aucune cagnotte ne correspond à la demande",
             },
+            {
+                "adapter": "review_followup",
+                "disposition": "not_applicable",
+                "justification": "aucun suivi de demande d'avis ne correspond à la demande",
+            },
         ]
 
     def test_plan_requires_exact_classification_of_every_known_adapter(self):
@@ -143,6 +153,7 @@ class RightsCompletionPlanTest(unittest.TestCase):
                 "mercure_customer_contact",
                 "mobile_installation",
                 "referral_wallet",
+                "review_followup",
             ],
         )
 
@@ -192,6 +203,27 @@ class RightsCompletionPlanTest(unittest.TestCase):
         self.assertTrue(required["executionComplete"])
         self.assertEqual(required["executionLimitation"], "")
         self.assertTrue(required["satisfied"])
+
+    def test_complete_review_followup_execution_satisfies_known_item(self):
+        request=self._request()
+        plan=self._access_plan()
+        review=next(item for item in plan if item["adapter"]=="review_followup")
+        review.clear()
+        review.update({"adapter":"review_followup","disposition":"required"})
+        rights_completion_plan.configure(request["id"],plan,self.db_path)
+        self._record_execution(
+            request["id"],
+            "review_followup",
+            action="export_complete",
+        )
+        state=rights_completion_plan.status(request["id"],self.db_path)
+        item=next(row for row in state["items"] if row["adapter"]=="review_followup")
+        self.assertTrue(item["executed"])
+        self.assertTrue(item["executionComplete"])
+        self.assertEqual(item["executionLimitation"],"")
+        self.assertTrue(item["satisfied"])
+        self.assertFalse(state["globalCoverageComplete"])
+        self.assertFalse(state["closureReady"])
 
     def test_partial_mercure_execution_never_satisfies_required_plan_item(self):
         request = self._request()
