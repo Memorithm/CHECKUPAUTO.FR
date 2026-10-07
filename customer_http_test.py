@@ -110,6 +110,21 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("sécuriser et d’identifier les échanges",body)
         self.assertIn('class="providers"',body)
 
+    def test_vehicle_card_grise_guides_are_contextual_and_safe(self):
+        from unittest.mock import patch
+        with patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
+            body=http._dashboard_page("test-session",self.account(),"test-nonce").decode()
+        self.assertIn('id="vehicleFormulaGuide"',body)
+        self.assertIn('id="vehicleDateGuide"',body)
+        self.assertIn("Où trouver le numéro de formule",body)
+        self.assertIn("Où trouver la date d’établissement",body)
+        self.assertIn("11 caractères",body)
+        self.assertIn("première mise en circulation",body)
+        self.assertIn("document-focus",body)
+        self.assertIn("document.getElementById('vehicleFormulaGuide').hidden=!siv",body)
+        self.assertIn("document.getElementById('vehicleDateGuide').hidden=siv",body)
+        self.assertNotIn("<iframe",body)
+
     def test_dashboard_uses_csp_nonce_and_server_loyalty_snapshot(self):
         h=Handler("/compte")
         with patch.object(http,"_account",return_value=("session-token",self.account())), \
