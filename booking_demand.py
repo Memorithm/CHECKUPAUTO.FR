@@ -27,6 +27,8 @@ MAX_HIGHLIGHTS_PER_DAY = 2
 MAX_NEW_PROMOTIONS_PER_RUN = 4
 MAX_PROMOTION_DAYS_AHEAD = 6
 PUBLISH_ENV = 'CYBERCHECK_LOW_DEMAND_PROMO_PUBLISH'
+CONTROLLER_ENV = 'CYBERCHECK_LOW_DEMAND_PROMO_CONTROLLER'
+AUTHORIZED_CONTROLLER = 'remoteops-thor'
 
 _CACHE_LOCK = threading.Lock()
 _CACHE = {'expires': 0.0, 'data': None}
@@ -181,8 +183,23 @@ def init_db():
 
 
 def _claim_promotion(key, price):
-    # Claim BEFORE external effects. Interrupted/ambiguous writes are not retried.
+    # Across every run and service, cap attempts at two per day and one per
+    # physical slot. Pending, uncertain, and verified attempts all count.
+    _service, day, clock = key.split('|')
+    dt.date.fromisoformat(day)
+    dt.time.fromisoformat(clock)
     with analytics.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        existing = [
+            str(row[0]).split('|')
+            for row in db.execute(
+                'SELECT slot_key FROM booking_demand_promotion_attempts '
+                'WHERE slot_key LIKE ?', (f'%|{day}|%',)
+            )
+        ]
+        if (len(existing) >= MAX_HIGHLIGHTS_PER_DAY
+                or any(len(parts) == 3 and parts[2] == clock for parts in existing)):
+            return False
         row = db.execute(
             'INSERT OR IGNORE INTO booking_demand_promotion_attempts '
             '(slot_key,created_at,state,final_price) VALUES(?,?,?,?)',
@@ -204,6 +221,7 @@ def candidate_slots(history, policy, availability_by_service, today=None):
     cutoff = today + dt.timedelta(days=min(
         MAX_PROMOTION_DAYS_AHEAD, int(policy.get('horizonDays', 30))))
     allowed = set(policy.get('allowedWeekdays', []))
+    cap = float(policy.get('maxDiscountPercent') or 0)
     grouped = defaultdict(list)
     for service, result in availability_by_service.items():
         if not policy.get('eligibleServices', {}).get(service, False):
@@ -225,7 +243,9 @@ def candidate_slots(history, policy, availability_by_service, today=None):
                 except (TypeError, ValueError):
                     continue
                 if (not slot.get('promotion') and abs(price - base) < 0.01
-                        and base > DISCOUNT_EUR and policy.get('timeStart', '09:00') <= clock
+                        and base > DISCOUNT_EUR
+                        and (cap <= 0 or DISCOUNT_EUR / base * 100 <= cap)
+                        and policy.get('timeStart', '09:00') <= clock
                         and finish <= policy.get('timeEnd', '19:00')
                         and start.date() == (start + dt.timedelta(minutes=5)).date()):
                     score = weakness(history, service, day['date'], clock)
@@ -251,12 +271,15 @@ def candidate_slots(history, policy, availability_by_service, today=None):
 
 
 def _publisher_enabled():
-    return os.environ.get(PUBLISH_ENV, '') == '1'
+    return (os.environ.get(PUBLISH_ENV) == '1'
+            and os.environ.get(CONTROLLER_ENV) == AUTHORIZED_CONTROLLER)
 
 
-def run_once(policy):
-    """Publish bounded offers in Mercure only on an explicitly elected writer."""
+def run_once(policy, *, max_new_promotions=MAX_NEW_PROMOTIONS_PER_RUN):
+    """Bounded publication requiring the approved RemoteOps controller."""
     global _LAST_RUN
+    if type(max_new_promotions) is not int or not 1 <= max_new_promotions <= MAX_NEW_PROMOTIONS_PER_RUN:
+        raise ValueError('invalid promotional publication limit')
     if not _publisher_enabled():
         return {'status': 'read_only', 'published': 0}
     if not policy.get('enabled') or migration_write_freeze.status().get('active', True):
@@ -277,12 +300,16 @@ def run_once(policy):
     existing = {mercure_admin._promotion_identity(row)[1]
                 for row in mercure_admin.list_promotions()}
     published = 0
+    attempted = 0
     for candidate in candidates:
+        if attempted >= max_new_promotions:
+            break
         service, day, clock = candidate['service'], candidate['date'], candidate['time']
         name = f"CHECKUPAUTO CRENEAU CALME {service} {day} {clock} {candidate['finalPrice']:.2f} EUR"
         key = f'{service}|{day}|{clock}'
         if name in existing or not _claim_promotion(key, candidate['finalPrice']):
             continue
+        attempted += 1
         try:
             info = mercure_admin.plan_promotion_slot(
                 name=name, final_price=candidate['finalPrice'],
@@ -315,7 +342,10 @@ def run_once(policy):
         except Exception:
             # The HTTP request may have succeeded before raising; never retry.
             _record_result(key, 'uncertain')
-    _LAST_RUN = {'status': 'submitted', 'published': published,
+    state = ('no_new_offers' if attempted == 0 else
+             'verified' if published == attempted else 'unverified')
+    _LAST_RUN = {'status': state, 'attempted': attempted,
+                 'published': published,
                  'at': dt.datetime.now(dt.timezone.utc).isoformat()}
     return _LAST_RUN.copy()
 
