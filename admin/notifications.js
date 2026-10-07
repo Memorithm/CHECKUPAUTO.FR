@@ -1,4 +1,12 @@
 const notificationEl = id => document.getElementById(id);
+const DEFAULT_SMTP = Object.freeze({
+  host: 'mail.checkupauto.fr',
+  port: 465,
+  mode: 'ssl',
+  sender: 'contact@checkupauto.fr',
+  username: 'contact@checkupauto.fr',
+});
+
 const permanentRecipientStates = new Map();
 let lastPermanentFailures = [];
 
@@ -176,13 +184,13 @@ function renderEmailConfig(config = {}) {
   const password = notificationEl('smtpPassword');
   const state = notificationEl('smtpConfigState');
 
-  if (host) host.value = configured ? String(config.host || '') : 'mail.checkupauto.fr';
-  if (port) port.value = configured ? String(config.port || 465) : '465';
+  if (host) host.value = configured ? String(config.host || '') : DEFAULT_SMTP.host;
+  if (port) port.value = configured ? String(config.port || 465) : String(DEFAULT_SMTP.port);
   if (mode) mode.value = configured && ['ssl', 'starttls'].includes(String(config.mode || ''))
     ? String(config.mode)
-    : 'ssl';
-  if (sender) sender.value = configured ? String(config.sender || '') : '';
-  if (username) username.value = configured ? String(config.username || '') : '';
+    : DEFAULT_SMTP.mode;
+  if (sender) sender.value = configured ? String(config.sender || '') : DEFAULT_SMTP.sender;
+  if (username) username.value = configured ? String(config.username || '') : DEFAULT_SMTP.username;
   if (password) {
     password.value = '';
     password.placeholder = config.passwordConfigured
@@ -192,7 +200,7 @@ function renderEmailConfig(config = {}) {
   if (state) {
     state.textContent = configured
       ? `Configuré · source ${source} · secret ${config.passwordConfigured ? 'présent' : 'absent'}`
-      : 'SMTP non configuré';
+      : 'SMTP non configuré · valeurs proposées non enregistrées';
   }
 }
 
