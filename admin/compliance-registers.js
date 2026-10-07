@@ -74,6 +74,22 @@ function activityPayload(){
  const id=text($('#activityId')?.value).trim();if(id)payload.id=id;return payload;
 }
 
+const DPA_EVIDENCE_MAX_BYTES=20*1024*1024;
+
+async function hashDpaEvidenceFile(file){
+ if(!file)return;
+ if(!(globalThis.crypto&&globalThis.crypto.subtle)){throw new Error('SHA-256 navigateur indisponible');}
+ if(!Number.isFinite(file.size)||file.size<1||file.size>DPA_EVIDENCE_MAX_BYTES){
+  throw new Error('Document DPA invalide ou supérieur à 20 Mo');
+ }
+ const buffer=await file.arrayBuffer();
+ const digest=await globalThis.crypto.subtle.digest('SHA-256',buffer);
+ const hex=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+ if(!/^[0-9a-f]{64}$/.test(hex))throw new Error('Empreinte DPA invalide');
+ value('#processorDpaEvidence',hex);
+ setMessage('Empreinte SHA-256 calculée localement. Le document brut n’a pas été envoyé.');
+}
+
 function resetProcessor(){
  $('#processorForm')?.reset();value('#processorId','');value('#processorStatus','active');value('#processorDpa','pending');
 }
@@ -225,6 +241,13 @@ $('#operationsAttest')?.addEventListener('click',async()=>{
 });
 $('#activityReset')?.addEventListener('click',resetActivity);
 $('#processorReset')?.addEventListener('click',resetProcessor);
+$('#processorDpaEvidenceFile')?.addEventListener('change',async event=>{
+ const file=event.target?.files?.[0];
+ if(!file)return;
+ try{await hashDpaEvidenceFile(file);}
+ catch(error){value('#processorDpaEvidence','');setMessage(error.message||'Empreinte DPA impossible',true);}
+ finally{event.target.value='';}
+});
 $('#activityForm')?.addEventListener('submit',async event=>{
  event.preventDefault();setMessage('Enregistrement de l’activité…');
  try{await postJson('/api/admin/compliance/processing-activity',activityPayload());resetActivity();await load();setMessage('Activité de traitement enregistrée. L’attestation doit être revue si son empreinte a changé.');}

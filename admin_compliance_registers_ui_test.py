@@ -61,7 +61,7 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
             "activityForm", "activityId", "activityName", "activityPurposes",
             "activityLegalBases", "activitySystems", "activitySave", "activityReset",
             "processorForm", "processorId", "processorName", "processorDpa",
-            "processorDpaEvidence", "processorTransferRequired", "processorSave", "processorReset",
+            "processorDpaEvidence", "processorDpaEvidenceFile", "processorTransferRequired", "processorSave", "processorReset",
         ):
             self.assertIn(f'id="{element_id}"', self.html)
         self.assertIn("/api/admin/compliance/processing-activity", self.js)
@@ -73,6 +73,15 @@ class AdminComplianceRegistersUIContractTest(unittest.TestCase):
         self.assertIn("dpaEvidenceSha256", self.js)
         self.assertIn("processorDpaEvidence", self.js)
         self.assertIn("dpaEvidence.slice(0,16)", self.js)
+
+    def test_dpa_evidence_file_is_hashed_locally_without_upload(self):
+        self.assertIn('id="processorDpaEvidenceFile"', self.html)
+        self.assertIn("crypto.subtle.digest('SHA-256'", self.js)
+        self.assertIn("file.arrayBuffer()", self.js)
+        self.assertIn("DPA_EVIDENCE_MAX_BYTES=20*1024*1024", self.js)
+        self.assertIn("Le document brut n’a pas été envoyé", self.js)
+        self.assertNotIn("FormData", self.js)
+        self.assertNotIn("processorDpaEvidenceFile", self.js.split("function processorPayload()",1)[1].split("function renderBlockers",1)[0])
 
     def test_main_compliance_center_links_to_operational_registers(self):
         main = Path("admin/index.html").read_text(encoding="utf-8")
