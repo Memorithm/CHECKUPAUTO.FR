@@ -43,10 +43,10 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         self.assertEqual(state["tableCount"],77)
         self.assertTrue(state["mappingComplete"])
         self.assertEqual(state["subjectExecutionRequiredCount"],20)
-        self.assertEqual(state["executionGapCount"],9)
+        self.assertEqual(state["executionGapCount"],8)
         self.assertEqual(
             state["executionGapTables"],
-            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","withdrawal_requests"],
         )
         self.assertFalse(state["privacyExecutionCoverageAsserted"])
         self.assertEqual(state["state"],"mapped_with_execution_gaps")
@@ -63,6 +63,15 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         )
         for row in required:
             self.assertIn(row["executionState"],{"wired","partial","unmapped"})
+
+    def test_review_followup_has_complete_local_rights_adapter(self):
+        row=next(
+            item for item in catalog.load()["tables"]
+            if item["table"]=="review_followup"
+        )
+        self.assertEqual(row["executionState"],"wired")
+        self.assertEqual(row["adapter"],"review_followup")
+        self.assertTrue(row["subjectExecutionRequired"])
 
     def test_checkout_acceptance_intents_are_transient_and_retention_governed(self):
         row=next(
