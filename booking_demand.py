@@ -9,8 +9,11 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import os
+import sqlite3
+import stat
 import threading
 import time
+from pathlib import Path
 from collections import Counter, defaultdict
 
 import analytics_store as analytics
@@ -171,8 +174,41 @@ def decorate_availability(data, *, authenticated, policy, history=None):
     return result
 
 
+def _ledger_connect():
+    """Give the unique RemoteOps publisher its own root-owned SQLite ledger.
+
+    Do not redirect CYBERCHECK_DATA_DIR: migration freeze checks must continue
+    to inspect the application's authoritative data directory.
+    """
+    override = os.environ.get('CYBERCHECK_LOW_DEMAND_PROMO_LEDGER_DB', '').strip()
+    if not override:
+        return analytics.connect()
+    if not _publisher_enabled():
+        raise PermissionError('private promotion ledger requires RemoteOps authorization')
+    location = Path(override)
+    if not location.is_absolute():
+        raise ValueError('private promotion ledger path must be absolute')
+    parent = location.parent
+    info = parent.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) & 0o077):
+        raise PermissionError('private promotion ledger directory is not isolated')
+    try:
+        info = location.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) & 0o077):
+            raise PermissionError('private promotion ledger file is not isolated')
+    db = sqlite3.connect(location, timeout=5)
+    db.row_factory = sqlite3.Row
+    location.chmod(0o600)
+    return db
+
+
 def init_db():
-    with analytics.connect() as db:
+    with _ledger_connect() as db:
         db.execute('''CREATE TABLE IF NOT EXISTS booking_demand_promotion_attempts (
             slot_key TEXT PRIMARY KEY,
             created_at TEXT NOT NULL,
@@ -188,7 +224,7 @@ def _claim_promotion(key, price):
     _service, day, clock = key.split('|')
     dt.date.fromisoformat(day)
     dt.time.fromisoformat(clock)
-    with analytics.connect() as db:
+    with _ledger_connect() as db:
         db.execute('BEGIN IMMEDIATE')
         existing = [
             str(row[0]).split('|')
@@ -209,7 +245,7 @@ def _claim_promotion(key, price):
 
 
 def _record_result(key, state, promotion_id=''):
-    with analytics.connect() as db:
+    with _ledger_connect() as db:
         db.execute(
             'UPDATE booking_demand_promotion_attempts SET state=?,promotion_id=? WHERE slot_key=?',
             (state, str(promotion_id)[:80], key),
