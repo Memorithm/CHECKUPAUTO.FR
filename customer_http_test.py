@@ -76,6 +76,9 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],200)
         self.assertIn("Continuer avec Google",body)
         self.assertIn("Apple · bientôt disponible",body)
+        self.assertIn("Se connecter par e-mail",body)
+        self.assertIn("Créer un compte par e-mail",body)
+        self.assertIn("Mot de passe oublié",body)
         self.assertNotIn("Microsoft / Hotmail",body)
         self.assertNotIn("clientSecret",body)
 
@@ -103,7 +106,7 @@ class CustomerHttpTest(unittest.TestCase):
         body=h.response["data"].decode()
         self.assertEqual(h.response["status"],200)
         self.assertIn("Pour nous contacter, connectez-vous ou créez votre compte client",body)
-        self.assertIn("fournisseur de connexion disponible",body)
+        self.assertIn("par e-mail, Google ou Apple",body)
         self.assertIn("sécuriser et d’identifier les échanges",body)
         self.assertIn('class="providers"',body)
 
@@ -202,7 +205,7 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(login))
         body=login.response["data"].decode()
         self.assertIn("Connectez-vous ou créez votre compte.",body)
-        self.assertIn("votre compte Checkup Auto est créé automatiquement",body)
+        self.assertIn("créer votre compte par e-mail et mot de passe",body)
         self.assertIn("/auth/customer/google?",body)
         self.assertIn("returnTo=",body)
 

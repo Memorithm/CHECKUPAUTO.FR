@@ -132,6 +132,14 @@
       "subjectExecutionRequired": true
     },
     {
+      "table": "customer_oidc_flow",
+      "module": "customer_oidc.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_oidc",
+      "subjectExecutionRequired": false
+    },
+    {
       "table": "customer_passage_confirmation",
       "module": "customer_accounts.py",
       "subjectRelation": "transient",
@@ -140,11 +148,19 @@
       "subjectExecutionRequired": false
     },
     {
-      "table": "customer_oidc_flow",
-      "module": "customer_oidc.py",
+      "table": "customer_password_credential",
+      "module": "customer_accounts.py",
+      "subjectRelation": "direct",
+      "executionState": "wired",
+      "adapter": "customer_account",
+      "subjectExecutionRequired": true
+    },
+    {
+      "table": "customer_password_token",
+      "module": "customer_accounts.py",
       "subjectRelation": "transient",
       "executionState": "ephemeral",
-      "adapter": "customer_oidc",
+      "adapter": "customer_accounts",
       "subjectExecutionRequired": false
     },
     {
