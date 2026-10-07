@@ -14,7 +14,7 @@ class ProductionDeployWorkflowTest(unittest.TestCase):
         gate = self.workflow.index("- name: Validate signed main commit and Security CI")
         checkout = self.workflow.index("- name: Checkout approved main commit")
         deploy = self.workflow.index("- name: Deploy current approved main commit")
-        verify = self.workflow.index("- name: Verify canonical public CyberCheck surface and revision")
+        verify = self.workflow.index("- name: Verify deployed runtime health and revision")
         self.assertLess(gate, checkout)
         self.assertLess(checkout, deploy)
         self.assertLess(deploy, verify)
@@ -24,13 +24,21 @@ class ProductionDeployWorkflowTest(unittest.TestCase):
         self.assertIn("ref: ${{ inputs.sha }}", self.workflow)
         self.assertIn("persist-credentials: false", self.workflow)
 
-    def test_public_surface_and_revision_probe_is_a_required_post_deploy_gate(self):
+    def test_runtime_health_and_revision_probe_is_a_required_post_deploy_gate(self):
         self.assertIn("DEPLOY_SHA: ${{ inputs.sha }}", self.workflow)
+        self.assertGreaterEqual(
+            self.workflow.count('sudo -n /usr/local/sbin/cybercheck-deploy "$DEPLOY_SHA"'),
+            2,
+        )
+        self.assertIn("- name: Verify deployed runtime health and revision", self.workflow)
+        self.assertNotIn("check-public-surface.py https://www.checkupauto.fr/", self.workflow)
+        self.assertNotIn("continue-on-error", self.workflow)
+
+    def test_deploy_job_is_pinned_to_dedicated_trusted_checkupauto_runner(self):
         self.assertIn(
-            'run: python3 scripts/check-public-surface.py https://www.checkupauto.fr/ "$DEPLOY_SHA"',
+            "runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci, trusted-main]",
             self.workflow,
         )
-        self.assertNotIn("continue-on-error", self.workflow)
 
     def test_deployment_still_requires_exact_main_sha_and_green_push_security_ci(self):
         self.assertIn("Requested SHA is not the current GitHub main commit", self.workflow)
