@@ -19,7 +19,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertEqual(state["persistenceCatalog"]["tableCount"], 77)
         self.assertTrue(state["persistenceCatalog"]["mappingComplete"])
         self.assertEqual(state["persistenceCatalog"]["subjectExecutionRequiredCount"],20)
-        self.assertEqual(state["persistenceCatalog"]["executionGapCount"],9)
+        self.assertEqual(state["persistenceCatalog"]["executionGapCount"],8)
         self.assertFalse(state["persistenceCatalog"]["privacyExecutionCoverageAsserted"])
         self.assertIn(
             "persistence_catalog_complete_execution_coverage_incomplete",
@@ -28,18 +28,18 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertNotIn("inventory_scope_not_yet_exhaustive", state["limitations"])
         self.assertEqual(
             state["unresolvedStores"],
-            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","withdrawal_requests"],
         )
-        self.assertEqual(state["unresolvedStoreCount"],9)
-        self.assertEqual(rows["review_followup"]["executionState"], "partial_wired")
-        self.assertEqual(rows["review_followup"]["adapter"], "privacy_suppression")
+        self.assertEqual(state["unresolvedStoreCount"],8)
+        self.assertEqual(rows["review_followup"]["executionState"], "wired")
+        self.assertEqual(rows["review_followup"]["adapter"], "review_followup")
         self.assertEqual(
             rows["review_followup"]["bindingSource"],
             "mercure_rights.operationalInventory.appointments",
         )
         self.assertEqual(
             rows["review_followup"]["limitation"],
-            "direct_mercure_subject_ref_only",
+            "provider_inventory_required_at_execution",
         )
         self.assertEqual(rows["booking_conversions"]["executionState"], "partial_wired")
         self.assertEqual(rows["booking_conversions"]["adapter"], "privacy_suppression")
@@ -158,7 +158,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertTrue(row["subjectErasureApplicable"])
         self.assertEqual(row["executionState"], "unresolved")
         self.assertIn("analytics_event", state["unresolvedStores"])
-        self.assertEqual(state["unresolvedStoreCount"], 10)
+        self.assertEqual(state["unresolvedStoreCount"], 9)
 
     def test_inventory_contains_no_subject_value_or_secret_material(self):
         serialized = repr(inventory.snapshot())
