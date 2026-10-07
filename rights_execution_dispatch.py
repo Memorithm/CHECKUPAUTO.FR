@@ -14,6 +14,7 @@ import provider_erasure_completion
 import provider_erasure_plan
 import referral_wallet_rights
 import review_followup_privacy
+import review_followup_rights
 import rights_completion_plan
 import rights_rectification
 import withdrawal_rights
@@ -210,6 +211,14 @@ def execute(payload: object, db_path: Path | str | None = None) -> dict:
     if adapter == withdrawal_rights.ADAPTER:
         _exact_fields(body, _BASE_FIELDS)
         return withdrawal_rights.execute(
+            body.get("id"),
+            body.get("subjectRef"),
+            db_path,
+        )
+
+    if adapter == review_followup_rights.ADAPTER:
+        _exact_fields(body, _BASE_FIELDS)
+        return review_followup_rights.execute(
             body.get("id"),
             body.get("subjectRef"),
             db_path,
@@ -419,6 +428,7 @@ def capability(db_path: Path | str | None = None) -> dict:
     customer_account = customer_account_rights.capability()
     contracts = contract_subject_rights.capability()
     withdrawal = withdrawal_rights.capability()
+    review_followup = review_followup_rights.capability()
     adapters = dict(central)
     adapters[contact_request_rights.ADAPTER] = list(
         contact_requests.get("supportedRights") or []
@@ -429,6 +439,9 @@ def capability(db_path: Path | str | None = None) -> dict:
     adapters[rights_rectification.ADAPTER] = [rectification["requestType"]]
     adapters[referral_wallet_rights.ADAPTER] = list(wallet.get("supportedRights") or [])
     adapters[withdrawal_rights.ADAPTER] = list(withdrawal.get("supportedRights") or [])
+    adapters[review_followup_rights.ADAPTER] = list(
+        review_followup.get("supportedRights") or []
+    )
     return {
         "dispatchReady": True,
         "globalCoverageComplete": False,
@@ -437,6 +450,7 @@ def capability(db_path: Path | str | None = None) -> dict:
         "customerAccount": customer_account,
         "contractSubject": contracts,
         "withdrawalEvidence": withdrawal,
+        "reviewFollowup": review_followup,
         "rectification": rectification,
         "referralWallet": wallet,
         "completionPlan": rights_completion_plan.capability(),
