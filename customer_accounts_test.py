@@ -261,6 +261,48 @@ class CustomerAccountsTest(unittest.TestCase):
                     registration=invalid,formula_number="AB12CD34EF5",
                 )
 
+    def test_vehicle_can_be_updated_by_id_and_deleted_from_customer_space(self):
+        created=self.create()
+        first=accounts.save_vehicle(
+            created["accountId"],registration_system="siv",
+            registration="AA-123-AA",formula_number="AB12CD34EF5",
+        )
+        updated=accounts.save_vehicle(
+            created["accountId"],vehicle_id=first["vehicleId"],
+            registration_system="siv",registration="AB-456-CD",
+            formula_number="ZX98YU76TR5",
+        )
+        self.assertEqual(updated["vehicleId"],first["vehicleId"])
+        self.assertEqual(updated["registration"],"AB-456-CD")
+        self.assertEqual(len(accounts.list_vehicles(created["accountId"])),1)
+        removed=accounts.delete_vehicle(created["accountId"],first["vehicleId"])
+        self.assertEqual(removed["registration"],"AB-456-CD")
+        self.assertEqual(accounts.list_vehicles(created["accountId"]),[])
+        raw=accounts.data_path().read_bytes()
+        self.assertNotIn(b"ZX98YU76TR5",raw)
+
+    def test_vehicle_linked_to_active_booking_confirmation_cannot_be_deleted(self):
+        created=self.create()
+        accounts.update_contact_details(
+            created["accountId"],phone="0612345678",address_line1="12 rue de Paris",
+            postal_code="78130",city="Les Mureaux",
+        )
+        vehicle=accounts.save_vehicle(
+            created["accountId"],registration_system="fni",
+            registration="1234 AB 78",card_issue_date="2008-05-17",
+        )
+        target="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-15&preferredTime=10%3A30"
+        passage=accounts.begin_passage_confirmation(created["accountId"],target)
+        accounts.confirm_passage_contact(
+            created["accountId"],passage["passageToken"],action="validated",
+            vehicle_id=vehicle["vehicleId"],booking_target=target,
+        )
+        with self.assertRaisesRegex(accounts.CustomerAccountError,"customer_vehicle_in_use"):
+            accounts.delete_vehicle(created["accountId"],vehicle["vehicleId"])
+        accounts.consume_latest_passage_confirmation(created["accountId"],target)
+        accounts.delete_vehicle(created["accountId"],vehicle["vehicleId"])
+        self.assertEqual(accounts.list_vehicles(created["accountId"]),[])
+
     def test_booking_confirmation_is_bound_to_selected_vehicle_and_slot(self):
         created=self.create()
         accounts.update_contact_details(
