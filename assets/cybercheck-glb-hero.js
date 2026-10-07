@@ -220,6 +220,8 @@ const renderGLB=async ({json,binary})=>{
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       gl.uniformMatrix4fv(loc.model,false,modelMatrix(yaw));
       gl.drawElements(gl.TRIANGLES,indices.length,indices instanceof Uint32Array?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT,0);
+      // Keep the poster visible until a frame has actually been drawn.
+      stage.classList.add("webgl-ready");
     }
     if(!reduced||dragging||Math.abs(targetYaw-yaw)>0.001)frameId=requestAnimationFrame(draw);
   };
@@ -236,7 +238,6 @@ const renderGLB=async ({json,binary})=>{
     new IntersectionObserver(entries=>{visible=entries.some(entry=>entry.isIntersecting);if(!visible&&frameId){cancelAnimationFrame(frameId);frameId=0;}schedule();},{rootMargin:"80px"}).observe(stage);
   }else{visible=true;schedule();}
 
-  stage.classList.add("webgl-ready");
   stage.dataset.quality=lowPower?"glb-adaptive":"glb-high";
   stage.dataset.modelSource="blender-glb";
   const badge=stage.querySelector(".vehicle-3d-badge span");

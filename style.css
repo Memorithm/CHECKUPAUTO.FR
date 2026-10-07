@@ -141,3 +141,92 @@ footer span{min-width:0;overflow-wrap:anywhere}
  .vehicle-carousel-shell{padding-left:22px;padding-right:22px}
  .vehicle-carousel-arrow{min-width:44px;width:44px}
 }
+
+/* Render-verified responsive layout v3: never widen the mobile layout viewport. */
+.mobile-navigation, .booking-scroll-hint { display: none; }
+.header > *, .hero > *, .split > *, .centre > *, .app-promo > *,
+.app-qr-card > *, .booking-controls > *, .cards > *, .panel-grid > * { min-width: 0; }
+:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
+.reveal-pending { opacity: 0; transform: translateY(12px); }
+.reveal-pending.visible { opacity: 1; transform: none; }
+.section article, .section h2, .section .kicker { transition: opacity .35s ease, transform .35s ease; }
+.app-qr-card { grid-template-columns: minmax(120px, 1fr) minmax(0, 1fr); }
+.app-qr-card strong, .booking-call-only a, .booking-selection strong { overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .header { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: auto; min-height: 0; padding-top: 12px; padding-bottom: 12px; gap: 10px 12px; }
+  .header > nav { display: none; }
+  .header .book { grid-column: 1 / -1; max-width: none; width: 100%; justify-content: center; font-size: 14px; padding: 12px 16px; min-height: 44px; }
+  .mobile-navigation { display: block; grid-column: 2; grid-row: 1; }
+  .mobile-navigation summary { display: flex; gap: 10px; align-items: center; justify-content: center; min-height: 44px; padding: 10px 14px; border: 1px solid var(--line); cursor: pointer; font-size: 14px; list-style: none; }
+  .mobile-navigation summary::-webkit-details-marker { display: none; }
+  .mobile-navigation[open] .mobile-nav-links { display: grid; position: absolute; top: 100%; left: 16px; right: 16px; gap: 0; background: var(--paper); border: 1px solid var(--line); padding: 8px; box-shadow: 0 12px 30px #213b3026; max-height: 65vh; max-height: min(65dvh, 480px); overflow-y: auto; }
+  .mobile-nav-links a { display: flex; align-items: center; min-height: 44px; padding: 12px; font-size: 16px; }
+  .mobile-navigation:not([open]) .mobile-nav-links { display: none; }
+  main > section[id] { scroll-margin-top: 154px; }
+}
+@media (max-width: 760px) {
+  .topline { font-size: 10px; line-height: 1.4; min-height: 38px; height: auto; gap: 12px; padding-top: 6px; padding-bottom: 6px; }
+  .topline span:first-child { max-width: none; white-space: normal; }
+  .topline a { font-size: 12px; }
+  .brand { font-size: 22px; }
+  .hero-visual { min-height: clamp(280px, 85vw, 460px); overflow: clip; }
+  .hero-visual .stage { inset: 36px 0 22px; }
+  .vehicle-3d-badge { max-width: calc(100% - 20px); flex-wrap: wrap; }
+  .visual-meta { gap: 12px; flex-wrap: wrap; }
+  .hero-copy .lead, .section > div > p:not(.kicker), .app-promo-copy > p:not(.kicker) { font-size: 16px; line-height: 1.65; }
+  .primary, .actions > a, .cards a, .booking-call-only a { font-size: 14px; min-height: 44px; }
+  .actions > a, .cards a, .booking-call-only a { display: flex; align-items: center; }
+  .offer-banner { flex-wrap: wrap; gap: 12px; }
+  .offer-banner > div { min-width: 0; }
+  .offer-banner strong { font-size: 12px; }
+  .offer-banner > a { font-size: 13px; white-space: normal; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+  .vehicle-option.selected, .vehicle-option:hover { transform: none; }
+  .vehicle-option-copy { grid-template-columns: minmax(0, 1fr); }
+  .vehicle-option-copy strong { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 17px; }
+  .vehicle-option-copy strong b { margin-left: 0; }
+  .vehicle-carousel-shell { padding-left: 48px; padding-right: 48px; }
+  .vehicle-carousel-arrow { width: 44px; min-width: 44px; min-height: 44px; font: 28px/1 system-ui, sans-serif; }
+  .vehicle-option { flex: 0 0 100%; }
+  .vehicle-option-copy { padding: 12px; }
+  .booking-controls input { display: block; width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+  .booking-controls label, .booking-intro small, .reservation small { font-size: 11px; }
+  .reservation p, .booking-live-head span { font-size: 14px; line-height: 1.55; }
+  .booking-live-head > div { display: grid; gap: 6px; }
+  .planner-refresh { min-height: 44px; font-size: 14px; }
+  .trust { font-size: 13px; line-height: 1.5; }
+  .trust span:first-child { font-size: 13px; }
+  footer { font-size: 11px; line-height: 2; }
+}
+@media (max-width: 640px) {
+  .booking-scroll-hint { display: block; margin-top: 12px; }
+  .booking-day { flex-basis: 100%; }
+  .booking-days > p { flex: 0 0 100%; }
+  .booking-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .slot-button { min-height: 60px; padding: 10px 4px; }
+  .slot-button span { font-size: 16px; }
+  .slot-button small { font-size: 13px; }
+  .slot-button em { font-size: 10px; overflow-wrap: anywhere; }
+  .booking-selection { padding: 16px 12px; }
+  .booking-selection > div, .booking-selection .primary { min-width: 0; max-width: 100%; }
+  .booking-selection .primary { text-align: center; }
+  .app-qr-card { grid-template-columns: 1fr; text-align: center; }
+  .app-qr-card img { width: min(180px, 100%); margin: auto; }
+  .app-qr-card span { align-items: center; }
+  .map-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; min-height: 0; }
+  .map-card > span { font-size: 88px; }
+  .map-card h3 { font-size: 38px; overflow-wrap: anywhere; }
+}
+@media (max-width: 480px) {
+  .offer-banner > a { width: 100%; }
+  .hero { padding-top: 24px; }
+  .hero h1 { font-size: clamp(40px, 12.8vw, 56px); }
+  .hero-visual .offer-seal { top: 68px; }
+  .vehicle-carousel-shell { padding-left: 46px; padding-right: 46px; }
+  .booking-planner { padding: 20px 12px; }
+  .kicker { font-size: 10px; line-height: 1.55; }
+  .booking-intro h2 { overflow-wrap: anywhere; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal-pending { opacity: 1; transform: none; }
+  .section article, .section h2, .section .kicker { transition: none; }
+}

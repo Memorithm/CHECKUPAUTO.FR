@@ -1,6 +1,8 @@
 """Public customer dashboard and federated-login HTTP surface."""
 from __future__ import annotations
 
+from responsive_ui import FORM_RESPONSIVE_CSS
+
 import hmac
 import html
 import json
@@ -160,6 +162,7 @@ p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-co
 .sso{{border:1px solid var(--line);padding:15px 17px;background:#fbfcfa;font-weight:700;text-align:center}}.sso:hover{{border-color:#9ab1a2}}
 .sso.disabled{{opacity:.48}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}.info{{padding:14px 16px;border-left:3px solid var(--green);background:#edf1eb;color:var(--ink)}}
 @media(max-width:720px){{.providers{{grid-template-columns:1fr}}.top{{align-items:flex-start;gap:12px;flex-direction:column}}}}@media(max-width:520px){{main{{width:min(100% - 24px,940px);padding:24px 0 44px}}.card{{padding:24px}}h1{{font-size:clamp(38px,13vw,52px)}}.sso{{min-height:46px;display:grid;place-items:center}}}}
+{FORM_RESPONSIVE_CSS}
 </style></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a href="/">Retour au site</a></div>
 <section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>Votre véhicule, dans la durée.</h1>
 <p>Retrouvez votre fidélité et l’analyse de vos rapports de contrôle technique dans un seul espace.</p>
@@ -208,6 +211,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 .report-analysis h3{{font:400 22px Georgia,serif;margin:12px 0 6px}}.report-analysis ul{{padding-left:18px;color:var(--muted)}}.report-actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}}.report-status{{font-size:11px;color:var(--muted);margin-top:8px}}
 .feedback{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}}.feedback-card{{background:#fff;border:1px solid var(--line);padding:24px}}.feedback-card h2{{font:400 28px Georgia,serif;margin:8px 0 12px}}.feedback-card .cta{{display:inline-block;margin-top:8px;border:1px solid var(--green);padding:12px 15px;font-weight:700;color:var(--green)}}.feedback-card .cta.primary{{background:var(--green);color:#fff}}.feedback-note{{font-size:11px;color:var(--muted)}}.review-rating{{display:flex;gap:4px;margin:14px 0 6px}}.review-star{{border:0;background:transparent;color:#a7ada8;font-size:34px;line-height:1;padding:2px;cursor:pointer}}.review-star.selected{{color:#c78b16}}.review-star:focus-visible{{outline:2px solid var(--green);outline-offset:3px}}
 @media(max-width:900px){{.grid,.feedback{{grid-template-columns:1fr}}.hero{{grid-template-columns:1fr}}}}@media(max-width:700px){{.shell{{width:min(100% - 24px,1240px);padding:18px 0 48px}}.top{{align-items:flex-start;gap:14px;flex-direction:column}}.top-actions{{width:100%;gap:12px;flex-wrap:wrap;justify-content:space-between}}.hero,.panel,.profile,.feedback-card{{padding:20px}}.report-item{{align-items:stretch;flex-direction:column}}.report-item button{{min-height:44px;width:100%}}.report-controls>*{{max-width:100%}}}}@media(max-width:640px){{form{{grid-template-columns:1fr}}.actions{{grid-column:1}}}}@media(max-width:480px){{h1{{font-size:clamp(38px,13vw,52px)}}.actions,.report-actions{{align-items:stretch;flex-direction:column}}.actions button,.report-actions button,.report-actions a,.report-controls button{{width:100%;min-height:44px;text-align:center}}.metric{{font-size:38px}}.review-rating{{justify-content:space-between;max-width:260px}}}}
+{FORM_RESPONSIVE_CSS}
 </style></head><body><main class="shell">
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><div class="top-actions"><a class="contact-link" href="{CONTACT_ROUTE}">Nous contacter</a><button id="logout" class="logout" type="button">Se déconnecter</button></div></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
@@ -313,6 +317,7 @@ p{{line-height:1.6;color:var(--muted)}}.summary{{background:var(--soft);padding:
 button{{padding:13px 18px;border:1px solid var(--green);font-weight:700;cursor:pointer}}button.primary{{background:var(--green);color:#fff}}button.secondary{{background:#fff;color:var(--green)}}
 form{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input{{padding:12px;border:1px solid var(--line)}}.full{{grid-column:1/-1}}.error{{color:#8c3a31}}.warning{{color:#7a5111}}
 @media(max-width:620px){{form{{grid-template-columns:1fr}}.full{{grid-column:1}}}}@media(max-width:480px){{main{{width:min(100% - 24px,760px);padding:24px 0 44px}}.card{{padding:22px}}.actions{{align-items:stretch;flex-direction:column}}.actions button{{width:100%;min-height:46px}}}}
+{FORM_RESPONSIVE_CSS}
 </style></head><body><main><section class="card"><div class="eyebrow">AVANT VOTRE PASSAGE</div>
 <h1>Vos coordonnées sont-elles toujours à jour&nbsp;?</h1>
 <p>Nous vous posons cette question à chaque nouveau passage afin de conserver une adresse et un téléphone corrects.</p>

@@ -43,3 +43,6 @@ htmlcov/
 
 # Local visual reference sources
 assets/premium/*-source.*
+
+.browser-venv/
+responsive-evidence/

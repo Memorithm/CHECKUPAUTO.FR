@@ -6,13 +6,14 @@
 <meta name="theme-color" content="#f5f6f1">
 <title>CyberCheck — Checkup Auto</title>
 <meta name="description" content="Expérience immersive Checkup Auto — contrôle technique aux Mureaux.">
-<link rel="stylesheet" href="/style.css?v=responsive-1">
+<link rel="stylesheet" href="/style.css?v=responsive-3">
 </head>
 <body>
 <div class="topline"><span>CHECKUP AUTO · LES MUREAUX</span><span><a id="phoneLink" href="tel:+33186046364">01 86 04 63 64</a></span><span>LA PRÉCISION EST UNE ATTENTION.</span></div>
 <header class="header">
 <a class="brand" href="#top"><span class="mark">✓</span><span>checkup<b>auto</b><small>LE SENS DU DÉTAIL.</small></span></a>
 <nav><a href="#experience">L’expérience</a><a href="#services">Nos prestations</a><a href="#app-mobile">L’app</a><a href="#centre">Notre centre</a><a href="/compte">Mon compte</a></nav>
+<details class="mobile-navigation"><summary>Menu <span aria-hidden="true">☰</span></summary><nav class="mobile-nav-links" aria-label="Navigation mobile"><a href="#reservation">Prendre rendez-vous</a><a href="#experience">L’expérience</a><a href="#services">Nos prestations</a><a href="#app-mobile">L’app</a><a href="#centre">Notre centre</a><a href="/compte">Mon compte</a><a href="/contact">Contact</a></nav></details>
 <a class="book" href="#reservation">Prendre rendez-vous ↗</a>
 </header>
 <div class="offer-banner"><div><span class="offer-icon">✓</span><p><strong>CONTRE-VISITE OFFERTE</strong><span>Si votre contrôle technique nécessite une contre-visite, Checkup Auto vous l’offre.</span></p></div><a href="#reservation">Réserver mon contrôle →</a></div>
@@ -33,6 +34,7 @@
 <select id="service" class="service-native" aria-label="Prestation sélectionnée"><option value="technical" data-service="technical">Contrôle technique</option><option value="fitted" data-service="fitted">Véhicule aménagé</option></select>
 <div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><strong><span id="price">80</span>€</strong><em>TTC</em></div><label>À PARTIR DU<input id="bookingStartDate" type="date"></label></div>
 <div class="booking-live-head"><div><strong>Disponibilités</strong><span id="bookingLiveStatus">Connexion à Mercure…</span></div><button type="button" id="bookingRefresh" class="planner-refresh">Actualiser</button></div>
+<p class="booking-scroll-hint">Faites défiler les jours horizontalement pour voir les autres créneaux.</p>
 <div id="bookingDays" class="booking-days" aria-live="polite"><p class="booking-loading">Chargement des créneaux…</p></div>
 <div id="bookingSelection" class="booking-selection" hidden><div><small>CRÉNEAU SÉLECTIONNÉ</small><strong id="bookingSelectionLabel">—</strong><span id="bookingSelectionPrice">—</span></div><a id="bookingContinue" class="primary" href="#">Continuer la réservation →</a></div>
 <div class="booking-call-only"><div><small>AUTRES CATÉGORIES DE CONTRÔLE</small><strong>Réservation uniquement par téléphone.</strong><span>Visite pollution, contre-visite et toute prestation autre que les contrôles à 80 € et 90 €.</span></div><a id="bookingPhone" href="tel:+33186046364">Appeler le centre →</a></div>
@@ -46,7 +48,7 @@
 </main>
 <footer><span>© 2026 CHECKUP AUTO · CYBERCHECK</span><span><a href="/compte">Mon compte</a> · <a href="/contact">Contact</a> · <a href="/mentions-legales">Mentions légales</a> · <a href="/confidentialite">Confidentialité</a> · <a href="/cookies">Cookies</a> · <a href="/cgv">CGV</a> · <a href="/retractation">Renoncer au contrat ici</a></span></footer>
 <script src="/consent.js"></script>
-<script src="/app.js?v=app-distribution-1"></script>
-<script type="module" src="/assets/cybercheck-glb-hero.js?v=1"></script>
+<script src="/app.js?v=responsive-3"></script>
+<script type="module" src="/assets/cybercheck-glb-hero.js?v=responsive-3"></script>
 </body>
 </html>
