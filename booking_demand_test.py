@@ -149,9 +149,49 @@ class PromotionPublicationTest(unittest.TestCase):
             self.assertEqual(result['status'], 'read_only')
             write.assert_not_called()
 
+    def test_publisher_requires_both_opt_in_and_controller(self):
+        for enabled, controller in (
+            ('1', ''), ('', demand.AUTHORIZED_CONTROLLER),
+            ('1', 'hostinger-staging'),
+        ):
+            with self.subTest(enabled=enabled, controller=controller), patch.dict(
+                os.environ, {demand.PUBLISH_ENV: enabled,
+                             demand.CONTROLLER_ENV: controller}
+            ):
+                self.assertFalse(demand._publisher_enabled())
+                self.assertEqual(demand.run_once(POLICY)['status'], 'read_only')
+
+    def test_reduced_price_respects_policy_discount_cap(self):
+        capped = {**POLICY, 'maxDiscountPercent': 6}
+        self.assertEqual(demand.candidate_slots(
+            sample_history(), capped,
+            {'technical': response(discounted=False)}, TODAY), [])
+        uncapped = {**POLICY, 'maxDiscountPercent': 7}
+        self.assertEqual(len(demand.candidate_slots(
+            sample_history(), uncapped,
+            {'technical': response(discounted=False)}, TODAY)), 1)
+
+    def test_claim_prevents_cross_service_collision_and_daily_overuse(self):
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            demand.analytics, 'connect',
+            side_effect=lambda: sqlite3.connect(td + '/promotions.sqlite')
+        ):
+            demand.init_db()
+            self.assertTrue(demand._claim_promotion('technical|2026-10-12|15:30', 75))
+            self.assertFalse(demand._claim_promotion('fitted|2026-10-12|15:30', 85))
+            self.assertTrue(demand._claim_promotion('technical|2026-10-12|16:10', 75))
+            self.assertFalse(demand._claim_promotion('technical|2026-10-12|16:50', 75))
+            self.assertTrue(demand._claim_promotion('technical|2026-10-13|16:50', 75))
+
+    def test_invalid_batch_limit_is_always_refused(self):
+        for limit in (0, 5, -1, True, '1'):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                demand.run_once(POLICY, max_new_promotions=limit)
+
     def test_ledger_prevents_duplicate_publication_even_after_restart(self):
         with tempfile.TemporaryDirectory() as td, \
-             patch.dict(os.environ, {demand.PUBLISH_ENV: '1'}), \
+             patch.dict(os.environ, {demand.PUBLISH_ENV: '1',
+                                     demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER}), \
              patch.object(demand.migration_write_freeze, 'status',
                           return_value={'active': False}), \
              patch.object(demand, 'snapshot', return_value=sample_history()), \
