@@ -47,6 +47,21 @@ class ResponsiveLayoutTest(unittest.TestCase):
         self.assertIn('aria-label="Navigation mobile"', page)
         self.assertIn('/app.js?v=responsive-4', page)
 
+    def test_public_booking_order_is_control_type_then_slot_then_reserve(self):
+        page=(ROOT / "index.html").read_text()
+        source=(ROOT / "app.js").read_text()
+        self.assertIn('id="controlTypeSelector"',page)
+        self.assertIn('data-service="technical"',page)
+        self.assertIn('data-service="fitted"',page)
+        self.assertIn('TYPE DE CONTRÔLE',page)
+        self.assertIn('CRÉNEAU DISPONIBLE',page)
+        self.assertIn('3 / RÉSERVER',page)
+        self.assertNotIn('id="vehicleCarouselPrev"',page)
+        self.assertNotIn('data-vehicle=',page)
+        self.assertIn('function initControlTypeSelector()',source)
+        self.assertNotIn('function initVehicleSelector()',source)
+        self.assertIn("cta.textContent='Réserver →'",source)
+
     def test_booking_cta_is_visible_before_slot_selection_and_phone_is_secondary(self):
         page = (ROOT / "index.html").read_text()
         source = (ROOT / "app.js").read_text()

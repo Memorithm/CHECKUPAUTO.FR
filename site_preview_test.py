@@ -31,7 +31,7 @@ class SitePreviewTest(unittest.TestCase):
         cls.parsed.feed(cls.page)
 
     def test_preview_uses_embedded_source_media_only(self):
-        self.assertGreaterEqual(len(self.parsed.sources), 6)
+        self.assertGreaterEqual(len(self.parsed.sources), 1)
         self.assertTrue(all(src.startswith(('data:image/webp;base64,', 'data:video/mp4;base64,')) for src in self.parsed.sources))
         self.assertTrue(all(href.startswith('#') for href in self.parsed.links))
         self.assertNotIn('assets/app/qr-site.svg', self.page)
@@ -55,7 +55,7 @@ class SitePreviewTest(unittest.TestCase):
             if text == 'referral_wallet':
                 self.assertNotIn(text, self.page)
             elif text == 'vehicle-peugeot208':
-                self.assertIn('data-vehicle="peugeot208"', self.page)
+                self.assertIn('class="vehicle-3d-fallback"', self.page)
             else:
                 self.assertIn(text, self.page)
         self.assertLess(len(self.page.encode()), 3 * 1024 * 1024)
@@ -74,6 +74,14 @@ class SitePreviewTest(unittest.TestCase):
         self.assertIn('badge.textContent="MODÈLE BLENDER · GLB"', loader)
         self.assertNotIn('three.js', loader.lower())
         self.assertNotIn('cdn.', loader.lower())
+
+    def test_booking_preview_starts_with_control_type_then_slot(self):
+        self.assertIn('id="controlTypeSelector"', self.page)
+        self.assertIn('data-service="technical"', self.page)
+        self.assertIn('data-service="fitted"', self.page)
+        self.assertIn('TYPE DE CONTRÔLE', self.page)
+        self.assertIn('CRÉNEAU DISPONIBLE', self.page)
+        self.assertNotIn('id="vehicleCarouselPrev"', self.page)
 
     def test_webgl_hero_uses_local_vehicle_photo_with_bounded_parallax(self):
         hero = (self.root / "assets" / "cybercheck-hero-3d.js").read_text(encoding="utf-8")

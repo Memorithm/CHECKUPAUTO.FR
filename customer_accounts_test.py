@@ -206,6 +206,84 @@ class CustomerAccountsTest(unittest.TestCase):
                 created["accountId"],passage["passageToken"],action="validated"
             )
 
+    def test_siv_and_fni_vehicle_details_are_validated_and_encrypted(self):
+        created=self.create()
+        siv=accounts.save_vehicle(
+            created["accountId"],
+            registration_system="siv",
+            registration="aa 123 aa",
+            formula_number="AB12CD34EF5",
+        )
+        self.assertEqual(siv["registration"],"AA-123-AA")
+        self.assertEqual(siv["registrationSystem"],"siv")
+        self.assertTrue(siv["formulaNumberPresent"])
+        self.assertEqual(siv["cardIssueDate"],"")
+
+        fni=accounts.save_vehicle(
+            created["accountId"],
+            registration_system="fni",
+            registration="1234 ab 78",
+            card_issue_date="2008-05-17",
+        )
+        self.assertEqual(fni["registration"],"1234 AB 78")
+        self.assertEqual(fni["registrationSystem"],"fni")
+        self.assertFalse(fni["formulaNumberPresent"])
+        self.assertEqual(fni["cardIssueDate"],"2008-05-17")
+
+        summaries=accounts.list_vehicles(created["accountId"])
+        self.assertEqual({row["vehicleId"] for row in summaries},{siv["vehicleId"],fni["vehicleId"]})
+        self.assertNotIn("AB12CD34EF5",repr(summaries))
+        raw=accounts.data_path().read_bytes()
+        for private in (b"AA-123-AA",b"AB12CD34EF5",b"1234 AB 78",b"2008-05-17"):
+            self.assertNotIn(private,raw)
+
+    def test_vehicle_registration_branch_requires_formula_or_card_issue_date(self):
+        created=self.create()
+        with self.assertRaisesRegex(accounts.CustomerAccountError,"formula_number_invalid"):
+            accounts.save_vehicle(
+                created["accountId"],registration_system="siv",
+                registration="AA-123-AA",formula_number="",
+            )
+        with self.assertRaisesRegex(accounts.CustomerAccountError,"card_issue_date_invalid"):
+            accounts.save_vehicle(
+                created["accountId"],registration_system="fni",
+                registration="1234 AB 78",card_issue_date="",
+            )
+        with self.assertRaisesRegex(accounts.CustomerAccountError,"registration_invalid"):
+            accounts.save_vehicle(
+                created["accountId"],registration_system="siv",
+                registration="1234 AB 78",formula_number="AB12CD34EF5",
+            )
+        for invalid in ("AI-123-AA","AA-123-OU","SS-123-AA","AA-123-SS"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(accounts.CustomerAccountError,"registration_invalid"):
+                accounts.save_vehicle(
+                    created["accountId"],registration_system="siv",
+                    registration=invalid,formula_number="AB12CD34EF5",
+                )
+
+    def test_booking_confirmation_is_bound_to_selected_vehicle_and_slot(self):
+        created=self.create()
+        accounts.update_contact_details(
+            created["accountId"],phone="0612345678",address_line1="12 rue de Paris",
+            postal_code="78130",city="Les Mureaux",
+        )
+        vehicle=accounts.save_vehicle(
+            created["accountId"],registration_system="siv",
+            registration="AB-123-CD",formula_number="AB12CD34EF5",
+        )
+        target="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-15&preferredTime=10%3A30"
+        other="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-16&preferredTime=10%3A30"
+        passage=accounts.begin_passage_confirmation(created["accountId"],target)
+        accounts.confirm_passage_contact(
+            created["accountId"],passage["passageToken"],action="validated",
+            vehicle_id=vehicle["vehicleId"],booking_target=target,
+        )
+        with self.assertRaisesRegex(PermissionError,"confirmation_required"):
+            accounts.consume_latest_passage_confirmation(created["accountId"],other)
+        consumed=accounts.consume_latest_passage_confirmation(created["accountId"],target)
+        self.assertEqual(consumed["vehicleId"],vehicle["vehicleId"])
+        self.assertEqual(consumed["vehicle"]["registration"],"AB-123-CD")
+
     def test_session_is_opaque_hashed_and_can_be_closed(self):
         created=self.create()
         session=accounts.issue_session(created["accountId"])

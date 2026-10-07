@@ -118,7 +118,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Code TEST-1234",body)
         self.assertIn("Rattacher à l’app iOS",body)
         self.assertIn('id="ct-report"',body)
-        self.assertIn('href="/compte/reserver">Réserver un contrôle',body)
+        self.assertIn('href="/#reservation">Réserver un contrôle',body)
         self.assertIn('href="/contact">Nous contacter',body)
         self.assertIn('href="/contact?intent=suggestion">Faire une suggestion',body)
         self.assertIn("Donner mon avis sur Google",body)
@@ -185,9 +185,43 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],302)
         self.assertEqual(h.response["headers"]["Location"],"https://accounts.example/auth?state=sssssssssssssssssssssssssssssssssssssssssss")
         binding=h.response["cookies"][0].split("=",1)[1].split(";",1)[0]
-        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding,mobile=False)
+        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding,mobile=False,return_to="")
         self.assertIn("__Host-checkupauto_oidc_google_sssssssssssssssssssssssssssssssssssssssssss=",h.response["cookies"][0])
         self.assertIn("HttpOnly; Secure; SameSite=Lax",h.response["cookies"][0])
+
+    def test_login_and_oidc_preserve_booking_return_target(self):
+        from urllib.parse import urlencode
+        booking="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        passage="/compte/reserver?"+urlencode({"returnTo":booking})
+        login=Handler("/compte?"+urlencode({"returnTo":passage}))
+        with patch.object(http,"_account",return_value=("",None)), \
+             patch.object(http.customer_oidc,"provider_status",return_value=[
+                 {"id":"google","label":"Google","configured":True},
+                 {"id":"apple","label":"Apple","configured":False},
+             ]):
+            self.assertTrue(http.handle(login))
+        body=login.response["data"].decode()
+        self.assertIn("/auth/customer/google?",body)
+        self.assertIn("returnTo=",body)
+
+        auth=Handler("/auth/customer/google?"+urlencode({"returnTo":passage}))
+        with patch.object(http.customer_oidc,"begin",return_value="https://accounts.example/auth?state="+"s"*43) as begin:
+            self.assertTrue(http.handle(auth))
+        binding=auth.response["cookies"][0].split("=",1)[1].split(";",1)[0]
+        begin.assert_called_once_with(
+            "google","https://stage.example",browser_binding=binding,mobile=False,return_to=passage
+        )
+
+    def test_oidc_callback_returns_to_booking_client_step(self):
+        passage="/compte/reserver?returnTo=%2Fgo%2Fbooking%3Fservice%3DContr%25C3%25B4le%2Btechnique%26preferredDate%3D2026-10-08%26preferredTime%3D10%253A30"
+        h=Handler("/auth/customer/google/callback?state="+"s"*43+"&code=c",headers={"Cookie":"__Host-checkupauto_oidc_google_"+"s"*43+"="+"b"*43})
+        with patch.object(http.customer_oidc,"complete",return_value={
+            "account":self.account(),"session":{"token":"opaque-session-token","maxAge":43200},
+            "returnTo":passage,
+        }):
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],303)
+        self.assertEqual(h.response["headers"]["Location"],passage)
 
     def test_oidc_callback_sets_secure_httponly_session_cookie(self):
         h=Handler("/auth/customer/google/callback?state=sssssssssssssssssssssssssssssssssssssssssss&code=c",headers={"Cookie":"__Host-checkupauto_oidc_google_sssssssssssssssssssssssssssssssssssssssssss="+"b"*43})
@@ -300,115 +334,159 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(bad))
         self.assertEqual(bad.response["status"],403)
 
-    def test_booking_from_customer_space_requires_contact_confirmation_page(self):
-        h=Handler("/compte/reserver",headers={"Cookie":"checkupauto_customer=token"})
+    def test_booking_from_customer_space_requires_vehicle_and_contact_confirmation_page(self):
+        return_to="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        from urllib.parse import urlencode
+        h=Handler("/compte/reserver?"+urlencode({"returnTo":return_to}),headers={"Cookie":"checkupauto_customer=token"})
         passage={
             "passageToken":"p"*43,
             "expiresAt":"2026-10-05T12:00:00+00:00",
             "contactDetailsComplete":True,
         }
+        vehicle={"vehicleId":"11111111-1111-4111-8111-111111111111","registrationSystem":"siv","registration":"AA-123-AA"}
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"begin_passage_confirmation",return_value=passage) as begin, \
              patch.object(http.customer_accounts,"profile",return_value=self.account()), \
+             patch.object(http.customer_accounts,"list_vehicles",return_value=[vehicle]), \
              patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
             self.assertTrue(http.handle(h))
         body=h.response["data"].decode()
         self.assertEqual(h.response["status"],200)
-        self.assertIn("Vos coordonnées sont-elles toujours à jour",body)
-        self.assertIn("0612345678",body)
-        self.assertIn("12 rue de Paris",body)
-        self.assertIn("Oui, elles sont à jour",body)
-        self.assertIn("Modifier",body)
-        begin.assert_called_once_with(self.account()["accountId"])
+        self.assertIn("Votre véhicule pour ce contrôle",body)
+        self.assertIn("Numéro de formule",body)
+        self.assertIn("Date d’établissement de la carte grise",body)
+        self.assertIn("SIV · AA-123-AA",body)
+        self.assertIn("Contrôle technique",body)
+        self.assertIn("2026-10-08",body)
+        self.assertIn("10:30",body)
+        begin.assert_called_once_with(self.account()["accountId"],return_to)
 
-    def test_confirmed_legacy_passage_is_validated_but_not_consumed_before_reservation(self):
+    def test_anonymous_booking_step_redirects_to_login_and_preserves_selected_slot(self):
+        return_to="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        from urllib.parse import urlencode
+        passage="/compte/reserver?"+urlencode({"returnTo":return_to})
+        h=Handler(passage)
+        with patch.object(http,"_account",return_value=("",None)):
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],303)
+        self.assertTrue(h.response["location"].startswith("/compte?returnTo="))
+        self.assertIn("%2Fcompte%2Freserver",h.response["location"])
+
+    def test_confirmed_passage_is_validated_but_not_consumed_before_reservation(self):
         token="p"*43
-        h=Handler("/compte/reserver?passage="+token,headers={"Cookie":"checkupauto_customer=token"})
+        return_to="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        from urllib.parse import urlencode
+        h=Handler("/compte/reserver?"+urlencode({"returnTo":return_to})+"&passage="+token,headers={"Cookie":"checkupauto_customer=token"})
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"validate_passage_confirmation",return_value={"ok":True}) as validate:
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],303)
-        self.assertEqual(h.response["location"],"/#reservation")
-        validate.assert_called_once_with(self.account()["accountId"],token)
+        self.assertEqual(h.response["location"],return_to)
+        validate.assert_called_once_with(self.account()["accountId"],token,return_to)
 
-    def test_current_contact_confirmation_requires_csrf_and_returns_one_time_continue_url(self):
+    def test_vehicle_confirmation_returns_selected_booking_handoff(self):
         passage="p"*43
-        h=Handler("/api/customer/passage/confirm","POST",{
-            "passageToken":passage,
-            "action":"validated",
-        },headers={
-            "Cookie":"checkupauto_customer=token",
-            "X-CheckupAuto-Customer-CSRF":"c"*64,
-        })
-        with patch.object(http,"_account",return_value=("token",self.account())), \
-             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
-             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}) as confirm:
-            self.assertTrue(http.handle(h))
-        self.assertEqual(h.response["status"],200)
-        self.assertTrue(h.response["json"]["confirmed"])
-        self.assertEqual(h.response["json"]["continueUrl"],"/#reservation")
-        confirm.assert_called_once_with(self.account()["accountId"],passage,action="validated")
-
-    def test_contact_confirmation_can_resume_the_selected_booking_handoff(self):
-        passage="p"*43
+        vehicle_id="11111111-1111-4111-8111-111111111111"
         return_to="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
         h=Handler("/api/customer/passage/confirm","POST",{
             "passageToken":passage,
             "returnTo":return_to,
             "action":"validated",
+            "vehicleMode":"existing",
+            "vehicleId":vehicle_id,
         },headers={
             "Cookie":"checkupauto_customer=token",
             "X-CheckupAuto-Customer-CSRF":"c"*64,
         })
+        vehicle={"vehicleId":vehicle_id,"registrationSystem":"siv","registration":"AA-123-AA"}
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
-             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}):
+             patch.object(http.customer_accounts,"vehicle_summary",return_value=vehicle) as summary, \
+             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}) as confirm:
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],200)
         self.assertEqual(h.response["json"]["continueUrl"],return_to)
+        summary.assert_called_once_with(self.account()["accountId"],vehicle_id)
+        confirm.assert_called_once_with(
+            self.account()["accountId"],passage,action="validated",
+            vehicle_id=vehicle_id,booking_target=return_to,
+        )
 
-    def test_booking_confirmation_redirect_rejects_external_return_target(self):
-        safe=http.booking_confirmation_url("/go/booking?service=Contr%C3%B4le+technique")
+    def test_new_siv_vehicle_is_saved_before_booking_confirmation(self):
+        passage="p"*43
+        vehicle_id="22222222-2222-4222-8222-222222222222"
+        return_to="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        h=Handler("/api/customer/passage/confirm","POST",{
+            "passageToken":passage,"returnTo":return_to,"action":"validated",
+            "vehicleMode":"new","registrationSystem":"siv","registration":"AA-123-AA",
+            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+        },headers={"Cookie":"checkupauto_customer=token","X-CheckupAuto-Customer-CSRF":"c"*64})
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
+             patch.object(http.customer_accounts,"save_vehicle",return_value={"vehicleId":vehicle_id}) as save, \
+             patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}) as confirm:
+            self.assertTrue(http.handle(h))
+        self.assertEqual(h.response["status"],200)
+        save.assert_called_once_with(
+            self.account()["accountId"],registration_system="siv",
+            registration="AA-123-AA",formula_number="AB12CD34EF5",card_issue_date="",
+        )
+        confirm.assert_called_once_with(
+            self.account()["accountId"],passage,action="validated",
+            vehicle_id=vehicle_id,booking_target=return_to,
+        )
+
+    def test_booking_confirmation_redirect_requires_complete_slot_target(self):
+        valid="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        safe=http.booking_confirmation_url(valid)
         self.assertTrue(safe.startswith("/compte/reserver?returnTo="))
+        self.assertEqual(http.booking_confirmation_url("/go/booking?service=Contr%C3%B4le+technique"),"/compte/reserver")
         self.assertEqual(http.booking_confirmation_url("https://evil.example/go/booking"),"/compte/reserver")
 
-    def test_authenticated_booking_consumes_latest_confirmation_only_at_handoff(self):
-        h=Handler("/go/booking",headers={"Cookie":"checkupauto_customer=token"})
+    def test_authenticated_booking_consumes_confirmation_for_exact_slot(self):
+        target="/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-08&preferredTime=10%3A30"
+        h=Handler(target,headers={"Cookie":"checkupauto_customer=token"})
+        vehicle={"vehicleId":"11111111-1111-4111-8111-111111111111","registrationSystem":"siv","registration":"AA-123-AA"}
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"consume_latest_passage_confirmation",return_value={
-                 "consumed":True,"confirmedAt":"2026-10-05T12:00:00+00:00"
+                 "consumed":True,"confirmedAt":"2026-10-05T12:00:00+00:00",
+                 "vehicleId":vehicle["vehicleId"],"vehicle":vehicle,
              }) as consume:
-            result=http.consume_booking_confirmation(h)
+            result=http.consume_booking_confirmation(h,target)
         self.assertTrue(result["required"])
-        self.assertTrue(result["consumed"])
-        consume.assert_called_once_with(self.account()["accountId"])
+        self.assertEqual(result["vehicle"]["registration"],"AA-123-AA")
+        consume.assert_called_once_with(self.account()["accountId"],target)
 
-    def test_modified_contact_confirmation_updates_profile_before_confirmation(self):
+    def test_modified_contact_and_fni_vehicle_are_saved_together(self):
         passage="p"*43
+        vehicle_id="33333333-3333-4333-8333-333333333333"
+        return_to="/go/booking?service=V%C3%A9hicule+am%C3%A9nag%C3%A9&preferredDate=2026-10-09&preferredTime=14%3A00"
         payload={
-            "passageToken":passage,"action":"modified",
+            "passageToken":passage,"returnTo":return_to,"action":"modified","vehicleMode":"new",
             "phone":"0699999999","addressLine1":"20 avenue du Centre",
             "addressLine2":"Bâtiment A","postalCode":"78130","city":"Les Mureaux",
+            "registrationSystem":"fni","registration":"1234 AB 78",
+            "formulaNumber":"","cardIssueDate":"2008-05-17",
         }
         h=Handler("/api/customer/passage/confirm","POST",payload,headers={
-            "Cookie":"checkupauto_customer=token",
-            "X-CheckupAuto-Customer-CSRF":"c"*64,
+            "Cookie":"checkupauto_customer=token","X-CheckupAuto-Customer-CSRF":"c"*64,
         })
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
              patch.object(http.customer_accounts,"update_contact_details",return_value=self.account()) as update, \
+             patch.object(http.customer_accounts,"save_vehicle",return_value={"vehicleId":vehicle_id}) as save, \
              patch.object(http.customer_accounts,"confirm_passage_contact",return_value={"confirmed":True}) as confirm:
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],200)
-        update.assert_called_once_with(
-            self.account()["accountId"],
-            phone="0699999999",
-            address_line1="20 avenue du Centre",
-            address_line2="Bâtiment A",
-            postal_code="78130",
-            city="Les Mureaux",
+        update.assert_called_once()
+        save.assert_called_once_with(
+            self.account()["accountId"],registration_system="fni",
+            registration="1234 AB 78",formula_number="",card_issue_date="2008-05-17",
         )
-        confirm.assert_called_once_with(self.account()["accountId"],passage,action="modified")
+        confirm.assert_called_once_with(
+            self.account()["accountId"],passage,action="modified",
+            vehicle_id=vehicle_id,booking_target=return_to,
+        )
 
     def test_wallet_mobile_claim_is_session_csrf_bound_and_returns_one_time_app_link(self):
         h=Handler("/api/customer/wallet/mobile-claim","POST",{},headers={

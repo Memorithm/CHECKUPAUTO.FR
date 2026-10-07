@@ -16,7 +16,7 @@ import re
 import secrets
 import sqlite3
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from cryptography.hazmat.primitives import hashes
@@ -161,7 +161,8 @@ def init_db() -> None:
               created_at TEXT NOT NULL,
               expires_at TEXT NOT NULL,
               browser_hash TEXT NOT NULL DEFAULT '',
-              mobile INTEGER NOT NULL DEFAULT 0
+              mobile INTEGER NOT NULL DEFAULT 0,
+              return_to TEXT NOT NULL DEFAULT ''
             )"""
         )
         columns = {row[1] for row in db.execute("PRAGMA table_info(customer_oidc_flow)")}
@@ -169,6 +170,8 @@ def init_db() -> None:
             db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN browser_hash TEXT NOT NULL DEFAULT ''")
         if "mobile" not in columns:
             db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0")
+        if "return_to" not in columns:
+            db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN return_to TEXT NOT NULL DEFAULT ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_customer_oidc_expiry ON customer_oidc_flow(expires_at)")
     try:
         _flow_path().chmod(0o600)
@@ -186,10 +189,23 @@ def _browser_hash(binding: object) -> str:
     return hashlib.sha256(binding.encode("ascii")).hexdigest()
 
 
-def begin(provider: object, origin: object, *, browser_binding: str, mobile: bool=False) -> str:
+def _return_to(value: object) -> str:
+    raw=str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw)>2048 or any(ord(ch)<32 for ch in raw):
+        raise CustomerOIDCError("customer_oidc_return_invalid")
+    parts=urlsplit(raw)
+    if parts.scheme or parts.netloc or parts.fragment or not parts.path.startswith("/") or raw.startswith("//"):
+        raise CustomerOIDCError("customer_oidc_return_invalid")
+    return parts.path+(("?" + parts.query) if parts.query else "")
+
+
+def begin(provider: object, origin: object, *, browser_binding: str, mobile: bool=False, return_to: object="") -> str:
     provider = _provider(provider)
     origin = _origin(origin)
     browser_hash = _browser_hash(browser_binding)
+    return_to = _return_to(return_to)
     cfg = _provider_config(provider)
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -203,8 +219,8 @@ def begin(provider: object, origin: object, *, browser_binding: str, mobile: boo
         db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now.isoformat(timespec="seconds"),))
         db.execute(
             """INSERT INTO customer_oidc_flow(
-                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash,mobile
-               ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash,mobile,return_to
+               ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (
                 hashlib.sha256(state.encode()).hexdigest(),
                 provider,
@@ -215,6 +231,7 @@ def begin(provider: object, origin: object, *, browser_binding: str, mobile: boo
                 expires.isoformat(timespec="seconds"),
                 browser_hash,
                 1 if mobile else 0,
+                return_to,
             ),
         )
     meta = PROVIDERS[provider]
@@ -441,4 +458,9 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
         email_verified=True,
     )
     session = customer_accounts.issue_session(account["accountId"])
-    return {"account": account, "session": session, "mobile": bool(flow.get("mobile",0))}
+    return {
+        "account": account,
+        "session": session,
+        "mobile": bool(flow.get("mobile",0)),
+        "returnTo": str(flow.get("return_to") or ""),
+    }

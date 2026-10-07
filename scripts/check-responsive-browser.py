@@ -50,6 +50,7 @@ def fixtures() -> dict[str,bytes]:
         'email':'client.'+'a'*55+'@example.test','companyName':'','siret':'',
         'phone':'0612345678','addressLine1':'12 rue de Test','addressLine2':'',
         'postalCode':'78130','city':'Les Mureaux','contactDetailsComplete':False,
+        'vehicles':[{'vehicleId':'11111111-1111-4111-8111-111111111111','registrationSystem':'siv','registration':'AA-123-AA','formulaNumberPresent':True,'cardIssueDate':'','updatedAt':'2026-10-07T00:00:00+00:00'}],
         'providers':['google'], 'loyalty':{'referralCode':'TEST-1234',
         'balanceCents':500,'pendingCents':100,'earnedReferrals':2,'pendingReferrals':1}}
     with patch.object(customer_http.customer_accounts,'csrf_token',return_value='c'*64), \
@@ -61,7 +62,11 @@ def fixtures() -> dict[str,bytes]:
             '/':(ROOT/'index.html').read_bytes(),
             '/compte':customer_http._login_page(),
             '/qa/dashboard':customer_http._dashboard_page('synthetic',account,'test-nonce'),
-            '/compte/reserver':customer_http._passage_page('synthetic',account,{'passageToken':'test'},'test-nonce'),
+            '/compte/reserver':customer_http._passage_page(
+                'synthetic',account,{'passageToken':'test'},'test-nonce',
+                return_to='/go/booking?service=Contr%C3%B4le+technique&preferredDate=2026-10-15&preferredTime=10%3A30',
+                vehicles=account['vehicles'],
+            ),
             '/contact':contact_request.render_form(account,'c'*64),
             '/qa/suggestion':contact_request.render_form(account,'c'*64,'suggestion'),
             '/qa/confirmation':contact_request.render_confirmation({'requestId':'test-'+'1'*32}),
@@ -132,6 +137,13 @@ async def run(args) -> int:
                             assert data['scrollWidth']<=width+1, f'page width overflow: {data}'
                             assert abs(data['innerWidth']-width)<=1, f'mobile viewport expanded: {data}'
                             assert not data['outside'], f'elements outside viewport: {data["outside"]}'
+                            if path=='/compte/reserver':
+                                assert await page.locator('#formulaField').is_visible()
+                                assert not await page.locator('#issueDateField').is_visible()
+                                await page.locator('#registrationSystem').select_option('fni')
+                                assert not await page.locator('#formulaField').is_visible()
+                                assert await page.locator('#issueDateField').is_visible()
+                                assert await page.locator('#cardIssueDate').get_attribute('required') is not None
                             if path=='/':
                                 # A previously hidden, tall reservation section cannot stay invisible.
                                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
@@ -149,13 +161,22 @@ async def run(args) -> int:
                                     await menu.locator('summary').click()
                                     await page.keyboard.press('Escape')
                                     assert await menu.get_attribute('open') is None
-                                await page.locator('#vehicleCarouselNext').click()
-                                assert await page.locator('.vehicle-option.selected').get_attribute('data-vehicle')=='suv4x4'
-                                selected=await page.locator('.vehicle-option.selected').bounding_box()
-                                assert selected['x']>=-1 and selected['x']+selected['width']<=width+1,selected
+                                # Booking order is explicit: control type, slot, then reserve.
+                                selection=page.locator('#bookingSelection')
+                                assert await selection.is_visible()
+                                assert 'booking-awaiting' in (await selection.get_attribute('class') or '')
+                                initial_cta=page.locator('#bookingContinue')
+                                assert await initial_cta.get_attribute('aria-disabled')=='true'
+                                fitted=page.locator('.control-type-option[data-service="fitted"]')
+                                await fitted.click()
+                                assert 'selected' in (await fitted.get_attribute('class') or '')
+                                assert await page.locator('#service').input_value()=='fitted'
                                 await page.locator('.booking-day').first.locator('.slot-button').first.click()
-                                assert await page.locator('#bookingSelection').is_visible()
-                                cta=await page.locator('#bookingContinue').bounding_box()
+                                assert await selection.is_visible()
+                                assert 'booking-awaiting' not in (await selection.get_attribute('class') or '')
+                                assert await initial_cta.get_attribute('aria-disabled') is None
+                                assert (await initial_cta.inner_text()).strip()=='Réserver →'
+                                cta=await initial_cta.bounding_box()
                                 assert cta['x']>=-1 and cta['x']+cta['width']<=width+1,cta
                                 # Preferences must remain scrollable and reachable in landscape.
                                 await page.locator('#cc-consent-manage').click()

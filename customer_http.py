@@ -128,12 +128,13 @@ def _public_provider_status() -> list[dict]:
     return [provider for provider in customer_oidc.provider_status() if provider["id"] in PUBLIC_PROVIDER_IDS]
 
 
-def _providers_html() -> str:
+def _providers_html(return_to: str="") -> str:
     rows=[]
+    suffix=("?"+urlencode({"returnTo":return_to})) if return_to else ""
     for provider in _public_provider_status():
         if provider["configured"]:
             rows.append(
-                f'<a class="sso" href="/auth/customer/{html.escape(provider["id"])}">'
+                f'<a class="sso" href="/auth/customer/{html.escape(provider["id"])}{html.escape(suffix,quote=True)}">'
                 f'Continuer avec {html.escape(provider["label"])}</a>'
             )
         else:
@@ -143,10 +144,10 @@ def _providers_html() -> str:
     return "".join(rows)
 
 
-def _login_page(message: str="", info: str="") -> bytes:
+def _login_page(message: str="", info: str="", return_to: str="") -> bytes:
     note=f'<p class="error">{html.escape(message)}</p>' if message else ""
     info_note=f'<p class="info">{html.escape(info)}</p>' if info else ""
-    providers=_providers_html()
+    providers=_providers_html(return_to)
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow,noarchive">
@@ -216,7 +217,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><div class="top-actions"><a class="contact-link" href="{CONTACT_ROUTE}">Nous contacter</a><button id="logout" class="logout" type="button">Se déconnecter</button></div></div>
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <div class="grid">
-<section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="{PASSAGE_ROUTE}">Réserver un contrôle →</a> · <a href="https://rdv.checkupauto.fr/" rel="noreferrer">Consulter mes rendez-vous Mercure →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
+<section class="panel"><div class="eyebrow">MES CONTRÔLES</div><h2>Rapports et rendez-vous</h2><p><a href="/#reservation">Réserver un contrôle →</a> · <a href="https://rdv.checkupauto.fr/" rel="noreferrer">Consulter mes rendez-vous Mercure →</a></p><p class="sub">Le planning utilise son propre compte client. Le rattachement de cet historique nécessite une vérification dédiée.</p><div class="report" id="ct-report"><strong>Rapport de contrôle technique</strong><p>Scannez ou importez votre procès-verbal. L’original est traité puis supprimé; le compte conserve uniquement une version structurée et chiffrée en Markdown.</p><div class="report-controls"><input id="ctReportFile" type="file" accept="application/pdf,image/jpeg,image/png" capture="environment"><button id="ctReportUpload" class="primary" type="button">Analyser le rapport</button></div><div id="ctReportStatus" class="report-status" role="status" aria-live="polite"></div><div id="ctReportList" class="report-list"></div><div id="ctReportAnalysis" class="report-analysis" hidden></div></div></section>
 <section class="panel"><div class="eyebrow">FIDÉLITÉ</div><h2>Votre cagnotte</h2><div class="metric">{balance}</div><p class="sub">En attente : {pending} · Code {html.escape(str(loyalty["referralCode"]))}</p><div class="report-actions"><button id="walletToApp" class="primary" type="button">Rattacher à l’app iOS</button></div><div id="walletToAppStatus" class="report-status" role="status" aria-live="polite"></div></section>
 <section class="panel"><div class="eyebrow">PARRAINAGE</div><h2>Activité</h2><div class="metric">{int(loyalty["earnedReferrals"])}</div><p class="sub">parrainage(s) acquis · {int(loyalty["pendingReferrals"])} en attente</p></section>
 </div>
@@ -264,6 +265,25 @@ def _passage_return_target(value: object) -> str:
     parts=urlsplit(raw)
     if parts.scheme or parts.netloc or parts.fragment or parts.path!="/go/booking":
         return ""
+    try:
+        query=parse_qs(parts.query,keep_blank_values=True,max_num_fields=20)
+    except ValueError:
+        return ""
+    allowed={
+        "referrer","utmSource","utmCampaign","device","path","service",
+        "referralCode","preferredDate","preferredTime",
+    }
+    if not set(query).issubset(allowed) or any(len(values)!=1 for values in query.values()):
+        return ""
+    service=(query.get("service") or [""])[0].strip()
+    preferred_date=(query.get("preferredDate") or [""])[0].strip()
+    preferred_time=(query.get("preferredTime") or [""])[0].strip()
+    if not service or len(service)>100:
+        return ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}",preferred_date):
+        return ""
+    if not re.fullmatch(r"\d{2}:\d{2}",preferred_time):
+        return ""
     return "/go/booking"+(("?"+parts.query) if parts.query else "")
 
 
@@ -274,15 +294,53 @@ def booking_confirmation_url(target: object) -> str:
     return PASSAGE_ROUTE+"?"+urlencode({"returnTo":return_to})
 
 
-def consume_booking_confirmation(handler) -> dict:
+def _account_return_target(value: object) -> str:
+    raw=str(value or "").strip()
+    if not raw or len(raw)>4096 or any(ord(ch)<32 for ch in raw):
+        return ""
+    parts=urlsplit(raw)
+    if parts.scheme or parts.netloc or parts.fragment or parts.path!=PASSAGE_ROUTE:
+        return ""
+    try:
+        query=parse_qs(parts.query,keep_blank_values=True,max_num_fields=4)
+    except ValueError:
+        return ""
+    if set(query)!={"returnTo"} or len(query["returnTo"])!=1:
+        return ""
+    inner=_passage_return_target(query["returnTo"][0])
+    if not inner:
+        return ""
+    return PASSAGE_ROUTE+"?"+urlencode({"returnTo":inner})
+
+
+def _booking_summary(return_to: str) -> dict:
+    target=_passage_return_target(return_to)
+    if not target:
+        return {"service":"","date":"","time":""}
+    query=parse_qs(urlsplit(target).query,keep_blank_values=True,max_num_fields=20)
+    return {
+        "service":str((query.get("service") or [""])[0]),
+        "date":str((query.get("preferredDate") or [""])[0]),
+        "time":str((query.get("preferredTime") or [""])[0]),
+    }
+
+
+def consume_booking_confirmation(handler, target: object) -> dict:
+    return_to=_passage_return_target(target)
+    if not return_to:
+        raise PermissionError("customer_booking_target_invalid")
     token,account=_account(handler)
     if not token or not account:
-        return {"required":False,"consumed":False}
-    consumed=customer_accounts.consume_latest_passage_confirmation(account["accountId"])
+        raise PermissionError("customer_auth_required")
+    consumed=customer_accounts.consume_latest_passage_confirmation(
+        account["accountId"],return_to
+    )
     return {
         "required":True,
         "consumed":bool(consumed.get("consumed")),
         "confirmedAt":str(consumed.get("confirmedAt") or ""),
+        "vehicleId":str(consumed.get("vehicleId") or ""),
+        "vehicle":consumed.get("vehicle"),
     }
 
 
@@ -293,6 +351,7 @@ def _passage_page(
     nonce: str,
     message: str = "",
     return_to: str = "",
+    vehicles: list[dict] | None = None,
 ) -> bytes:
     csrf=customer_accounts.csrf_token(token)
     passage_token=str(passage["passageToken"])
@@ -304,44 +363,77 @@ def _passage_page(
     city=html.escape(str(account.get("city") or ""))
     email=html.escape(str(account.get("email") or ""))
     note=f'<p class="error">{html.escape(message)}</p>' if message else ""
-    incomplete="" if complete else '<p class="warning">Complétez votre téléphone et votre adresse avant de continuer.</p>'
+    incomplete="" if complete else '<p class="warning">Complétez vos coordonnées avant de continuer.</p>'
+    booking=_booking_summary(return_to)
+    service=html.escape(booking["service"])
+    preferred_date=html.escape(booking["date"])
+    preferred_time=html.escape(booking["time"])
+    options=['<option value="">Ajouter un nouveau véhicule</option>']
+    for vehicle in vehicles or []:
+        vehicle_id=html.escape(str(vehicle.get("vehicleId") or ""),quote=True)
+        system=html.escape(str(vehicle.get("registrationSystem") or "").upper())
+        registration=html.escape(str(vehicle.get("registration") or ""))
+        options.append(f'<option value="{vehicle_id}">{system} · {registration}</option>')
+    vehicle_options="".join(options)
+    contact_hidden=" hidden" if complete else ""
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive">
-<title>Vérification des coordonnées | Checkup Auto</title>
+<title>Véhicule et coordonnées | Checkup Auto</title>
 <style>
 :root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6d796f;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
-main{{width:min(760px,calc(100% - 32px));margin:auto;padding:42px 0 70px}}a{{color:inherit}}.card{{background:#fff;border:1px solid var(--line);padding:clamp(28px,6vw,52px)}}
-.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(38px,7vw,62px)/1 Georgia,serif;letter-spacing:-.04em;margin:14px 0 18px}}
-p{{line-height:1.6;color:var(--muted)}}.summary{{background:var(--soft);padding:18px;margin:20px 0;line-height:1.7}}.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}}
-button{{padding:13px 18px;border:1px solid var(--green);font-weight:700;cursor:pointer}}button.primary{{background:var(--green);color:#fff}}button.secondary{{background:#fff;color:var(--green)}}
-form{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input{{padding:12px;border:1px solid var(--line)}}.full{{grid-column:1/-1}}.error{{color:#8c3a31}}.warning{{color:#7a5111}}
-@media(max-width:620px){{form{{grid-template-columns:1fr}}.full{{grid-column:1}}}}@media(max-width:480px){{main{{width:min(100% - 24px,760px);padding:24px 0 44px}}.card{{padding:22px}}.actions{{align-items:stretch;flex-direction:column}}.actions button{{width:100%;min-height:46px}}}}
+main{{width:min(820px,calc(100% - 32px));margin:auto;padding:36px 0 70px}}a{{color:inherit}}.card{{background:#fff;border:1px solid var(--line);padding:clamp(24px,5vw,48px)}}
+.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(38px,7vw,60px)/1 Georgia,serif;letter-spacing:-.04em;margin:14px 0 18px}}
+h2{{font:400 28px Georgia,serif;margin:8px 0 14px}}p{{line-height:1.6;color:var(--muted)}}
+.booking-summary{{display:grid;gap:5px;background:var(--green);color:#fff;padding:18px;margin:20px 0 26px}}.booking-summary small{{font:9px Consolas,monospace;letter-spacing:.12em;opacity:.75}}.booking-summary strong{{font-size:20px}}.booking-summary span{{font-size:13px}}
+.step{{border-top:1px solid var(--line);padding-top:22px;margin-top:22px}}.summary{{background:var(--soft);padding:16px;line-height:1.7;overflow-wrap:anywhere}}
+.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}button{{padding:13px 18px;border:1px solid var(--green);font-weight:700;cursor:pointer;min-height:44px}}button.primary{{background:var(--green);color:#fff}}button.secondary{{background:#fff;color:var(--green)}}
+form{{display:grid;gap:18px}}.fields{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}}label{{display:grid;gap:7px;font-size:12px;font-weight:700}}input,select{{width:100%;min-width:0;padding:12px;border:1px solid var(--line);background:#fff;font:16px Arial,sans-serif}}label small{{font-weight:400;color:var(--muted);line-height:1.4}}
+.full{{grid-column:1/-1}}.error{{color:#8c3a31}}.warning{{color:#7a5111}}[hidden]{{display:none!important}}#passageStatus{{font-size:12px;color:var(--muted)}}
+@media(max-width:620px){{.fields{{grid-template-columns:1fr}}.full{{grid-column:1}}main{{width:min(100% - 24px,820px);padding:20px 0 44px}}.card{{padding:20px}}.actions{{align-items:stretch;flex-direction:column}}.actions button{{width:100%}}}}
 {FORM_RESPONSIVE_CSS}
-</style></head><body><main><section class="card"><div class="eyebrow">AVANT VOTRE PASSAGE</div>
-<h1>Vos coordonnées sont-elles toujours à jour&nbsp;?</h1>
-<p>Nous vous posons cette question à chaque nouveau passage afin de conserver une adresse et un téléphone corrects.</p>
+</style></head><body><main><section class="card"><div class="eyebrow">RÉSERVATION · ÉTAPE CLIENT</div>
+<h1>Votre véhicule pour ce contrôle.</h1>
+<p>Votre créneau est conservé pendant cette étape. Identifiez le véhicule concerné avant de poursuivre vers la finalisation du rendez-vous.</p>
+<div class="booking-summary"><small>VOTRE CHOIX</small><strong>{service}</strong><span>{preferred_date} · {preferred_time}</span></div>
 {note}{incomplete}
+<form id="bookingClientForm">
+<section class="step"><div class="eyebrow">1 / COORDONNÉES</div><h2>Vos informations de contact</h2>
 <div class="summary"><strong>{email}</strong><br>{phone or "Téléphone non renseigné"}<br>{address1 or "Adresse non renseignée"}{("<br>"+address2) if address2 else ""}<br>{postal} {city}</div>
-<div class="actions"><button id="confirmCurrent" class="primary" type="button"{" disabled" if not complete else ""}>Oui, elles sont à jour</button><button id="showEdit" class="secondary" type="button">Modifier</button></div>
-<form id="contactForm"{" style='display:none'" if complete else ""}>
+<div class="actions"><button id="showEdit" class="secondary" type="button">Modifier mes coordonnées</button></div>
+<div id="contactFields" class="fields"{contact_hidden}>
 <label>Téléphone<input id="passagePhone" value="{phone}" autocomplete="tel" maxlength="32" required></label>
 <label>Adresse<input id="passageAddress1" value="{address1}" autocomplete="street-address" maxlength="180" required></label>
 <label>Complément d’adresse<input id="passageAddress2" value="{address2}" maxlength="180"></label>
 <label>Code postal<input id="passagePostal" value="{postal}" autocomplete="postal-code" maxlength="16" required></label>
 <label>Ville<input id="passageCity" value="{city}" autocomplete="address-level2" maxlength="120" required></label>
-<div class="full actions"><button class="primary" type="submit">Enregistrer et continuer</button><span id="passageStatus"></span></div>
+</div></section>
+<section class="step"><div class="eyebrow">2 / VÉHICULE</div><h2>Quel véhicule est concerné&nbsp;?</h2>
+<label>Véhicule<select id="vehicleChoice">{vehicle_options}</select></label>
+<div id="newVehicleFields" class="fields">
+<label>Système d’immatriculation<select id="registrationSystem"><option value="siv">SIV · format AA-123-AA</option><option value="fni">Ancien format FNI</option></select></label>
+<label>Immatriculation<input id="registration" autocomplete="off" autocapitalize="characters" maxlength="32" placeholder="AA-123-AA" required><small>SIV : AA-123-AA. FNI : par exemple 1234 AB 78.</small></label>
+<label id="formulaField" class="full">Numéro de formule<input id="formulaNumber" autocomplete="off" autocapitalize="characters" maxlength="11" minlength="11" pattern="[A-Za-z0-9]{{11}}" placeholder="11 chiffres et lettres" required><small>Pour une carte grise SIV, saisissez les 11 caractères du numéro de formule.</small></label>
+<label id="issueDateField" class="full" hidden>Date d’établissement de la carte grise<input id="cardIssueDate" type="date"><small>Demandée pour une immatriculation dans l’ancien système FNI.</small></label>
+</div>
+<div class="actions"><button class="primary" id="continueBooking" type="submit">Réserver avec ce véhicule →</button><span id="passageStatus" role="status" aria-live="polite"></span></div>
+</section>
 </form>
-<p><a href="{ACCOUNT_ROUTE}">← Retour à mon compte</a></p></section></main>
+<p><a href="/#reservation">← Modifier le type de contrôle ou le créneau</a></p></section></main>
 <script nonce="{html.escape(nonce,quote=True)}">
-(()=>{{'use strict';const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},returnTo={json.dumps(return_to)},form=document.getElementById('contactForm'),status=document.getElementById('passageStatus');
-const send=async payload=>{{status.textContent='Vérification…';const r=await fetch('{PASSAGE_CONFIRM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify({{passageToken,returnTo,...payload}})}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'contact_confirmation_failed');location.assign(d.continueUrl);}};
-document.getElementById('showEdit').addEventListener('click',()=>{{form.style.display='grid';}});
-document.getElementById('confirmCurrent').addEventListener('click',async()=>{{try{{await send({{action:'validated'}});}}catch(e){{status.textContent='Validation impossible.';}}}});
-form.addEventListener('submit',async e=>{{e.preventDefault();try{{await send({{action:'modified',phone:document.getElementById('passagePhone').value,addressLine1:document.getElementById('passageAddress1').value,addressLine2:document.getElementById('passageAddress2').value,postalCode:document.getElementById('passagePostal').value,city:document.getElementById('passageCity').value}});}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+(()=>{{'use strict';
+const csrf={json.dumps(csrf)},passageToken={json.dumps(passage_token)},returnTo={json.dumps(return_to)},complete={str(complete).lower()};
+const form=document.getElementById('bookingClientForm'),status=document.getElementById('passageStatus'),contactFields=document.getElementById('contactFields'),vehicleChoice=document.getElementById('vehicleChoice'),newFields=document.getElementById('newVehicleFields'),system=document.getElementById('registrationSystem'),formulaField=document.getElementById('formulaField'),issueDateField=document.getElementById('issueDateField'),formula=document.getElementById('formulaNumber'),issueDate=document.getElementById('cardIssueDate'),registration=document.getElementById('registration');
+let contactEditing=!complete;
+document.getElementById('showEdit').addEventListener('click',()=>{{contactEditing=true;contactFields.hidden=false;}});
+const syncVehicle=()=>{{const existing=!!vehicleChoice.value;newFields.hidden=existing;registration.required=!existing;system.required=!existing;const fni=system.value==='fni';formulaField.hidden=existing||fni;issueDateField.hidden=existing||!fni;formula.required=!existing&&!fni;issueDate.required=!existing&&fni;registration.placeholder=fni?'1234 AB 78':'AA-123-AA';}};
+vehicleChoice.addEventListener('change',syncVehicle);system.addEventListener('change',syncVehicle);syncVehicle();
+form.addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Vérification du véhicule…';const payload={{passageToken,returnTo,action:contactEditing?'modified':'validated',vehicleMode:vehicleChoice.value?'existing':'new'}};
+if(contactEditing)Object.assign(payload,{{phone:document.getElementById('passagePhone').value,addressLine1:document.getElementById('passageAddress1').value,addressLine2:document.getElementById('passageAddress2').value,postalCode:document.getElementById('passagePostal').value,city:document.getElementById('passageCity').value}});
+if(vehicleChoice.value)payload.vehicleId=vehicleChoice.value;else Object.assign(payload,{{registrationSystem:system.value,registration:registration.value,formulaNumber:formula.value,cardIssueDate:issueDate.value}});
+try{{const r=await fetch('{PASSAGE_CONFIRM_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'customer_booking_profile_invalid');status.textContent='Véhicule enregistré. Poursuite de la réservation…';location.assign(d.continueUrl);}}catch(_e){{status.textContent='Vérifiez les coordonnées et les informations de carte grise.';}}}});
 }})();
 </script></body></html>""".encode("utf-8")
-
 
 def _browser_origin(handler) -> str:
     host = str(handler.headers.get("Host") or "").strip().lower()
@@ -378,27 +470,32 @@ def handle(handler) -> bool:
 
     if command=="GET" and path==PASSAGE_ROUTE:
         token,account=_account(handler)
-        if not token or not account:
-            handler.send_redirect(ACCOUNT_ROUTE,303)
-            return True
         query=parse_qs(parsed.query,keep_blank_values=True)
         return_to=_passage_return_target((query.get("returnTo") or [""])[0])
+        if not return_to:
+            handler.send_redirect("/#reservation",303)
+            return True
+        if not token or not account:
+            current=PASSAGE_ROUTE+"?"+urlencode({"returnTo":return_to})
+            handler.send_redirect(ACCOUNT_ROUTE+"?"+urlencode({"returnTo":current}),303)
+            return True
         supplied=(query.get("passage") or [""])[0]
         if supplied:
             try:
-                customer_accounts.validate_passage_confirmation(account["accountId"],supplied)
+                customer_accounts.validate_passage_confirmation(account["accountId"],supplied,return_to)
                 handler.send_redirect(return_to or "/#reservation",303)
                 return True
             except Exception:
                 message="Cette validation a expiré ou les coordonnées ont changé. Merci de les confirmer à nouveau."
         else:
             message=""
-        passage=customer_accounts.begin_passage_confirmation(account["accountId"])
+        passage=customer_accounts.begin_passage_confirmation(account["accountId"],return_to)
         nonce=secrets.token_urlsafe(18)
         handler._csp_nonce=nonce
         fresh=customer_accounts.profile(account["accountId"])
+        vehicles=customer_accounts.list_vehicles(account["accountId"])
         handler.send_bytes(
-            _passage_page(token,fresh,passage,nonce,message=message,return_to=return_to),
+            _passage_page(token,fresh,passage,nonce,message=message,return_to=return_to,vehicles=vehicles),
             "text/html; charset=utf-8",200,"no-store",
             {"X-Robots-Tag":"noindex, nofollow, noarchive"},
         )
@@ -408,6 +505,7 @@ def handle(handler) -> bool:
         token,account=_account(handler)
         query=parse_qs(parsed.query,keep_blank_values=True)
         intent=(query.get("intent") or [""])[0]
+        return_to=_account_return_target((query.get("returnTo") or [""])[0])
         if intent not in {"","contact"}:
             intent=""
         if not account:
@@ -416,7 +514,7 @@ def handle(handler) -> bool:
                 "Cette étape permet de sécuriser et d’identifier les échanges."
                 if intent=="contact" else ""
             )
-            handler.send_bytes(_login_page(info=info),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+            handler.send_bytes(_login_page(info=info,return_to=return_to),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
             return True
         nonce=secrets.token_urlsafe(18)
         handler._csp_nonce=nonce
@@ -431,8 +529,10 @@ def handle(handler) -> bool:
         provider=path.rsplit("/",1)[-1]
         try:
             binding=secrets.token_urlsafe(32)
-            mobile=(provider=="google" and (parse_qs(parsed.query).get("mobile") or [""])[0]=="1")
-            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding,mobile=mobile)
+            auth_query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=8)
+            mobile=(provider=="google" and (auth_query.get("mobile") or [""])[0]=="1")
+            return_to=_account_return_target((auth_query.get("returnTo") or [""])[0])
+            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding,mobile=mobile,return_to=return_to)
             state=parse_qs(urlsplit(target).query)["state"][0]
             handler.send_response(302)
             handler.send_header("Location",target)
@@ -473,7 +573,7 @@ def handle(handler) -> bool:
                 ticket=mobile_auth_ticket.issue(result["session"]["token"])
                 handler.send_redirect("checkupauto://auth/google?ticket="+quote(ticket,safe=""),303)
             else:
-                _send_cookie_redirect(handler,ACCOUNT_ROUTE,result["session"],provider,state)
+                _send_cookie_redirect(handler,str(result.get("returnTo") or ACCOUNT_ROUTE),result["session"],provider,state)
         except Exception:
             headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
@@ -644,14 +744,17 @@ def handle(handler) -> bool:
             try:
                 payload=_json_body(handler)
                 return_to=_passage_return_target(payload.pop("returnTo",""))
+                if not return_to:
+                    raise ValueError
                 action=str(payload.get("action") or "")
                 passage_token=str(payload.get("passageToken") or "")
+                vehicle_mode=str(payload.get("vehicleMode") or "")
+                common={"passageToken","action","vehicleMode"}
+                contact={"phone","addressLine1","addressLine2","postalCode","city"}
                 if action=="validated":
-                    if set(payload)!={"passageToken","action"}:
-                        raise ValueError
+                    expected=set(common)
                 elif action=="modified":
-                    if set(payload)!={"passageToken","action","phone","addressLine1","addressLine2","postalCode","city"}:
-                        raise ValueError
+                    expected=set(common)|contact
                     customer_accounts.update_contact_details(
                         account["accountId"],
                         phone=payload.get("phone"),
@@ -662,13 +765,35 @@ def handle(handler) -> bool:
                     )
                 else:
                     raise ValueError
+                if vehicle_mode=="existing":
+                    expected.add("vehicleId")
+                    if set(payload)!=expected:
+                        raise ValueError
+                    vehicle=customer_accounts.vehicle_summary(
+                        account["accountId"],payload.get("vehicleId")
+                    )
+                elif vehicle_mode=="new":
+                    expected|={"registrationSystem","registration","formulaNumber","cardIssueDate"}
+                    if set(payload)!=expected:
+                        raise ValueError
+                    vehicle=customer_accounts.save_vehicle(
+                        account["accountId"],
+                        registration_system=payload.get("registrationSystem"),
+                        registration=payload.get("registration"),
+                        formula_number=payload.get("formulaNumber"),
+                        card_issue_date=payload.get("cardIssueDate"),
+                    )
+                else:
+                    raise ValueError
                 confirmed=customer_accounts.confirm_passage_contact(
-                    account["accountId"],passage_token,action=action
+                    account["accountId"],passage_token,action=action,
+                    vehicle_id=vehicle["vehicleId"],booking_target=return_to,
                 )
                 handler.send_json({
                     "ok":True,
                     "confirmed":bool(confirmed.get("confirmed")),
-                    "continueUrl":return_to or "/#reservation",
+                    "vehicleId":vehicle["vehicleId"],
+                    "continueUrl":return_to,
                 })
             except customer_accounts.CustomerAccountError as exc:
                 handler.send_json({"ok":False,"error":str(exc)},400)

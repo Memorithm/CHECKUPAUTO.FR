@@ -43,15 +43,17 @@ PREVIEW_JS = r"""
 'use strict';
 (() => {
   const $ = s => document.querySelector(s);
-  const buttons = [...document.querySelectorAll('.vehicle-option')];
+  const buttons = [...document.querySelectorAll('.control-type-option')];
+  const service = $('#service');
   const dateInput = $('#bookingStartDate');
   const dialog = $('#previewInformation');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let current = 0;
+
   function information(message) {
     $('#previewMessage').textContent = message;
     if (!dialog.open) dialog.showModal();
   }
+
   $('#previewClose').addEventListener('click', () => dialog.close());
   document.querySelectorAll('a[data-preview-disabled]').forEach(a => {
     a.addEventListener('click', event => {
@@ -59,73 +61,107 @@ PREVIEW_JS = r"""
       information('Cette fonction nécessite le serveur CheckupAuto. Dans cette démonstration, aucun appel, téléchargement d’application, paiement ou traitement de données n’est déclenché.');
     });
   });
+
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Paris', year:'numeric', month:'2-digit', day:'2-digit'
   }).formatToParts(new Date()).filter(p => p.type !== 'literal').map(p => [p.type,p.value]));
   dateInput.value = `${parts.year}-${parts.month}-${parts.day}`;
-  function amount() { return buttons[current].dataset.service === 'fitted' ? 90 : 80; }
+
+  function amount() { return service.value === 'fitted' ? 90 : 80; }
+
+  function resetSelection() {
+    const box=$('#bookingSelection');
+    box.classList.add('booking-awaiting');
+    $('#bookingSelectionKicker').textContent='3 / RÉSERVER';
+    $('#bookingSelectionLabel').textContent='Sélectionnez un créneau ci-dessus';
+    $('#bookingSelectionPrice').textContent='Le bouton Réserver s’active automatiquement après votre choix.';
+    const cta=$('#bookingContinue');
+    cta.classList.add('disabled');
+    cta.setAttribute('aria-disabled','true');
+    cta.textContent='Choisissez un créneau pour réserver';
+  }
+
   function render() {
-    $('#bookingSelection').hidden = true;
-    const root = $('#bookingDays'); root.replaceChildren();
+    resetSelection();
+    const root = $('#bookingDays');
+    root.replaceChildren();
     const start = /^\d{4}-\d{2}-\d{2}$/.test(dateInput.value) ? dateInput.value : `${parts.year}-${parts.month}-${parts.day}`;
     const origin = new Date(start + 'T12:00:00Z');
     if (!Number.isFinite(origin.getTime())) return;
     for (let offset=0; offset<6; offset++) {
-      const day = new Date(origin); day.setUTCDate(origin.getUTCDate()+offset);
-      const label = new Intl.DateTimeFormat('fr-FR', {timeZone:'Europe/Paris',weekday:'long',day:'numeric',month:'short'}).format(day);
-      const article = document.createElement('article'); article.className='booking-day';
-      const head = document.createElement('div'); head.className='booking-day-head';
-      const title = document.createElement('strong'); title.textContent=label; head.append(title); article.append(head);
-      const slots=document.createElement('div'); slots.className='booking-slots';
+      const day = new Date(origin);
+      day.setUTCDate(origin.getUTCDate()+offset);
+      const label = new Intl.DateTimeFormat('fr-FR', {
+        timeZone:'Europe/Paris',weekday:'long',day:'numeric',month:'short'
+      }).format(day);
+      const article = document.createElement('article');
+      article.className='booking-day';
+      const head = document.createElement('div');
+      head.className='booking-day-head';
+      const title = document.createElement('strong');
+      title.textContent=label;
+      head.append(title);
+      article.append(head);
+      const slots=document.createElement('div');
+      slots.className='booking-slots';
       for (const time of ['09:00','10:30','14:00','16:30']) {
-        const button=document.createElement('button'); button.type='button'; button.className='slot-button';
-        const hour=document.createElement('span'); hour.textContent=time;
-        const price=document.createElement('small'); price.textContent=amount()+' € TTC';
-        const note=document.createElement('em'); note.textContent='CRÉNEAU FICTIF'; button.append(hour,price,note);
+        const button=document.createElement('button');
+        button.type='button';
+        button.className='slot-button';
+        const hour=document.createElement('span');
+        hour.textContent=time;
+        const price=document.createElement('small');
+        price.textContent=amount()+' € TTC';
+        const note=document.createElement('em');
+        note.textContent='CRÉNEAU FICTIF';
+        button.append(hour,price,note);
         button.addEventListener('click', () => {
           document.querySelectorAll('.slot-button.selected').forEach(b=>b.classList.remove('selected'));
-          button.classList.add('selected'); $('#bookingSelectionLabel').textContent=label+' · '+time;
+          button.classList.add('selected');
+          const box=$('#bookingSelection');
+          box.classList.remove('booking-awaiting');
+          $('#bookingSelectionKicker').textContent='3 / RÉSERVER';
+          $('#bookingSelectionLabel').textContent=label+' · '+time;
           $('#bookingSelectionPrice').textContent=amount()+' € TTC · simulation uniquement';
-          $('#bookingSelection').hidden=false;
-          $('#bookingSelection').scrollIntoView({behavior:reduced?'auto':'smooth',block:'nearest'});
-        }); slots.append(button);
+          const cta=$('#bookingContinue');
+          cta.classList.remove('disabled');
+          cta.removeAttribute('aria-disabled');
+          cta.textContent='Tester la réservation →';
+          box.scrollIntoView({behavior:reduced?'auto':'smooth',block:'nearest'});
+        });
+        slots.append(button);
       }
-      article.append(slots); root.append(article);
+      article.append(slots);
+      root.append(article);
     }
     $('#bookingLiveStatus').textContent='DÉMONSTRATION · créneaux fictifs · aucune connexion à Mercure';
   }
-  const video=$('#vehicleVideo');
-  let image=$('.vehicle-3d-fallback');
-  if (!image) {
-    image=document.createElement('img');
-    image.id='previewVehicleImage';
-    image.hidden=true;
-    if (video) video.after(image);
-  }
-  if (video && reduced) { video.pause(); video.removeAttribute('autoplay'); }
-  function choose(index, scroll=false) {
-    current=(index+buttons.length)%buttons.length;
-    buttons.forEach((b,i)=>{b.classList.toggle('selected',i===current);b.setAttribute('aria-pressed',String(i===current));});
-    $('#service').value=buttons[current].dataset.service; $('#price').textContent=String(amount());
-    const picture=buttons[current].querySelector('img');
-    if (picture && image) { image.src=picture.src; image.alt=picture.alt; image.hidden=false; }
-    if (video) {
-      video.hidden=current!==0;
-      if (current!==0) video.pause(); else if (!reduced) video.play().catch(()=>{});
-    }
-    if (scroll) buttons[current].scrollIntoView({behavior:reduced?'auto':'smooth',block:'nearest',inline:'center'});
+
+  function choose(button) {
+    buttons.forEach(b => {
+      const active=b===button;
+      b.classList.toggle('selected',active);
+      b.setAttribute('aria-pressed',String(active));
+    });
+    service.value=button.dataset.service;
+    $('#price').textContent=String(amount());
     render();
   }
-  buttons.forEach((b,i)=>b.addEventListener('click',()=>choose(i,true)));
-  $('#vehicleCarouselPrev').addEventListener('click',()=>choose(current-1,true));
-  $('#vehicleCarouselNext').addEventListener('click',()=>choose(current+1,true));
-  $('#service').addEventListener('change',event=>choose(buttons.findIndex(b=>b.dataset.service===event.target.value)));
-  dateInput.addEventListener('change',render); $('#bookingRefresh').addEventListener('click',render);
-  $('#bookingContinue').textContent='Tester la confirmation →';
-  $('#bookingContinue').addEventListener('click',event=>{
-    event.preventDefault(); information('Parcours de démonstration terminé. Le créneau choisi est fictif : aucun rendez-vous n’a été créé, aucun paiement demandé et aucun message envoyé.');
+
+  buttons.forEach(button=>button.addEventListener('click',()=>choose(button)));
+  service.addEventListener('change',()=>{
+    const selected=buttons.find(b=>b.dataset.service===service.value);
+    if (selected) choose(selected);
   });
-  choose(0);
+  dateInput.addEventListener('change',render);
+  $('#bookingRefresh').addEventListener('click',render);
+  $('#bookingContinue').addEventListener('click',event=>{
+    event.preventDefault();
+    if (event.currentTarget.classList.contains('disabled')) return;
+    information('Parcours de démonstration terminé. Le créneau choisi est fictif : aucun rendez-vous n’a été créé, aucun paiement demandé et aucun message envoyé.');
+  });
+
+  choose(buttons[0]);
 })();
 """
 

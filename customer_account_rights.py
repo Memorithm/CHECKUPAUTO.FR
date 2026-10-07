@@ -56,6 +56,7 @@ def snapshot(subject_email: object) -> dict:
             "identities":[],
             "reports":[],
             "identityCount":0,
+            "vehicleCount":0,
             "reportCount":0,
             "lookup":"hmac_normalized_email",
             "localCoverageComplete":True,
@@ -87,6 +88,18 @@ def snapshot(subject_email: object) -> dict:
             "addressLine2":str(profile.get("addressLine2") or ""),
             "postalCode":str(profile.get("postalCode") or ""),
             "city":str(profile.get("city") or ""),
+            "vehicles":[
+                {
+                    "vehicleId":str(vehicle.get("vehicleId") or ""),
+                    "registrationSystem":str(vehicle.get("registrationSystem") or ""),
+                    "registration":str(vehicle.get("registration") or ""),
+                    "formulaNumber":str(vehicle.get("formulaNumber") or ""),
+                    "cardIssueDate":str(vehicle.get("cardIssueDate") or ""),
+                    "createdAt":str(vehicle.get("createdAt") or ""),
+                    "updatedAt":str(vehicle.get("updatedAt") or ""),
+                }
+                for vehicle in customer_accounts._vehicle_records(profile)
+            ],
             "walletCode":str(row["wallet_code"] or ""),
             "createdAt":str(row["created_at"]),
             "updatedAt":str(row["updated_at"]),
@@ -101,6 +114,7 @@ def snapshot(subject_email: object) -> dict:
         ],
         "reports":reports,
         "identityCount":len(identities),
+        "vehicleCount":len(customer_accounts._vehicle_records(profile)),
         "reportCount":len(reports),
         "lookup":"hmac_normalized_email",
         "localCoverageComplete":True,
@@ -225,6 +239,7 @@ def execute(
             "requestType":request_type,
             "adapter":ADAPTER,
             "identityCount":int(data["identityCount"]),
+            "vehicleCount":int(data["vehicleCount"]),
             "reportCount":int(data["reportCount"]),
             "accountPresent":data["account"] is not None,
             "localCoverageComplete":True,
