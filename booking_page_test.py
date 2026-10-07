@@ -21,16 +21,16 @@ class BookingPageTest(unittest.TestCase):
         self.assertNotIn("booking_request_failed", page)
 
     def test_valid_phone_is_escaped_and_retained(self):
-        page = booking_page.unavailable_html(phone="01 86 04 63 64").decode()
-        self.assertIn('href="tel:0186046364"', page)
-        self.assertIn("01 86 04 63 64", page)
+        page = booking_page.unavailable_html(phone="01 86 04 68 64").decode()
+        self.assertIn('href="tel:0186046864"', page)
+        self.assertIn("01 86 04 68 64", page)
 
     def test_invalid_phone_has_no_link(self):
         for phone in (None, "", "javascript:alert(1)", "++123456"):
             self.assertNotIn('href="tel:', booking_page.unavailable_html(phone=phone).decode())
 
     def test_markup_in_phone_is_not_interpreted(self):
-        page = booking_page.unavailable_html(phone='<img src=x onerror=alert(1)>0186046364').decode()
+        page = booking_page.unavailable_html(phone='<img src=x onerror=alert(1)>0186046864').decode()
         self.assertNotIn("<img", page)
         self.assertIn("&lt;img", page)
 
@@ -51,7 +51,7 @@ class BookingRouteTest(unittest.TestCase):
         module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
         self.terms_error = type("BookingTermsUnavailable", (RuntimeError,), {})
         self.booking = SimpleNamespace(BookingTermsUnavailable=self.terms_error, mercure_prestation=Mock(return_value="allowed"), require_published_terms=Mock(), create_intent=Mock(return_value={"token": "fixture"}), auto_submit_html=Mock(return_value=b"<html>review</html>"))
-        self.config = Mock(return_value={"business": {"phone": "01 86 04 63 64", "bookingUrl": "https://rdv.checkupauto.fr/"}})
+        self.config = Mock(return_value={"business": {"phone": "01 86 04 68 64", "bookingUrl": "https://rdv.checkupauto.fr/"}})
         self.customer_http = SimpleNamespace(
             consume_booking_confirmation=Mock(return_value={"required": False, "consumed": False}),
             booking_confirmation_url=Mock(return_value="/compte/reserver?returnTo=%2Fgo%2Fbooking"),
