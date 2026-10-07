@@ -110,6 +110,18 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("sécuriser et d’identifier les échanges",body)
         self.assertIn('class="providers"',body)
 
+    def test_vehicle_help_uses_real_cropped_photographs_not_diagrams(self):
+        from unittest.mock import patch
+        with patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
+            page=http._dashboard_page("test-session",self.account(),"nonce").decode()
+        for name in ("formule", "date"):
+            path=Path(__file__).resolve().parent / "assets" / "guides" / f"carte-grise-{name}-photo.webp"
+            self.assertTrue(path.is_file())
+            self.assertGreater(path.stat().st_size,5000)
+            self.assertIn(f'/assets/guides/carte-grise-{name}-photo.webp',page)
+        self.assertNotIn('class="document-diagram"',page)
+        self.assertIn("figcaption",page)
+
     def test_vehicle_card_grise_guides_are_contextual_and_safe(self):
         from unittest.mock import patch
         with patch.object(http.customer_accounts,"csrf_token",return_value="c"*64):
