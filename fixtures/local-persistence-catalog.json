@@ -535,8 +535,8 @@
       "table": "review_followup",
       "module": "review_followup.py",
       "subjectRelation": "direct",
-      "executionState": "partial",
-      "adapter": "review_followup_privacy",
+      "executionState": "wired",
+      "adapter": "review_followup",
       "subjectExecutionRequired": true
     },
     {
