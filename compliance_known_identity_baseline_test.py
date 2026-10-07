@@ -27,17 +27,18 @@ class ComplianceKnownIdentityBaselineTest(unittest.TestCase):
         self.assertNotIn("mediatorName",data["deliberatelyUnasserted"])
         self.assertNotIn("mediatorUrl",data["deliberatelyUnasserted"])
         self.assertNotIn("mediatorAddress",data["deliberatelyUnasserted"])
-        self.assertNotIn("privacyContact",settings)
-        self.assertIn("privacyContact",data["deliberatelyUnasserted"])
+        self.assertEqual(settings["privacyContact"],"contact@checkupauto.fr")
+        self.assertNotIn("privacyContact",data["deliberatelyUnasserted"])
+        self.assertIn("hostPhone",data["deliberatelyUnasserted"])
 
-    def test_apply_is_idempotent_and_does_not_claim_identity_complete(self):
+    def test_apply_is_idempotent_and_completes_confirmed_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             db=Path(tmp)/"compliance.sqlite3"
             first=identity_seed.apply(db)
             second=identity_seed.apply(db)
             self.assertTrue(first["knownFieldsVerified"])
-            self.assertFalse(first["identityComplete"])
-            self.assertEqual(first["missingIdentityFields"],["privacyContact"])
+            self.assertTrue(first["identityComplete"])
+            self.assertEqual(first["missingIdentityFields"],[])
             self.assertTrue(first["changedFields"])
             self.assertEqual(second["changedFields"],[])
 
