@@ -80,9 +80,9 @@ AUTO_RULES = {
     "checkout_acceptance_transient": {
         "label": "Liaison technique acceptation→Mercure",
         "mode": "event",
-        "source": "durable matching terms consent receipt",
+        "source": "durable receipt or booking browser token TTL",
         "store": "checkout_acceptance_intents",
-        "trigger": "finalized_at + matching durable consent receipt",
+        "trigger": "matching durable consent receipt / unfinalized acceptance TTL",
     },
 }
 
@@ -584,29 +584,39 @@ def _purge_checkout_acceptance_transient(
     dry_run: bool,
     db_path: Path | str | None = None,
 ) -> int:
-    """Drop transient checkout linkage once the durable terms receipt exists.
+    """Minimize checkout acceptance linkage using only product-grounded events.
 
-    The intent row exists only to bind a browser acceptance event to the
-    provider contract that is created later. Once finalization has produced the
-    matching immutable consent receipt, retaining a second subject-linked copy
-    serves no remaining technical purpose. Eligibility is therefore an event
-    condition, not a guessed retention duration.
+    Finalized rows are deleted only after the matching immutable terms receipt
+    exists. Unfinalized rows are deleted once the browser booking token that
+    could still complete that checkout has exceeded its existing product TTL.
+    A finalized row without a durable receipt is deliberately retained so a
+    provider/browser reconciliation failure is never hidden by retention.
     """
     compliance_store.init_db(db_path)
-    predicate = """finalized_at<>'' AND EXISTS(
-      SELECT 1 FROM consent_receipts r
-      WHERE r.contract_ref=checkout_acceptance_intents.finalized_contract_ref
-        AND r.document_type='terms'
-        AND r.document_version=checkout_acceptance_intents.terms_version
-        AND r.content_hash=checkout_acceptance_intents.terms_content_hash
+    cutoff = (
+        _now()
+        - datetime.timedelta(hours=booking_bridge.BOOKING_BROWSER_TOKEN_TTL_HOURS)
+    ).isoformat(timespec="seconds")
+    predicate = """(
+      finalized_at<>'' AND EXISTS(
+        SELECT 1 FROM consent_receipts r
+        WHERE r.contract_ref=checkout_acceptance_intents.finalized_contract_ref
+          AND r.document_type='terms'
+          AND r.document_version=checkout_acceptance_intents.terms_version
+          AND r.content_hash=checkout_acceptance_intents.terms_content_hash
+      )
+    ) OR (
+      finalized_at='' AND accepted_at<?
     )"""
     with compliance_store.connect(db_path) as db:
         count = int(db.execute(
-            f"SELECT COUNT(*) n FROM checkout_acceptance_intents WHERE {predicate}"
+            f"SELECT COUNT(*) n FROM checkout_acceptance_intents WHERE {predicate}",
+            (cutoff,),
         ).fetchone()["n"])
         if not dry_run and count:
             db.execute(
-                f"DELETE FROM checkout_acceptance_intents WHERE {predicate}"
+                f"DELETE FROM checkout_acceptance_intents WHERE {predicate}",
+                (cutoff,),
             )
     return count
 
