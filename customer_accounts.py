@@ -19,6 +19,8 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from customer_vehicle_inputs import (SIV_PATTERN, FNI_PATTERN, FORMULA_PATTERN, FORMULA_FIRST_YEAR, compact_identifier)
+
 import referral_engine
 
 PROVIDERS = {"google", "apple", "microsoft"}
@@ -182,25 +184,25 @@ def _registration_system(value: object) -> str:
 
 
 def _registration(value: object, system: str) -> str:
-    raw=str(value or "").strip().upper()
-    if not raw or len(raw)>32 or any(ord(ch)<32 for ch in raw):
+    raw = str(value or "")
+    if not raw or len(raw) > 64:
         raise CustomerAccountError("customer_vehicle_registration_invalid")
-    compact=re.sub(r"[\s-]+","",raw)
-    if system=="siv":
-        if not re.fullmatch(r"[A-HJ-NP-TV-Z]{2}[0-9]{3}[A-HJ-NP-TV-Z]{2}",compact):
-            raise CustomerAccountError("customer_vehicle_registration_invalid")
-        if compact[:2]=="SS" or compact[5:]=="SS":
+    compact = compact_identifier(raw)
+    if system == "siv":
+        if not re.fullmatch(SIV_PATTERN, compact) or compact[:2] == "SS" or compact[5:] == "SS" or compact[2:5] == "000":
             raise CustomerAccountError("customer_vehicle_registration_invalid")
         return f"{compact[:2]}-{compact[2:5]}-{compact[5:]}"
-    match=re.fullmatch(r"([0-9]{1,4})([A-Z]{1,3})([0-9A-Z]{2,3})",compact)
-    if not match:
+    match = re.fullmatch(FNI_PATTERN, compact)
+    if not match or int(match[1]) == 0 or re.fullmatch(r"0+", match[3]):
         raise CustomerAccountError("customer_vehicle_registration_invalid")
     return " ".join(match.groups())
 
 
 def _formula_number(value: object) -> str:
-    compact=re.sub(r"[\s-]+","",str(value or "").strip().upper())
-    if not re.fullmatch(r"[A-Z0-9]{11}",compact):
+    raw = str(value or "")
+    compact = compact_identifier(raw)
+    if (len(raw) > 64 or not re.fullmatch(FORMULA_PATTERN, compact)
+            or not FORMULA_FIRST_YEAR <= int(compact[:4]) <= _now().year):
         raise CustomerAccountError("customer_vehicle_formula_number_invalid")
     return compact
 
