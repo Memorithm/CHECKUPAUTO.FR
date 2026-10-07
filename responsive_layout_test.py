@@ -8,7 +8,7 @@ class ResponsiveLayoutTest(unittest.TestCase):
     def test_public_page_uses_safe_area_viewport_and_cache_busted_css(self):
         page = (ROOT / "index.html").read_text()
         self.assertIn("width=device-width,initial-scale=1,viewport-fit=cover", page)
-        self.assertIn("/style.css?v=responsive-3", page)
+        self.assertIn("/style.css?v=responsive-4", page)
 
     def test_public_css_covers_phone_tablet_and_touch_layouts(self):
         css = (ROOT / "style.css").read_text()
@@ -45,7 +45,23 @@ class ResponsiveLayoutTest(unittest.TestCase):
         page = (ROOT / "index.html").read_text()
         self.assertIn('<details class="mobile-navigation">', page)
         self.assertIn('aria-label="Navigation mobile"', page)
-        self.assertIn('/app.js?v=responsive-3', page)
+        self.assertIn('/app.js?v=responsive-4', page)
+
+    def test_booking_cta_is_visible_before_slot_selection_and_phone_is_secondary(self):
+        page = (ROOT / "index.html").read_text()
+        source = (ROOT / "app.js").read_text()
+        config = (ROOT / "data" / "site-config.json").read_text()
+        self.assertIn('class="booking-selection booking-awaiting"', page)
+        self.assertNotIn('class="booking-selection" hidden', page)
+        self.assertIn("Sélectionnez un créneau ci-dessus", page)
+        self.assertIn("Les contrôles à 80 € et 90 € se réservent directement ci-dessus.", page)
+        self.assertNotIn("Réservation uniquement par téléphone.", page)
+        self.assertIn("01 86 04 68 64", page)
+        self.assertIn("+33186046864", page)
+        self.assertIn("01 86 04 68 64", config)
+        self.assertNotIn("box.hidden=true", source)
+        self.assertIn("box.classList.add('booking-awaiting')", source)
+        self.assertIn("cta.classList.remove('disabled')", source)
 
     def test_essential_booking_is_never_hidden_by_reveal_observer(self):
         source = (ROOT / "app.js").read_text()

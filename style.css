@@ -230,3 +230,22 @@ footer span{min-width:0;overflow-wrap:anywhere}
   .reveal-pending { opacity: 1; transform: none; }
   .section article, .section h2, .section .kicker { transition: none; }
 }
+
+/* Booking hierarchy: online first, phone fallback second */
+.booking-selection.booking-awaiting{border-style:dashed;background:#fbfcf9}
+.booking-selection.booking-awaiting strong{font-size:16px}
+.booking-selection.booking-awaiting span{font-size:11px}
+.booking-selection .primary.disabled{background:#d8ded9;color:#617068;box-shadow:none;pointer-events:none;cursor:not-allowed}
+.booking-call-only{margin-top:10px;padding:10px 0 0;gap:12px;align-items:flex-start;box-shadow:none}
+.booking-call-only>div{gap:3px}
+.booking-call-only small{font-size:7px}
+.booking-call-only strong{font-size:12px;font-weight:600}
+.booking-call-only span{font-size:9px;line-height:1.45;max-width:760px}
+.booking-call-only a{font-size:10px;min-height:36px;padding:7px 0;color:#68776f}
+@media(max-width:760px){
+ .booking-selection.booking-awaiting{padding:14px 12px}
+ .booking-call-only{padding-top:10px;gap:8px}
+ .booking-call-only strong{font-size:12px}
+ .booking-call-only span{font-size:10px}
+ .booking-call-only a{font-size:12px;min-height:44px}
+}
