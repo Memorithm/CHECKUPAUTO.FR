@@ -53,6 +53,12 @@ class RightsReadinessTest(unittest.TestCase):
             state["supportedAdapters"]["referral_wallet"],
             ["access", "portability"],
         )
+        self.assertEqual(
+            state["supportedAdapters"]["review_followup"],
+            ["access", "portability", "erasure"],
+        )
+        self.assertTrue(state["reviewFollowupExecution"]["bound"])
+        self.assertFalse(state["reviewFollowupExecution"]["partial"])
         self.assertIn("referral_wallet", state["partialSystemAdapters"])
         self.assertTrue(state["referralWalletExecution"]["bound"])
         self.assertEqual(
