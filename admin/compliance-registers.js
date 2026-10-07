@@ -80,7 +80,7 @@ function resetProcessor(){
 
 function editProcessor(row){
  value('#processorId',row?.id);value('#processorName',row?.name);value('#processorService',row?.service);value('#processorStatus',row?.status);value('#processorDpa',row?.dpaStatus);
- value('#processorHosting',row?.hostingLocation);value('#processorReviewDue',row?.reviewDueAt);value('#processorTransferMechanism',row?.transferMechanism);values('#processorSubprocessors',row?.subprocessors);
+ value('#processorDpaEvidence',row?.dpaEvidenceSha256);value('#processorHosting',row?.hostingLocation);value('#processorReviewDue',row?.reviewDueAt);value('#processorTransferMechanism',row?.transferMechanism);values('#processorSubprocessors',row?.subprocessors);
  const checkbox=$('#processorTransferRequired');if(checkbox)checkbox.checked=row?.transferRequired===true;
  $('#processorForm')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -88,6 +88,7 @@ function editProcessor(row){
 function processorPayload(){
  const payload={
   name:text($('#processorName')?.value).trim(),service:text($('#processorService')?.value).trim(),status:text($('#processorStatus')?.value),dpaStatus:text($('#processorDpa')?.value),
+  dpaEvidenceSha256:text($('#processorDpaEvidence')?.value).trim().toLowerCase(),
   hostingLocation:text($('#processorHosting')?.value).trim(),reviewDueAt:text($('#processorReviewDue')?.value),transferRequired:$('#processorTransferRequired')?.checked===true,
   transferMechanism:text($('#processorTransferMechanism')?.value).trim(),subprocessors:lines($('#processorSubprocessors')?.value)
  };
@@ -136,12 +137,13 @@ function renderProcessors(rows){
  const processors=Array.isArray(rows)?rows:[];
  if(!processors.length){
   const tr=document.createElement('tr');
-  const td=cell('Aucun sous-traitant enregistré.');td.colSpan=8;tr.append(td);body.append(tr);return;
+  const td=cell('Aucun sous-traitant enregistré.');td.colSpan=9;tr.append(td);body.append(tr);return;
  }
  for(const row of processors){
   const transfer=row?.transferRequired?('Requis · '+(text(row?.transferMechanism)||'MÉCANISME MANQUANT')):'Non requis';
   const tr=document.createElement('tr');
-  tr.append(cell(row?.name),cell(row?.service),cell(statusLabel(row?.dpaStatus)),cell(row?.hostingLocation),cell(transfer),listCell(row?.subprocessors),cell(reviewLabel(row)),actionCell('Modifier',()=>editProcessor(row)));
+  const dpaEvidence=text(row?.dpaEvidenceSha256);
+  tr.append(cell(row?.name),cell(row?.service),cell(statusLabel(row?.dpaStatus)),cell(dpaEvidence?dpaEvidence.slice(0,16)+'…':'—'),cell(row?.hostingLocation),cell(transfer),listCell(row?.subprocessors),cell(reviewLabel(row)),actionCell('Modifier',()=>editProcessor(row)));
   body.append(tr);
  }
 }

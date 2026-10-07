@@ -46,6 +46,7 @@ class ComplianceAdminSnapshotTest(unittest.TestCase):
             "name": "Prestataire documenté",
             "service": "Service externe classifié par le responsable conformité",
             "dpaStatus": "signed",
+            "dpaEvidenceSha256": "d" * 64,
             "hostingLocation": "Lieu documenté par le contrat",
             "transferRequired": False,
             "transferMechanism": "",

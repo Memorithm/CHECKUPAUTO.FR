@@ -43,6 +43,7 @@ class ComplianceOpsCliAttestationTest(unittest.TestCase):
                 "name": "Prestataire documenté",
                 "service": "Service externe documenté",
                 "dpaStatus": "signed",
+            "dpaEvidenceSha256": "d" * 64,
                 "hostingLocation": "France",
                 "transferRequired": False,
                 "transferMechanism": "",
