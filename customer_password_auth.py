@@ -137,7 +137,8 @@ def _insert_token(db, account_id: str, purpose: str, now: str) -> str:
 
 def begin_registration(email: object, display_name: object, password: object) -> dict:
     clean_email = accounts._email(email)
-    clean_name = accounts._display_name(display_name)
+    # Identity is completed in the authenticated profile, not inferred from e-mail.
+    clean_name = "" if display_name is None or display_name == "" else accounts._display_name(display_name)
     clean_password = _password(password)
     if hmac.compare_digest(clean_password.casefold(), clean_email.casefold()):
         raise accounts.CustomerAccountError("customer_password_policy_invalid")

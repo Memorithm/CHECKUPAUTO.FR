@@ -205,7 +205,6 @@ details{{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}}summ
 <button type="submit">Se connecter par e-mail</button></form>
 <details><summary>Créer un compte par e-mail</summary><form action="{PASSWORD_REGISTER_ROUTE}" method="post" accept-charset="utf-8">
 <input type="hidden" name="returnTo" value="{return_value}">
-<label>Nom et prénom<input name="displayName" autocomplete="name" maxlength="120" required></label>
 <label>Adresse e-mail<input name="email" type="email" autocomplete="email" maxlength="254" required></label>
 <label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><span class="fine">12 caractères minimum.</span></label>
 <label>Confirmer le mot de passe<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
@@ -223,7 +222,7 @@ def _reset_password_page(token: str, return_to: str="", message: str="") -> byte
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive"><title>Nouveau mot de passe | Checkup Auto</title><style>:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6f7b72;--line:#d9dfd3;--green:#1f5443}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,sans-serif}}main{{width:min(620px,calc(100% - 24px));margin:auto;padding:32px 0 60px}}.card{{background:#fff;border:1px solid var(--line);padding:clamp(22px,6vw,46px)}}h1{{font:400 clamp(38px,8vw,56px)/1 Georgia,serif}}form,label{{display:grid;gap:10px}}form{{gap:14px}}input{{padding:13px;border:1px solid var(--line);font:16px Arial}}button{{min-height:46px;border:0;background:var(--green);color:#fff;font-weight:700}}p{{color:var(--muted);line-height:1.6}}.error{{color:#8c3a31}}</style></head><body><main><section class="card"><a href="/compte">← Espace client</a><h1>Choisissez un nouveau mot de passe.</h1>{note}<form action="{PASSWORD_RESET_ROUTE}" method="post"><input type="hidden" name="token" value="{html.escape(token,quote=True)}"><input type="hidden" name="returnTo" value="{html.escape(return_to,quote=True)}"><label>Nouveau mot de passe<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><label>Confirmer le mot de passe<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><button type="submit">Enregistrer et me connecter</button></form></section></main></body></html>""".encode("utf-8")
 
 
-def _customer_form(handler, expected: set[str]) -> dict:
+def _customer_form(handler, expected: set[str], optional: frozenset[str] = frozenset()) -> dict:
     content_type=str(handler.headers.get("Content-Type") or "").split(";",1)[0].strip().lower()
     if content_type!="application/x-www-form-urlencoded":
         raise ValueError("customer_form_content_type_invalid")
@@ -234,7 +233,7 @@ def _customer_form(handler, expected: set[str]) -> dict:
     if not 1<=length<=16384:
         raise ValueError("customer_form_size_invalid")
     payload=handler._read_form()
-    if not isinstance(payload,dict) or set(payload)!=expected:
+    if not isinstance(payload,dict) or not expected <= set(payload) or not set(payload) <= expected | optional:
         raise ValueError("customer_form_invalid")
     return payload
 
@@ -656,7 +655,8 @@ def handle(handler) -> bool:
 
         if path==PASSWORD_REGISTER_ROUTE:
             try:
-                payload=_customer_form(handler,{"displayName","email","password","passwordConfirm","returnTo"})
+                # Accept the former name field only for already-open registration pages.
+                payload=_customer_form(handler,{"email","password","passwordConfirm","returnTo"},frozenset({"displayName"}))
                 return_to=_account_return_target(payload.get("returnTo"))
                 if not hmac.compare_digest(str(payload.get("password") or ""),str(payload.get("passwordConfirm") or "")):
                     raise customer_accounts.CustomerAccountError("customer_password_confirmation_mismatch")
