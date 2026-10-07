@@ -13,6 +13,7 @@ class AdminComplianceRightsUIContractTest(unittest.TestCase):
             "mobile_installation",
             "mercure_customer_contact",
             "compliance_contracts",
+            "review_followup",
             "privacy_suppression",
             "mobile_deadline_rectification",
             "referral_wallet",
