@@ -148,6 +148,12 @@ def _login_page(message: str="", info: str="", return_to: str="") -> bytes:
     note=f'<p class="error">{html.escape(message)}</p>' if message else ""
     info_note=f'<p class="info">{html.escape(info)}</p>' if info else ""
     providers=_providers_html(return_to)
+    heading="Connectez-vous ou créez votre compte." if return_to else "Votre véhicule, dans la durée."
+    intro=(
+        "Votre créneau est conservé. Si c’est votre première connexion, votre compte Checkup Auto est créé automatiquement avec votre identité Google ou Apple."
+        if return_to else
+        "Retrouvez votre fidélité et l’analyse de vos rapports de contrôle technique dans un seul espace."
+    )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow,noarchive">
@@ -165,8 +171,8 @@ p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-co
 @media(max-width:720px){{.providers{{grid-template-columns:1fr}}.top{{align-items:flex-start;gap:12px;flex-direction:column}}}}@media(max-width:520px){{main{{width:min(100% - 24px,940px);padding:24px 0 44px}}.card{{padding:24px}}h1{{font-size:clamp(38px,13vw,52px)}}.sso{{min-height:46px;display:grid;place-items:center}}}}
 {FORM_RESPONSIVE_CSS}
 </style></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a href="/">Retour au site</a></div>
-<section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>Votre véhicule, dans la durée.</h1>
-<p>Retrouvez votre fidélité et l’analyse de vos rapports de contrôle technique dans un seul espace.</p>
+<section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>{html.escape(heading)}</h1>
+<p>{html.escape(intro)}</p>
 {info_note}{note}<div class="providers">{providers}</div>
 <div class="trust">Connexion fédérée uniquement · aucun mot de passe CheckupAuto à mémoriser · session sécurisée et limitée dans le temps.</div>
 </section></main></body></html>""".encode("utf-8")

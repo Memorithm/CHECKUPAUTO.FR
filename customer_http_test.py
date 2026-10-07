@@ -201,6 +201,8 @@ class CustomerHttpTest(unittest.TestCase):
              ]):
             self.assertTrue(http.handle(login))
         body=login.response["data"].decode()
+        self.assertIn("Connectez-vous ou créez votre compte.",body)
+        self.assertIn("votre compte Checkup Auto est créé automatiquement",body)
         self.assertIn("/auth/customer/google?",body)
         self.assertIn("returnTo=",body)
 
