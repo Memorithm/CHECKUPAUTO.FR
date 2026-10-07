@@ -37,6 +37,16 @@ def _account(email: str):
     return row,identities
 
 
+def _password_record(account_id: str):
+    customer_accounts.init_db()
+    with customer_accounts._connect() as db:
+        return db.execute(
+            """SELECT verified_at,created_at,updated_at,last_login_at
+               FROM customer_password_credential WHERE account_id=?""",
+            (account_id,),
+        ).fetchone()
+
+
 def _report_rows(account_id: str):
     customer_ct_reports.init_db()
     with customer_ct_reports._connect() as db:
@@ -64,6 +74,7 @@ def snapshot(subject_email: object) -> dict:
 
     account_id=str(row["account_id"])
     profile=customer_accounts._decrypt_profile(account_id,row["profile_blob"])
+    password_record=_password_record(account_id)
     reports=[]
     for report in _report_rows(account_id):
         payload=customer_ct_reports._decrypt(report)
@@ -103,6 +114,13 @@ def snapshot(subject_email: object) -> dict:
             "walletCode":str(row["wallet_code"] or ""),
             "createdAt":str(row["created_at"]),
             "updatedAt":str(row["updated_at"]),
+        },
+        "passwordCredential":{
+            "configured":bool(password_record),
+            "verified":bool(password_record and str(password_record["verified_at"] or "")),
+            "createdAt":str(password_record["created_at"] or "") if password_record else "",
+            "updatedAt":str(password_record["updated_at"] or "") if password_record else "",
+            "lastLoginAt":str(password_record["last_login_at"] or "") if password_record else "",
         },
         "identities":[
             {
@@ -197,7 +215,15 @@ def erase(
             "SELECT COUNT(*) n FROM customer_passage_confirmation WHERE account_id=?",
             (account_id,),
         ).fetchone()["n"])
-        if any((remaining_account,remaining_identity,remaining_sessions,remaining_passages)):
+        remaining_passwords=int(db.execute(
+            "SELECT COUNT(*) n FROM customer_password_credential WHERE account_id=?",
+            (account_id,),
+        ).fetchone()["n"])
+        remaining_password_tokens=int(db.execute(
+            "SELECT COUNT(*) n FROM customer_password_token WHERE account_id=?",
+            (account_id,),
+        ).fetchone()["n"])
+        if any((remaining_account,remaining_identity,remaining_sessions,remaining_passages,remaining_passwords,remaining_password_tokens)):
             raise RuntimeError("effacement compte client incomplet")
 
     removed_identity=before_identity

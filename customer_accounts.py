@@ -318,6 +318,26 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_customer_session_account
               ON customer_session(account_id,expires_at);
+            CREATE TABLE IF NOT EXISTS customer_password_credential(
+              account_id TEXT PRIMARY KEY REFERENCES customer_account(account_id) ON DELETE CASCADE,
+              password_hash TEXT NOT NULL,
+              verified_at TEXT NOT NULL DEFAULT '',
+              failed_attempts INTEGER NOT NULL DEFAULT 0,
+              locked_until TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              last_login_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS customer_password_token(
+              token_hash TEXT PRIMARY KEY,
+              account_id TEXT NOT NULL REFERENCES customer_account(account_id) ON DELETE CASCADE,
+              purpose TEXT NOT NULL CHECK(purpose IN ('verify','reset')),
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              consumed_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_customer_password_token_account
+              ON customer_password_token(account_id,purpose,expires_at);
             CREATE TABLE IF NOT EXISTS customer_passage_confirmation(
               passage_hash TEXT PRIMARY KEY,
               account_id TEXT NOT NULL REFERENCES customer_account(account_id) ON DELETE CASCADE,
@@ -961,6 +981,10 @@ def profile(account_id: object) -> dict:
                 (account_id,),
             ).fetchall()
         ]
+        password_row = db.execute(
+            "SELECT verified_at FROM customer_password_credential WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
     profile_data = _decrypt_profile(account_id, row["profile_blob"])
     wallet_code = str(row["wallet_code"] or "") or _ensure_wallet(account_id)
     wallet = referral_engine.account_summary(wallet_code)
@@ -980,6 +1004,8 @@ def profile(account_id: object) -> dict:
         "contactDetailsComplete": _contact_complete(profile_data),
         "vehicles": _vehicle_summaries(profile_data),
         "providers": providers,
+        "passwordConfigured": bool(password_row and str(password_row["verified_at"] or "")),
+        "emailVerified": bool(providers) or bool(password_row and str(password_row["verified_at"] or "")),
         "loyalty": {
             "referralCode": wallet["code"],
             "currency": wallet["currency"],

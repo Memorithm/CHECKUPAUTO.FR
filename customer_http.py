@@ -12,6 +12,8 @@ from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 import customer_accounts
+import customer_password_auth
+import email_gateway
 import customer_ct_reports
 import customer_oidc
 import referral_wallet_claims
@@ -31,6 +33,11 @@ REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
+PASSWORD_LOGIN_ROUTE="/compte/connexion"
+PASSWORD_REGISTER_ROUTE="/compte/inscription"
+PASSWORD_VERIFY_ROUTE="/compte/verifier-email"
+PASSWORD_RESET_REQUEST_ROUTE="/compte/mot-de-passe-oublie"
+PASSWORD_RESET_ROUTE="/compte/reinitialiser"
 COOKIE_NAME="checkupauto_customer"
 PUBLIC_PROVIDER_IDS=("google","apple")
 GOOGLE_REVIEW_FALLBACK_URL="https://search.google.com/local/writereview?placeid=ChIJZ82oNlGS5kcRj99QzDs2Fwo"
@@ -112,6 +119,20 @@ def _send_cookie_redirect(handler, location: str, session: dict, provider: str, 
     handler.end_headers()
 
 
+def _send_session_redirect(handler, location: str, session: dict):
+    token=str(session["token"])
+    max_age=int(session["maxAge"])
+    handler.send_response(303)
+    handler.send_header("Location",location)
+    handler.send_header("Cache-Control","no-store")
+    handler.send_header(
+        "Set-Cookie",
+        f"{COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax",
+    )
+    handler.send_header("Content-Length","0")
+    handler.end_headers()
+
+
 def _clear_cookie(handler, location="/compte"):
     handler.send_response(303)
     handler.send_header("Location",location)
@@ -145,37 +166,106 @@ def _providers_html(return_to: str="") -> str:
 
 
 def _login_page(message: str="", info: str="", return_to: str="") -> bytes:
-    note=f'<p class="error">{html.escape(message)}</p>' if message else ""
-    info_note=f'<p class="info">{html.escape(info)}</p>' if info else ""
+    note=f'<p class="error" role="alert">{html.escape(message)}</p>' if message else ""
+    info_note=f'<p class="info" role="status">{html.escape(info)}</p>' if info else ""
     providers=_providers_html(return_to)
+    return_value=html.escape(return_to,quote=True)
     heading="Connectez-vous ou créez votre compte." if return_to else "Votre véhicule, dans la durée."
     intro=(
-        "Votre créneau est conservé. Si c’est votre première connexion, votre compte Checkup Auto est créé automatiquement avec votre identité Google ou Apple."
+        "Votre créneau est conservé. Connectez-vous avec Google, Apple ou votre adresse e-mail. Vous pouvez aussi créer votre compte par e-mail et mot de passe."
         if return_to else
-        "Retrouvez votre fidélité et l’analyse de vos rapports de contrôle technique dans un seul espace."
+        "Retrouvez votre fidélité, vos véhicules et l’analyse de vos rapports de contrôle technique dans un seul espace."
     )
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>Mon compte | Checkup Auto</title>
 <style>
-:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6f7b72;--line:#d9dfd3;--green:#1f5443}}
+:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6f7b72;--line:#d9dfd3;--green:#1f5443;--soft:#edf1eb}}
 *{{box-sizing:border-box}}body{{margin:0;background:linear-gradient(140deg,#fbfcf9,var(--paper));color:var(--ink);font-family:Arial,Helvetica,sans-serif}}
-main{{width:min(940px,calc(100% - 32px));margin:auto;padding:38px 0 70px}}a{{color:inherit;text-decoration:none}}
-.top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}}.brand{{font-weight:750;letter-spacing:-.03em}}
-.card{{background:#fff;border:1px solid var(--line);padding:clamp(28px,6vw,58px);box-shadow:0 28px 80px rgba(31,84,67,.08)}}
-.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(46px,7vw,76px)/.98 Georgia,serif;letter-spacing:-.05em;margin:16px 0 20px}}
-p{{line-height:1.7;color:var(--muted)}}.providers{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:30px}}
-.sso{{border:1px solid var(--line);padding:15px 17px;background:#fbfcfa;font-weight:700;text-align:center}}.sso:hover{{border-color:#9ab1a2}}
-.sso.disabled{{opacity:.48}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}.info{{padding:14px 16px;border-left:3px solid var(--green);background:#edf1eb;color:var(--ink)}}
-@media(max-width:720px){{.providers{{grid-template-columns:1fr}}.top{{align-items:flex-start;gap:12px;flex-direction:column}}}}@media(max-width:520px){{main{{width:min(100% - 24px,940px);padding:24px 0 44px}}.card{{padding:24px}}h1{{font-size:clamp(38px,13vw,52px)}}.sso{{min-height:46px;display:grid;place-items:center}}}}
+main{{width:min(980px,calc(100% - 32px));margin:auto;padding:38px 0 70px}}a{{color:inherit}}.top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}}.brand{{font-weight:750;letter-spacing:-.03em;text-decoration:none}}
+.card{{background:#fff;border:1px solid var(--line);padding:clamp(26px,5vw,54px);box-shadow:0 28px 80px rgba(31,84,67,.08)}}
+.eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(42px,7vw,70px)/.98 Georgia,serif;letter-spacing:-.05em;margin:16px 0 20px}}h2{{font:400 28px Georgia,serif;margin:0 0 14px}}
+p{{line-height:1.65;color:var(--muted)}}.auth-grid{{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:28px}}.auth-panel{{border:1px solid var(--line);padding:22px;background:#fbfcfa;min-width:0}}
+form{{display:grid;gap:12px}}label{{display:grid;gap:6px;font-size:12px;font-weight:700}}input{{width:100%;min-width:0;border:1px solid var(--line);background:#fff;padding:13px;font:16px Arial,sans-serif}}button{{border:0;background:var(--green);color:#fff;padding:14px 17px;min-height:46px;font-weight:700;cursor:pointer}}
+.providers{{display:grid;gap:10px}}.sso{{border:1px solid var(--line);padding:14px 16px;background:#fff;font-weight:700;text-align:center;text-decoration:none;min-height:46px;display:grid;place-items:center}}.sso:hover{{border-color:#9ab1a2}}.sso.disabled{{opacity:.48}}
+details{{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}}summary{{cursor:pointer;font-weight:700;color:var(--green)}}details form{{margin-top:15px}}.fine{{font-size:11px;color:var(--muted);line-height:1.55}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}.info{{padding:14px 16px;border-left:3px solid var(--green);background:var(--soft);color:var(--ink)}}
+@media(max-width:760px){{.auth-grid{{grid-template-columns:1fr}}.top{{align-items:flex-start;gap:12px;flex-direction:column}}}}@media(max-width:520px){{main{{width:min(100% - 24px,980px);padding:24px 0 44px}}.card,.auth-panel{{padding:20px}}h1{{font-size:clamp(38px,13vw,52px)}}}}
 {FORM_RESPONSIVE_CSS}
 </style></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a href="/">Retour au site</a></div>
-<section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>{html.escape(heading)}</h1>
-<p>{html.escape(intro)}</p>
-{info_note}{note}<div class="providers">{providers}</div>
-<div class="trust">Connexion fédérée uniquement · aucun mot de passe CheckupAuto à mémoriser · session sécurisée et limitée dans le temps.</div>
+<section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>{html.escape(heading)}</h1><p>{html.escape(intro)}</p>
+{info_note}{note}<div class="auth-grid">
+<section class="auth-panel"><div class="eyebrow">E-MAIL</div><h2>Se connecter</h2>
+<form action="{PASSWORD_LOGIN_ROUTE}" method="post" accept-charset="utf-8">
+<input type="hidden" name="returnTo" value="{return_value}">
+<label>Adresse e-mail<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
+<label>Mot de passe<input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+<button type="submit">Se connecter par e-mail</button></form>
+<details><summary>Créer un compte par e-mail</summary><form action="{PASSWORD_REGISTER_ROUTE}" method="post" accept-charset="utf-8">
+<input type="hidden" name="returnTo" value="{return_value}">
+<label>Nom et prénom<input name="displayName" autocomplete="name" maxlength="120" required></label>
+<label>Adresse e-mail<input name="email" type="email" autocomplete="email" maxlength="254" required></label>
+<label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><span class="fine">12 caractères minimum.</span></label>
+<label>Confirmer le mot de passe<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+<button type="submit">Créer mon compte</button><p class="fine">Un lien de confirmation sera envoyé à cette adresse. En créant le compte, vous acceptez le traitement nécessaire à sa gestion ; consultez notre <a href="/confidentialite">politique de confidentialité</a>.</p></form></details>
+<details><summary>Mot de passe oublié</summary><form action="{PASSWORD_RESET_REQUEST_ROUTE}" method="post" accept-charset="utf-8">
+<input type="hidden" name="returnTo" value="{return_value}"><label>Adresse e-mail<input name="email" type="email" autocomplete="email" maxlength="254" required></label><button type="submit">Recevoir un lien de réinitialisation</button></form></details>
+</section>
+<section class="auth-panel"><div class="eyebrow">CONNEXION RAPIDE</div><h2>Google ou Apple</h2><div class="providers">{providers}</div><p class="fine">Ces connexions restent disponibles. Elles ne sont pas obligatoires : vous pouvez utiliser uniquement votre e-mail et votre mot de passe.</p></section>
+</div><div class="trust">Session sécurisée et limitée dans le temps · mot de passe jamais stocké en clair · liens de confirmation et de réinitialisation à usage unique.</div>
 </section></main></body></html>""".encode("utf-8")
+
+
+def _reset_password_page(token: str, return_to: str="", message: str="") -> bytes:
+    note=f'<p class="error" role="alert">{html.escape(message)}</p>' if message else ""
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive"><title>Nouveau mot de passe | Checkup Auto</title><style>:root{{--paper:#f6f7f2;--ink:#213b30;--muted:#6f7b72;--line:#d9dfd3;--green:#1f5443}}*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,sans-serif}}main{{width:min(620px,calc(100% - 24px));margin:auto;padding:32px 0 60px}}.card{{background:#fff;border:1px solid var(--line);padding:clamp(22px,6vw,46px)}}h1{{font:400 clamp(38px,8vw,56px)/1 Georgia,serif}}form,label{{display:grid;gap:10px}}form{{gap:14px}}input{{padding:13px;border:1px solid var(--line);font:16px Arial}}button{{min-height:46px;border:0;background:var(--green);color:#fff;font-weight:700}}p{{color:var(--muted);line-height:1.6}}.error{{color:#8c3a31}}</style></head><body><main><section class="card"><a href="/compte">← Espace client</a><h1>Choisissez un nouveau mot de passe.</h1>{note}<form action="{PASSWORD_RESET_ROUTE}" method="post"><input type="hidden" name="token" value="{html.escape(token,quote=True)}"><input type="hidden" name="returnTo" value="{html.escape(return_to,quote=True)}"><label>Nouveau mot de passe<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><label>Confirmer le mot de passe<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label><button type="submit">Enregistrer et me connecter</button></form></section></main></body></html>""".encode("utf-8")
+
+
+def _customer_form(handler, expected: set[str]) -> dict:
+    content_type=str(handler.headers.get("Content-Type") or "").split(";",1)[0].strip().lower()
+    if content_type!="application/x-www-form-urlencoded":
+        raise ValueError("customer_form_content_type_invalid")
+    try:
+        length=int(handler.headers.get("Content-Length") or "0")
+    except (TypeError,ValueError):
+        length=0
+    if not 1<=length<=16384:
+        raise ValueError("customer_form_size_invalid")
+    payload=handler._read_form()
+    if not isinstance(payload,dict) or set(payload)!=expected:
+        raise ValueError("customer_form_invalid")
+    return payload
+
+
+def _password_mail(handler, result: dict, return_to: str) -> None:
+    purpose=str(result.get("purpose") or "")
+    token=str(result.get("token") or "")
+    email=str(result.get("email") or "")
+    if purpose=="verify":
+        path=PASSWORD_VERIFY_ROUTE+"?"+urlencode({"token":token,"returnTo":return_to})
+        subject="Confirmez votre compte Checkup Auto"
+        action="Confirmer mon compte"
+        text="Confirmez votre compte Checkup Auto en ouvrant ce lien :\n"
+    elif purpose=="reset":
+        path=PASSWORD_RESET_ROUTE+"?"+urlencode({"token":token,"returnTo":return_to})
+        subject="Réinitialisez votre mot de passe Checkup Auto"
+        action="Choisir un nouveau mot de passe"
+        text="Choisissez un nouveau mot de passe Checkup Auto en ouvrant ce lien :\n"
+    else:
+        raise ValueError("customer_password_mail_purpose_invalid")
+    link=_browser_origin(handler)+path
+    safe_link=html.escape(link,quote=True)
+    email_gateway.send_email(
+        email,subject,text+link+"\n\nCe lien expire dans 30 minutes et ne peut être utilisé qu’une fois.",
+        f'<p>{html.escape(text.strip())}</p><p><a href="{safe_link}">{html.escape(action)}</a></p><p>Ce lien expire dans 30 minutes et ne peut être utilisé qu’une fois.</p>',
+    )
+
+
+def _reset_mail(handler, result: dict, return_to: str) -> None:
+    if not result.get("deliver"):
+        return
+    payload={"purpose":"reset","token":result["token"],"email":result["email"]}
+    _password_mail(handler,payload,return_to)
 
 
 def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
@@ -192,7 +282,10 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     postal=html.escape(str(account.get("postalCode") or ""))
     city=html.escape(str(account.get("city") or ""))
     loyalty=account["loyalty"]
-    providers=" · ".join(html.escape(customer_oidc.PROVIDERS.get(str(p),{}).get("label",str(p).title())) for p in account["providers"]) or "—"
+    login_methods=[html.escape(customer_oidc.PROVIDERS.get(str(p),{}).get("label",str(p).title())) for p in account["providers"]]
+    if account.get("passwordConfigured"):
+        login_methods.append("E-mail")
+    providers=" · ".join(login_methods) or "—"
     balance=f'{int(loyalty["balanceCents"])/100:.2f} €'
     pending=f'{int(loyalty["pendingCents"])/100:.2f} €'
     google_review_url=html.escape(_google_review_url(),quote=True)
@@ -474,6 +567,104 @@ def handle(handler) -> bool:
     path=parsed.path
     command=getattr(handler,"command","")
 
+    if command=="GET" and path==PASSWORD_VERIFY_ROUTE:
+        query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=4)
+        token=(query.get("token") or [""])[0]
+        return_to=_account_return_target((query.get("returnTo") or [""])[0])
+        try:
+            account=customer_password_auth.verify_registration(token)
+            session=customer_accounts.issue_session(account["accountId"])
+            _send_session_redirect(handler,return_to or ACCOUNT_ROUTE,session)
+        except Exception:
+            handler.send_bytes(
+                _login_page("Ce lien de confirmation est invalide ou expiré.",return_to=return_to),
+                "text/html; charset=utf-8",400,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"},
+            )
+        return True
+
+    if command=="GET" and path==PASSWORD_RESET_ROUTE:
+        query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=4)
+        token=(query.get("token") or [""])[0]
+        return_to=_account_return_target((query.get("returnTo") or [""])[0])
+        handler.send_bytes(
+            _reset_password_page(token,return_to),"text/html; charset=utf-8",200,"no-store",
+            {"X-Robots-Tag":"noindex, nofollow, noarchive"},
+        )
+        return True
+
+    if command=="POST" and path in {PASSWORD_LOGIN_ROUTE,PASSWORD_REGISTER_ROUTE,PASSWORD_RESET_REQUEST_ROUTE,PASSWORD_RESET_ROUTE}:
+        if not _same_origin(handler):
+            handler.send_bytes(_login_page("Requête refusée."),"text/html; charset=utf-8",403,"no-store")
+            return True
+        if path==PASSWORD_LOGIN_ROUTE:
+            try:
+                payload=_customer_form(handler,{"email","password","returnTo"})
+                return_to=_account_return_target(payload.get("returnTo"))
+                account=customer_password_auth.authenticate(payload.get("email"),payload.get("password"))
+                session=customer_accounts.issue_session(account["accountId"])
+                _send_session_redirect(handler,return_to or ACCOUNT_ROUTE,session)
+            except customer_accounts.CustomerAccountError as exc:
+                message=("Confirmez d’abord votre adresse e-mail en utilisant le lien reçu." if str(exc)=="customer_email_not_verified" else "Connexion impossible.")
+                handler.send_bytes(_login_page(message,return_to=locals().get("return_to", "")),"text/html; charset=utf-8",401,"no-store")
+            except Exception:
+                handler.send_bytes(_login_page("Adresse e-mail ou mot de passe incorrect.",return_to=locals().get("return_to", "")),"text/html; charset=utf-8",401,"no-store")
+            return True
+
+        if path==PASSWORD_REGISTER_ROUTE:
+            try:
+                payload=_customer_form(handler,{"displayName","email","password","passwordConfirm","returnTo"})
+                return_to=_account_return_target(payload.get("returnTo"))
+                if not hmac.compare_digest(str(payload.get("password") or ""),str(payload.get("passwordConfirm") or "")):
+                    raise customer_accounts.CustomerAccountError("customer_password_confirmation_mismatch")
+                if not email_gateway.configured():
+                    handler.send_bytes(_login_page("La création de compte par e-mail est momentanément indisponible.",return_to=return_to),"text/html; charset=utf-8",503,"no-store")
+                    return True
+                result=customer_password_auth.begin_registration(payload.get("email"),payload.get("displayName"),payload.get("password"))
+                _password_mail(handler,result,return_to)
+                handler.send_bytes(_login_page(info="Consultez votre boîte e-mail pour confirmer le compte ou choisir un nouveau mot de passe.",return_to=return_to),"text/html; charset=utf-8",200,"no-store")
+            except customer_accounts.CustomerAccountError as exc:
+                messages={
+                    "customer_password_policy_invalid":"Le mot de passe doit contenir au moins 12 caractères.",
+                    "customer_password_confirmation_mismatch":"Les deux mots de passe ne correspondent pas.",
+                    "customer_email_invalid":"L’adresse e-mail est invalide.",
+                    "customer_display_name_invalid":"Le nom est invalide.",
+                }
+                handler.send_bytes(_login_page(messages.get(str(exc),"Création du compte impossible."),return_to=locals().get("return_to", "")),"text/html; charset=utf-8",400,"no-store")
+            except email_gateway.EmailDeliveryError:
+                handler.send_bytes(_login_page("L’e-mail de confirmation n’a pas pu être envoyé. Réessayez dans quelques instants.",return_to=locals().get("return_to", "")),"text/html; charset=utf-8",503,"no-store")
+            except Exception:
+                handler.send_bytes(_login_page("Création du compte impossible.",return_to=locals().get("return_to", "")),"text/html; charset=utf-8",400,"no-store")
+            return True
+
+        if path==PASSWORD_RESET_REQUEST_ROUTE:
+            try:
+                payload=_customer_form(handler,{"email","returnTo"})
+                return_to=_account_return_target(payload.get("returnTo"))
+                if email_gateway.configured():
+                    result=customer_password_auth.begin_reset(payload.get("email"))
+                    try:
+                        _reset_mail(handler,result,return_to)
+                    except email_gateway.EmailDeliveryError:
+                        pass
+                handler.send_bytes(_login_page(info="Si un compte par e-mail correspond à cette adresse, un lien de réinitialisation vient d’être envoyé.",return_to=return_to),"text/html; charset=utf-8",200,"no-store")
+            except Exception:
+                handler.send_bytes(_login_page(info="Si un compte par e-mail correspond à cette adresse, un lien de réinitialisation vient d’être envoyé.",return_to=locals().get("return_to", "")),"text/html; charset=utf-8",200,"no-store")
+            return True
+
+        try:
+            payload=_customer_form(handler,{"token","password","passwordConfirm","returnTo"})
+            return_to=_account_return_target(payload.get("returnTo"))
+            if not hmac.compare_digest(str(payload.get("password") or ""),str(payload.get("passwordConfirm") or "")):
+                raise customer_accounts.CustomerAccountError("customer_password_confirmation_mismatch")
+            account=customer_password_auth.reset_password(payload.get("token"),payload.get("password"))
+            session=customer_accounts.issue_session(account["accountId"])
+            _send_session_redirect(handler,return_to or ACCOUNT_ROUTE,session)
+        except customer_accounts.CustomerAccountError:
+            handler.send_bytes(_reset_password_page(str(locals().get("payload",{}).get("token") or ""),locals().get("return_to", ""),"Le mot de passe doit contenir au moins 12 caractères et les deux saisies doivent correspondre."),"text/html; charset=utf-8",400,"no-store")
+        except Exception:
+            handler.send_bytes(_reset_password_page(str(locals().get("payload",{}).get("token") or ""),locals().get("return_to", ""),"Ce lien est invalide ou expiré."),"text/html; charset=utf-8",400,"no-store")
+        return True
+
     if command=="GET" and path==PASSAGE_ROUTE:
         token,account=_account(handler)
         query=parse_qs(parsed.query,keep_blank_values=True)
@@ -516,7 +707,7 @@ def handle(handler) -> bool:
             intent=""
         if not account:
             info=(
-                "Pour nous contacter, connectez-vous ou créez votre compte client avec un fournisseur de connexion disponible. "
+                "Pour nous contacter, connectez-vous ou créez votre compte client par e-mail, Google ou Apple. "
                 "Cette étape permet de sécuriser et d’identifier les échanges."
                 if intent=="contact" else ""
             )
