@@ -91,7 +91,7 @@ class CustomerAccountRightsTest(unittest.TestCase):
         alice=self.account()
         customer_accounts.save_vehicle(
             alice["accountId"],registration_system="siv",
-            registration="AA-123-AA",formula_number="AB12CD34EF5",
+            registration="AA-123-AA",formula_number="2020AB12345",
         )
         customer_accounts.save_vehicle(
             alice["accountId"],registration_system="fni",
@@ -101,7 +101,7 @@ class CustomerAccountRightsTest(unittest.TestCase):
         self.assertEqual(data["vehicleCount"],2)
         rendered=repr(data["account"]["vehicles"])
         self.assertIn("AA-123-AA",rendered)
-        self.assertIn("AB12CD34EF5",rendered)
+        self.assertIn("2020AB12345",rendered)
         self.assertIn("1234 AB 78",rendered)
         self.assertIn("2008-05-17",rendered)
 
