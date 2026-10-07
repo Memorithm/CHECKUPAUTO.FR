@@ -9,6 +9,7 @@ import customer_account_rights
 import data_subject_rights
 import referral_wallet_lifecycle
 import referral_wallet_rights
+import review_followup_rights
 import rights_rectification
 
 
@@ -76,6 +77,8 @@ def _known_adapters(request_type: str) -> list[str]:
         adapters.add(rights_rectification.ADAPTER)
     if request_type in referral_wallet_rights.SUPPORTED_RIGHTS:
         adapters.add(referral_wallet_rights.ADAPTER)
+    if request_type in review_followup_rights.SUPPORTED_RIGHTS:
+        adapters.add(review_followup_rights.ADAPTER)
     return sorted(adapters)
 
 
