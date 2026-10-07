@@ -94,6 +94,7 @@
           <label>Service<input id="processorService" maxlength="300" required></label>
           <label>Statut<select id="processorStatus"><option value="active">Actif</option><option value="inactive">Inactif</option></select></label>
           <label>DPA<select id="processorDpa"><option value="pending">En attente</option><option value="signed">Signé</option><option value="not_required">Non requis</option></select></label>
+          <label>Preuve DPA · SHA-256<input id="processorDpaEvidence" maxlength="64" pattern="[0-9a-fA-F]{64}" autocomplete="off" placeholder="64 caractères hexadécimaux"></label>
           <label>Hébergement<input id="processorHosting" maxlength="180"></label>
           <label>Revue due le<input id="processorReviewDue" type="date"></label>
           <label><input id="processorTransferRequired" type="checkbox"> Transfert hors cadre local/EEE à documenter</label>
@@ -104,7 +105,7 @@
 
       <div class="integration-box">
         <div class="panel-head compact"><div><h2>Sous-traitants &amp; sous-sous-traitants</h2><p class="hint">État DPA, localisation d’hébergement, transferts, sous-traitants ultérieurs et échéances de revue. Cette vue n’invente aucune donnée fournisseur : elle affiche uniquement les faits enregistrés dans le registre.</p></div></div>
-        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Prestataire</th><th>Service</th><th>DPA</th><th>Hébergement</th><th>Transfert</th><th>Sous-traitants ultérieurs</th><th>Revue</th><th>Action</th></tr></thead><tbody id="operationsProcessorRows"><tr><td colspan="8">Chargement…</td></tr></tbody></table></div>
+        <div class="table-scroll"><table class="funnel-table"><thead><tr><th>Prestataire</th><th>Service</th><th>DPA</th><th>Preuve DPA</th><th>Hébergement</th><th>Transfert</th><th>Sous-traitants ultérieurs</th><th>Revue</th><th>Action</th></tr></thead><tbody id="operationsProcessorRows"><tr><td colspan="9">Chargement…</td></tr></tbody></table></div>
       </div>
     </section>
   </main>
