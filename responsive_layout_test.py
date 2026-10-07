@@ -8,7 +8,7 @@ class ResponsiveLayoutTest(unittest.TestCase):
     def test_public_page_uses_safe_area_viewport_and_cache_busted_css(self):
         page = (ROOT / "index.html").read_text()
         self.assertIn("width=device-width,initial-scale=1,viewport-fit=cover", page)
-        self.assertIn("/style.css?v=centre-map-1", page)
+        self.assertRegex(page, r'/style\.css\?v=[a-z0-9-]+')
 
     def test_public_css_covers_phone_tablet_and_touch_layouts(self):
         css = (ROOT / "style.css").read_text()
@@ -72,7 +72,7 @@ class ResponsiveLayoutTest(unittest.TestCase):
         page = (ROOT / "index.html").read_text()
         self.assertIn('<details class="mobile-navigation">', page)
         self.assertIn('aria-label="Navigation mobile"', page)
-        self.assertIn('/app.js?v=responsive-4', page)
+        self.assertRegex(page, r'/app\.js\?v=[a-z0-9-]+')
 
     def test_public_booking_order_is_control_type_then_slot_then_reserve(self):
         page=(ROOT / "index.html").read_text()

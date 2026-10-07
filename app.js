@@ -116,8 +116,43 @@ function initTracking(){
    location.href='/go/booking?'+p.toString();return;
   }
   if(a.matches('#phoneLink')||a.href?.startsWith('tel:'))trackEvent('phone_click');
-  if(a.href?.includes('google.com/maps'))trackEvent('directions_click');
+  if(a.href?.includes('google.com/maps')&&!a.matches('[data-navigation-app]'))trackEvent('directions_click');
  });
  service?.addEventListener('change',e=>{if(e.isTrusted)trackEvent('service_selected',{service:service.options[service.selectedIndex]?.textContent||''})});
  const offer=document.querySelector('.offer-banner');if(offer){let sent=false;const io=new IntersectionObserver(es=>{if(!sent&&es.some(x=>x.isIntersecting)){sent=true;trackEvent('offer_viewed');io.disconnect()}},{threshold:.5});io.observe(offer)}
 }
+
+/* Accessible native navigation chooser: no unreliable installed-app detection. */
+function initDirectionsPicker(){
+ const opener=document.querySelector('#directionsOpen'),dialog=document.querySelector('#directionsDialog');
+ if(!opener||!dialog||typeof dialog.showModal!=='function')return; // Keep Google Maps link as progressive fallback.
+ const isAndroid=/Android/i.test(navigator.userAgent);
+ const android=dialog.querySelector('[data-navigation-app="android"]'),apple=dialog.querySelector('[data-navigation-app="apple"]'),share=dialog.querySelector('[data-navigation-app="share"]');
+ if(android)android.hidden=!isAndroid;
+ if(apple)apple.hidden=isAndroid; // Apple Maps can still be used from other desktop platforms.
+ if(share)share.hidden=isAndroid||typeof navigator.share!=='function';
+ opener.addEventListener('click',event=>{
+  event.preventDefault();
+  if(!dialog.open){dialog.showModal();trackEvent('directions_picker_open')}
+ });
+ dialog.querySelector('.directions-dialog-close')?.addEventListener('click',()=>dialog.close());
+ dialog.addEventListener('click',event=>{
+  if(event.target!==dialog)return;
+  const bounds=dialog.getBoundingClientRect();
+  if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom)dialog.close();
+ });
+ dialog.addEventListener('close',()=>opener.focus({preventScroll:true}));
+ dialog.querySelectorAll('a[data-navigation-app]').forEach(link=>link.addEventListener('click',()=>{
+  trackEvent('directions_click',{application:link.dataset.navigationApp});
+  dialog.close();
+ }));
+ share?.addEventListener('click',async()=>{
+  if(typeof navigator.share!=='function')return;
+  try{
+   await navigator.share({title:'Checkup Auto · Les Mureaux',text:'1E rue Niépce, 78130 Les Mureaux',url:'https://www.google.com/maps/dir/?api=1&destination=48.980120%2C1.890251&travelmode=driving'});
+   trackEvent('directions_click',{application:'share'});
+   dialog.close();
+  }catch(error){if(error?.name!=='AbortError')console.warn('Partage de l’itinéraire indisponible',error)}
+ });
+}
+initDirectionsPicker();
