@@ -508,3 +508,9 @@ body.premium-home :is(.app-promo,.centre) .primary{border-radius:999px;min-heigh
 .reservation.booking-planner .booking-date-control:focus-within .booking-date-trigger{outline:2px solid #235842;outline-offset:2px}
 .reservation.booking-planner .booking-date-trigger:hover{background:#e9eeea;border-color:#a6b8aa;transform:none}
 @media(prefers-reduced-motion:reduce){.reservation.booking-planner .booking-date-trigger{transition:none}}
+
+
+/* The additional counter-visit service uses the same card dimensions and CTA. */
+.premium-home .cards .retest-service-card{min-height:330px}
+.premium-home .cards .retest-service-card .retest-card-description{font:400 13px/1.6 var(--sans);color:#617062;margin:14px 0 0}
+.premium-home .cards .retest-service-card .retest-card-price{font:600 clamp(22px,3vw,30px)/1.2 var(--sans);letter-spacing:-.02em;color:#235842;margin-top:auto;padding-top:24px}
