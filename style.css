@@ -487,3 +487,24 @@ body.premium-home :is(.app-promo,.centre) .primary{border-radius:999px;min-heigh
 
 @media(prefers-reduced-motion:reduce){.booking-date-trigger{animation:none;transition:none}}
 @media(max-width:760px){.vehicle-booking-controls{grid-template-columns:minmax(0,1fr)!important}}
+
+
+/* Reference-matched mobile booking card: scoped specificity overrides generic reservation styles. */
+.reservation.booking-planner .vehicle-booking-controls{display:flex!important;flex-direction:column;align-items:stretch;gap:0;grid-template-columns:none!important;width:100%;margin-top:22px;padding-top:0;border-top:0}
+.reservation.booking-planner .vehicle-booking-controls>.price{display:flex!important;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:0;padding:18px 0 24px;border-bottom:1px solid #e5e8e4}
+.reservation.booking-planner .vehicle-booking-controls>.price small{font:500 clamp(12px,2.6vw,16px)/1.3 var(--sans);letter-spacing:.05em;color:#666}
+.reservation.booking-planner .standard-price-value{margin-left:auto;display:flex;align-items:center}
+.reservation.booking-planner .standard-price-value strong{font:700 clamp(25px,5.5vw,36px)/1.1 var(--sans);letter-spacing:0;color:#111}
+.reservation.booking-planner .booking-date-field{display:flex!important;flex-direction:column;gap:16px;width:100%;margin:0;padding:24px 0 0;position:relative}
+.reservation.booking-planner .booking-date-label{font:500 clamp(13px,3vw,17px)/1.4 var(--sans);letter-spacing:.03em;color:#666}
+.reservation.booking-planner .booking-date-control{position:relative;width:100%;min-width:0}
+.reservation.booking-planner .booking-date-trigger{box-sizing:border-box;display:flex!important;align-items:center;gap:15px;width:100%;min-height:94px;padding:19px 17px;border:1px solid transparent;border-radius:18px;background:#f1f1f1;box-shadow:none;color:#111;cursor:pointer;transform:none;transition:background .2s,border-color .2s,box-shadow .2s}
+.reservation.booking-planner .booking-date-icon{flex:0 0 25px;width:25px;height:25px}
+.reservation.booking-planner .booking-date-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
+.reservation.booking-planner .booking-date-copy strong{font:600 clamp(16px,4vw,23px)/1.2 var(--sans);color:#111}
+.reservation.booking-planner .booking-date-text{font:400 clamp(14px,3.5vw,20px)/1.3 var(--sans);color:#666;white-space:normal}
+.reservation.booking-planner .booking-date-arrow{flex:0 0 24px}
+.reservation.booking-planner .booking-date-control #bookingStartDate{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;min-height:94px!important;margin:0!important;opacity:0!important;z-index:3;cursor:pointer}
+.reservation.booking-planner .booking-date-control:focus-within .booking-date-trigger{outline:2px solid #235842;outline-offset:2px}
+.reservation.booking-planner .booking-date-trigger:hover{background:#e9eeea;border-color:#a6b8aa;transform:none}
+@media(prefers-reduced-motion:reduce){.reservation.booking-planner .booking-date-trigger{transition:none}}
