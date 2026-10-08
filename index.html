@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f6f1">
 <title>CyberCheck — Checkup Auto</title>
 <meta name="description" content="Expérience immersive Checkup Auto — contrôle technique aux Mureaux.">
-<link rel="stylesheet" href="/style.css?v=animated-flames-20261008-1">
+<link rel="stylesheet" href="/style.css?v=ink-option1-20261008-1">
 <link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head>
 <body>
 <div class="topline"><span>CHECKUP AUTO · LES MUREAUX</span><span><a id="phoneLink" href="tel:+33186046864">01 86 04 68 64</a></span><span>LA PRÉCISION EST UNE ATTENTION.</span></div>
@@ -20,7 +20,72 @@
 <main id="top">
 <section class="hero">
 <div class="hero-copy"><p class="kicker">■ CONTRE-VISITE OFFERTE · CONTRÔLE TECHNIQUE AUX MUREAUX</p><h1>L’exigence<br>du détail.<br><em>La sérénité</em><br>en plus.</h1><p class="lead">La précision technique.<br>L’attention que votre voiture mérite.<br>Et la simplicité, du rendez-vous à la route.<br><strong class="lead-offer">Et si une contre-visite est nécessaire, elle est offerte.</strong></p><div class="actions"><a class="primary" href="#reservation">Réserver mon contrôle →</a><a href="#experience">⊕ Découvrir l’expérience</a></div><p class="location">⌖ 1E rue Niépce · Les Mureaux</p></div>
-<div class="hero-visual"><div class="offer-seal"><small>AVANTAGE CHECKUP AUTO</small><strong>CONTRE-VISITE</strong><b>OFFERTE</b></div><div class="stage stage-3d" id="vehicle3DStage" data-quality="auto"><canvas id="vehicle3DCanvas" role="img" aria-label="Véhicule Checkup Auto en 3D interactive"></canvas><img class="vehicle-3d-fallback" src="/assets/premium/vehicle-peugeot208-premium.webp" alt="Véhicule Checkup Auto" loading="eager" fetchpriority="high" decoding="async"><div class="ring ring-a"></div><div class="ring ring-b"></div></div><div class="callout c1">01 / CARROSSERIE<br><b>État & alignements</b></div><div class="callout c2">02 / SÉCURITÉ<br><b>Freinage & liaisons au sol</b></div></div>
+<div class="hero-visual">
+<div class="offer-seal"><small>AVANTAGE CHECKUP AUTO</small><strong>CONTRE-VISITE</strong><b>OFFERTE</b></div>
+<div class="stage stage-ink" id="inkCarStage">
+<svg id="inkCar" class="ink-car-art ink-animate" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 520" role="img" aria-labelledby="inkCarTitle inkCarDescription" preserveAspectRatio="xMidYMid meet">
+<title id="inkCarTitle">Automobile dessinée à l’encre de Chine</title>
+<desc id="inkCarDescription">Une voiture dessinée par des traits à l’encre noire et des touches vertes pendant trois secondes. Le dessin reste visible après l’animation.</desc>
+<defs>
+<linearGradient id="inkFade" x1="0" y1="0" x2="1" y2=".8"><stop offset="0" stop-color="#eaf0e5" stop-opacity=".12"/><stop offset=".65" stop-color="#b3c9b6" stop-opacity=".5"/><stop offset="1" stop-color="#9dbca6" stop-opacity=".04"/></linearGradient>
+<linearGradient id="inkBody" x1=".15" y1=".2" x2=".95" y2=".86"><stop offset="0" stop-color="#789782" stop-opacity=".11"/><stop offset=".6" stop-color="#92b4a0" stop-opacity=".23"/><stop offset="1" stop-color="#d4e1d4" stop-opacity="0"/></linearGradient>
+</defs>
+<g class="ink-washes" aria-hidden="true">
+<path class="ink-wash" style="--ink-delay:.25s" fill="url(#inkFade)" d="M225 119C366 47 649 34 806 101c104 45 147 126 107 213-38 83-171 133-343 113 142-11 259-61 270-139 15-103-133-181-348-182-97-1-185 6-267 13Z"/>
+<path class="ink-wash" style="--ink-delay:1.05s" fill="url(#inkBody)" d="M345 216c112-22 263-17 412 16l97 46-39 56-249 19-115-30-106-107Z"/>
+<path class="ink-wash" style="--ink-delay:1.55s" fill="#b8cbbb" fill-opacity=".18" d="M283 410c146 28 379 20 520-13l110-31-62 66-207 37-268-3-93-56Z"/>
+</g>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<!-- Hand-painted green gesture behind the car -->
+<path class="ink-draw" pathLength="100" style="--ink-delay:0s;--ink-duration:2.9s" d="M213 108C402 13 712 21 851 106c110 68 125 192 10 300" stroke="#8dae98" stroke-width="7" opacity=".43"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:.12s;--ink-duration:2.65s" d="M365 60C564 13 761 74 847 150" stroke="#587d65" stroke-width="2.4" opacity=".45"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:.33s;--ink-duration:2.2s" d="M893 352c-13 33-44 65-85 88" stroke="#6f987b" stroke-width="9" opacity=".21"/>
+<!-- Roofline, swept silhouette -->
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:.1s;--ink-duration:1.9s" d="M344 200C418 135 503 111 631 126c72 8 121 45 165 102" stroke="#192d27" stroke-width="3.8"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:.36s;--ink-duration:1.6s" d="M365 186C437 136 523 119 628 134c52 5 97 34 129 68" stroke="#2c3d35" stroke-width="1.45" opacity=".57"/>
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:.43s;--ink-duration:1.75s" d="M344 202c-60 9-113 30-163 63-27 19-48 51-51 82 1 19 18 30 48 35l129 8" stroke="#192c27" stroke-width="3.15"/>
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:.64s;--ink-duration:1.85s" d="M795 227c39 3 81 14 99 31 19 20 14 64 3 93l-33 22" stroke="#23352e" stroke-width="3.1"/>
+<!-- Windscreen, windows, body pillars -->
+<path class="ink-draw" pathLength="100" style="--ink-delay:.56s;--ink-duration:1.7s" d="M368 205c61-41 112-56 197-56l-17 85c-88-3-156-12-196-23" stroke="#283b31" stroke-width="2.65"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:.78s;--ink-duration:1.4s" d="M579 149c88 7 143 38 175 84l-187 2 12-86Z" stroke="#233a30" stroke-width="2.5"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:.83s;--ink-duration:1.3s" d="M597 160c34 6 59 17 78 32" stroke="#58755e" stroke-width="1.2" opacity=".8"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:.72s;--ink-duration:1.6s" d="M345 227c-55 7-93 24-144 59l-56 39" stroke="#34453d" stroke-width="1.5"/>
+<!-- Shoulder, doors -->
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:.9s;--ink-duration:1.8s" d="M317 243c109 22 290 35 513 28" stroke="#203a30" stroke-width="2.8"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.06s;--ink-duration:1.4s" d="M577 248c-5 29-7 57 0 88" stroke="#506456" stroke-width="1.35" opacity=".67"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.13s;--ink-duration:1.5s" d="M610 282c77-1 138-7 191-12" stroke="#2e4739" stroke-width="1.2" opacity=".6"/>
+<!-- Graphic ink headlights, bonnet and front fascia -->
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:.92s;--ink-duration:1.45s" d="M142 310c32-13 89-17 144-14-34 26-88 40-144 40" stroke="#202c27" stroke-width="3"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.08s;--ink-duration:1.35s" d="M149 316c37-13 76-17 116-14" stroke="#65846c" stroke-width="1.8" opacity=".73"/>
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:1.01s;--ink-duration:1.55s" d="M298 305c39-25 103-32 156-22-24 32-90 49-144 49" stroke="#23302a" stroke-width="2.8"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.18s;--ink-duration:1.18s" d="M315 308c34-18 70-22 107-20" stroke="#5b7661" stroke-width="1.65" opacity=".84"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.32s;--ink-duration:1.2s" d="M136 347c36 4 77 3 123-5" stroke="#152b24" stroke-width="2.3" opacity=".76"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.42s;--ink-duration:1.15s" d="M158 363c68 12 130 8 191-5" stroke="#284034" stroke-width="1.7"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.4s;--ink-duration:1.4s" d="M145 376c54 24 107 27 174 20" stroke="#25362d" stroke-width="2.6"/>
+<!-- Near/front wheel, hand-drawn elliptical brush circles -->
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:1.2s;--ink-duration:1.65s" d="M410 391c-14-47-4-105 31-121 42-22 78 8 86 63 9 57-12 110-50 122-31 12-55-11-67-64Z" stroke="#192b27" stroke-width="4.7"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.44s;--ink-duration:1.45s" d="M427 389c-11-40-3-86 26-98 31-13 54 13 59 52 5 43-10 82-36 91-24 9-42-8-49-45Z" stroke="#405348" stroke-width="2.1" opacity=".83"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.63s;--ink-duration:1.2s" d="M457 326c-12 26-12 50 0 73" stroke="#799981" stroke-width="1.5" opacity=".55"/>
+<!-- Rear wheel, receding perspective -->
+<path class="ink-draw ink-main" pathLength="100" style="--ink-delay:1.35s;--ink-duration:1.55s" d="M781 372c-12-37-6-78 20-91 30-15 57 3 62 44 6 43-10 79-37 87-24 8-37-14-45-40Z" stroke="#24352e" stroke-width="3.15"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.58s;--ink-duration:1.4s" d="M793 371c-8-30-3-60 16-70 21-10 39 5 42 31 5 29-7 57-25 65-16 7-27-6-33-26Z" stroke="#54705d" stroke-width="1.4" opacity=".7"/>
+<!-- Side sill, wheel arches, dry brush -->
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.6s;--ink-duration:1.5s" d="M536 399c86 7 162-6 227-23" stroke="#2b3f32" stroke-width="2.7"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.72s;--ink-duration:1.25s" d="M551 412c86 1 143-9 204-24" stroke="#74927a" stroke-width="1.15" opacity=".65"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.72s;--ink-duration:1.35s" d="M508 269c73 13 171 18 255 18" stroke="#a3b7a2" stroke-width="7" opacity=".28"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.9s;--ink-duration:1.55s" d="M475 413c133 33 308 10 391-20" stroke="#1f5443" stroke-width="11" opacity=".19"/>
+<!-- Calligraphic brush grounding -->
+<path class="ink-draw ink-brush" pathLength="100" style="--ink-delay:1.78s;--ink-duration:1.28s" d="M165 452c172 34 475 35 713-18" stroke="#2e614b" stroke-width="9" opacity=".46"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:1.84s;--ink-duration:1.15s" d="M250 468c151 19 331 16 493-9" stroke="#9bb9a2" stroke-width="3.4" opacity=".56"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:2s;--ink-duration:1.1s" d="M746 471c55-8 92-17 113-27" stroke="#1f5443" stroke-width="1.6" opacity=".42"/>
+<path class="ink-draw" pathLength="100" style="--ink-delay:2.08s;--ink-duration:.9s" d="M201 476l50 3m-18-12 38 2m550-22 32-6" stroke="#496e57" stroke-width="1.3" opacity=".42"/>
+</g>
+</svg>
+
+</div>
+<div class="ink-caption"><span>OPTION 01 · TRAIT D’ENCRE</span><small>Illustration 2D, sans 3D</small></div>
+<button class="ink-replay" id="inkReplay" type="button" aria-controls="inkCar">↻ Rejouer le dessin</button>
+</div>
 </section>
 <section id="reservation" class="reservation booking-planner">
 <div class="booking-intro"><small>VOTRE PROCHAIN RENDEZ-VOUS</small><h2>Réservez votre contrôle.</h2><p>Choisissez d’abord le type de contrôle, puis un créneau disponible. Après avoir cliqué sur <strong>Réserver</strong>, vous vous connecterez ou créerez votre compte client pour renseigner le véhicule concerné. Connecté à votre compte, vous pourrez également repérer les offres 🔥 sur les créneaux historiquement plus calmes. Leur prix réduit est celui confirmé par Mercure.<br><strong class="reservation-offer">✓ Contre-visite offerte</strong></p></div>
@@ -61,7 +126,7 @@
 
 <footer><span>© 2026 CHECKUP AUTO · CYBERCHECK</span><span><a href="/compte">Mon compte</a> · <a href="/contact">Contact</a> · <a href="/mentions-legales">Mentions légales</a> · <a href="/confidentialite">Confidentialité</a> · <a href="/cookies">Cookies</a> · <a href="/cgv">CGV</a> · <a href="/retractation">Renoncer au contrat ici</a></span></footer>
 <script src="/consent.js"></script>
-<script src="/app.js?v=low-demand-preview-20261008-2"></script>
-<script type="module" src="/assets/cybercheck-glb-hero.js?v=cache-model-20261008-1"></script>
+<script src="/app.js?v=ink-option1-20261008-1"></script>
+<!-- Illustration au trait: aucun script WebGL, aucun GLB. -->
 </body>
 </html>

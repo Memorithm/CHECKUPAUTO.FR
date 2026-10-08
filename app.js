@@ -1,3 +1,27 @@
+// This illustration runs on CSS only. JavaScript merely starts it when visible
+// on a small screen, and lets the customer replay it without any frame loop.
+const inkArtwork=document.getElementById('inkCar');
+const inkReducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const playInk=()=>{
+  if(!inkArtwork||inkReducedMotion)return;
+  inkArtwork.classList.remove('ink-animate');
+  void inkArtwork.getBoundingClientRect().width;
+  inkArtwork.classList.add('ink-animate');
+};
+if(inkArtwork&&!inkReducedMotion&&'IntersectionObserver' in window){
+  // A drawing far below the mobile fold must not finish before it is seen.
+  if(inkArtwork.getBoundingClientRect().top>innerHeight+60){
+    inkArtwork.classList.remove('ink-animate');
+  }
+  const visibleInk=new IntersectionObserver(entries=>{
+    if(entries.some(entry=>entry.isIntersecting)){
+      playInk();
+      visibleInk.disconnect();
+    }
+  },{rootMargin:'120px 0px',threshold:0});
+  visibleInk.observe(inkArtwork);
+}
+document.getElementById('inkReplay')?.addEventListener('click',playInk);
 const service=document.querySelector('#service');const price=document.querySelector('#price');service?.addEventListener('change',()=>{const cfg=window.cyberCheckConfig?.services?.[service.value];if(cfg&&price)price.textContent=String(cfg.price)});
 const video=document.querySelector('#vehicleVideo');const stage=document.querySelector('.stage');let px=0,py=0,tx=0,ty=0;
 if(stage&&video&&!matchMedia('(prefers-reduced-motion: reduce)').matches){stage.addEventListener('pointermove',e=>{const r=stage.getBoundingClientRect();tx=((e.clientX-r.left)/r.width-.5)*2;ty=((e.clientY-r.top)/r.height-.5)*2});stage.addEventListener('pointerleave',()=>{tx=0;ty=0});const tick=()=>{px+=(tx-px)*.045;py+=(ty-py)*.045;video.style.transform=`perspective(1200px) rotateY(${px*1.8}deg) rotateX(${-py*.8}deg) translate3d(${px*5}px,${py*3}px,35px)`;requestAnimationFrame(tick)};requestAnimationFrame(tick)}
