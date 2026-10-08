@@ -16,10 +16,10 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertFalse(state["knownExecutionCoverageComplete"])
         self.assertEqual(state["scope"], "known-local-privacy-stores-v4")
         self.assertTrue(state["persistenceCatalog"]["complete"])
-        self.assertEqual(state["persistenceCatalog"]["tableCount"], 80)
+        self.assertEqual(state["persistenceCatalog"]["tableCount"], 81)
         self.assertTrue(state["persistenceCatalog"]["mappingComplete"])
-        self.assertEqual(state["persistenceCatalog"]["subjectExecutionRequiredCount"],21)
-        self.assertEqual(state["persistenceCatalog"]["executionGapCount"],9)
+        self.assertEqual(state["persistenceCatalog"]["subjectExecutionRequiredCount"],22)
+        self.assertEqual(state["persistenceCatalog"]["executionGapCount"],10)
         self.assertFalse(state["persistenceCatalog"]["privacyExecutionCoverageAsserted"])
         self.assertIn(
             "persistence_catalog_complete_execution_coverage_incomplete",
@@ -30,7 +30,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
             state["unresolvedStores"],
             ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
-        self.assertEqual(state["unresolvedStoreCount"],9)
+        self.assertEqual(state["unresolvedStoreCount"],10)
         self.assertEqual(rows["review_followup"]["executionState"], "partial_wired")
         self.assertEqual(rows["review_followup"]["adapter"], "privacy_suppression")
         self.assertEqual(
@@ -158,7 +158,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertTrue(row["subjectErasureApplicable"])
         self.assertEqual(row["executionState"], "unresolved")
         self.assertIn("analytics_event", state["unresolvedStores"])
-        self.assertEqual(state["unresolvedStoreCount"], 10)
+        self.assertEqual(state["unresolvedStoreCount"], 11)
 
     def test_inventory_contains_no_subject_value_or_secret_material(self):
         serialized = repr(inventory.snapshot())
