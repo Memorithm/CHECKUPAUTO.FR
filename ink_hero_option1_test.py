@@ -63,6 +63,8 @@ class InkHeroOption1Test(unittest.TestCase):
         self.assertNotIn("infinite",ink_css)
         self.assertIn(".ink-replay{display:none}",ink_css)
         self.assertNotIn("requestAnimationFrame",ink_css)
+        self.assertIn('#inkCarStage{scroll-margin-top:120px}',ink_css)
+        self.assertIn('@media(max-width:1100px){#inkCarStage{scroll-margin-top:165px}}',ink_css)
 
     def test_replay_does_not_manage_frames_or_contact_server(self):
         self.assertIn("document.getElementById('inkReplay')",self.js)
@@ -84,7 +86,7 @@ class InkHeroOption1Test(unittest.TestCase):
         self.assertTrue(all("--ink-delay:" in p.attrib.get("style","") for p in draw))
 
     def test_css_and_script_versions_are_bumped_for_new_hero(self):
-        self.assertIn("/style.css?v=ink-option1-20261008-1",self.page)
+        self.assertIn("/style.css?v=ink-option1-20261008-2",self.page)
         self.assertIn("/app.js?v=ink-option1-20261008-1",self.page)
         self.assertNotIn('src="/assets/cybercheck-glb-hero.js',self.page)
 

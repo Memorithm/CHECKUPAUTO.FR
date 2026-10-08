@@ -342,6 +342,9 @@ footer span{min-width:0;overflow-wrap:anywhere}
   background:radial-gradient(ellipse at 60% 51%,rgba(230,239,230,.67),rgba(249,250,247,.52) 54%,transparent 78%);
 }
 .stage-ink::after{content:none}
+/* Deep links must clear the sticky header on mobile and desktop. */
+#inkCarStage{scroll-margin-top:120px}
+@media(max-width:1100px){#inkCarStage{scroll-margin-top:165px}}
 .ink-car-art{
   position:relative;
   z-index:2;
