@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import customer_booking_journal as journal
 import mercure_booking_evidence as evidence
-from mercure_booking_identity_evidence import VerifiedBookingIdentity, validate_identity
 
 
 class BookingReconciliationError(RuntimeError):
@@ -15,14 +14,9 @@ class BookingReconciliationError(RuntimeError):
 
 
 def reconcile(*, account_id: str, request_key: str, provider_reference: str,
-              date: str, time: str, vehicle_id: str = '', service: str = '',
-              identity_evidence: VerifiedBookingIdentity | None = None) -> dict:
+              date: str, time: str) -> dict:
     # Require an existing account-scoped claim before contacting Mercure.
     state=journal.status(account_id=account_id,key=request_key)
-    # Identity proof is mandatory even for an already-confirmed journal entry.
-    # Callers must obtain this evidence from an independent trusted provider read.
-    validate_identity(identity_evidence,appointment_reference=provider_reference,
-                      account_id=account_id,vehicle_id=vehicle_id,service=service)
     if state["state"] == "confirmed":
         if state["providerReference"] != provider_reference:
             raise BookingReconciliationError("booking_provider_reference_conflict")
@@ -39,3 +33,19 @@ def reconcile(*, account_id: str, request_key: str, provider_reference: str,
     return journal.confirm_verified(
         account_id=account_id,key=request_key,
         provider_reference=provider_reference,verified=True)
+
+
+def reconcile_with_identity(*, account_id: str, request_key: str,
+                            provider_reference: str, date: str, time: str,
+                            vehicle_id: str, service: str,
+                            identity_evidence: "VerifiedBookingIdentity") -> dict:
+    """Strict entry point for future real customer booking confirmation.
+
+    Identity evidence must be assembled by a trusted provider-side reader,
+    never from customer-submitted JSON.
+    """
+    from mercure_booking_identity_evidence import validate_identity
+    validate_identity(identity_evidence,appointment_reference=provider_reference,
+                      account_id=account_id,vehicle_id=vehicle_id,service=service)
+    return reconcile(account_id=account_id,request_key=request_key,
+                     provider_reference=provider_reference,date=date,time=time)
