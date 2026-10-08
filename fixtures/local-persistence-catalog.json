@@ -44,6 +44,14 @@
       "subjectExecutionRequired": false
     },
     {
+      "table": "booking_request",
+      "module": "customer_booking_journal.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "partial",
+      "adapter": "",
+      "subjectExecutionRequired": true
+    },
+    {
       "table": "booking_schema_meta",
       "module": "booking_bridge.py",
       "subjectRelation": "none",
