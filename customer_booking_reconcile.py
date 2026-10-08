@@ -33,3 +33,19 @@ def reconcile(*, account_id: str, request_key: str, provider_reference: str,
     return journal.confirm_verified(
         account_id=account_id,key=request_key,
         provider_reference=provider_reference,verified=True)
+
+
+def reconcile_with_identity(*, account_id: str, request_key: str,
+                            provider_reference: str, date: str, time: str,
+                            vehicle_id: str, service: str,
+                            identity_evidence: "VerifiedBookingIdentity") -> dict:
+    """Strict entry point for future real customer booking confirmation.
+
+    Identity evidence must be assembled by a trusted provider-side reader,
+    never from customer-submitted JSON.
+    """
+    from mercure_booking_identity_evidence import validate_identity
+    validate_identity(identity_evidence,appointment_reference=provider_reference,
+                      account_id=account_id,vehicle_id=vehicle_id,service=service)
+    return reconcile(account_id=account_id,request_key=request_key,
+                     provider_reference=provider_reference,date=date,time=time)
