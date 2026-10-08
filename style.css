@@ -306,12 +306,33 @@ footer span{min-width:0;overflow-wrap:anywhere}
 /* Prix réduits sur créneaux historiquement moins demandés : prix Mercure vérifiés. */
 .slot-button.low-demand{position:relative;border:2px solid #df914f;background:#fff7ec}
 .slot-button.low-demand .slot-time{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
-.slot-button.low-demand .slot-flame{display:inline-flex;align-items:center;justify-content:center;min-width:22px;min-height:22px;font-size:19px;line-height:1;filter:drop-shadow(0 1px 1px #d3a27c)}
+.slot-button.low-demand .slot-flame{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;font-size:21px;line-height:1;transform-origin:50% 85%;isolation:isolate;filter:drop-shadow(0 1px 1px #d3a27c)}
+.slot-button.low-demand .slot-flame::before{content:'';position:absolute;inset:-5px;border-radius:50%;z-index:-1;pointer-events:none;background:radial-gradient(circle,rgba(255,181,72,.44) 0%,rgba(255,181,72,.15) 48%,transparent 73%);opacity:.5}
 .slot-button.low-demand em{font-size:10px;font-weight:700;color:#8f3f0e;letter-spacing:0}
 .slot-button.low-demand small b{color:#74401a;font-size:12px}
 .slot-button.low-demand:hover,.slot-button.low-demand:focus-visible{border-color:#a4511a;background:#ffeed5}
 .slot-button.low-demand.selected{border-color:#8f431b;background:#ffedd4}
-@media(prefers-reduced-motion:no-preference){.slot-button.low-demand .slot-flame{animation:booking-flame 2.4s ease-in-out infinite alternate}@keyframes booking-flame{from{transform:scale(1)}to{transform:scale(1.12)}}}
+/* GPU-friendly transform/opacity only; no flashing or new network assets. */
+@media(prefers-reduced-motion:no-preference){
+ .slot-button.low-demand .slot-flame{animation:booking-flame-sway 2.6s ease-in-out infinite}
+ .slot-button.low-demand .slot-flame::before{animation:booking-flame-glow 2.6s ease-in-out infinite}
+ @keyframes booking-flame-sway{
+  0%,100%{transform:translateY(0) rotate(-3deg) scale(1)}
+  25%{transform:translateY(-2px) rotate(4deg) scale(1.17,1.10)}
+  52%{transform:translateY(-1px) rotate(-2deg) scale(1.08,1.16)}
+  77%{transform:translateY(-2px) rotate(3deg) scale(1.14,1.09)}
+ }
+ @keyframes booking-flame-glow{
+  0%,100%{opacity:.4}
+  25%{opacity:.88}
+  52%{opacity:.54}
+  77%{opacity:.76}
+ }
+}
+@media(prefers-reduced-motion:reduce){
+ .slot-button.low-demand .slot-flame,
+ .slot-button.low-demand .slot-flame::before{animation:none;transform:none}
+}
 
 /* Staging-only visual test. Clearly distinguish synthetic, nonbookable offers. */
 .booking-promo-preview-banner{margin:14px 0 0;border:1px solid #dfa66f;border-radius:8px;background:#fff8ed;padding:14px 18px;display:flex;flex-direction:column;gap:5px;color:#74401a;font-size:12px;line-height:1.45}
