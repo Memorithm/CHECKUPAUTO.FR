@@ -321,6 +321,17 @@ def run_once(policy, *, max_new_promotions=MAX_NEW_PROMOTIONS_PER_RUN):
         return {'status': 'read_only', 'published': 0}
     if not policy.get('enabled') or migration_write_freeze.status().get('active', True):
         return {'status': 'blocked', 'published': 0}
+    init_db()
+    with _ledger_connect() as db:
+        unresolved = db.execute(
+            "SELECT COUNT(*) FROM booking_demand_promotion_attempts "
+            "WHERE state IN ('pending','uncertain','submitted_unverified')"
+        ).fetchone()[0]
+    if unresolved:
+        # Never advance to a different promotional hour while any past
+        # financial write has an unverified provider outcome.
+        return {'status': 'blocked_unresolved', 'published': 0,
+                'unresolvedAttempts': int(unresolved)}
     history = snapshot()  # History failure aborts without external writes.
     today = mercure_admin.business_today()
     date = (today + dt.timedelta(days=1)).isoformat()
@@ -338,6 +349,7 @@ def run_once(policy, *, max_new_promotions=MAX_NEW_PROMOTIONS_PER_RUN):
                 for row in mercure_admin.list_promotions()}
     published = 0
     attempted = 0
+    failure_codes = []
     for candidate in candidates:
         if attempted >= max_new_promotions:
             break
@@ -376,13 +388,19 @@ def run_once(policy, *, max_new_promotions=MAX_NEW_PROMOTIONS_PER_RUN):
             existing.add(name)
             if verified:
                 published += 1
-        except Exception:
-            # The HTTP request may have succeeded before raising; never retry.
+        except Exception as exc:
+            # A request may have succeeded before raising. Never retry it.
+            failure = getattr(exc, 'code', '')
+            if not isinstance(failure, str) or not failure or len(failure) > 60 or not all(
+                char.isalnum() or char == '_' for char in failure
+            ):
+                failure = type(exc).__name__
+            failure_codes.append(failure)
             _record_result(key, 'uncertain')
     state = ('no_new_offers' if attempted == 0 else
              'verified' if published == attempted else 'unverified')
     _LAST_RUN = {'status': state, 'attempted': attempted,
-                 'published': published,
+                 'published': published, 'failureCodes': failure_codes[:4],
                  'at': dt.datetime.now(dt.timezone.utc).isoformat()}
     return _LAST_RUN.copy()
 
