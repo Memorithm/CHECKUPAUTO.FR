@@ -508,3 +508,7 @@ body.premium-home :is(.app-promo,.centre) .primary{border-radius:999px;min-heigh
 .reservation.booking-planner .booking-date-control:focus-within .booking-date-trigger{outline:2px solid #235842;outline-offset:2px}
 .reservation.booking-planner .booking-date-trigger:hover{background:#e9eeea;border-color:#a6b8aa;transform:none}
 @media(prefers-reduced-motion:reduce){.reservation.booking-planner .booking-date-trigger{transition:none}}
+
+/* Center the centre GPS action to match the final reservation CTA. */
+body.premium-home #centre #directionsOpen{display:flex;width:max-content;max-width:100%;margin-inline:auto;align-items:center;justify-content:center;text-align:center;white-space:normal;line-height:1.4;padding:14px 22px}
+@media(max-width:600px){body.premium-home #centre #directionsOpen{width:100%;box-sizing:border-box}}
