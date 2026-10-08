@@ -31,6 +31,16 @@ class BookingReconciliationTests(unittest.TestCase):
                                      provider_reference="mercure-1",verified=False)
         self.assertFalse(journal.status(account_id="a1",key=self.key)["confirmed"])
 
+    def test_truthy_non_boolean_verification_is_rejected(self):
+        journal.require_reconciliation(account_id="a1",key=self.key)
+        for forged in ("true", 1, {"verified": True}):
+            with self.subTest(forged=forged), self.assertRaisesRegex(
+                journal.BookingJournalError, "booking_provider_confirmation_unverified"
+            ):
+                journal.confirm_verified(account_id="a1",key=self.key,
+                                         provider_reference="mercure-1",verified=forged)
+        self.assertFalse(journal.status(account_id="a1",key=self.key)["confirmed"])
+
     def test_confirmed_reference_is_idempotent_and_immutable(self):
         journal.require_reconciliation(account_id="a1",key=self.key)
         for _ in range(2):
