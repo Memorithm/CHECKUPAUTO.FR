@@ -28,6 +28,14 @@ class MercureVehicleReferenceResolverTest(unittest.TestCase):
                 resolver.resolve(brand="Renault",model="Clio",energy="Diesel")
             models.assert_not_called()
 
+    def test_generic_other_models_cannot_qualify_exact_vehicle(self):
+        generic=[{"id":"1350","label":"AUTRES MODELES"}]
+        with patch.object(resolver.lists,"fetch_references",return_value=self.refs), \
+             patch.object(resolver.models_api,"models",return_value=generic):
+            with self.assertRaisesRegex(resolver.VehicleReferenceResolutionError,
+                                        "vehicle_reference_generic_model_unqualified"):
+                resolver.resolve(brand="Renault",model="AUTRES MODELES",energy="Diesel")
+
     def test_unknown_model_is_rejected(self):
         with patch.object(resolver.lists,"fetch_references",return_value=self.refs), \
              patch.object(resolver.models_api,"models",return_value=self.models):

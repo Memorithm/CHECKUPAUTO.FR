@@ -30,6 +30,8 @@ def resolve(*, brand: str, model: str, energy: str, centre_type: str = "1") -> d
     brand_id=_unique(refs["marque"],brand)
     energy_id=_unique(refs["energie"],energy)
     models=models_api.models(centre_type=centre_type,brand_id=brand_id)
+    if _normalize(model) in {"autres modeles","autres modèles","autre modele","autre modèle"}:
+        raise VehicleReferenceResolutionError("vehicle_reference_generic_model_unqualified")
     model_id=_unique(models,model)
     return {"brandId":brand_id,"modelId":model_id,"energyId":energy_id,
             "centreType":centre_type,"mappingVerified":True}
