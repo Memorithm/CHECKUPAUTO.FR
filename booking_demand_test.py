@@ -248,6 +248,59 @@ class PromotionPublicationTest(unittest.TestCase):
                     demand.run_once(POLICY, max_new_promotions=1)['status'],
                     'blocked')
 
+    def test_unresolved_financial_attempt_blocks_other_hours(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.dict(os.environ, {
+                 demand.PUBLISH_ENV: '1',
+                 demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER,
+             }), \
+             patch.object(demand.analytics, 'connect',
+                          side_effect=lambda: sqlite3.connect(td+'/promo.sqlite')):
+            demand.init_db()
+            self.assertTrue(demand._claim_promotion(
+                'technical|2026-10-09|13:00',75))
+            demand._record_result('technical|2026-10-09|13:00','uncertain')
+            with patch.object(demand.migration_write_freeze, 'status',
+                              return_value={'active':False}), \
+                 patch.object(demand, 'snapshot',
+                              side_effect=AssertionError('no new provider requests')):
+                result = demand.run_once(POLICY, max_new_promotions=1)
+            self.assertEqual(result['status'], 'blocked_unresolved')
+            self.assertEqual(result['unresolvedAttempts'], 1)
+            self.assertEqual(result['published'], 0)
+
+    def test_uncertain_mercure_rejection_has_only_sanitized_failure_code(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.dict(os.environ, {
+                 demand.PUBLISH_ENV:'1',
+                 demand.CONTROLLER_ENV:demand.AUTHORIZED_CONTROLLER,
+             }), \
+             patch.object(demand.analytics,'connect',
+                          side_effect=lambda: sqlite3.connect(td+'/promo.sqlite')), \
+             patch.object(demand.migration_write_freeze,'status',
+                          return_value={'active':False}), \
+             patch.object(demand,'snapshot',return_value=sample_history()), \
+             patch.object(demand.mercure_admin,'business_today',
+                          return_value=TODAY), \
+             patch.object(demand.mercure_admin,'list_promotions',
+                          return_value=[]), \
+             patch.object(demand.mercure_public,'availability',
+                          return_value=response(discounted=False)), \
+             patch.object(demand.mercure_admin,'plan_promotion_slot',
+                          side_effect=demand.mercure_admin.PromotionWriteError(
+                              'promotion_create_http_403')):
+            result=demand.run_once({
+                **POLICY,'eligibleServices':{'technical':True,'fitted':False}
+            },max_new_promotions=1)
+            self.assertEqual(result['status'],'unverified')
+            self.assertEqual(result['attempted'],1)
+            self.assertEqual(result['published'],0)
+            self.assertEqual(result['failureCodes'],['promotion_create_http_403'])
+            with sqlite3.connect(td+'/promo.sqlite') as db:
+                self.assertEqual(db.execute(
+                    'SELECT state FROM booking_demand_promotion_attempts'
+                ).fetchone()[0],'uncertain')
+
     def test_ledger_prevents_duplicate_publication_even_after_restart(self):
         with tempfile.TemporaryDirectory() as td, \
              patch.dict(os.environ, {demand.PUBLISH_ENV: '1',
