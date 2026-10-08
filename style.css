@@ -330,7 +330,7 @@ footer span{min-width:0;overflow-wrap:anywhere}
 
 
 /* Option 2: use the approved painterly illustration, never re-draw its contours.
-   The finite CSS reveal is decoration; the image remains usable without scripts. */
+   Static presentation requested by the customer; no controls or image animation. */
 .hero-visual.lavis-hero{display:flex;flex-direction:column;justify-content:center;gap:16px;min-width:0;min-height:0;align-self:center;overflow:visible;padding:20px 0 18px 24px}
 .lavis-topline{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:0 14px}
 .hero-visual.lavis-hero .offer-seal{position:static;left:auto;right:auto;top:auto;width:auto;max-width:none;flex:none;padding:10px 14px;box-shadow:none;backdrop-filter:none;background:transparent;border-color:#d5dfd3}
@@ -340,20 +340,8 @@ footer span{min-width:0;overflow-wrap:anywhere}
 .lavis-caption{display:grid;gap:5px;color:#315b45;font:700 10px/1.4 var(--mono);letter-spacing:.08em;border-left:2px solid #8bb49a;padding:9px 13px}
 .lavis-caption small{font:400 12px/1.5 var(--sans);letter-spacing:normal;color:#6f8073}
 .lavis-stage{position:relative;isolation:isolate;min-width:0;width:100%;aspect-ratio:1530/811;overflow:hidden;background:#fff;border-radius:12px}
-.lavis-art{display:block;width:100%;height:100%;object-fit:contain;opacity:1;clip-path:inset(0);transform:none}
-.lavis-art.lavis-revealing{animation:lavis-reveal 2.6s cubic-bezier(.22,.7,.2,1) both}
-@keyframes lavis-reveal{0%{opacity:.08;clip-path:inset(0 100% 0 0)}35%{opacity:.72;clip-path:inset(0 52% 0 0)}100%{opacity:1;clip-path:inset(0)}}
-.lavis-controls{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;padding:0 12px}
-.lavis-controls[hidden]{display:none}
-.lavis-action{min-height:44px;min-width:44px;border:1px solid #96b3a0;border-radius:999px;background:#1f5443;color:#fff;padding:11px 17px;font:700 13px/1.4 var(--sans);cursor:pointer}
-.lavis-action:hover{background:#173e30}
-.lavis-action--quiet{background:#fff;color:#234d39}
-.lavis-action--quiet:hover{background:#edf3eb}
-.lavis-action[aria-pressed=true]{background:#e5eee2;border-color:#22553e;color:#204b35}
-.lavis-action:focus-visible{outline:3px solid #1f5443;outline-offset:4px}
-.lavis-status{font:11px/1.5 var(--sans);color:#788578;text-align:right;padding:0 15px}
+.lavis-art{display:block;width:100%;height:100%;object-fit:contain;opacity:1;clip-path:none;transform:none;animation:none}
 #lavisHero,#inkCarStage{scroll-margin-top:120px}
 @media(max-width:1100px){#lavisHero,#inkCarStage{scroll-margin-top:165px}}
 @media(max-width:980px){.hero-visual.lavis-hero{padding:12px 0 24px;gap:13px}.lavis-topline{padding:0 6px}.lavis-stage{border-radius:10px}}
-@media(max-width:480px){.lavis-topline{gap:10px}.hero-visual.lavis-hero .offer-seal{padding:9px}.hero-visual.lavis-hero .offer-seal small{font-size:7px}.hero-visual.lavis-hero .offer-seal strong{font-size:10px}.hero-visual.lavis-hero .offer-seal b{font-size:20px}.lavis-caption{padding:7px 9px;font-size:9px}.lavis-caption small{font-size:10px}.lavis-controls{padding:0;justify-content:center}.lavis-action{font-size:12px;padding:10px 14px}.lavis-status{text-align:center;padding:0}}
-@media(prefers-reduced-motion:reduce){.lavis-art.lavis-revealing{animation:none!important;opacity:1;clip-path:inset(0)}#lavisReplay{display:none}}
+@media(max-width:480px){.lavis-topline{gap:10px}.hero-visual.lavis-hero .offer-seal{padding:9px}.hero-visual.lavis-hero .offer-seal small{font-size:7px}.hero-visual.lavis-hero .offer-seal strong{font-size:10px}.hero-visual.lavis-hero .offer-seal b{font-size:20px}.lavis-caption{padding:7px 9px;font-size:9px}.lavis-caption small{font-size:10px}}
