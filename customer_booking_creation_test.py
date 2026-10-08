@@ -52,6 +52,12 @@ class BookingCreationTests(unittest.TestCase):
         self.assertEqual(writer.calls,1)
         read.assert_called_once()
 
+    def test_untyped_receipt_cannot_confirm(self):
+        writer=FakeWriter(receipt={"accepted":True,"provider_reference":"mercure-123"})
+        result=creation.create_and_verify(request=self.request,provider=writer)
+        self.assertFalse(result["confirmed"])
+        self.assertEqual(result["state"],"reconciliation_required")
+
     def test_provider_timeout_is_not_retried(self):
         writer=FakeWriter(error=TimeoutError())
         with self.assertRaisesRegex(creation.BookingCreationError,"booking_provider_write_uncertain"):
