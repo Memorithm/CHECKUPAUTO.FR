@@ -509,8 +509,21 @@ body.premium-home :is(.app-promo,.centre) .primary{border-radius:999px;min-heigh
 .reservation.booking-planner .booking-date-trigger:hover{background:#e9eeea;border-color:#a6b8aa;transform:none}
 @media(prefers-reduced-motion:reduce){.reservation.booking-planner .booking-date-trigger{transition:none}}
 
+/* Center the centre GPS action to match the final reservation CTA. */
+body.premium-home #centre #directionsOpen{display:flex;width:max-content;max-width:100%;margin-inline:auto;align-items:center;justify-content:center;text-align:center;white-space:normal;line-height:1.4;padding:14px 22px}
+@media(max-width:600px){body.premium-home #centre #directionsOpen{width:100%;box-sizing:border-box}}
 
-/* The additional counter-visit service uses the same card dimensions and CTA. */
+/* Match the centered GPS action with centered centre editorial copy on mobile. */
+@media(max-width:980px){
+ body.premium-home #centre>div:last-child{text-align:center}
+ body.premium-home #centre>div:last-child>.kicker,
+ body.premium-home #centre>div:last-child>h2,
+ body.premium-home #centre>div:last-child>p{margin-inline:auto;text-align:center}
+ body.premium-home #centre>div:last-child>h2{max-width:18ch}
+}
+
+
+/* Matching counter-visit service card (PR 568). */
 .premium-home .cards .retest-service-card{min-height:330px}
 .premium-home .cards .retest-service-card .retest-card-description{font:400 13px/1.6 var(--sans);color:#617062;margin:14px 0 0}
 .premium-home .cards .retest-service-card .retest-card-price{font:600 clamp(22px,3vw,30px)/1.2 var(--sans);letter-spacing:-.02em;color:#235842;margin-top:auto;padding-top:24px}
