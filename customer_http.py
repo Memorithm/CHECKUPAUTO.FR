@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 
+import in_site_booking_readiness as booking_readiness
 import customer_accounts
 import customer_password_auth
 import email_gateway
@@ -653,6 +654,17 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+
+    if path=="/api/customer/booking/readiness":
+        if command!="GET":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        handler.send_json(booking_readiness.public_status(),200)
+        return True
 
     if command=="GET" and path==PASSWORD_VERIFY_ROUTE:
         query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=4)
