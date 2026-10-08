@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from customer_vehicle_inputs import (SIV_PATTERN, FNI_PATTERN, FORMULA_PATTERN, FORMULA_FIRST_YEAR, compact_identifier)
 
 import referral_engine
+from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, VehicleCharacteristicsError
 
 PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
@@ -251,6 +252,7 @@ def _vehicle_summary(item: dict) -> dict:
         "formulaNumberPresent":bool(item.get("formulaNumber")),
         "cardIssueDate":str(item.get("cardIssueDate") or ""),
         "updatedAt":str(item.get("updatedAt") or ""),
+        "characteristics":dict(item.get("characteristics") or {}),
     }
 
 
@@ -613,8 +615,13 @@ def save_vehicle(
     formula_number: object = "",
     card_issue_date: object = "",
     vehicle_id: object = "",
+    characteristics: object = None,
 ) -> dict:
     account_id=_account_id(account_id)
+    try:
+        normalized_characteristics=normalize_vehicle_characteristics(characteristics) if characteristics is not None else None
+    except VehicleCharacteristicsError as exc:
+        raise CustomerAccountError(str(exc)) from exc
     system=_registration_system(registration_system)
     normalized_registration=_registration(registration,system)
     wanted_vehicle_id=_vehicle_id(vehicle_id) if str(vehicle_id or "").strip() else ""
@@ -687,6 +694,8 @@ def save_vehicle(
             "cardIssueDate":issued,
             "updatedAt":now,
         })
+        if normalized_characteristics is not None:
+            existing["characteristics"]=normalized_characteristics
         current["vehicles"]=vehicles
         db.execute(
             "UPDATE customer_account SET profile_blob=?,updated_at=? WHERE account_id=?",

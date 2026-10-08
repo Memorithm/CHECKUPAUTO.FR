@@ -1040,7 +1040,7 @@ def handle(handler) -> bool:
                 removed=customer_accounts.delete_vehicle(account_id,payload.get("vehicleId"))
                 handler.send_json({"ok":True,"removed":removed,"vehicles":customer_accounts.list_vehicles(account_id)})
             else:
-                if set(payload)!={"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate"}:
+                if not {"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate"} <= set(payload) or set(payload)-{"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","characteristics"}:
                     raise ValueError
                 vehicle=customer_accounts.save_vehicle(
                     account_id,
@@ -1049,6 +1049,7 @@ def handle(handler) -> bool:
                     registration=payload.get("registration"),
                     formula_number=payload.get("formulaNumber"),
                     card_issue_date=payload.get("cardIssueDate"),
+                    **({"characteristics":payload["characteristics"]} if "characteristics" in payload else {}),
                 )
                 handler.send_json({"ok":True,"vehicle":vehicle,"vehicles":customer_accounts.list_vehicles(account_id)},201)
         except customer_accounts.CustomerAccountError as exc:
