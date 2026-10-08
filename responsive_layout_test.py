@@ -114,7 +114,7 @@ class ResponsiveLayoutTest(unittest.TestCase):
     def test_homepage_does_not_load_obsolete_glb_and_static_policy_remains_restricted(self):
         import security_guard
         homepage = (ROOT / "index.html").read_text()
-        self.assertIn('id="inkCar"', homepage)
+        self.assertIn('id="lavisArtwork"', homepage)
         self.assertNotIn('cybercheck-glb-hero.js', homepage)
         self.assertNotIn('vehicle3DCanvas', homepage)
         self.assertFalse(security_guard.static_allowed('/assets/private-helper.js'))

@@ -69,9 +69,9 @@ class SitePreviewTest(unittest.TestCase):
 
 
     def test_site_preview_renders_inline_ink_art_without_any_3d_dependency(self):
-        self.assertIn('id="inkCar"', self.page)
-        self.assertIn('ink-draw', self.page)
-        self.assertIn('OPTION 01 · TRAIT D’ENCRE', self.page)
+        self.assertIn('id="lavisArtwork"', self.page)
+        self.assertIn('lavis-art', self.page)
+        self.assertIn('OPTION 02 · LAVIS', self.page)
         self.assertNotIn('vehicle3DCanvas', self.page)
         self.assertNotIn('cybercheck-glb-hero.js', self.page)
         self.assertNotIn('CyberCheckVehicle_Photo3D.glb', self.page)
@@ -87,12 +87,12 @@ class SitePreviewTest(unittest.TestCase):
 
     def test_ink_hero_requires_no_external_runtime_or_cdn(self):
         source = (self.root / "index.html").read_text()
-        assert '<svg id="inkCar"' in source
+        assert '<img id="lavisArtwork"' in source
         assert 'src="/assets/cybercheck-glb-hero.js' not in source
         assert '<canvas id="vehicle3DCanvas"' not in source
         assert 'requestAnimationFrame(' not in source
         css = (self.root / "style.css").read_text()
-        self.assertIn('@keyframes ink-draw-stroke', css)
+        self.assertIn('@keyframes lavis-reveal', css)
         self.assertIn('@media(prefers-reduced-motion:reduce)', css)
 
     def test_invalid_source_sha_is_refused(self):
