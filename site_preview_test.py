@@ -99,6 +99,28 @@ class SitePreviewTest(unittest.TestCase):
         self.assertNotIn('three.js', hero.lower())
         self.assertNotIn('cdn', hero.lower())
 
+    def test_shared_actions_are_embedded_without_external_stylesheets(self):
+        self.assertIn('Shared customer-facing actions.', self.page)
+        self.assertIn('action-button--logout', self.page)
+        self.assertNotIn('href="/assets/action-controls.css', self.page)
+
+    def test_stylesheet_allowlist_rejects_external_and_unknown_targets(self):
+        for href in ('https://outside.example/style.css', '//outside.example/assets/action-controls.css',
+                     '/assets/unknown.css', '/private/style.css', '/style.css#fragment'):
+            with self.subTest(href=href), self.assertRaisesRegex(ValueError, 'Unknown stylesheet'):
+                preview.PreviewHTML(self.root, '', 'a' * 40).feed(
+                    '<link rel="stylesheet" href="' + href + '">')
+
+    def test_shared_stylesheet_cannot_embed_active_or_external_dependencies(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'assets').mkdir()
+            for css in ('body{background:url(https://outside.example/x)}', '@import "x.css";', '</style><script>'):
+                (root / 'assets/action-controls.css').write_text(css)
+                with self.subTest(css=css), self.assertRaisesRegex(ValueError, 'dependency refused'):
+                    preview.PreviewHTML(root, '', 'a' * 40).feed(
+                        '<link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1">')
+
     def test_invalid_source_sha_is_refused(self):
         with self.assertRaises(ValueError):
             preview.build(self.root, 'main')

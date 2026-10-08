@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 import tempfile
 from unittest.mock import patch
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'https://responsive.checkupauto.test'
@@ -103,7 +103,7 @@ async def check_document_guide(page, guide_id: str, photo: str, width: int) -> N
 async def run(args) -> int:
     from playwright.async_api import async_playwright
     out=Path(args.output).resolve();out.mkdir(parents=True,exist_ok=True)
-    results=[]; failures=[]
+    results=[]; failures=[]; logout_requests=[]
     with tempfile.TemporaryDirectory(prefix='checkupauto-responsive-') as tmp:
         # Keep any incidental module configuration lookup outside real runtime directories.
         os.environ['CYBERCHECK_PRIVATE_DIR']=tmp+'/private'
@@ -123,6 +123,16 @@ async def run(args) -> int:
             req=route.request;url=urlsplit(req.url);path=url.path
             if url.netloc!=urlsplit(ORIGIN).netloc:
                 await route.abort();return
+            if path == '/compte/deconnexion':
+                logout_requests.append({'method':req.method,'fields':parse_qs(req.post_data or '',keep_blank_values=True)})
+                # Playwright does not re-route a fulfilled redirect. Serve the login
+                # fixture here; the real handler's 303 is covered by customer_logout_test.
+                await route.fulfill(status=200,content_type='text/html; charset=utf-8',body=pages['/compte'],
+                    headers={'Cache-Control':'no-store',
+                    'Set-Cookie':'checkupauto_customer=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax'});return
+            if path == '/qa/dashboard-script-blocked':
+                await route.fulfill(content_type='text/html; charset=utf-8',body=pages['/qa/dashboard'],
+                    headers={'Content-Security-Policy':"script-src 'none'; style-src 'self' 'unsafe-inline'; form-action 'self'"});return
             if path in pages:
                 await route.fulfill(content_type='text/html; charset=utf-8',body=pages[path]);return
             api={
@@ -149,9 +159,11 @@ async def run(args) -> int:
                         is_mobile=width<=1024,has_touch=width<=1024,device_scale_factor=1,reduced_motion='reduce')
                     await context.route('**/*',route_request)
                     page=await context.new_page(); page.set_default_timeout(8000)
+                    page_errors=[]; page.on('pageerror',lambda error:page_errors.append(str(error)))
                     for path in pages:
                         label=f'{args.browser} {width}x{height} {path}'
                         try:
+                            page_errors.clear()
                             await page.goto(ORIGIN+path,wait_until='load')
                             if path=='/':
                                 await page.locator('.booking-day').first.wait_for()
@@ -160,6 +172,25 @@ async def run(args) -> int:
                             assert data['scrollWidth']<=width+1, f'page width overflow: {data}'
                             assert abs(data['innerWidth']-width)<=1, f'mobile viewport expanded: {data}'
                             assert not data['outside'], f'elements outside viewport: {data["outside"]}'
+                            if not path.startswith('/admin/'):
+                                assert not page_errors, page_errors
+                            if path == '/qa/dashboard':
+                                nav=page.get_by_role('navigation',name='Actions de votre espace client')
+                                controls=nav.locator('a,button')
+                                assert await controls.count()==3
+                                for control in await controls.all():
+                                    box=await control.bounding_box()
+                                    assert box['height']>=46 and box['width']>=44,box
+                                    assert box['x']>=0 and box['x']+box['width']<=width+1,box
+                                    await control.focus()
+                                    outline=await control.evaluate("e=>getComputedStyle(e).outlineStyle")
+                                    assert outline != 'none',outline
+                                await nav.get_by_role('link',name='Mes véhicules',exact=True).click()
+                                assert urlsplit(page.url).fragment == 'mes-vehicules'
+                                assert await nav.get_by_role('link',name='Nous contacter',exact=True).get_attribute('href') == '/contact'
+                                if width in (375,1440):
+                                    await page.evaluate('scrollTo(0,0)')
+                                    await page.screenshot(path=str(out/f'{args.browser}-{width}-dashboard-actions.png'),full_page=True)
                             if path in ('/compte/reserver', '/qa/dashboard'):
                                 booking = path == '/compte/reserver'
                                 system_id = 'registrationSystem' if booking else 'vehicleRegistrationSystem'
@@ -255,6 +286,32 @@ async def run(args) -> int:
                 assert await page.locator('.mobile-nav-links a[href="/compte"]').is_visible()
                 results.append({'case':args.browser+' native menu without JavaScript','passed':True})
                 await context.close()
+                # Native logout is independent of dashboard JavaScript and browser CSP.
+                # This browser assertion verifies the submitted POST and fallback rendering;
+                # customer_logout_test.py verifies the real 303, DB revocation and security.
+                for width in (375,1440):
+                    for mode in ('normal','no-js','script-blocked'):
+                        context=await browser.new_context(viewport={'width':width,'height':900},
+                            java_script_enabled=mode!='no-js')
+                        await context.route('**/*',route_request)
+                        await context.add_cookies([{'name':'checkupauto_customer','value':'synthetic',
+                            'url':ORIGIN,'secure':True,'httpOnly':True,'sameSite':'Lax'}])
+                        page=await context.new_page();page.set_default_timeout(8000)
+                        path='/qa/dashboard-script-blocked' if mode=='script-blocked' else '/qa/dashboard'
+                        await page.goto(ORIGIN+path)
+                        before=len(logout_requests)
+                        logout=page.get_by_role('button',name='Se déconnecter',exact=True)
+                        if width==1440:
+                            await logout.focus();await page.keyboard.press('Enter')
+                        else:
+                            await logout.click()
+                        await page.wait_for_url(ORIGIN+'/compte/deconnexion')
+                        assert len(logout_requests)==before+1,logout_requests
+                        assert logout_requests[-1]=={'method':'POST','fields':{'csrf':['c'*64]}},logout_requests[-1]
+                        assert not any(c['name']=='checkupauto_customer' for c in await context.cookies())
+                        assert await page.get_by_role('button',name='Se connecter par e-mail',exact=True).is_visible()
+                        results.append({'case':f'{args.browser} {width} native logout submission {mode}','passed':True})
+                        await context.close()
             finally:
                 await browser.close()
     report={'browser':args.browser,'syntheticDataOnly':True,'passed':len(results),

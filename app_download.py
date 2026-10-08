@@ -180,7 +180,7 @@ h1{{font:400 clamp(44px,8vw,74px)/1.02 Georgia,serif;letter-spacing:-.05em;margi
 @media(max-width:640px){{main{{padding:18px max(14px,env(safe-area-inset-right)) max(18px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}}.features{{grid-template-columns:1fr}} .feature{{min-height:0}}.card{{padding:26px 22px}}h1{{font-size:clamp(40px,13vw,58px)}}.download{{width:100%;min-height:46px;justify-content:center;text-align:center}}}}
 {FORM_RESPONSIVE_CSS}
 </style>
-</head>
+<link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head>
 <body>
 <main><article class="card">
 <div class="brand">checkup<b>auto</b></div>

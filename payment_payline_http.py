@@ -86,7 +86,7 @@ h1{font-family:Georgia,'Times New Roman',serif;font-size:clamp(40px,7vw,70px);li
 .proof{background:#fbfcfa;padding:18px}.proof small{display:block;font:9px Consolas,monospace;letter-spacing:.09em;color:#748178;margin-bottom:7px}.proof strong{font-size:13px;font-weight:600}
 .actions{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:32px}.primary{display:inline-flex;align-items:center;gap:14px;background:var(--green);color:#fff;padding:15px 19px;font-size:12px}.help{font-size:11px;color:var(--muted)}
 @media(max-width:680px){.shell{width:min(100% - 22px,980px);padding-top:18px}.top{padding-bottom:18px}.panel{border-radius:20px;padding:26px 22px}.proofs{grid-template-columns:1fr}.back{font-size:10px}}
-</style></head><body><main class="shell">
+</style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head><body><main class="shell">
 <div class="top"><a class="brand" href="/"><span class="mark">✓</span><span>CHECKUP AUTO</span></a><a class="back" href="/">Retour au site</a></div>
 <section class="panel" aria-labelledby="paymentResultTitle">
 <div class="eyebrow">Paiement sécurisé · vérification prestataire</div>
@@ -229,7 +229,7 @@ button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 15px 34px rg
 @media(max-width:850px){.card{grid-template-columns:1fr}.side{border-left:0;border-top:1px solid var(--line);min-height:0}.progress{grid-template-columns:1fr}.step{border-right:0;border-bottom:1px solid var(--line)}.step:last-child{border-bottom:0}}
 @media(max-width:560px){.shell{width:min(100% - 20px,1180px);padding-top:15px}.top{padding-bottom:16px}.brand{font-size:14px}.mark{width:35px;height:35px}.back{font-size:10px}.content{padding:27px 21px}.side{padding:25px 21px}.card{border-radius:20px}.actions{align-items:stretch;flex-direction:column}.actions button{width:100%}.micro{max-width:none}}
 @media(prefers-reduced-motion:reduce){button{transition:none}button:hover:not(:disabled){transform:none}}
-</style></head><body><main class="shell">
+</style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head><body><main class="shell">
 <div class="top"><a class="brand" href="/"><span class="mark">✓</span><span>CHECKUP AUTO</span></a><a class="back" href="/">← Revenir à la réservation</a></div>
 <div class="progress" aria-label="Progression du paiement">
 <div class="step done"><b>01</b><span>Réservation confirmée</span></div>

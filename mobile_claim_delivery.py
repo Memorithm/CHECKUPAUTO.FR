@@ -111,7 +111,7 @@ h1{{font:400 clamp(40px,7vw,64px)/1.04 Georgia,serif;letter-spacing:-.04em;margi
 p{{line-height:1.7;color:#65736a}}a{{display:inline-block;margin-top:18px;background:#1f5443;color:#fff;text-decoration:none;padding:15px 20px}}
 small{{display:block;margin-top:24px;line-height:1.6;color:#7b877f}}
 </style>
-</head>
+<link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head>
 <body><main><article>
 <strong>checkupauto</strong>
 <h1>Rattachez votre accès Checkup Auto à l’application.</h1>
