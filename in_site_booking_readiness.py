@@ -43,3 +43,16 @@ def evaluate(capabilities: BookingCapabilities) -> dict:
 def declared_capabilities() -> BookingCapabilities:
     """The existing synthetic Mercure test writer is NOT a live booking API."""
     return BookingCapabilities()
+
+def public_status() -> dict:
+    """Expose non-sensitive qualification facts, never credentials or customer data."""
+    current = evaluate(declared_capabilities())
+    return {
+        "ok": True,
+        "bookingOnSiteRequired": True,
+        "bookingEnabled": current["ready"],
+        "confirmationEnabled": current["confirmed"],
+        "blockers": current["missing"],
+        "syntheticAppointmentsAreProduction": False,
+        "externalMercureRedirectAllowed": False,
+    }
