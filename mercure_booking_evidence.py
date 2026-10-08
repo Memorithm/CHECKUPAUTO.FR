@@ -43,7 +43,10 @@ def verify_appointment(*, provider_reference: object, date: object, time: object
     props=event.get("extendedProps")
     if props is not None and not isinstance(props,dict):
         raise MercureBookingEvidenceError("mercure_calendar_invalid")
-    if (props or {}).get("cancelled") is True or event.get("status") in {"cancelled","canceled"}:
+    status=event.get("status")
+    if status is not None and not isinstance(status,str):
+        raise MercureBookingEvidenceError("mercure_calendar_invalid")
+    if (props or {}).get("cancelled") is True or (status or "").strip().lower() in {"cancelled","canceled","annule","annulé"}:
         return False
     start=str(event.get("start") or "")
     try:
