@@ -39,3 +39,11 @@ def normalize(data: object) -> dict:
             raise VehicleCharacteristicsError("customer_vehicle_weight_invalid")
         result[field]=value.upper() if field=="vin" else value
     return result
+
+
+def require_booking_essentials(data: object) -> dict:
+    """Validate required booking descriptors without changing legacy saved records."""
+    result=normalize(data)
+    if not all(result.get(key,"").strip() for key in ("brand","model","energy")):
+        raise VehicleCharacteristicsError("customer_vehicle_booking_essentials_missing")
+    return result
