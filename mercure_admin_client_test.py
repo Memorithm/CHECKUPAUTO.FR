@@ -8,6 +8,31 @@ import mercure_admin_client as mercure
 
 
 class MercureSchemaTest(unittest.TestCase):
+    @patch.object(mercure, "list_promotions", return_value=[])
+    @patch.object(mercure, "_session")
+    def test_promotion_http_refusal_exposes_only_status(self, session, rows):
+        response=Mock(status_code=403, text="", headers={})
+        browser=Mock()
+        browser.post.return_value=response
+        session.return_value=browser
+        with self.assertRaises(mercure.PromotionWriteError) as caught:
+            mercure.ensure_promotion("PROMO TEST",75.0,"1763")
+        self.assertEqual(caught.exception.code,"promotion_create_http_403")
+        self.assertNotIn("PROMO TEST",str(caught.exception))
+        self.assertEqual(browser.post.call_count,1)
+
+    @patch.object(mercure, "list_promotions", side_effect=[[], []])
+    @patch.object(mercure, "_session")
+    def test_promotion_write_response_without_provider_identity_is_uncertain(
+            self, session, rows):
+        response=Mock(status_code=302,text="",headers={"Location":"/admin/promotion"})
+        browser=Mock()
+        browser.post.return_value=response
+        session.return_value=browser
+        with self.assertRaises(mercure.PromotionWriteError) as caught:
+            mercure.ensure_promotion("PROMO TEST",75.0,"1763")
+        self.assertEqual(caught.exception.code,"promotion_creation_not_visible")
+
     def test_login_preserves_existing_session_file_owner(self):
         with tempfile.TemporaryDirectory() as td:
             session_file = Path(td) / "mercure-admin-session.json"
