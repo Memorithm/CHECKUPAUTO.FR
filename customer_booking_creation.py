@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import customer_booking_journal as journal
 import customer_booking_reconcile as reconciliation
-from mercure_booking_write_contract import BookingWriteRequest, BookingWriter, writer as default_writer
+from mercure_booking_write_contract import BookingWriteRequest, BookingWriteReceipt, BookingWriter
 from mercure_booking_write_validation import validate
 
 
@@ -35,7 +35,7 @@ def create_and_verify(*, request: BookingWriteRequest, provider: BookingWriter |
         receipt=provider.create_once(request)
     except Exception as exc:
         raise BookingCreationError("booking_provider_write_uncertain") from exc
-    if receipt.accepted is not True or not receipt.provider_reference:
+    if not isinstance(receipt,BookingWriteReceipt) or receipt.accepted is not True or not receipt.provider_reference:
         return {"state":"reconciliation_required","confirmed":False}
     return reconciliation.reconcile(
         account_id=request.account_id,request_key=request.request_key,
