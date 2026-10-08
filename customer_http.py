@@ -728,7 +728,8 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
             return True
         try:
-            result=customer_booking_api.preflight(_json_body(handler),account=account)
+            verified_account={**account,"vehicles":customer_accounts.list_vehicles(account["accountId"])}
+            result=customer_booking_api.preflight(_json_body(handler),account=verified_account)
             handler.send_json(result,200)
         except customer_booking_api.BookingPreflightError as exc:
             handler.send_json({"ok":False,"error":str(exc)},422)
