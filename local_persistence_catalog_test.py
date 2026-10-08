@@ -46,7 +46,7 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         self.assertEqual(state["executionGapCount"],10)
         self.assertEqual(
             state["executionGapTables"],
-            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","booking_request","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
         self.assertFalse(state["privacyExecutionCoverageAsserted"])
         self.assertEqual(state["state"],"mapped_with_execution_gaps")
@@ -59,7 +59,7 @@ class LocalPersistenceCatalogTest(unittest.TestCase):
         self.assertEqual(len(required),22)
         self.assertEqual(
             sorted(row["table"] for row in required if row["executionState"]!="wired"),
-            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","booking_request","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
         for row in required:
             self.assertIn(row["executionState"],{"wired","partial","unmapped"})
