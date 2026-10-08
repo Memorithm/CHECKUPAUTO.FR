@@ -529,3 +529,9 @@ body.premium-home #centre #directionsOpen{display:flex;width:max-content;max-wid
  body.premium-home #services>div:first-child>.kicker,
  body.premium-home #services>div:first-child>h2{text-align:center;margin-inline:auto}
 }
+
+
+/* Matching counter-visit service card after main integration. */
+.premium-home .cards .retest-service-card{min-height:330px}
+.premium-home .cards .retest-service-card .retest-card-description{font:400 13px/1.6 var(--sans);color:#617062;margin:14px 0 0}
+.premium-home .cards .retest-service-card .retest-card-price{font:600 clamp(22px,3vw,30px)/1.2 var(--sans);letter-spacing:-.02em;color:#235842;margin-top:auto;padding-top:24px}
