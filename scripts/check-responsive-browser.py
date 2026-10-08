@@ -170,6 +170,23 @@ async def run(args) -> int:
                             if path=='/':
                                 await page.locator('.booking-day').first.wait_for()
                                 await page.get_by_role('button',name='Tout refuser',exact=True).click()
+                                assert await page.locator('body.premium-home').count()==1
+                                assert await page.locator('.lavis-caption,.lavis-topline,.hero .offer-seal,#lavisReplay,#lavisStill,.lavis-controls').count()==0
+                                premium=await page.evaluate('''() => {
+                                    const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height}};
+                                    const img=document.querySelector('#lavisArtwork');const css=getComputedStyle(img);
+                                    return {intro:box('.hero-intro'),art:box('#lavisArtwork'),details:box('.hero-details'),font:getComputedStyle(document.querySelector('.hero h1')).fontFamily,fit:css.objectFit,animation:css.animationName,opacity:css.opacity,naturalWidth:img.naturalWidth,loaded:img.complete};
+                                }''')
+                                assert 'Georgia' in premium['font'],premium
+                                assert premium['loaded'] and premium['naturalWidth']>0,premium
+                                assert premium['fit']=='contain' and premium['animation']=='none' and premium['opacity']=='1',premium
+                                assert premium['art']['left']>=0 and premium['art']['right']<=width+1,premium
+                                if width<=980:
+                                    assert premium['intro']['bottom']<=premium['art']['top']+1,premium
+                                    assert premium['art']['bottom']<=premium['details']['top']+1,premium
+                                if width in (375,390,1440):
+                                    await page.evaluate('scrollTo(0,0)')
+                                    await page.screenshot(path=str(out/f'{args.browser}-{width}-premium-home.png'))
                             data=await page.evaluate(GEOMETRY)
                             assert data['scrollWidth']<=width+1, f'page width overflow: {data}'
                             assert abs(data['innerWidth']-width)<=1, f'mobile viewport expanded: {data}'
