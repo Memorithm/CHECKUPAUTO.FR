@@ -16,6 +16,8 @@ from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 import in_site_booking_readiness as booking_readiness
 import customer_booking_api
 import customer_accounts
+import mercure_brand_energy_reference
+import mercure_vehicle_reference
 import customer_password_auth
 import email_gateway
 import customer_ct_reports
@@ -32,6 +34,7 @@ PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
 VEHICLES_ROUTE="/api/customer/vehicles"
+VEHICLE_REFERENCES_ROUTE="/api/customer/vehicle-references"
 VEHICLE_DELETE_ROUTE="/api/customer/vehicles/delete"
 LOGOUT_ROUTE="/api/customer/logout"
 LOGOUT_FORM_ROUTE="/compte/deconnexion"
@@ -730,6 +733,32 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+
+    if path==VEHICLE_REFERENCES_ROUTE:
+        if command!="GET":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=2)
+            if set(query)-{"brandId"}:
+                raise ValueError("vehicle_reference_query_invalid")
+            refs=mercure_brand_energy_reference.fetch_references()
+            result={"ok":True,"brands":refs["marque"],"energies":refs["energie"]}
+            if "brandId" in query:
+                brand_id=query["brandId"]
+                if len(brand_id)!=1 or not any(item["id"]==brand_id[0] for item in refs["marque"]):
+                    raise ValueError("vehicle_reference_brand_invalid")
+                result["models"]=mercure_vehicle_reference.models(centre_type="1",brand_id=brand_id[0])
+            handler.send_json(result,200)
+        except ValueError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},400)
+        except Exception:
+            handler.send_json({"ok":False,"error":"vehicle_reference_unavailable"},503)
+        return True
 
     if path=="/api/customer/booking/preflight":
         if command!="POST":
