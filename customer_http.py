@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 
 import in_site_booking_readiness as booking_readiness
+import customer_booking_api
 import customer_accounts
 import customer_password_auth
 import email_gateway
@@ -654,6 +655,29 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+
+    if path=="/api/customer/booking/preflight":
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+        try:
+            result=customer_booking_api.preflight(_json_body(handler),account=account)
+            handler.send_json(result,200)
+        except customer_booking_api.BookingPreflightError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except Exception:
+            handler.send_json({"ok":False,"error":"booking_provider_unavailable"},503)
+        return True
 
     if path=="/api/customer/booking/readiness":
         if command!="GET":
