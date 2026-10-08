@@ -43,6 +43,12 @@ class MercureBookingEvidenceTest(unittest.TestCase):
             self.verify([{"id":"mercure-123","start":"2026-10-15T10:30:00+02:00",
                           "extendedProps":"invalid"}])
 
+    def test_localized_cancelled_status_is_rejected(self):
+        for status in ("CANCELLED","Canceled","Annulé","annule"):
+            with self.subTest(status=status):
+                self.assertFalse(self.verify([{"id":"mercure-123",
+                    "start":"2026-10-15T10:30:00+02:00","status":status}]))
+
     def test_provider_failure_cannot_be_interpreted_as_confirmation(self):
         with patch.object(evidence.mercure,"_session",side_effect=TimeoutError):
             with self.assertRaisesRegex(evidence.MercureBookingEvidenceError,"mercure_calendar_unavailable"):
