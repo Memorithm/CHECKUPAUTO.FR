@@ -16,6 +16,8 @@ class BookingCreationError(RuntimeError):
 
 
 def create_and_verify(*, request: BookingWriteRequest, provider: BookingWriter | None = None) -> dict:
+    if provider is None:
+        raise BookingCreationError("booking_provider_unqualified")
     request=validate(request)
     payload={
         "service":request.service,"date":request.date,"time":request.time,
@@ -29,7 +31,6 @@ def create_and_verify(*, request: BookingWriteRequest, provider: BookingWriter |
     # Persist the uncertain state BEFORE any external call. A process crash
     # therefore cannot create a second appointment on retry.
     journal.require_reconciliation(account_id=request.account_id,key=request.request_key)
-    provider=provider if provider is not None else default_writer()
     try:
         receipt=provider.create_once(request)
     except Exception as exc:
