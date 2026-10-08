@@ -20,7 +20,7 @@ Date : 8 octobre 2026. Périmètre : site public, puis homologation sur test.che
 ## Conditions de déploiement et rollback
 
 - Publier sur **test.checkupauto.fr**, uniquement après réussite des tests et CI sur le SHA exact.
-- Vérifier `/api/public/deployment-provenance`, les en-têtes du GLB, son SHA-256, le rechargement avec et sans Cache Storage, l'affichage 3D/fallback et les réservations sur navigateurs Chromium et WebKit.
+- Vérifier `/api/public/deployment-provenance`, les en-têtes du GLB, son SHA-256, le rechargement et le repli réseau sûr si WebKit supprime le Cache Storage en contexte éphémère, l'affichage 3D/fallback et les réservations sur navigateurs Chromium et WebKit.
 - Ne pas mettre en cache `/api/`, `/compte`, `/contact`, `/go/booking`, `/payment`, ni les pages et JSON personnalisés.
 - En cas de régression, revenir au SHA précédent via **RemoteOps**, sans manipuler les données clients.
 
