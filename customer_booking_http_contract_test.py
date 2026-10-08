@@ -25,6 +25,12 @@ class Handler:
     def _request_origin(self):
         return "https://stage.example"
 
+    def _admin_origin_ok(self):
+        return True
+
+    def _read_json(self):
+        return json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+
     def send_json(self, obj, status=200, headers=None):
         self.response={"status":status,"json":obj}
 
