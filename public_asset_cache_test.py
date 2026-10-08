@@ -32,18 +32,18 @@ class PublicAssetCacheContractTest(unittest.TestCase):
                           '/payment', '/contact', 'Set-Cookie', 'Authorization'):
             self.assertNotIn(forbidden, content)
 
-    def test_hero_is_prioritized_and_below_the_fold_media_are_lazy(self):
+    def test_ink_homepage_has_no_3d_download_and_preserves_lazy_media(self):
         html = (ROOT / "index.html").read_text()
-        self.assertRegex(html, r'class="vehicle-3d-fallback"[^>]*loading="eager" fetchpriority="high"')
+        self.assertIn('id="inkCar"', html)
+        self.assertIn('id="inkReplay"', html)
+        self.assertNotIn('cybercheck-glb-hero.js', html)
+        self.assertNotIn('CyberCheckVehicle_Photo3D.glb', html)
+        self.assertNotIn('vehicle-peugeot208-premium.webp', html)
+        self.assertNotIn('<canvas', html)
         self.assertRegex(html, r'src="/assets/checkupauto-centre-map-osm.webp"[^>]*loading="lazy"')
         self.assertRegex(html, r'src="/assets/app/qr-site.svg"[^>]*loading="lazy"')
-        self.assertIn('cache-model-20261008-1', html)
-        loader = (ROOT / "assets/cybercheck-glb-hero.js").read_text()
-        self.assertIn('getPublicVehicleGLB', loader)
-        self.assertIn('afterFirstPaint', loader)
-        self.assertIn('requestIdleCallback', loader)
-        self.assertIn('navigator.connection?.saveData', loader)
-        self.assertIn('GLISSEZ POUR EXPLORER', loader)
+        self.assertIn('/app.js?v=ink-option1-20261008-1', html)
+        self.assertIn('ink-draw-stroke', (ROOT / "style.css").read_text())
 
     def test_sensitive_responses_remain_uncached(self):
         server = (ROOT / "admin_server.py").read_text()

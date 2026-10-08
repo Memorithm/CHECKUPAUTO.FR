@@ -111,9 +111,12 @@ class ResponsiveLayoutTest(unittest.TestCase):
         self.assertNotIn('threshold:.12', source)
         self.assertIn("{threshold:0}", source)
 
-    def test_glb_module_is_allowed_without_exposing_arbitrary_scripts(self):
+    def test_homepage_does_not_load_obsolete_glb_and_static_policy_remains_restricted(self):
         import security_guard
-        self.assertTrue(security_guard.static_allowed('/assets/cybercheck-glb-hero.js'))
+        homepage = (ROOT / "index.html").read_text()
+        self.assertIn('id="inkCar"', homepage)
+        self.assertNotIn('cybercheck-glb-hero.js', homepage)
+        self.assertNotIn('vehicle3DCanvas', homepage)
         self.assertFalse(security_guard.static_allowed('/assets/private-helper.js'))
         self.assertFalse(security_guard.static_allowed('/customer_http.py'))
 

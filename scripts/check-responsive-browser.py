@@ -229,8 +229,10 @@ async def run(args) -> int:
                             if path=='/':
                                 # A previously hidden, tall reservation section cannot stay invisible.
                                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
-                                stage=await page.locator('#vehicle3DStage').bounding_box()
-                                assert stage['x']>=0 and stage['x']+stage['width']<=width+1, stage
+                                stage=await page.locator('#inkCarStage').bounding_box()
+                                assert stage['x']>=-1 and stage['x']+stage['width']<=width+1, stage
+                                assert await page.locator('#inkCar').is_visible()
+                                assert not model_requests, model_requests
                                 if width<=1100:
                                     menu=page.locator('.mobile-navigation')
                                     await menu.locator('summary').click()
@@ -274,34 +276,47 @@ async def run(args) -> int:
                             await page.screenshot(path=str(out/f'failed-{args.browser}-{width}-{path.strip("/").replace("/","-") or "home"}.png'),full_page=True)
                             print('FAIL',label,str(exc)[:600],flush=True)
                     await context.close()
-                # SHA-pinned Cache Storage bypasses a second network GLB request.
+                # An actual short CSS stroke animation, with replay and zero GLB requests.
+                context=await browser.new_context(viewport={'width':390,'height':844},
+                    is_mobile=True,has_touch=True,reduced_motion='no-preference')
+                await context.route('**/*',route_request)
+                page=await context.new_page();page.set_default_timeout(10000)
+                await page.goto(ORIGIN,wait_until='domcontentloaded')
+                assert await page.locator('#inkCar').is_visible()
+                assert await page.locator('#inkReplay').is_visible()
+                assert await page.locator('#vehicle3DCanvas').count()==0
+                assert await page.locator('script[src*="cybercheck-glb-hero"]').count()==0
+                await page.locator('#inkCar').scroll_into_view_if_needed()
+                stroke=page.locator('.ink-main').first
+                await page.wait_for_timeout(150)
+                start=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
+                await page.wait_for_timeout(3200)
+                completed=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
+                assert start>completed+15,(start,completed)
+                assert abs(completed)<1,completed
+                await page.locator('#inkReplay').click()
+                await page.wait_for_timeout(90)
+                replay=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
+                assert replay>25,(replay,completed)
+                await page.wait_for_timeout(2300)
+                finished=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
+                assert abs(finished)<1,finished
+                assert not model_requests,model_requests
+                results.append({'case':args.browser+' ink SVG traces, stops and replays',
+                    'passed':True,'startOffset':start,'endOffset':completed,'replayOffset':replay,'GLBRequests':0})
+                await context.close()
+                # Reduced motion: art is visible immediately, replay control is hidden.
                 context=await browser.new_context(viewport={'width':390,'height':844},
                     is_mobile=True,has_touch=True,reduced_motion='reduce')
-                cached_requests=[]
-                async def cached_route(route):
-                    if urlsplit(route.request.url).path == '/assets/3d/CyberCheckVehicle_Photo3D.glb':
-                        cached_requests.append(route.request.url)
-                    await route_request(route)
-                await context.route('**/*',cached_route)
+                await context.route('**/*',route_request)
                 page=await context.new_page()
                 await page.goto(ORIGIN,wait_until='load')
-                await page.wait_for_function("async () => {const cache=await caches.open('checkupauto-public-model-v1');return (await cache.keys()).length===1;}",timeout=12000)
-                await page.wait_for_timeout(150)
-                before=len(cached_requests)
-                # WebKit can satisfy the initial request from its native static cache.
-                assert before in (0,1),cached_requests
-                assert all('/assets/3d/CyberCheckVehicle_Photo3D.glb?v=' in u for u in cached_requests)
-                await page.reload(wait_until='load')
-                await page.wait_for_function("() => {const stage=document.getElementById('vehicle3DStage');return stage && !stage.dataset.modelLoading && ['blender-glb','photo-depth'].includes(stage.dataset.modelSource);}",timeout=12000)
-                await page.wait_for_timeout(250)
-                extra=len(cached_requests)-before
-                # Ephemeral WebKit contexts may evict Cache Storage on navigation.
-                # In that case the signed model must be re-fetched safely.
-                assert extra in ((0,1) if args.browser=='webkit' else (0,)),(before,cached_requests)
-                assert await page.locator('.vehicle-3d-fallback').get_attribute('fetchpriority')=='high'
-                assert await page.locator('.centre-map img').get_attribute('loading')=='lazy'
-                results.append({'case':args.browser+' verified GLB reload with safe cache fallback',
-                    'passed':True,'initialModelRequests':before,'reloadModelRequests':extra})
+                assert await page.locator('#inkCar').is_visible()
+                assert await page.locator('#inkReplay').is_hidden()
+                still=await page.locator('.ink-main').first.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)')
+                assert abs(still)<1,still
+                assert not model_requests,model_requests
+                results.append({'case':args.browser+' ink hero reduced-motion accessible fallback','passed':True})
                 await context.close()
                 # Normal-motion mode must not hide a planner taller than the viewport.
                 context=await browser.new_context(viewport={'width':320,'height':568},is_mobile=True)
@@ -315,7 +330,9 @@ async def run(args) -> int:
                 await context.route('**/*',route_request);page=await context.new_page()
                 await page.goto(ORIGIN);await page.locator('.mobile-navigation summary').click()
                 assert await page.locator('.mobile-nav-links a[href="/compte"]').is_visible()
-                results.append({'case':args.browser+' native menu without JavaScript','passed':True})
+                assert await page.locator('#inkCar').is_visible()
+                assert await page.locator('#vehicle3DCanvas').count()==0
+                results.append({'case':args.browser+' native menu and ink art without JavaScript','passed':True})
                 await context.close()
                 # Native logout is independent of dashboard JavaScript and browser CSP.
                 # This browser assertion verifies the submitted POST and fallback rendering;

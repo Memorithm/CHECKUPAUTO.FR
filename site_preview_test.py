@@ -57,29 +57,25 @@ class SitePreviewTest(unittest.TestCase):
 
     def test_source_sha_and_real_visual_design_are_preserved(self):
         self.assertIn('aaaaaaaaaaaa', self.page)
-        for text in ('L’exigence', 'La sérénité', 'vehicle-peugeot208', 'referral_wallet'):
+        for text in ('L’exigence', 'La sérénité', 'inkCarStage', 'referral_wallet'):
             if text == 'referral_wallet':
                 self.assertNotIn(text, self.page)
-            elif text == 'vehicle-peugeot208':
-                self.assertIn('class="vehicle-3d-fallback"', self.page)
+            elif text == 'inkCarStage':
+                self.assertIn('id="inkCarStage"', self.page)
             else:
                 self.assertIn(text, self.page)
         self.assertLess(len(self.page.encode()), 3 * 1024 * 1024)
 
 
 
-    def test_glb_runtime_loader_prefers_local_verified_model_and_keeps_fallback(self):
-        loader = (self.root / "assets" / "cybercheck-glb-hero.js").read_text(encoding="utf-8")
-        self.assertIn('import { VEHICLE_GLB_URL as GLB_URL, getPublicVehicleGLB }', loader)
-        self.assertIn('/assets/cybercheck-hero-3d.js?v=photo-depth-1', loader)
-        self.assertIn('VehiclePhoto3D', loader)
-        self.assertIn('VehiclePhotoMaterial', loader)
-        self.assertIn('alphaMode!=="BLEND"', loader)
-        self.assertIn('MAX_GLB_BYTES=4*1024*1024', loader)
-        self.assertIn('stage.dataset.modelSource="blender-glb"', loader)
-        self.assertIn('badge.textContent="MODÈLE BLENDER · GLB"', loader)
-        self.assertNotIn('three.js', loader.lower())
-        self.assertNotIn('cdn.', loader.lower())
+    def test_site_preview_renders_inline_ink_art_without_any_3d_dependency(self):
+        self.assertIn('id="inkCar"', self.page)
+        self.assertIn('ink-draw', self.page)
+        self.assertIn('OPTION 01 · TRAIT D’ENCRE', self.page)
+        self.assertNotIn('vehicle3DCanvas', self.page)
+        self.assertNotIn('cybercheck-glb-hero.js', self.page)
+        self.assertNotIn('CyberCheckVehicle_Photo3D.glb', self.page)
+        self.assertNotIn('vehicle-peugeot208-premium.webp', self.page)
 
     def test_booking_preview_starts_with_control_type_then_slot(self):
         self.assertIn('id="controlTypeSelector"', self.page)
@@ -89,37 +85,15 @@ class SitePreviewTest(unittest.TestCase):
         self.assertIn('CRÉNEAU DISPONIBLE', self.page)
         self.assertNotIn('id="vehicleCarouselPrev"', self.page)
 
-    def test_webgl_hero_uses_local_vehicle_photo_with_bounded_parallax(self):
-        hero = (self.root / "assets" / "cybercheck-hero-3d.js").read_text(encoding="utf-8")
-        self.assertIn('/assets/vehicle.png?v=photo-depth-1', hero)
-        self.assertIn('targetYaw=Math.max(-0.18,Math.min(0.11', hero)
-        self.assertIn('createGrid(aspect)', hero)
-        self.assertNotIn('https://', hero)
-        self.assertNotIn('http://', hero)
-        self.assertNotIn('three.js', hero.lower())
-        self.assertNotIn('cdn', hero.lower())
-
-    def test_shared_actions_are_embedded_without_external_stylesheets(self):
-        self.assertIn('Shared customer-facing actions.', self.page)
-        self.assertIn('action-button--logout', self.page)
-        self.assertNotIn('href="/assets/action-controls.css', self.page)
-
-    def test_stylesheet_allowlist_rejects_external_and_unknown_targets(self):
-        for href in ('https://outside.example/style.css', '//outside.example/assets/action-controls.css',
-                     '/assets/unknown.css', '/private/style.css', '/style.css#fragment'):
-            with self.subTest(href=href), self.assertRaisesRegex(ValueError, 'Unknown stylesheet'):
-                preview.PreviewHTML(self.root, '', 'a' * 40).feed(
-                    '<link rel="stylesheet" href="' + href + '">')
-
-    def test_shared_stylesheet_cannot_embed_active_or_external_dependencies(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            (root / 'assets').mkdir()
-            for css in ('body{background:url(https://outside.example/x)}', '@import "x.css";', '</style><script>'):
-                (root / 'assets/action-controls.css').write_text(css)
-                with self.subTest(css=css), self.assertRaisesRegex(ValueError, 'dependency refused'):
-                    preview.PreviewHTML(root, '', 'a' * 40).feed(
-                        '<link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1">')
+    def test_ink_hero_requires_no_external_runtime_or_cdn(self):
+        source = (self.root / "index.html").read_text()
+        assert '<svg id="inkCar"' in source
+        assert 'src="/assets/cybercheck-glb-hero.js' not in source
+        assert '<canvas id="vehicle3DCanvas"' not in source
+        assert 'requestAnimationFrame(' not in source
+        css = (self.root / "style.css").read_text()
+        self.assertIn('@keyframes ink-draw-stroke', css)
+        self.assertIn('@media(prefers-reduced-motion:reduce)', css)
 
     def test_invalid_source_sha_is_refused(self):
         with self.assertRaises(ValueError):

@@ -16,7 +16,7 @@ class CentreMapTest(unittest.TestCase):
     def test_public_map_is_local_and_directions_use_the_exact_coordinates(self):
         page = (ROOT / "index.html").read_text()
         self.assertIn('src="/assets/checkupauto-centre-map-osm.webp"', page)
-        self.assertIn('loading="eager"', page)
+        self.assertIn('loading="lazy" fetchpriority="low"', page)
         self.assertIn('destination=48.980120%2C1.890251', page)
         self.assertIn('mlat=48.980120&amp;mlon=1.890251', page)
         self.assertNotIn('class="map-card"', page)
