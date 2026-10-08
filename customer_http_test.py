@@ -63,6 +63,15 @@ class CustomerHttpTest(unittest.TestCase):
             "createdAt":"2026-09-25T00:00:00+00:00","updatedAt":"2026-09-25T00:00:00+00:00",
         }
 
+    def test_formula_fields_have_unique_accessible_description(self):
+        from pathlib import Path
+        source = Path(__file__).with_name("customer_http.py").read_text(encoding="utf-8")
+        self.assertIn('aria-describedby="formulaFeedback vehicleFormulaGuideSummary"', source)
+        self.assertIn('id="vehicleFormulaNumber" maxlength="11"', source)
+        self.assertIn('aria-describedby="vehicleFormulaFeedback vehicleFormulaGuideSummary"', source)
+        self.assertNotIn('id="formulaNumber" aria-describedby="vehicleFormulaGuideSummary"', source)
+        self.assertNotIn('id="vehicleFormulaNumber" aria-describedby="vehicleFormulaGuideSummary"', source)
+
     def test_login_page_lists_only_active_public_providers_without_secrets(self):
         h=Handler("/compte")
         with patch.object(http,"_account",return_value=("",None)), \
@@ -153,7 +162,7 @@ class CustomerHttpTest(unittest.TestCase):
                 for guide in ("vehicleFormulaGuide", "vehicleDateGuide"):
                     self.assertEqual(page.count(f'id="{guide}"'), 1)
                     self.assertEqual(page.count(f'id="{guide}Summary"'), 1)
-                    self.assertIn(f'aria-describedby="{guide}Summary"', page)
+                    self.assertIn(f'{guide}Summary', page)
                 for photo in ("formule", "date"):
                     self.assertIn(f'/assets/guides/carte-grise-{photo}-photo.webp', page)
                 self.assertNotIn('class="document-diagram"', page)
@@ -201,8 +210,8 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Rattacher à l’app iOS",body)
         self.assertIn('id="ct-report"',body)
         self.assertIn('href="/#reservation">Réserver un contrôle',body)
-        self.assertIn('href="#mes-vehicules">Mes véhicules',body)
-        self.assertIn('href="/contact">Nous contacter',body)
+        self.assertRegex(body,r'href="#mes-vehicules">.*?Mes véhicules</a>')
+        self.assertRegex(body,r'href="/contact">.*?Nous contacter</a>')
         self.assertIn('href="/contact?intent=suggestion">Faire une suggestion',body)
         self.assertIn("Donner mon avis sur Google",body)
         self.assertIn("search.google.com/local/writereview?placeid=ChIJZ82oNlGS5kcRj99QzDs2Fwo",body)
@@ -254,7 +263,7 @@ class CustomerHttpTest(unittest.TestCase):
 
         payload={
             "vehicleId":"","registrationSystem":"siv","registration":"aa 123 aa",
-            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+            "formulaNumber":"2020AB12345","cardIssueDate":"",
         }
         saving=Handler("/api/customer/vehicles","POST",payload,headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
         with patch.object(http,"_account",return_value=("token",self.account())), \
@@ -266,7 +275,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertTrue(saving.response["json"]["ok"])
         save.assert_called_once_with(
             self.account()["accountId"],vehicle_id="",registration_system="siv",
-            registration="aa 123 aa",formula_number="AB12CD34EF5",card_issue_date="",
+            registration="aa 123 aa",formula_number="2020AB12345",card_issue_date="",
         )
 
         deleting=Handler("/api/customer/vehicles/delete","POST",{"vehicleId":vehicle["vehicleId"]},headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
@@ -282,7 +291,7 @@ class CustomerHttpTest(unittest.TestCase):
     def test_customer_vehicle_mutations_require_csrf(self):
         h=Handler("/api/customer/vehicles","POST",{
             "vehicleId":"","registrationSystem":"siv","registration":"AA-123-AA",
-            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+            "formulaNumber":"2020AB12345","cardIssueDate":"",
         })
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=False), \
@@ -577,7 +586,7 @@ class CustomerHttpTest(unittest.TestCase):
         h=Handler("/api/customer/passage/confirm","POST",{
             "passageToken":passage,"returnTo":return_to,"action":"validated",
             "vehicleMode":"new","registrationSystem":"siv","registration":"AA-123-AA",
-            "formulaNumber":"AB12CD34EF5","cardIssueDate":"",
+            "formulaNumber":"2020AB12345","cardIssueDate":"",
         },headers={"Cookie":"checkupauto_customer=token","X-CheckupAuto-Customer-CSRF":"c"*64})
         with patch.object(http,"_account",return_value=("token",self.account())), \
              patch.object(http.customer_accounts,"verify_csrf",return_value=True), \
@@ -587,7 +596,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],200)
         save.assert_called_once_with(
             self.account()["accountId"],registration_system="siv",
-            registration="AA-123-AA",formula_number="AB12CD34EF5",card_issue_date="",
+            registration="AA-123-AA",formula_number="2020AB12345",card_issue_date="",
         )
         confirm.assert_called_once_with(
             self.account()["accountId"],passage,action="validated",

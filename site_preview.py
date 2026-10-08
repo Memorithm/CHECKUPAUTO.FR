@@ -16,6 +16,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 MEDIA = {
+    "assets/illustrations/checkupauto-lavis-option2-765.webp": "image/webp",
+    "assets/illustrations/checkupauto-lavis-option2-1020.webp": "image/webp",
+    "assets/illustrations/checkupauto-lavis-option2-1530.webp": "image/webp",
     "assets/vehicle.mp4": "video/mp4",
     "assets/checkupauto-centre-map-osm.webp": "image/webp",
     **{
@@ -211,9 +214,18 @@ class PreviewHTML(HTMLParser):
         if tag == 'link':
             if values.get('rel') != 'stylesheet':
                 return
-            if urlsplit(values.get('href', '')).path != '/style.css':
+            target = urlsplit(values.get('href', ''))
+            if target.scheme or target.netloc or target.fragment:
                 raise ValueError("Unknown stylesheet")
-            self.out.append('<style>' + self.stylesheet + PREVIEW_CSS + '</style>')
+            if target.path == '/style.css':
+                css = self.stylesheet
+            elif target.path == '/assets/action-controls.css':
+                css = public_bytes(self.root, 'assets/action-controls.css', 64 * 1024).decode('utf-8')
+            else:
+                raise ValueError("Unknown stylesheet")
+            if re.search(r'url\s*\(|@import|</style', css, re.I):
+                raise ValueError('External or active stylesheet dependency refused')
+            self.out.append('<style>' + css + PREVIEW_CSS + '</style>')
             return
         if tag == 'head':
             self.out.append('<head><meta http-equiv="Content-Security-Policy" content="' + html.escape(CSP, quote=True) + '"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">')

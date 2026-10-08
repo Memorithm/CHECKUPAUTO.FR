@@ -176,6 +176,13 @@ def _promotion_identity(row):
     return str(pid), str(name).strip()
 
 
+class PromotionWriteError(RuntimeError):
+    """Stable, non-sensitive failure evidence for a Mercure financial write."""
+    def __init__(self, code):
+        self.code = str(code)
+        super().__init__(self.code)
+
+
 def ensure_promotion(name, final_price, prestation_id):
     name = str(name).strip()[:120]
     final_price = round(float(final_price), 2)
@@ -187,15 +194,15 @@ def ensure_promotion(name, final_price, prestation_id):
     if not pid:
         r = _check_auth(s.post(BASE + '/admin/promotion_add', data={'nom': name, 'reduction': f'{final_price:.2f}'}, timeout=20, allow_redirects=False))
         if r.status_code not in (200, 201, 302, 303):
-            raise RuntimeError(f'Création promotion Mercure refusée ({r.status_code})')
+            raise PromotionWriteError(f'promotion_create_http_{int(r.status_code)}')
         rows = list_promotions()
         pid = next((pid for row in rows for pid, n in [_promotion_identity(row)] if pid and n == name), '')
         if not pid:
-            raise RuntimeError('Promotion créée mais identifiant Mercure introuvable')
+            raise PromotionWriteError('promotion_creation_not_visible')
     r = _check_auth(s.post(BASE + '/admin/promotion_prestation_update/' + pid,
         data=[('type_visite[]', str(prestation_id))], timeout=20, allow_redirects=False))
     if r.status_code not in (200, 201, 302, 303):
-        raise RuntimeError(f'Association promotion/prestation refusée ({r.status_code})')
+        raise PromotionWriteError(f'promotion_service_http_{int(r.status_code)}')
     return pid
 
 
@@ -219,7 +226,7 @@ def plan_promotion_slot(*, name, final_price, prestation_id, date_start, date_en
     ] + [('joursRecurrences[]', x) for x in weekdays]
     r = _check_auth(s.post(BASE + '/admin/promotion_creneau_add', data=data, timeout=20, allow_redirects=False))
     if r.status_code not in (200, 201):
-        raise RuntimeError(f'Créneau promotionnel Mercure refusé ({r.status_code})')
+        raise PromotionWriteError(f'promotion_slot_http_{int(r.status_code)}')
     return {'ok': True, 'promotionId': pid, 'providerStatus': r.status_code}
 
 

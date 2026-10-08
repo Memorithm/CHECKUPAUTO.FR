@@ -8,6 +8,7 @@ import analytics_store as analytics
 import app_download as app_download
 import booking_bridge as booking
 import booking_demand
+import booking_promo_preview
 import booking_page
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
@@ -152,8 +153,8 @@ def render_legal_document(doc,c):
    f'<meta name="robots" content="{robots}"><link rel="canonical" href="{esc(canonical)}"><title>{title} | Checkup Auto</title>'
    '<style>body{font-family:system-ui;margin:0;background:#f6f7f3;color:#17372b}main{max-width:860px;margin:auto;padding:48px 22px 80px}'
    'a{color:#1f5845}h1{font-size:clamp(36px,6vw,68px);letter-spacing:-.04em;margin:28px 0}p{line-height:1.75;color:#40584d}'
-   '.meta,.legacy-note,.current-scope{padding:14px 16px;background:#fff;border:1px solid #dbe1d8;border-radius:12px;font-size:12px;color:#66776e;margin:14px 0}.current-scope h2{font:600 22px system-ui;margin:4px 0 12px;color:#17372b}.current-scope p{font-size:14px}</style></head>'
-   f'<body><main><a href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">{meta}</div>{note}{body}{supplement_html}</main></body></html>').encode()
+   '.meta,.legacy-note,.current-scope{padding:14px 16px;background:#fff;border:1px solid #dbe1d8;border-radius:12px;font-size:12px;color:#66776e;margin:14px 0}.current-scope h2{font:600 22px system-ui;margin:4px 0 12px;color:#17372b}.current-scope p{font-size:14px}</style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head>'
+   f'<body><main><a class="action-button" href="/">← Checkup Auto</a><h1>{title}</h1><div class="meta">{meta}</div>{note}{body}{supplement_html}</main></body></html>').encode()
 
 def configure_internal_proxy(token):
  raw=str(token or '').strip()
@@ -518,7 +519,7 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception: return self.send_json({'ok':False,'error':'booking_test_status_unavailable'},400)
   if path=='/api/booking/services':
    c=load_config(); policy=incentive_config(c); today=mercure_admin.business_today(); horizon=today+datetime.timedelta(days=int(policy['horizonDays']))
-   return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':policy,'businessDate':today.isoformat(),'horizonEnd':horizon.isoformat()})
+   return self.send_json({'centreId':240,'services':mercure_public.public_services(),'callOnly':True,'incentives':policy,'businessDate':today.isoformat(),'horizonEnd':horizon.isoformat(),'promoPreviewAllowed':booking_promo_preview.enabled(self.headers.get('Host',''))})
   if path=='/api/geo/coverage':
    try: return self.send_json(geo_marketing.coverage(load_config(),mercure_public.public_services()))
    except Exception: return self.send_json({'ok':False,'error':'geo_coverage_unavailable'},400)
@@ -528,6 +529,13 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json(geo_marketing.quote(load_config(),city,mercure_public.public_services()))
    except ValueError: return self.send_json({'ok':False,'error':'geo_quote_invalid'},400)
    except Exception: return self.send_json({'ok':False,'error':'geo_quote_unavailable'},502)
+  if path=='/api/booking/promo-preview':
+   if not booking_promo_preview.enabled(self.headers.get('Host','')):
+    return self.send_json({'ok':False,'error':'not_found'},404)
+   try:
+    q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]
+    return self.send_json(booking_promo_preview.build(service,incentive_config(load_config())),headers={'X-Robots-Tag':'noindex, nofollow'})
+   except ValueError: return self.send_json({'ok':False,'error':'invalid_promo_preview_request'},400)
   if path=='/api/booking/availability':
    try:
     today=mercure_admin.business_today(); q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [today.isoformat()])[0]; c=load_config(); policy=incentive_config(c)
@@ -1304,7 +1312,7 @@ def build_geo_pricing_page(c):
       'main{max-width:1080px;margin:auto;padding:48px 22px}a{color:#1f5845}h1{font-size:clamp(38px,6vw,72px);letter-spacing:-.05em}'
       'p{line-height:1.7;color:#52675d}table{width:100%;border-collapse:collapse;background:#fff;margin-top:30px}'
       'th,td{padding:12px;border-bottom:1px solid #dbe1d8;text-align:left}th{font-size:12px}.note{background:#fff;padding:18px;border:1px solid #dbe1d8;border-radius:12px}'
-      f'</style></head><body><main><a href="/">← Checkup Auto</a><h1>Tarifs et zone de service</h1>'
+      f'</style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head><body><main><a class="action-button" href="/">← Checkup Auto</a><h1>Tarifs et zone de service</h1>'
       f'<p>Checkup Auto dessert les automobilistes situés dans un rayon maximal de <strong>{float(cov.get("radiusKm") or 50.01):.2f} km</strong> autour du centre des Mureaux. '
       'Les deux prestations réservables en ligne sont le contrôle technique à 80 € et le véhicule aménagé à 90 €. Des créneaux promotionnels peuvent ponctuellement réduire ces tarifs.</p>'
       f'<div class="note"><strong>{int(cov.get("communeCount") or 0)} communes</strong> sont référencées dans notre catalogue géographique. '

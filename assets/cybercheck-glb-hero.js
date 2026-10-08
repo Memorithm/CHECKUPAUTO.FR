@@ -1,6 +1,6 @@
 const canvas=document.getElementById("vehicle3DCanvas");
 const stage=document.getElementById("vehicle3DStage");
-const GLB_URL="/assets/3d/CyberCheckVehicle_Photo3D.glb?v=1";
+import { VEHICLE_GLB_URL as GLB_URL, getPublicVehicleGLB } from "./public-asset-cache.js?v=20261008-1";
 const FALLBACK_URL="/assets/cybercheck-hero-3d.js?v=photo-depth-1";
 const MAX_GLB_BYTES=4*1024*1024;
 
@@ -246,15 +246,29 @@ const renderGLB=async ({json,binary})=>{
   if(hint) hint.textContent="GLISSEZ POUR EXPLORER";
 };
 
+// Keep the painted vehicle photo and the reservation controls responsive first.
+// Upgrading to interactive 3D happens during browser idle, without removing 3D.
+const afterFirstPaint=()=>new Promise(resolve=>{
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(typeof requestIdleCallback==="function") requestIdleCallback(resolve,{timeout:1800});
+    else setTimeout(resolve,180);
+  }));
+});
 if(canvas&&stage){
-  try{
-    const response=await fetch(GLB_URL,{cache:"force-cache",credentials:"same-origin"});
-    if(!response.ok) throw new Error("glb_http_"+response.status);
-    const contentLength=Number(response.headers.get("content-length")||0);
-    if(contentLength&&contentLength>MAX_GLB_BYTES) throw new Error("glb_http_size");
-    const buffer=await response.arrayBuffer();
-    await renderGLB(parseGLB(buffer));
-  }catch(error){
-    await fallback(String(error?.message||"glb_unavailable").slice(0,48));
+  if(navigator.connection?.saveData){
+    stage.dataset.modelSource="photo-only";
+    stage.dataset.quality="data-saver";
+    canvas.hidden=true;
+  }else{
+    stage.dataset.modelLoading="deferred";
+    await afterFirstPaint();
+    try{
+      const buffer=await getPublicVehicleGLB(GLB_URL);
+      await renderGLB(parseGLB(buffer));
+    }catch(error){
+      await fallback(String(error?.message||"glb_unavailable").slice(0,48));
+    }finally{
+      delete stage.dataset.modelLoading;
+    }
   }
 }

@@ -62,18 +62,6 @@
 @media(prefers-reduced-motion:reduce){.app-qr-card{transition:none}.app-qr-card:hover{transform:none}}
 
 
-/* CyberCheck real-time WebGL hero */
-.stage-3d{overflow:hidden;isolation:isolate;border-radius:34px}
-.stage-3d canvas{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:4;touch-action:pan-y;cursor:grab;outline:0}
-.stage-3d canvas:active{cursor:grabbing}
-.vehicle-3d-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:2;filter:drop-shadow(0 28px 20px rgba(22,35,28,.18));transition:opacity .35s ease}
-.stage-3d.webgl-ready .vehicle-3d-fallback{opacity:0;pointer-events:none}
-.vehicle-3d-badge{position:absolute;left:18px;bottom:16px;z-index:7;display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid rgba(31,84,67,.16);background:rgba(246,247,242,.8);backdrop-filter:blur(12px);font:7px var(--mono);letter-spacing:.09em;color:#61766a}
-.vehicle-3d-badge span{color:var(--green);font-weight:700}.vehicle-3d-badge b{font-weight:400;color:#839087}
-.stage-3d:before{content:"";position:absolute;inset:4% 4% 2%;z-index:1;border-radius:50%;background:radial-gradient(ellipse at 50% 70%,rgba(31,84,67,.13),rgba(31,84,67,.03) 45%,transparent 72%);filter:blur(8px)}
-@media(max-width:640px){.stage-3d{border-radius:22px}.vehicle-3d-badge{left:10px;bottom:10px;padding:7px 8px;font-size:6px}.stage-3d canvas{cursor:default}}
-@media(prefers-reduced-motion:reduce){.vehicle-3d-fallback{transition:none}.vehicle-3d-badge b{display:none}}
-
 /* Responsive adaptive layer v1 */
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 img,video,svg,canvas{max-width:100%}
@@ -306,13 +294,179 @@ footer span{min-width:0;overflow-wrap:anywhere}
 /* Prix réduits sur créneaux historiquement moins demandés : prix Mercure vérifiés. */
 .slot-button.low-demand{position:relative;border:2px solid #df914f;background:#fff7ec}
 .slot-button.low-demand .slot-time{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
-.slot-button.low-demand .slot-flame{display:inline-flex;align-items:center;justify-content:center;min-width:22px;min-height:22px;font-size:19px;line-height:1;filter:drop-shadow(0 1px 1px #d3a27c)}
+.slot-button.low-demand .slot-flame{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;font-size:21px;line-height:1;transform-origin:50% 85%;isolation:isolate;filter:drop-shadow(0 1px 1px #d3a27c)}
+.slot-button.low-demand .slot-flame::before{content:'';position:absolute;inset:-5px;border-radius:50%;z-index:-1;pointer-events:none;background:radial-gradient(circle,rgba(255,181,72,.44) 0%,rgba(255,181,72,.15) 48%,transparent 73%);opacity:.5}
 .slot-button.low-demand em{font-size:10px;font-weight:700;color:#8f3f0e;letter-spacing:0}
 .slot-button.low-demand small b{color:#74401a;font-size:12px}
 .slot-button.low-demand:hover,.slot-button.low-demand:focus-visible{border-color:#a4511a;background:#ffeed5}
 .slot-button.low-demand.selected{border-color:#8f431b;background:#ffedd4}
-@media(prefers-reduced-motion:no-preference){.slot-button.low-demand .slot-flame{animation:booking-flame 2.4s ease-in-out infinite alternate}@keyframes booking-flame{from{transform:scale(1)}to{transform:scale(1.12)}}}
+/* GPU-friendly transform/opacity only; no flashing or new network assets. */
+@media(prefers-reduced-motion:no-preference){
+ .slot-button.low-demand .slot-flame{animation:booking-flame-sway 2.6s ease-in-out infinite}
+ .slot-button.low-demand .slot-flame::before{animation:booking-flame-glow 2.6s ease-in-out infinite}
+ @keyframes booking-flame-sway{
+  0%,100%{transform:translateY(0) rotate(-3deg) scale(1)}
+  25%{transform:translateY(-2px) rotate(4deg) scale(1.17,1.10)}
+  52%{transform:translateY(-1px) rotate(-2deg) scale(1.08,1.16)}
+  77%{transform:translateY(-2px) rotate(3deg) scale(1.14,1.09)}
+ }
+ @keyframes booking-flame-glow{
+  0%,100%{opacity:.4}
+  25%{opacity:.88}
+  52%{opacity:.54}
+  77%{opacity:.76}
+ }
+}
+@media(prefers-reduced-motion:reduce){
+ .slot-button.low-demand .slot-flame,
+ .slot-button.low-demand .slot-flame::before{animation:none;transform:none}
+}
 
+/* Staging-only visual test. Clearly distinguish synthetic, nonbookable offers. */
+.booking-promo-preview-banner{margin:14px 0 0;border:1px solid #dfa66f;border-radius:8px;background:#fff8ed;padding:14px 18px;display:flex;flex-direction:column;gap:5px;color:#74401a;font-size:12px;line-height:1.45}
+.booking-promo-preview-banner strong{font:700 11px var(--mono);letter-spacing:.06em}
+.slot-button.low-demand[data-preview-only="true"] em{font-size:9px}
+@media(max-width:640px){.booking-promo-preview-banner{margin:14px 0 0;padding:12px}}
+
+
+/* Option 2: use the approved painterly illustration, never re-draw its contours.
+   Static presentation requested by the customer; no controls or image animation. */
+.hero-visual.lavis-hero{display:flex;flex-direction:column;justify-content:center;gap:16px;min-width:0;min-height:0;align-self:center;overflow:visible;padding:20px 0 18px 24px}
+.lavis-stage{position:relative;isolation:isolate;min-width:0;width:100%;aspect-ratio:1530/811;overflow:hidden;background:#fff;border-radius:12px}
+.lavis-art{display:block;width:100%;height:100%;object-fit:contain;opacity:1;clip-path:none;transform:none;animation:none}
+#lavisHero,#inkCarStage{scroll-margin-top:120px}
+@media(max-width:1100px){#lavisHero,#inkCarStage{scroll-margin-top:165px}}
+
+/* Premium homepage — approved static artwork, editorial type and quiet surfaces.
+   Scoped to the public homepage. No fonts, images or runtime dependencies added. */
+body.premium-home{background:#fbfcf9;color:#203c30}
+.premium-home .topline{background:#f1f5ee;border-bottom:1px solid #e3e9df;color:#506353;letter-spacing:.12em;padding-inline:clamp(20px,4vw,72px);min-height:38px}
+.premium-home .topline span:last-child{font-size:9px;letter-spacing:.13em}
+.premium-home .header{padding-inline:clamp(20px,4vw,72px);background:#fff;backdrop-filter:none;border-bottom:1px solid #edf0e8;gap:18px;height:88px}
+.premium-home .brand{gap:10px;font-size:22px;letter-spacing:-.035em;white-space:nowrap;color:#203f32}
+.premium-home .brand b{color:#516c5a}
+.premium-home .brand small{font-size:7px;letter-spacing:.16em;color:#627c69;margin-top:5px}
+.premium-home .brand .mark{width:36px;height:36px;border:1px solid #729480;background:#edf4ec;border-radius:10px;font-size:25px}
+body.premium-home .header>nav{gap:7px}
+body.premium-home .header>nav>a{min-height:44px;padding:10px 13px;font-size:12px;font-weight:600;border:1px solid #e1e9df;border-radius:999px;background:#fff;color:#35513f;box-shadow:none}
+body.premium-home .header>nav>a:hover{background:#edf4eb;border-color:#85a08b}
+body.premium-home .header>.book{min-height:48px;padding:13px 20px;border-radius:999px;font-size:13px;font-weight:700;box-shadow:none}
+.premium-home .hero{display:grid;grid-template-columns:minmax(0,.91fr) minmax(0,1.35fr);column-gap:36px;align-items:center;max-width:1600px;min-height:580px;padding:64px clamp(20px,4vw,72px) 70px;margin:auto;background:#fff}
+.premium-home .hero-copy{padding:0;min-width:0}
+.premium-home .hero .kicker{font:500 10px/1.65 var(--sans);letter-spacing:.16em;color:#4d765d;margin-bottom:21px;max-width:43em}
+.premium-home .hero h1{font-family:var(--serif);font-weight:400;font-size:clamp(52px,4.55vw,73px);line-height:1.05;letter-spacing:-.048em;color:#193b2b;margin:0;overflow-wrap:normal}
+.premium-home .hero h1 .hero-heading-line{display:block}
+.premium-home .hero h1 em{display:block;font-size:1em;line-height:1.08;color:#6d866b;font-style:italic;letter-spacing:-.052em;margin-top:10px}
+.premium-home .hero-details{margin-top:26px}
+.premium-home .hero-copy .lead{font:400 16px/1.75 var(--sans);color:#5a6d5d;max-width:32em;margin:0}
+.premium-home .hero .lead-offer{display:block;color:#315b42;font-size:13px;line-height:1.65;font-weight:600;margin-top:14px;max-width:34em}
+.premium-home .hero .actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:25px}
+body.premium-home .hero .actions>a{min-height:50px;padding:13px 19px;border-radius:999px;font-size:13px;line-height:1.4;font-weight:700;gap:12px;box-shadow:none;border-color:#c1d1c0;background:#fff;color:#284f38;white-space:normal;text-align:center}
+body.premium-home .hero .actions>a.primary{background:#1f5443;border-color:#1f5443;color:#fff}
+body.premium-home .hero .actions>a.primary:hover{background:#163d2d;border-color:#163d2d;color:#fff}
+body.premium-home .hero .actions>a:not(.primary):hover{background:#eef4eb;border-color:#88a18c}
+.premium-home .hero .location{font:400 12px/1.6 var(--sans);letter-spacing:.025em;color:#687966;margin-top:19px}
+.premium-home .hero-visual.lavis-hero{padding:0;gap:0;display:block;align-self:center;min-height:0;min-width:0;overflow:visible}
+.premium-home .lavis-stage{border-radius:0;background:#fff;aspect-ratio:1530/811;overflow:visible;isolation:auto}
+/* No crop, recolouring, motion, added stroke or overlay on the approved artwork. */
+.premium-home .lavis-art{display:block;width:100%;height:auto;aspect-ratio:1530/811;object-fit:contain;opacity:1;clip-path:none;transform:none;animation:none;filter:none}
+.premium-home .offer-banner{max-width:1484px;min-height:62px;margin:0 clamp(20px,4vw,72px) 36px;padding:14px 22px;border:1px solid #dfe7da;border-radius:14px;gap:20px;background:#eff4eb;color:#33553c}
+.premium-home .offer-banner>div{gap:12px}
+.premium-home .offer-banner .offer-icon{width:30px;height:30px;min-width:30px;border:1px solid #a7bea6;color:#426848;background:#fafff7;font-size:16px}
+.premium-home .offer-banner strong{font-size:11px;letter-spacing:.07em}
+.premium-home .offer-banner p span{color:#5a725d;font-size:12px;line-height:1.5}
+body.premium-home .offer-banner>a{min-height:44px;padding:10px 15px;border:1px solid #b4cbb2;border-radius:999px;background:#fafff8;color:#365f3b;box-shadow:none;font-size:12px}
+body.premium-home .offer-banner>a:hover{background:#e3eddf;color:#284e2b;border-color:#769c73}
+.premium-home .reservation.booking-planner{margin-inline:clamp(20px,4vw,72px);border:1px solid #dce5d7;border-radius:20px;background:#fff;box-shadow:0 12px 36px -28px #28422f4d;padding:36px}
+.premium-home .booking-intro h2{font:400 clamp(30px,3vw,40px)/1.12 var(--serif);letter-spacing:-.04em;color:#23462f}
+.premium-home .booking-intro p{font-size:13px;line-height:1.75;color:#60705e;max-width:94em}
+.premium-home .booking-step-title{margin-block:24px 12px}
+.premium-home .control-type-option{border-radius:12px}
+.premium-home .trust{padding:28px clamp(20px,4vw,72px);gap:18px;color:#526b52;background:#fbfcf9;border-color:#e2e8dc;font-size:12px;line-height:1.5}
+.premium-home .section{padding:86px clamp(20px,4vw,72px)}
+.premium-home .section h2{font-family:var(--serif);font-weight:400;line-height:1.08;font-size:clamp(38px,4vw,58px);letter-spacing:-.045em;color:#244a32}
+.premium-home .section h2 em{color:#789174}
+.premium-home .section .kicker{font-family:var(--sans);font-size:10px;line-height:1.6;letter-spacing:.14em;color:#60815f}
+.premium-home .section h3{font-family:var(--serif);font-weight:400;letter-spacing:-.025em}
+.premium-home .panel-grid{border:1px solid #dce4d7;border-radius:18px;overflow:hidden}
+.premium-home .panel-grid article{border-color:#e5ebdf;background:#fff;padding:28px;min-height:155px}
+.premium-home .cards{gap:20px}
+.premium-home .cards article{background:#fff;border:1px solid #dce5d7;border-radius:18px;padding:34px;overflow:hidden;box-shadow:none}
+.premium-home .cards .featured-service{outline:1px solid #91ae88;outline-offset:-1px}
+.premium-home .cards h3{font-size:30px;color:#2b5033;max-width:14ch}
+.premium-home .cards strong{font-family:var(--serif);font-weight:400;font-size:56px;letter-spacing:-.05em}
+.premium-home .cards .card-offer{font-family:var(--sans);font-size:9px;border-bottom-left-radius:12px;padding:9px 13px}
+body.premium-home .cards article>a{border-radius:999px;min-height:46px;box-shadow:none}
+.premium-home .app-qr-card{border-radius:18px}
+.premium-home .centre-map{border-radius:18px;overflow:hidden}
+.premium-home .final{background:#eff4eb;border-top:1px solid #e0e7da;border-bottom:1px solid #e0e7da;padding:64px 24px}
+.premium-home .final h2{color:#244a32;font-family:var(--serif);font-size:clamp(38px,4.4vw,62px);font-weight:400;line-height:1.1;letter-spacing:-.04em}
+body.premium-home .final>.primary{border-radius:999px;min-height:50px;font-size:14px;box-shadow:none}
+.premium-home footer{background:#fbfcf9;border-top:0;color:#5c705c}
+@media(min-width:1600px){.premium-home .offer-banner{margin-inline:auto}.premium-home .hero{column-gap:44px}}
+@media(max-width:1100px){
+ .premium-home .header{height:auto;gap:10px 12px;padding-block:12px}
+ body.premium-home .header>.book{font-size:13px;min-height:44px;padding:10px 16px}
+ .premium-home .mobile-navigation summary{border-radius:999px;background:#fff;font-size:13px;border-color:#c7d7c3;min-height:44px}
+ .premium-home .mobile-navigation[open] .mobile-nav-links{border-radius:14px;background:#fff;padding:10px;box-shadow:0 18px 30px -16px #233d2d4d}
+ .premium-home .hero{column-gap:22px;padding-top:46px;padding-bottom:50px;min-height:520px}
+ .premium-home .hero h1{font-size:52px}
+}
+@media(max-width:980px){
+ .premium-home .hero{grid-template-columns:minmax(0,1fr);gap:24px;padding:36px clamp(20px,5vw,40px) 40px;min-height:0}
+ .premium-home .hero-copy{display:contents}
+ .premium-home .hero-intro{grid-row:1;max-width:650px}
+ .premium-home .hero-visual.lavis-hero{grid-row:2;max-width:800px;width:100%;justify-self:center;padding:0}
+ .premium-home .hero-details{grid-row:3;margin-top:0;max-width:620px}
+ .premium-home .hero h1{font-size:clamp(40px,6.1vw,56px);line-height:1.08;letter-spacing:-.045em}
+ .premium-home .hero h1 em{margin-top:5px}
+ .premium-home .hero .kicker{font-size:10px;margin-bottom:14px}
+ .premium-home .hero .lead-offer{margin-top:9px}
+ .premium-home .hero .actions{margin-top:18px;flex-direction:row;align-items:stretch}
+ .premium-home .offer-banner{margin-bottom:26px;padding:12px 16px;min-height:60px}
+ .premium-home .offer-banner p span{display:none}
+ .premium-home .reservation.booking-planner{padding:28px 22px}
+ .premium-home .section{padding-block:60px}
+}
+@media(max-width:600px){
+ .premium-home .topline{padding-inline:20px;min-height:38px;gap:8px;letter-spacing:.02em;font-size:10px}
+ .premium-home .topline span:first-child{font-size:10px}
+ .premium-home .topline a{font-size:11px}
+ .premium-home .header{padding-inline:20px}
+ .premium-home .brand{font-size:20px}
+ .premium-home .brand small{font-size:6px;letter-spacing:.13em}
+ .premium-home .hero{padding:28px 20px 32px;gap:18px}
+ .premium-home .hero h1{font-size:clamp(36px,10.8vw,48px);letter-spacing:-.048em}
+ .premium-home .hero .kicker{font-size:9px;letter-spacing:.09em;line-height:1.6;margin-bottom:13px}
+ .premium-home .hero-copy .lead{font-size:14px;line-height:1.75}
+ .premium-home .hero .lead-offer{font-size:12px;line-height:1.7}
+ .premium-home .hero .actions{gap:9px;display:grid;grid-template-columns:1fr 1fr}
+ body.premium-home .hero .actions>a{width:100%;min-width:0;padding:12px 10px;font-size:12px;min-height:50px;justify-content:center}
+ .premium-home .hero .location{font-size:11px;margin-top:14px}
+ .premium-home .offer-banner{margin-inline:20px;border-radius:12px;gap:8px;flex-wrap:wrap;padding:12px 14px}
+ .premium-home .offer-banner>div{flex:1 1 180px}
+ body.premium-home .offer-banner>a{font-size:11px;width:auto;flex:0 1 auto;padding:9px 12px}
+ .premium-home .reservation.booking-planner{margin-inline:20px;padding:24px 14px;border-radius:16px}
+ .premium-home .booking-intro h2{font-size:30px}
+ .premium-home .booking-intro p{font-size:12px;line-height:1.75}
+ .premium-home .trust{font-size:11px;padding:24px 20px;gap:14px}
+ .premium-home .section{padding:54px 20px}
+ .premium-home .section h2{font-size:40px}
+ .premium-home .cards article{padding:28px}
+ .premium-home .cards h3{font-size:28px}
+ .premium-home .final{padding-block:48px}
+}
+@media(max-width:359px){
+ .premium-home .brand{font-size:18px;gap:7px}
+ .premium-home .brand .mark{width:30px;height:30px;font-size:22px}
+ .premium-home .hero .actions{grid-template-columns:1fr}
+ .premium-home .hero h1{font-size:36px}
+ .premium-home .offer-banner{gap:10px}
+}
+
+.premium-home .final>p{color:#5b7854;font:600 10px/1.7 var(--sans);letter-spacing:.12em}
+.premium-home .final h2 em{color:#6f8769}
+body.premium-home :is(.app-promo,.centre) .primary{border-radius:999px;min-height:48px;box-shadow:none;font-size:13px}
 
 /* Booking price alignment and clearly actionable date selector */
 .vehicle-booking-controls{grid-template-columns:minmax(0,1fr)!important;gap:22px}

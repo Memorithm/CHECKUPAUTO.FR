@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 import tempfile
 from unittest.mock import patch
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'https://responsive.checkupauto.test'
@@ -103,7 +103,7 @@ async def check_document_guide(page, guide_id: str, photo: str, width: int) -> N
 async def run(args) -> int:
     from playwright.async_api import async_playwright
     out=Path(args.output).resolve();out.mkdir(parents=True,exist_ok=True)
-    results=[]; failures=[]
+    results=[]; failures=[]; logout_requests=[]; model_requests=[]
     with tempfile.TemporaryDirectory(prefix='checkupauto-responsive-') as tmp:
         # Keep any incidental module configuration lookup outside real runtime directories.
         os.environ['CYBERCHECK_PRIVATE_DIR']=tmp+'/private'
@@ -123,6 +123,18 @@ async def run(args) -> int:
             req=route.request;url=urlsplit(req.url);path=url.path
             if url.netloc!=urlsplit(ORIGIN).netloc:
                 await route.abort();return
+            if path == '/compte/deconnexion':
+                logout_requests.append({'method':req.method,'fields':parse_qs(req.post_data or '',keep_blank_values=True)})
+                # Playwright does not re-route a fulfilled redirect. Serve the login
+                # fixture here; the real handler's 303 is covered by customer_logout_test.
+                await route.fulfill(status=200,content_type='text/html; charset=utf-8',body=pages['/compte'],
+                    headers={'Cache-Control':'no-store',
+                    'Set-Cookie':'checkupauto_customer=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax'});return
+            if path == '/qa/dashboard-script-blocked':
+                await route.fulfill(content_type='text/html; charset=utf-8',body=pages['/qa/dashboard'],
+                    headers={'Content-Security-Policy':"script-src 'none'; style-src 'self' 'unsafe-inline'; form-action 'self'"});return
+            if path == '/assets/3d/CyberCheckVehicle_Photo3D.glb':
+                model_requests.append(req.url)
             if path in pages:
                 await route.fulfill(content_type='text/html; charset=utf-8',body=pages[path]);return
             api={
@@ -149,17 +161,55 @@ async def run(args) -> int:
                         is_mobile=width<=1024,has_touch=width<=1024,device_scale_factor=1,reduced_motion='reduce')
                     await context.route('**/*',route_request)
                     page=await context.new_page(); page.set_default_timeout(8000)
+                    page_errors=[]; page.on('pageerror',lambda error:page_errors.append(str(error)))
                     for path in pages:
                         label=f'{args.browser} {width}x{height} {path}'
                         try:
+                            page_errors.clear()
                             await page.goto(ORIGIN+path,wait_until='load')
                             if path=='/':
                                 await page.locator('.booking-day').first.wait_for()
                                 await page.get_by_role('button',name='Tout refuser',exact=True).click()
+                                assert await page.locator('body.premium-home').count()==1
+                                assert await page.locator('.lavis-caption,.lavis-topline,.hero .offer-seal,#lavisReplay,#lavisStill,.lavis-controls').count()==0
+                                premium=await page.evaluate('''() => {
+                                    const box=s=>{const r=document.querySelector(s).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height}};
+                                    const img=document.querySelector('#lavisArtwork');const css=getComputedStyle(img);
+                                    return {intro:box('.hero-intro'),art:box('#lavisArtwork'),details:box('.hero-details'),font:getComputedStyle(document.querySelector('.hero h1')).fontFamily,fit:css.objectFit,animation:css.animationName,opacity:css.opacity,naturalWidth:img.naturalWidth,loaded:img.complete};
+                                }''')
+                                assert 'Georgia' in premium['font'],premium
+                                assert premium['loaded'] and premium['naturalWidth']>0,premium
+                                assert premium['fit']=='contain' and premium['animation']=='none' and premium['opacity']=='1',premium
+                                assert premium['art']['left']>=0 and premium['art']['right']<=width+1,premium
+                                if width<=980:
+                                    assert premium['intro']['bottom']<=premium['art']['top']+1,premium
+                                    assert premium['art']['bottom']<=premium['details']['top']+1,premium
+                                if width in (375,390,1440):
+                                    await page.evaluate('scrollTo(0,0)')
+                                    await page.screenshot(path=str(out/f'{args.browser}-{width}-premium-home.png'))
                             data=await page.evaluate(GEOMETRY)
                             assert data['scrollWidth']<=width+1, f'page width overflow: {data}'
                             assert abs(data['innerWidth']-width)<=1, f'mobile viewport expanded: {data}'
                             assert not data['outside'], f'elements outside viewport: {data["outside"]}'
+                            if not path.startswith('/admin/'):
+                                assert not page_errors, page_errors
+                            if path == '/qa/dashboard':
+                                nav=page.get_by_role('navigation',name='Actions de votre espace client')
+                                controls=nav.locator('a,button')
+                                assert await controls.count()==3
+                                for control in await controls.all():
+                                    box=await control.bounding_box()
+                                    assert box['height']>=46 and box['width']>=44,box
+                                    assert box['x']>=0 and box['x']+box['width']<=width+1,box
+                                    await control.focus()
+                                    outline=await control.evaluate("e=>getComputedStyle(e).outlineStyle")
+                                    assert outline != 'none',outline
+                                await nav.get_by_role('link',name='Mes véhicules',exact=True).click()
+                                assert urlsplit(page.url).fragment == 'mes-vehicules'
+                                assert await nav.get_by_role('link',name='Nous contacter',exact=True).get_attribute('href') == '/contact'
+                                if width in (375,1440):
+                                    await page.evaluate('scrollTo(0,0)')
+                                    await page.screenshot(path=str(out/f'{args.browser}-{width}-dashboard-actions.png'),full_page=True)
                             if path in ('/compte/reserver', '/qa/dashboard'):
                                 booking = path == '/compte/reserver'
                                 system_id = 'registrationSystem' if booking else 'vehicleRegistrationSystem'
@@ -196,8 +246,10 @@ async def run(args) -> int:
                             if path=='/':
                                 # A previously hidden, tall reservation section cannot stay invisible.
                                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
-                                stage=await page.locator('#vehicle3DStage').bounding_box()
-                                assert stage['x']>=0 and stage['x']+stage['width']<=width+1, stage
+                                stage=await page.locator('#inkCarStage').bounding_box()
+                                assert stage['x']>=-1 and stage['x']+stage['width']<=width+1, stage
+                                assert await page.locator('#lavisArtwork').is_visible()
+                                assert not model_requests, model_requests
                                 if width<=1100:
                                     menu=page.locator('.mobile-navigation')
                                     await menu.locator('summary').click()
@@ -241,6 +293,31 @@ async def run(args) -> int:
                             await page.screenshot(path=str(out/f'failed-{args.browser}-{width}-{path.strip("/").replace("/","-") or "home"}.png'),full_page=True)
                             print('FAIL',label,str(exc)[:600],flush=True)
                     await context.close()
+                # The approved image is now always static, without presentation controls.
+                for motion in ('no-preference','reduce'):
+                    context=await browser.new_context(viewport={'width':390,'height':844},
+                        is_mobile=True,has_touch=True,reduced_motion=motion)
+                    await context.route('**/*',route_request)
+                    page=await context.new_page();page.set_default_timeout(10000)
+                    await page.goto(ORIGIN,wait_until='load')
+                    image=page.locator('#lavisArtwork')
+                    await image.scroll_into_view_if_needed()
+                    await page.get_by_role('button',name='Tout refuser',exact=True).click()
+                    assert await image.evaluate('el=>el.complete && el.naturalWidth>0')
+                    assert await page.locator('#lavisReplay,#lavisStill,#lavisStatus,.lavis-controls').count()==0
+                    assert await page.locator('#vehicle3DCanvas').count()==0
+                    for delay in (0,350):
+                        await page.wait_for_timeout(delay)
+                        complete=await image.evaluate('el=>({animation:getComputedStyle(el).animationName,opacity:parseFloat(getComputedStyle(el).opacity),clip:getComputedStyle(el).clipPath,source:el.currentSrc,width:el.naturalWidth,activeAnimations:el.getAnimations().length})')
+                        assert complete['opacity']==1 and complete['animation']=='none' and complete['clip']=='none',complete
+                        assert complete['activeAnimations']==0,complete
+                        assert complete['width']>0,complete
+                        assert any(complete['source'].endswith(f'-{w}.webp') for w in (765,1020,1530)),complete
+                    assert not model_requests,model_requests
+                    await page.screenshot(path=str(out/f'{args.browser}-390-lavis-static-{motion}.png'))
+                    results.append({'case':args.browser+f' lavis static image without controls {motion}',
+                        'passed':True,'complete':complete,'GLBRequests':0})
+                    await context.close()
                 # Normal-motion mode must not hide a planner taller than the viewport.
                 context=await browser.new_context(viewport={'width':320,'height':568},is_mobile=True)
                 await context.route('**/*',route_request); page=await context.new_page()
@@ -248,13 +325,53 @@ async def run(args) -> int:
                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
                 results.append({'case':args.browser+' normal-motion tall planner','passed':True})
                 await context.close()
+                # Deep-link users must see the entire artwork below the sticky header.
+                for viewport_w,viewport_h in ((390,844),(1440,900)):
+                    context=await browser.new_context(viewport={'width':viewport_w,'height':viewport_h},
+                        is_mobile=viewport_w<600,reduced_motion='reduce')
+                    await context.route('**/*',route_request)
+                    page=await context.new_page()
+                    await page.goto(ORIGIN+'/#lavisHero',wait_until='load')
+                    geometry=await page.evaluate("() => ({top:document.querySelector('#lavisHero').getBoundingClientRect().top,header:document.querySelector('.header').getBoundingClientRect().bottom})")
+                    assert geometry['top']>=geometry['header']+10,geometry
+                    assert await page.locator('#lavisArtwork').is_visible()
+                    results.append({'case':args.browser+f' {viewport_w} ink deep-link clears sticky header','passed':True,**geometry})
+                    await context.close()
                 # Native mobile menu still works when scripts cannot run.
                 context=await browser.new_context(viewport={'width':375,'height':812},java_script_enabled=False)
                 await context.route('**/*',route_request);page=await context.new_page()
                 await page.goto(ORIGIN);await page.locator('.mobile-navigation summary').click()
                 assert await page.locator('.mobile-nav-links a[href="/compte"]').is_visible()
-                results.append({'case':args.browser+' native menu without JavaScript','passed':True})
+                assert await page.locator('#lavisArtwork').is_visible()
+                assert await page.locator('#vehicle3DCanvas').count()==0
+                results.append({'case':args.browser+' native menu and ink art without JavaScript','passed':True})
                 await context.close()
+                # Native logout is independent of dashboard JavaScript and browser CSP.
+                # This browser assertion verifies the submitted POST and fallback rendering;
+                # customer_logout_test.py verifies the real 303, DB revocation and security.
+                for width in (375,1440):
+                    for mode in ('normal','no-js','script-blocked'):
+                        context=await browser.new_context(viewport={'width':width,'height':900},
+                            java_script_enabled=mode!='no-js')
+                        await context.route('**/*',route_request)
+                        await context.add_cookies([{'name':'checkupauto_customer','value':'synthetic',
+                            'url':ORIGIN,'secure':True,'httpOnly':True,'sameSite':'Lax'}])
+                        page=await context.new_page();page.set_default_timeout(8000)
+                        path='/qa/dashboard-script-blocked' if mode=='script-blocked' else '/qa/dashboard'
+                        await page.goto(ORIGIN+path)
+                        before=len(logout_requests)
+                        logout=page.get_by_role('button',name='Se déconnecter',exact=True)
+                        if width==1440:
+                            await logout.focus();await page.keyboard.press('Enter')
+                        else:
+                            await logout.click()
+                        await page.wait_for_url(ORIGIN+'/compte/deconnexion')
+                        assert len(logout_requests)==before+1,logout_requests
+                        assert logout_requests[-1]=={'method':'POST','fields':{'csrf':['c'*64]}},logout_requests[-1]
+                        assert not any(c['name']=='checkupauto_customer' for c in await context.cookies())
+                        assert await page.get_by_role('button',name='Se connecter par e-mail',exact=True).is_visible()
+                        results.append({'case':f'{args.browser} {width} native logout submission {mode}','passed':True})
+                        await context.close()
             finally:
                 await browser.close()
     report={'browser':args.browser,'syntheticDataOnly':True,'passed':len(results),

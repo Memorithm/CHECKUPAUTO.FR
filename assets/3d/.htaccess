@@ -1,0 +1,11 @@
+# CheckupAuto public static 3D media only. No application routes / customer data.
+# The URL embeds the asset SHA-256; stale models are never reused after an update.
+<IfModule mod_mime.c>
+  AddType model/gltf-binary .glb
+</IfModule>
+<IfModule mod_headers.c>
+  <FilesMatch "\.glb$">
+    Header always set Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+    Header always set X-Content-Type-Options "nosniff"
+  </FilesMatch>
+</IfModule>

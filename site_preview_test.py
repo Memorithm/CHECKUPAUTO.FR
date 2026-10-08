@@ -57,29 +57,27 @@ class SitePreviewTest(unittest.TestCase):
 
     def test_source_sha_and_real_visual_design_are_preserved(self):
         self.assertIn('aaaaaaaaaaaa', self.page)
-        for text in ('L’exigence', 'La sérénité', 'vehicle-peugeot208', 'referral_wallet'):
+        for text in ('L’exigence', 'La sérénité', 'inkCarStage', 'referral_wallet'):
             if text == 'referral_wallet':
                 self.assertNotIn(text, self.page)
-            elif text == 'vehicle-peugeot208':
-                self.assertIn('class="vehicle-3d-fallback"', self.page)
+            elif text == 'inkCarStage':
+                self.assertIn('id="inkCarStage"', self.page)
             else:
                 self.assertIn(text, self.page)
         self.assertLess(len(self.page.encode()), 3 * 1024 * 1024)
 
 
 
-    def test_glb_runtime_loader_prefers_local_verified_model_and_keeps_fallback(self):
-        loader = (self.root / "assets" / "cybercheck-glb-hero.js").read_text(encoding="utf-8")
-        self.assertIn('/assets/3d/CyberCheckVehicle_Photo3D.glb?v=1', loader)
-        self.assertIn('/assets/cybercheck-hero-3d.js?v=photo-depth-1', loader)
-        self.assertIn('VehiclePhoto3D', loader)
-        self.assertIn('VehiclePhotoMaterial', loader)
-        self.assertIn('alphaMode!=="BLEND"', loader)
-        self.assertIn('MAX_GLB_BYTES=4*1024*1024', loader)
-        self.assertIn('stage.dataset.modelSource="blender-glb"', loader)
-        self.assertIn('badge.textContent="MODÈLE BLENDER · GLB"', loader)
-        self.assertNotIn('three.js', loader.lower())
-        self.assertNotIn('cdn.', loader.lower())
+    def test_site_preview_renders_inline_ink_art_without_any_3d_dependency(self):
+        self.assertIn('id="lavisArtwork"', self.page)
+        self.assertIn('lavis-art', self.page)
+        self.assertNotIn('OPTION 02 · LAVIS', self.page)
+        self.assertNotIn('class="lavis-caption"', self.page)
+        self.assertIn('Illustration automobile Checkup Auto', self.page)
+        self.assertNotIn('vehicle3DCanvas', self.page)
+        self.assertNotIn('cybercheck-glb-hero.js', self.page)
+        self.assertNotIn('CyberCheckVehicle_Photo3D.glb', self.page)
+        self.assertNotIn('vehicle-peugeot208-premium.webp', self.page)
 
     def test_booking_preview_starts_with_control_type_then_slot(self):
         self.assertIn('id="controlTypeSelector"', self.page)
@@ -89,15 +87,15 @@ class SitePreviewTest(unittest.TestCase):
         self.assertIn('CRÉNEAU DISPONIBLE', self.page)
         self.assertNotIn('id="vehicleCarouselPrev"', self.page)
 
-    def test_webgl_hero_uses_local_vehicle_photo_with_bounded_parallax(self):
-        hero = (self.root / "assets" / "cybercheck-hero-3d.js").read_text(encoding="utf-8")
-        self.assertIn('/assets/vehicle.png?v=photo-depth-1', hero)
-        self.assertIn('targetYaw=Math.max(-0.18,Math.min(0.11', hero)
-        self.assertIn('createGrid(aspect)', hero)
-        self.assertNotIn('https://', hero)
-        self.assertNotIn('http://', hero)
-        self.assertNotIn('three.js', hero.lower())
-        self.assertNotIn('cdn', hero.lower())
+    def test_ink_hero_requires_no_external_runtime_or_cdn(self):
+        source = (self.root / "index.html").read_text()
+        assert '<img id="lavisArtwork"' in source
+        assert 'src="/assets/cybercheck-glb-hero.js' not in source
+        assert '<canvas id="vehicle3DCanvas"' not in source
+        assert 'requestAnimationFrame(' not in source
+        css = (self.root / "style.css").read_text()
+        self.assertNotIn('@keyframes lavis-reveal', css)
+        self.assertIn('@media(prefers-reduced-motion:reduce)', css)
 
     def test_invalid_source_sha_is_refused(self):
         with self.assertRaises(ValueError):

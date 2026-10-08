@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import booking_demand as demand
@@ -142,6 +143,21 @@ class PromotionPublicationTest(unittest.TestCase):
         self.assertEqual(demand.candidate_slots(
             sample_history(), POLICY, {'technical': response()}, TODAY), [])
 
+    def test_standard_control_wins_equal_low_demand_service_ties(self):
+        # Both services share centre capacity; matching physical slots must
+        # not preferentially consume the VASP offering by alphabetic order.
+        common = response(discounted=False)
+        fitted = {**common, 'service': {'key': 'fitted'},
+                  'days': [{**common['days'][0], 'slots': [{
+                      **slot, 'basePrice': 90.0, 'price': 90.0
+                  } for slot in common['days'][0]['slots']]}]}
+        candidates = demand.candidate_slots(
+            sample_history(), POLICY,
+            {'fitted': fitted, 'technical': common}, TODAY)
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]['service'], 'technical')
+        self.assertEqual(candidates[0]['finalPrice'], 75.0)
+
     def test_publication_requires_explicit_prod_flag(self):
         with patch.dict(os.environ, {demand.PUBLISH_ENV: ''}):
             with patch.object(demand.mercure_admin, 'plan_promotion_slot') as write:
@@ -149,9 +165,146 @@ class PromotionPublicationTest(unittest.TestCase):
             self.assertEqual(result['status'], 'read_only')
             write.assert_not_called()
 
+    def test_publisher_requires_both_opt_in_and_controller(self):
+        for enabled, controller in (
+            ('1', ''), ('', demand.AUTHORIZED_CONTROLLER),
+            ('1', 'hostinger-staging'),
+        ):
+            with self.subTest(enabled=enabled, controller=controller), patch.dict(
+                os.environ, {demand.PUBLISH_ENV: enabled,
+                             demand.CONTROLLER_ENV: controller}
+            ):
+                self.assertFalse(demand._publisher_enabled())
+                self.assertEqual(demand.run_once(POLICY)['status'], 'read_only')
+
+    def test_reduced_price_respects_policy_discount_cap(self):
+        capped = {**POLICY, 'maxDiscountPercent': 6}
+        self.assertEqual(demand.candidate_slots(
+            sample_history(), capped,
+            {'technical': response(discounted=False)}, TODAY), [])
+        uncapped = {**POLICY, 'maxDiscountPercent': 7}
+        self.assertEqual(len(demand.candidate_slots(
+            sample_history(), uncapped,
+            {'technical': response(discounted=False)}, TODAY)), 1)
+
+    def test_claim_prevents_cross_service_collision_and_daily_overuse(self):
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            demand.analytics, 'connect',
+            side_effect=lambda: sqlite3.connect(td + '/promotions.sqlite')
+        ):
+            demand.init_db()
+            self.assertTrue(demand._claim_promotion('technical|2026-10-12|15:30', 75))
+            self.assertFalse(demand._claim_promotion('fitted|2026-10-12|15:30', 85))
+            self.assertTrue(demand._claim_promotion('technical|2026-10-12|16:10', 75))
+            self.assertFalse(demand._claim_promotion('technical|2026-10-12|16:50', 75))
+            self.assertTrue(demand._claim_promotion('technical|2026-10-13|16:50', 75))
+
+    def test_invalid_batch_limit_is_always_refused(self):
+        for limit in (0, 5, -1, True, '1'):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                demand.run_once(POLICY, max_new_promotions=limit)
+
+    def test_private_ledger_isolated_from_app_database_and_requires_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            secure = Path(td) / 'secure'
+            secure.mkdir(mode=0o700)
+            ledger = secure / 'promotions.sqlite3'
+            env = {demand.PUBLISH_ENV: '1',
+                   demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER,
+                   'CYBERCHECK_LOW_DEMAND_PROMO_LEDGER_DB': str(ledger)}
+            with patch.dict(os.environ, env):
+                demand.init_db()
+                self.assertEqual(ledger.stat().st_mode & 0o777, 0o600)
+                with sqlite3.connect(ledger) as connection:
+                    names = [row[0] for row in connection.execute(
+                        'SELECT name FROM sqlite_master WHERE type="table"')]
+                self.assertIn('booking_demand_promotion_attempts', names)
+                secure.chmod(0o755)
+                with self.assertRaises(PermissionError):
+                    demand.init_db()
+                secure.chmod(0o700)
+            env[demand.CONTROLLER_ENV] = 'hostinger-staging'
+            with patch.dict(os.environ, env), self.assertRaises(PermissionError):
+                demand.init_db()
+
+    def test_migration_freeze_uses_primary_dir_not_promotion_ledger(self):
+        with tempfile.TemporaryDirectory() as td:
+            main = Path(td) / 'primary'
+            main.mkdir()
+            (main / '.migration-write-freeze.json').write_text('{}')
+            secure = Path(td) / 'secure'
+            secure.mkdir(mode=0o700)
+            env = {demand.PUBLISH_ENV: '1',
+                   demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER,
+                   'CYBERCHECK_DATA_DIR': str(main),
+                   'CYBERCHECK_LOW_DEMAND_PROMO_LEDGER_DB':
+                       str(secure / 'promotions.sqlite3')}
+            with patch.dict(os.environ, env), patch.object(
+                demand, 'snapshot',
+                side_effect=AssertionError('no provider access during freeze')
+            ):
+                self.assertTrue(demand.migration_write_freeze.status()['active'])
+                self.assertEqual(
+                    demand.run_once(POLICY, max_new_promotions=1)['status'],
+                    'blocked')
+
+    def test_unresolved_financial_attempt_blocks_other_hours(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.dict(os.environ, {
+                 demand.PUBLISH_ENV: '1',
+                 demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER,
+             }), \
+             patch.object(demand.analytics, 'connect',
+                          side_effect=lambda: sqlite3.connect(td+'/promo.sqlite')):
+            demand.init_db()
+            self.assertTrue(demand._claim_promotion(
+                'technical|2026-10-09|13:00',75))
+            demand._record_result('technical|2026-10-09|13:00','uncertain')
+            with patch.object(demand.migration_write_freeze, 'status',
+                              return_value={'active':False}), \
+                 patch.object(demand, 'snapshot',
+                              side_effect=AssertionError('no new provider requests')):
+                result = demand.run_once(POLICY, max_new_promotions=1)
+            self.assertEqual(result['status'], 'blocked_unresolved')
+            self.assertEqual(result['unresolvedAttempts'], 1)
+            self.assertEqual(result['published'], 0)
+
+    def test_uncertain_mercure_rejection_has_only_sanitized_failure_code(self):
+        with tempfile.TemporaryDirectory() as td, \
+             patch.dict(os.environ, {
+                 demand.PUBLISH_ENV:'1',
+                 demand.CONTROLLER_ENV:demand.AUTHORIZED_CONTROLLER,
+             }), \
+             patch.object(demand.analytics,'connect',
+                          side_effect=lambda: sqlite3.connect(td+'/promo.sqlite')), \
+             patch.object(demand.migration_write_freeze,'status',
+                          return_value={'active':False}), \
+             patch.object(demand,'snapshot',return_value=sample_history()), \
+             patch.object(demand.mercure_admin,'business_today',
+                          return_value=TODAY), \
+             patch.object(demand.mercure_admin,'list_promotions',
+                          return_value=[]), \
+             patch.object(demand.mercure_public,'availability',
+                          return_value=response(discounted=False)), \
+             patch.object(demand.mercure_admin,'plan_promotion_slot',
+                          side_effect=demand.mercure_admin.PromotionWriteError(
+                              'promotion_create_http_403')):
+            result=demand.run_once({
+                **POLICY,'eligibleServices':{'technical':True,'fitted':False}
+            },max_new_promotions=1)
+            self.assertEqual(result['status'],'unverified')
+            self.assertEqual(result['attempted'],1)
+            self.assertEqual(result['published'],0)
+            self.assertEqual(result['failureCodes'],['promotion_create_http_403'])
+            with sqlite3.connect(td+'/promo.sqlite') as db:
+                self.assertEqual(db.execute(
+                    'SELECT state FROM booking_demand_promotion_attempts'
+                ).fetchone()[0],'uncertain')
+
     def test_ledger_prevents_duplicate_publication_even_after_restart(self):
         with tempfile.TemporaryDirectory() as td, \
-             patch.dict(os.environ, {demand.PUBLISH_ENV: '1'}), \
+             patch.dict(os.environ, {demand.PUBLISH_ENV: '1',
+                                     demand.CONTROLLER_ENV: demand.AUTHORIZED_CONTROLLER}), \
              patch.object(demand.migration_write_freeze, 'status',
                           return_value={'active': False}), \
              patch.object(demand, 'snapshot', return_value=sample_history()), \
