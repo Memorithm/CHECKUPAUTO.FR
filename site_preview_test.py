@@ -71,7 +71,9 @@ class SitePreviewTest(unittest.TestCase):
     def test_site_preview_renders_inline_ink_art_without_any_3d_dependency(self):
         self.assertIn('id="lavisArtwork"', self.page)
         self.assertIn('lavis-art', self.page)
-        self.assertIn('OPTION 02 · LAVIS', self.page)
+        self.assertNotIn('OPTION 02 · LAVIS', self.page)
+        self.assertNotIn('class="lavis-caption"', self.page)
+        self.assertIn('Illustration automobile Checkup Auto', self.page)
         self.assertNotIn('vehicle3DCanvas', self.page)
         self.assertNotIn('cybercheck-glb-hero.js', self.page)
         self.assertNotIn('CyberCheckVehicle_Photo3D.glb', self.page)

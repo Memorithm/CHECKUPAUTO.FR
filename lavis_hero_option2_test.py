@@ -85,7 +85,7 @@ class LavisHeroOption2Test(unittest.TestCase):
         self.assertIn('id="lavisHero"',self.html);self.assertIn('id="inkCarStage"',self.html)
         self.assertIn('#lavisHero,#inkCarStage{scroll-margin-top:120px}',self.css)
         self.assertIn('#lavisHero,#inkCarStage{scroll-margin-top:165px}',self.css)
-        self.assertIn('/style.css?v=lavis-static-20261008-1',self.html)
+        self.assertIn('/style.css?v=premium-lavis-20261008-1',self.html)
         self.assertIn('/app.js?v=lavis-static-20261008-1',self.html)
         self.assertIn('href="#reservation"',self.html)
         self.assertIn('id="bookingContinue"',self.html)
