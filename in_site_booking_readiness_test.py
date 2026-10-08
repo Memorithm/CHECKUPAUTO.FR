@@ -4,6 +4,17 @@ from in_site_booking_readiness import BookingCapabilities, declared_capabilities
 
 
 class InSiteBookingReadinessTests(unittest.TestCase):
+    def test_public_status_is_explicitly_unavailable_and_no_external_redirect(self):
+        from in_site_booking_readiness import public_status
+        status = public_status()
+        self.assertTrue(status["ok"])
+        self.assertTrue(status["bookingOnSiteRequired"])
+        self.assertFalse(status["bookingEnabled"])
+        self.assertFalse(status["confirmationEnabled"])
+        self.assertFalse(status["syntheticAppointmentsAreProduction"])
+        self.assertFalse(status["externalMercureRedirectAllowed"])
+        self.assertIn("real_mercure_booking_connector_unqualified", status["blockers"])
+
     def test_current_implementation_cannot_claim_confirmation(self):
         result = evaluate(declared_capabilities())
         self.assertFalse(result["ready"])
