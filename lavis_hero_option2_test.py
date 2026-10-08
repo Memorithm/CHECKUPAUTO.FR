@@ -1,4 +1,4 @@
-"""Approved lavis artwork fidelity, finite motion and public-only source boundaries."""
+"""Approved static lavis artwork fidelity and public-only source boundaries."""
 from pathlib import Path
 import hashlib
 from html.parser import HTMLParser
@@ -59,43 +59,34 @@ class LavisHeroOption2Test(unittest.TestCase):
         self.assertNotIn('requestAnimationFrame',self.js)
         self.assertNotIn('getContext(',self.js)
 
-    def test_animation_is_finite_and_never_distorts_the_art(self):
+    def test_static_image_has_no_animation_or_distortion(self):
         css=self.css[self.css.index('/* Option 2:'):]
-        self.assertIn('@keyframes lavis-reveal',css)
-        self.assertIn('animation:lavis-reveal 2.6s',css)
-        self.assertNotIn('infinite',css);self.assertNotRegex(css,r'(?<![-\w])filter\s*:')
+        self.assertNotIn('@keyframes',css)
+        self.assertNotIn('lavis-reveal',css)
+        self.assertNotIn('infinite',css)
         self.assertIn('object-fit:contain',css)
-        self.assertIn('@media(prefers-reduced-motion:reduce)',css)
-        self.assertIn('#lavisReplay{display:none}',css)
-        self.assertIn('.lavis-controls[hidden]{display:none}',css)
-        self.assertIn("image.classList.remove('lavis-revealing')",self.js)
-        self.assertIn("image.addEventListener('animationend'",self.js)
+        self.assertIn('opacity:1;clip-path:none;transform:none;animation:none',css)
 
-    def test_static_image_replay_and_image_load_failure_are_explicit(self):
-        for key in ('lavisReplay','lavisStill'):
-            tag,attrs=self.dom.elements[key];self.assertEqual(tag,'button');self.assertEqual(attrs['type'],'button')
-            self.assertEqual(attrs['aria-controls'],'lavisArtwork')
-        self.assertEqual(self.dom.elements['lavisStill'][1]['aria-pressed'],'false')
-        self.assertIn("still?.addEventListener('click',stop)",self.js)
-        self.assertIn('observer?.disconnect()',self.js)
-        self.assertIn("image.addEventListener('error'",self.js)
-        self.assertIn("image.addEventListener('load',ready,{once:true})",self.js)
-        self.assertIn("preference.addEventListener?.('change'",self.js)
-        self.assertNotIn('fetch(',self.js.split("const service=document.querySelector('#service')")[0])
+    def test_presentation_buttons_and_status_are_removed_not_hidden(self):
+        for token in ('lavisReplay','lavisStill','lavisStatus','lavis-controls','lavis-action','Rejouer l’apparition','Image fixe'):
+            self.assertNotIn(token,self.html)
+            self.assertNotIn(token,self.js)
+        self.assertNotIn('lavis-controls',self.css)
+        self.assertNotIn('lavis-status',self.css)
 
-    def test_no_js_image_stays_visible_and_controls_start_hidden(self):
-        self.assertIn('aria-label="Présentation de l’illustration" hidden',self.html)
+    def test_no_javascript_is_needed_to_present_the_complete_image(self):
         self.assertIn('.lavis-art{display:block',self.css)
-        self.assertIn('opacity:1;clip-path:inset(0)',self.css)
-        self.assertNotIn('class="lavis-art lavis-revealing"',self.html)
-        self.assertEqual(self.dom.elements['lavisStatus'][1]['role'],'status')
+        self.assertNotIn('lavis-revealing',self.html)
+        self.assertNotIn('lavisArtwork',self.js)
+        self.assertTrue(self.js.startswith("const service=document.querySelector('#service');"))
+        self.assertNotIn('hidden',self.dom.elements['lavisArtwork'][1])
 
     def test_anchors_and_cache_versions_preserve_navigation(self):
         self.assertIn('id="lavisHero"',self.html);self.assertIn('id="inkCarStage"',self.html)
         self.assertIn('#lavisHero,#inkCarStage{scroll-margin-top:120px}',self.css)
         self.assertIn('#lavisHero,#inkCarStage{scroll-margin-top:165px}',self.css)
-        self.assertIn('/style.css?v=lavis-option2-20261008-1',self.html)
-        self.assertIn('/app.js?v=lavis-option2-20261008-1',self.html)
+        self.assertIn('/style.css?v=lavis-static-20261008-1',self.html)
+        self.assertIn('/app.js?v=lavis-static-20261008-1',self.html)
         self.assertIn('href="#reservation"',self.html)
         self.assertIn('id="bookingContinue"',self.html)
 

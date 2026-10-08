@@ -35,15 +35,15 @@ class PublicAssetCacheContractTest(unittest.TestCase):
     def test_ink_homepage_has_no_3d_download_and_preserves_lazy_media(self):
         html = (ROOT / "index.html").read_text()
         self.assertIn('id="lavisArtwork"', html)
-        self.assertIn('id="lavisReplay"', html)
+        self.assertNotIn('id="lavisReplay"', html)
         self.assertNotIn('cybercheck-glb-hero.js', html)
         self.assertNotIn('CyberCheckVehicle_Photo3D.glb', html)
         self.assertNotIn('vehicle-peugeot208-premium.webp', html)
         self.assertNotIn('<canvas', html)
         self.assertRegex(html, r'src="/assets/checkupauto-centre-map-osm.webp"[^>]*loading="lazy"')
         self.assertRegex(html, r'src="/assets/app/qr-site.svg"[^>]*loading="lazy"')
-        self.assertIn('/app.js?v=lavis-option2-20261008-1', html)
-        self.assertIn('lavis-reveal', (ROOT / "style.css").read_text())
+        self.assertIn('/app.js?v=lavis-static-20261008-1', html)
+        self.assertNotIn('lavis-reveal', (ROOT / "style.css").read_text())
 
     def test_sensitive_responses_remain_uncached(self):
         server = (ROOT / "admin_server.py").read_text()

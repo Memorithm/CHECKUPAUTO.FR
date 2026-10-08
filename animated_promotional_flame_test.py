@@ -38,7 +38,7 @@ class AnimatedPromotionalFlameTest(unittest.TestCase):
         self.assertNotIn("booking-flame-glow", reduced)
 
     def test_stylesheet_cache_version_is_bumped(self):
-        self.assertIn('/style.css?v=lavis-option2-20261008-1', self.page)
+        self.assertIn('/style.css?v=lavis-static-20261008-1', self.page)
         self.assertNotIn('/style.css?v=low-demand-20261008-1', self.page)
 
 

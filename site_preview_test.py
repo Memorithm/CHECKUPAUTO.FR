@@ -92,7 +92,7 @@ class SitePreviewTest(unittest.TestCase):
         assert '<canvas id="vehicle3DCanvas"' not in source
         assert 'requestAnimationFrame(' not in source
         css = (self.root / "style.css").read_text()
-        self.assertIn('@keyframes lavis-reveal', css)
+        self.assertNotIn('@keyframes lavis-reveal', css)
         self.assertIn('@media(prefers-reduced-motion:reduce)', css)
 
     def test_invalid_source_sha_is_refused(self):

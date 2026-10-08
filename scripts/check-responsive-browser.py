@@ -276,55 +276,31 @@ async def run(args) -> int:
                             await page.screenshot(path=str(out/f'failed-{args.browser}-{width}-{path.strip("/").replace("/","-") or "home"}.png'),full_page=True)
                             print('FAIL',label,str(exc)[:600],flush=True)
                     await context.close()
-                # The exact approved image is used: finite reveal, pause, replay, no 3D.
-                context=await browser.new_context(viewport={'width':390,'height':844},
-                    is_mobile=True,has_touch=True,reduced_motion='no-preference')
-                await context.route('**/*',route_request)
-                page=await context.new_page();page.set_default_timeout(10000)
-                await page.goto(ORIGIN,wait_until='load')
-                image=page.locator('#lavisArtwork')
-                await image.scroll_into_view_if_needed()
-                await page.get_by_role('button',name='Tout refuser',exact=True).click()
-                assert await image.evaluate('el=>el.complete && el.naturalWidth>0')
-                assert await page.locator('#lavisReplay').is_visible()
-                assert await page.locator('#vehicle3DCanvas').count()==0
-                assert await page.locator('script[src*="cybercheck-glb-hero"]').count()==0
-                await page.locator('#lavisStill').click()
-                assert await image.evaluate('el=>getComputedStyle(el).animationName')=='none'
-                assert await page.locator('#lavisStill').get_attribute('aria-pressed')=='true'
-                await page.locator('#lavisReplay').click()
-                await page.wait_for_timeout(130)
-                active=await image.evaluate('el=>({animation:getComputedStyle(el).animationName,clip:getComputedStyle(el).clipPath,opacity:parseFloat(getComputedStyle(el).opacity)})')
-                assert active['animation']=='lavis-reveal',active
-                assert active['opacity']<1,active
-                await page.wait_for_timeout(2900)
-                complete=await image.evaluate('el=>({animation:getComputedStyle(el).animationName,clip:getComputedStyle(el).clipPath,opacity:parseFloat(getComputedStyle(el).opacity),source:el.currentSrc,width:el.naturalWidth})')
-                assert complete['opacity']==1 and complete['animation']=='none',complete
-                assert '/assets/illustrations/checkupauto-lavis-option2-' in complete['source'],complete
-                # srcset naturalWidth is density-corrected CSS pixels, not encoded pixel width.
-                assert complete['width']>0,complete
-                assert any(complete['source'].endswith(f'-{w}.webp') for w in (765,1020,1530)),complete
-                await page.locator('#lavisReplay').click()
-                await page.locator('#lavisStill').click()
-                assert await image.evaluate('el=>getComputedStyle(el).animationName')=='none'
-                assert not model_requests,model_requests
-                await page.screenshot(path=str(out/f'{args.browser}-390-lavis-option2.png'))
-                results.append({'case':args.browser+' approved lavis reveals, stops and replays',
-                    'passed':True,'active':active,'complete':complete,'GLBRequests':0})
-                await context.close()
-                # Reduced motion: complete artwork, no reveal, static button still usable.
-                context=await browser.new_context(viewport={'width':390,'height':844},
-                    is_mobile=True,has_touch=True,reduced_motion='reduce')
-                await context.route('**/*',route_request)
-                page=await context.new_page()
-                await page.goto(ORIGIN,wait_until='load')
-                assert await page.locator('#lavisArtwork').is_visible()
-                assert await page.locator('#lavisReplay').is_hidden()
-                assert await page.locator('#lavisArtwork').evaluate('el=>getComputedStyle(el).animationName')=='none'
-                assert await page.locator('#lavisStill').get_attribute('aria-pressed')=='true'
-                assert not model_requests,model_requests
-                results.append({'case':args.browser+' lavis reduced-motion still image','passed':True})
-                await context.close()
+                # The approved image is now always static, without presentation controls.
+                for motion in ('no-preference','reduce'):
+                    context=await browser.new_context(viewport={'width':390,'height':844},
+                        is_mobile=True,has_touch=True,reduced_motion=motion)
+                    await context.route('**/*',route_request)
+                    page=await context.new_page();page.set_default_timeout(10000)
+                    await page.goto(ORIGIN,wait_until='load')
+                    image=page.locator('#lavisArtwork')
+                    await image.scroll_into_view_if_needed()
+                    await page.get_by_role('button',name='Tout refuser',exact=True).click()
+                    assert await image.evaluate('el=>el.complete && el.naturalWidth>0')
+                    assert await page.locator('#lavisReplay,#lavisStill,#lavisStatus,.lavis-controls').count()==0
+                    assert await page.locator('#vehicle3DCanvas').count()==0
+                    for delay in (0,350):
+                        await page.wait_for_timeout(delay)
+                        complete=await image.evaluate('el=>({animation:getComputedStyle(el).animationName,opacity:parseFloat(getComputedStyle(el).opacity),clip:getComputedStyle(el).clipPath,source:el.currentSrc,width:el.naturalWidth,activeAnimations:el.getAnimations().length})')
+                        assert complete['opacity']==1 and complete['animation']=='none' and complete['clip']=='none',complete
+                        assert complete['activeAnimations']==0,complete
+                        assert complete['width']>0,complete
+                        assert any(complete['source'].endswith(f'-{w}.webp') for w in (765,1020,1530)),complete
+                    assert not model_requests,model_requests
+                    await page.screenshot(path=str(out/f'{args.browser}-390-lavis-static-{motion}.png'))
+                    results.append({'case':args.browser+f' lavis static image without controls {motion}',
+                        'passed':True,'complete':complete,'GLBRequests':0})
+                    await context.close()
                 # Normal-motion mode must not hide a planner taller than the viewport.
                 context=await browser.new_context(viewport={'width':320,'height':568},is_mobile=True)
                 await context.route('**/*',route_request); page=await context.new_page()
