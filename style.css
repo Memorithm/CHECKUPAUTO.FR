@@ -487,3 +487,16 @@ body.premium-home :is(.app-promo,.centre) .primary{border-radius:999px;min-heigh
 
 @media(prefers-reduced-motion:reduce){.booking-date-trigger{animation:none;transition:none}}
 @media(max-width:760px){.vehicle-booking-controls{grid-template-columns:minmax(0,1fr)!important}}
+
+/* Explicit mobile booking layout, overriding generic reservation form rules. */
+#reservation .vehicle-booking-controls{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:24px!important;width:100%}
+#reservation .vehicle-booking-controls>.price{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;width:100%;min-height:48px!important;gap:12px!important}
+#reservation .vehicle-booking-controls>.price>small{grid-column:1!important;white-space:nowrap;font-size:clamp(10px,2.8vw,12px)!important}
+#reservation .vehicle-booking-controls .standard-price-value{grid-column:2!important;justify-self:end!important;display:inline-flex!important;align-items:baseline!important;gap:4px!important}
+#reservation .vehicle-booking-controls .standard-price-value strong{font-size:clamp(27px,7vw,36px)!important}
+#reservation .booking-date-field{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:10px!important;width:100%;position:relative}
+#reservation .booking-date-field .booking-date-label{display:block!important;font:11px var(--mono)!important;letter-spacing:.12em!important}
+#reservation .booking-date-trigger{appearance:none;display:flex!important;width:100%!important;min-height:62px!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;padding:14px 18px!important;border:1.5px solid #85a694!important;border-radius:14px!important;background:#f8fbf7!important;box-shadow:0 5px 18px rgba(35,88,66,.1)!important;font:600 16px var(--sans)!important;color:#235842!important;text-align:left;cursor:pointer}
+#reservation .booking-date-trigger:focus-visible{outline:3px solid #235842;outline-offset:3px}
+#reservation .booking-date-field input#bookingStartDate{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;margin:0!important;padding:0!important;border:0!important}
+@media(max-width:640px){#reservation .vehicle-booking-controls{gap:22px!important}}

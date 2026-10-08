@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f5f6f1">
 <title>CyberCheck — Checkup Auto</title>
 <meta name="description" content="Expérience immersive Checkup Auto — contrôle technique aux Mureaux.">
-<link rel="stylesheet" href="/style.css?v=premium-lavis-20261008-1">
+<link rel="stylesheet" href="/style.css?v=booking-date-premium-20261008-2">
 <link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head>
 <body class="site-home premium-home">
 <div class="topline"><span>CHECKUP AUTO · LES MUREAUX</span><span><a id="phoneLink" href="tel:+33186046864">01 86 04 68 64</a></span><span>LA PRÉCISION EST UNE ATTENTION.</span></div>
@@ -45,7 +45,7 @@
 <button type="button" class="control-type-option" data-service="fitted" aria-pressed="false"><span><small>VÉHICULE AMÉNAGÉ / VASP</small><strong>Véhicule aménagé <b>90 €</b></strong><em>Ambulance · camping-car · food-truck…</em></span></button>
 </div>
 <select id="service" class="service-native" aria-label="Prestation sélectionnée"><option value="technical" data-service="technical">Contrôle technique</option><option value="fitted" data-service="fitted">Véhicule aménagé</option></select>
-<div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><span class="standard-price-value"><strong><span id="price">80</span> €</strong><em>TTC</em></span></div><div class="booking-date-field"><span class="booking-date-label">À PARTIR DU</span><label for="bookingStartDate" class="booking-date-trigger"><span class="booking-date-icon" aria-hidden="true">▦</span><span class="booking-date-text">Choisir une date</span><span class="booking-date-arrow" aria-hidden="true">⌄</span></label><input id="bookingStartDate" type="date" aria-label="Choisir la date de départ du planning"></div></div>
+<div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><span class="standard-price-value"><strong><span id="price">80</span> €</strong><em>TTC</em></span></div><div class="booking-date-field"><span class="booking-date-label">À PARTIR DU</span><button type="button" id="bookingDateOpen" class="booking-date-trigger" aria-label="Choisir la date de départ du planning"><span class="booking-date-icon" aria-hidden="true">▦</span><span class="booking-date-text">Choisir une date</span><span class="booking-date-arrow" aria-hidden="true">⌄</span></button><input id="bookingStartDate" type="date" aria-label="Choisir la date de départ du planning"></div></div>
 <div class="booking-step-title booking-slot-step"><span>2</span><div><small>CRÉNEAU DISPONIBLE</small><strong>Choisissez la date et l’heure.</strong></div></div><div class="booking-live-head"><div><strong>Disponibilités</strong><span id="bookingLiveStatus">Connexion à Mercure…</span></div><button type="button" id="bookingRefresh" class="planner-refresh">Actualiser</button></div>
 <p class="booking-scroll-hint">Faites défiler les jours horizontalement pour voir les autres créneaux.</p>
 <div id="bookingDays" class="booking-days" aria-live="polite"><p class="booking-loading">Chargement des créneaux…</p></div>
