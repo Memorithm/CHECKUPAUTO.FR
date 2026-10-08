@@ -325,6 +325,18 @@ async def run(args) -> int:
                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
                 results.append({'case':args.browser+' normal-motion tall planner','passed':True})
                 await context.close()
+                # Deep-link users must see the entire artwork below the sticky header.
+                for viewport_w,viewport_h in ((390,844),(1440,900)):
+                    context=await browser.new_context(viewport={'width':viewport_w,'height':viewport_h},
+                        is_mobile=viewport_w<600,reduced_motion='reduce')
+                    await context.route('**/*',route_request)
+                    page=await context.new_page()
+                    await page.goto(ORIGIN+'/#inkCarStage',wait_until='load')
+                    geometry=await page.evaluate("() => ({top:document.querySelector('#inkCarStage').getBoundingClientRect().top,header:document.querySelector('.header').getBoundingClientRect().bottom})")
+                    assert geometry['top']>=geometry['header']+10,geometry
+                    assert await page.locator('#inkCar').is_visible()
+                    results.append({'case':args.browser+f' {viewport_w} ink deep-link clears sticky header','passed':True,**geometry})
+                    await context.close()
                 # Native mobile menu still works when scripts cannot run.
                 context=await browser.new_context(viewport={'width':375,'height':812},java_script_enabled=False)
                 await context.route('**/*',route_request);page=await context.new_page()
