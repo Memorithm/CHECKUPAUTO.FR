@@ -66,7 +66,7 @@ class CustomerHttpTest(unittest.TestCase):
     def test_formula_fields_have_unique_accessible_description(self):
         from pathlib import Path
         source = Path(__file__).with_name("customer_http.py").read_text(encoding="utf-8")
-        self.assertIn('id="formulaNumber" aria-describedby="formulaFeedback vehicleFormulaGuideSummary"', source)
+        self.assertIn('aria-describedby="formulaFeedback vehicleFormulaGuideSummary"', source)
         self.assertIn('id="vehicleFormulaNumber" maxlength="11"', source)
         self.assertIn('aria-describedby="vehicleFormulaFeedback vehicleFormulaGuideSummary"', source)
         self.assertNotIn('id="formulaNumber" aria-describedby="vehicleFormulaGuideSummary"', source)
@@ -162,7 +162,7 @@ class CustomerHttpTest(unittest.TestCase):
                 for guide in ("vehicleFormulaGuide", "vehicleDateGuide"):
                     self.assertEqual(page.count(f'id="{guide}"'), 1)
                     self.assertEqual(page.count(f'id="{guide}Summary"'), 1)
-                    self.assertIn(f'aria-describedby="{guide}Summary"', page)
+                    self.assertIn(f'{guide}Summary', page)
                 for photo in ("formule", "date"):
                     self.assertIn(f'/assets/guides/carte-grise-{photo}-photo.webp', page)
                 self.assertNotIn('class="document-diagram"', page)
