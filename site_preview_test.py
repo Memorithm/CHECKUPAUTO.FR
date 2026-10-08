@@ -70,7 +70,7 @@ class SitePreviewTest(unittest.TestCase):
 
     def test_glb_runtime_loader_prefers_local_verified_model_and_keeps_fallback(self):
         loader = (self.root / "assets" / "cybercheck-glb-hero.js").read_text(encoding="utf-8")
-        self.assertIn('/assets/3d/CyberCheckVehicle_Photo3D.glb?v=1', loader)
+        self.assertIn('import { VEHICLE_GLB_URL as GLB_URL, getPublicVehicleGLB }', loader)
         self.assertIn('/assets/cybercheck-hero-3d.js?v=photo-depth-1', loader)
         self.assertIn('VehiclePhoto3D', loader)
         self.assertIn('VehiclePhotoMaterial', loader)

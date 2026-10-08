@@ -103,7 +103,7 @@ async def check_document_guide(page, guide_id: str, photo: str, width: int) -> N
 async def run(args) -> int:
     from playwright.async_api import async_playwright
     out=Path(args.output).resolve();out.mkdir(parents=True,exist_ok=True)
-    results=[]; failures=[]; logout_requests=[]
+    results=[]; failures=[]; logout_requests=[]; model_requests=[]
     with tempfile.TemporaryDirectory(prefix='checkupauto-responsive-') as tmp:
         # Keep any incidental module configuration lookup outside real runtime directories.
         os.environ['CYBERCHECK_PRIVATE_DIR']=tmp+'/private'
@@ -133,6 +133,8 @@ async def run(args) -> int:
             if path == '/qa/dashboard-script-blocked':
                 await route.fulfill(content_type='text/html; charset=utf-8',body=pages['/qa/dashboard'],
                     headers={'Content-Security-Policy':"script-src 'none'; style-src 'self' 'unsafe-inline'; form-action 'self'"});return
+            if path == '/assets/3d/CyberCheckVehicle_Photo3D.glb':
+                model_requests.append(req.url)
             if path in pages:
                 await route.fulfill(content_type='text/html; charset=utf-8',body=pages[path]);return
             api={
@@ -272,6 +274,31 @@ async def run(args) -> int:
                             await page.screenshot(path=str(out/f'failed-{args.browser}-{width}-{path.strip("/").replace("/","-") or "home"}.png'),full_page=True)
                             print('FAIL',label,str(exc)[:600],flush=True)
                     await context.close()
+                # SHA-pinned Cache Storage bypasses a second network GLB request.
+                context=await browser.new_context(viewport={'width':390,'height':844},
+                    is_mobile=True,has_touch=True,reduced_motion='reduce')
+                cached_requests=[]
+                async def cached_route(route):
+                    if urlsplit(route.request.url).path == '/assets/3d/CyberCheckVehicle_Photo3D.glb':
+                        cached_requests.append(route.request.url)
+                    await route_request(route)
+                await context.route('**/*',cached_route)
+                page=await context.new_page()
+                await page.goto(ORIGIN,wait_until='load')
+                await page.wait_for_function("async () => {const cache=await caches.open('checkupauto-public-model-v1');return (await cache.keys()).length===1;}",timeout=12000)
+                await page.wait_for_timeout(150)
+                before=len(cached_requests)
+                assert before==1,cached_requests
+                assert all('/assets/3d/CyberCheckVehicle_Photo3D.glb?v=' in u for u in cached_requests)
+                await page.reload(wait_until='load')
+                await page.wait_for_function("() => {const stage=document.getElementById('vehicle3DStage');return stage && !stage.dataset.modelLoading && ['blender-glb','photo-depth'].includes(stage.dataset.modelSource);}",timeout=12000)
+                await page.wait_for_timeout(250)
+                assert len(cached_requests)==before,(before,cached_requests)
+                assert await page.locator('.vehicle-3d-fallback').get_attribute('fetchpriority')=='high'
+                assert await page.locator('.centre-map img').get_attribute('loading')=='lazy'
+                results.append({'case':args.browser+' verified GLB cached across reload',
+                    'passed':True,'initialModelRequests':1,'reloadModelRequests':0})
+                await context.close()
                 # Normal-motion mode must not hide a planner taller than the viewport.
                 context=await browser.new_context(viewport={'width':320,'height':568},is_mobile=True)
                 await context.route('**/*',route_request); page=await context.new_page()
