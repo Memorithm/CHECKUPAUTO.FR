@@ -102,3 +102,52 @@ def require_reconciliation(*, account_id: str, key: object) -> dict:
             db.execute("ROLLBACK")
             raise
     return {"state": "reconciliation_required", "confirmed": False}
+
+
+def confirm_verified(*, account_id: str, key: object, provider_reference: object,
+                     verified: bool) -> dict:
+    """Confirm only after an independent authoritative provider read.
+
+    This does not perform a provider lookup itself. The future connector must
+    supply evidence from an authenticated Mercure read, never a browser callback.
+    """
+    token = _key(key)
+    reference = str(provider_reference or "").strip()
+    if not verified or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", reference):
+        raise BookingJournalError("booking_provider_confirmation_unverified")
+    if not account_id:
+        raise BookingJournalError("booking_request_invalid")
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            _initialize(db)
+            row = db.execute("SELECT * FROM booking_request WHERE request_key=?", (token,)).fetchone()
+            if row is None or row["account_hash"] != _digest(account_id):
+                raise BookingJournalError("booking_request_not_found")
+            if row["state"] == "confirmed":
+                if row["provider_reference"] != reference:
+                    raise BookingJournalError("booking_provider_reference_conflict")
+            elif row["state"] != "reconciliation_required":
+                raise BookingJournalError("booking_reconciliation_required")
+            else:
+                db.execute("""UPDATE booking_request
+                    SET state='confirmed', provider_reference=?, updated_at=?
+                    WHERE request_key=? AND state='reconciliation_required'""",
+                    (reference, dt.datetime.now(dt.timezone.utc).isoformat(), token))
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+    return {"state": "confirmed", "confirmed": True, "providerReference": reference}
+
+
+def status(*, account_id: str, key: object) -> dict:
+    """Read only the requesting account's booking state, never another account's."""
+    token = _key(key)
+    with _connect() as db:
+        _initialize(db)
+        row = db.execute("SELECT * FROM booking_request WHERE request_key=?", (token,)).fetchone()
+    if row is None or not account_id or row["account_hash"] != _digest(account_id):
+        raise BookingJournalError("booking_request_not_found")
+    return {"state": row["state"], "confirmed": row["state"] == "confirmed",
+            "providerReference": row["provider_reference"] if row["state"] == "confirmed" else ""}
