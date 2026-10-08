@@ -22,12 +22,12 @@ def rehearse(service: str, date: str, time: str) -> dict:
         created=booking_test.create_appointment(token,service,date,time)
         if created.get("providerVerified") is not True:
             raise RuntimeError("mercure_creation_not_verified")
-        return {"createdAndReread":True,"cleanupRequired":True}
     finally:
         if created is not None:
             removed=booking_test.remove_appointment(token)
             if removed.get("providerVerified") is not True:
                 raise RuntimeError("mercure_cleanup_not_verified")
+    return {"createdAndReread":True,"removedAndReread":True}
 
 
 if __name__=="__main__":
