@@ -52,6 +52,8 @@ jobs:
           .ci-venv/bin/python -c "import faulthandler,unittest; faulthandler.dump_traceback_later(120,repeat=True); unittest.main(module=None,argv=['unittest','discover','-v','-p','*_test.py'])"
       - name: Verify CGV file imports
         run: node --test admin/terms-file.test.js
+      - name: Verify browser-side public asset cache safety
+        run: node --test assets/public-asset-cache.test.mjs
       - name: Check JavaScript syntax
         run: |
           while IFS= read -r file; do
