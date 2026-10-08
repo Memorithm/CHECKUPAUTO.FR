@@ -99,7 +99,7 @@ class PremiumHomepageTest(unittest.TestCase):
         self.assertIn('c.offer.title', (ROOT / 'app.js').read_text())
 
     def test_stylesheet_version_changes_without_new_runtime_script(self):
-        self.assertIn('/style.css?v=premium-lavis-20261008-1', self.page)
+        self.assertIn('/style.css?v=booking-date-premium-20261008-2', self.page)
         scripts = [a.get('src') for tag, a in self.tags if tag == 'script']
         self.assertEqual(scripts, ['/consent.js', '/app.js?v=lavis-static-20261008-1'])
 
