@@ -19,7 +19,7 @@ class MercureBookingWriteValidationTests(unittest.TestCase):
     def test_invalid_values_are_rejected_without_normalizing_or_guessing(self):
         invalid=[
             {"request_key":"x"},{"account_id":"../other"},{"vehicle_id":""},
-            {"service":"free"},{"date":"2020-01-01"},{"date":"2027-01-01"},
+            {"service":"free"},{"date":"2020-01-01"},{"date":"2027-10-01"},
             {"time":"25:99"},{"price_cents":True},{"price_cents":-1},
             {"price_cents":1.5},{"price_cents":1000001},
         ]
