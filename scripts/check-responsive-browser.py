@@ -231,7 +231,7 @@ async def run(args) -> int:
                                 assert await page.locator('#reservation').evaluate("e=>getComputedStyle(e).opacity")=='1'
                                 stage=await page.locator('#inkCarStage').bounding_box()
                                 assert stage['x']>=-1 and stage['x']+stage['width']<=width+1, stage
-                                assert await page.locator('#inkCar').is_visible()
+                                assert await page.locator('#lavisArtwork').is_visible()
                                 assert not model_requests, model_requests
                                 if width<=1100:
                                     menu=page.locator('.mobile-navigation')
@@ -276,47 +276,54 @@ async def run(args) -> int:
                             await page.screenshot(path=str(out/f'failed-{args.browser}-{width}-{path.strip("/").replace("/","-") or "home"}.png'),full_page=True)
                             print('FAIL',label,str(exc)[:600],flush=True)
                     await context.close()
-                # An actual short CSS stroke animation, with replay and zero GLB requests.
+                # The exact approved image is used: finite reveal, pause, replay, no 3D.
                 context=await browser.new_context(viewport={'width':390,'height':844},
                     is_mobile=True,has_touch=True,reduced_motion='no-preference')
                 await context.route('**/*',route_request)
                 page=await context.new_page();page.set_default_timeout(10000)
-                await page.goto(ORIGIN,wait_until='domcontentloaded')
-                assert await page.locator('#inkCar').is_visible()
-                assert await page.locator('#inkReplay').is_visible()
+                await page.goto(ORIGIN,wait_until='load')
+                image=page.locator('#lavisArtwork')
+                await image.scroll_into_view_if_needed()
+                await page.get_by_role('button',name='Tout refuser',exact=True).click()
+                assert await image.evaluate('el=>el.complete && el.naturalWidth>0')
+                assert await page.locator('#lavisReplay').is_visible()
                 assert await page.locator('#vehicle3DCanvas').count()==0
                 assert await page.locator('script[src*="cybercheck-glb-hero"]').count()==0
-                await page.locator('#inkCar').scroll_into_view_if_needed()
-                stroke=page.locator('.ink-main').first
-                await page.wait_for_timeout(150)
-                start=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
-                await page.wait_for_timeout(3200)
-                completed=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
-                assert start>completed+15,(start,completed)
-                assert abs(completed)<1,completed
-                await page.locator('#inkReplay').click()
-                await page.wait_for_timeout(90)
-                replay=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
-                assert replay>25,(replay,completed)
-                await page.wait_for_timeout(2300)
-                finished=float(await stroke.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)'))
-                assert abs(finished)<1,finished
+                await page.locator('#lavisStill').click()
+                assert await image.evaluate('el=>getComputedStyle(el).animationName')=='none'
+                assert await page.locator('#lavisStill').get_attribute('aria-pressed')=='true'
+                await page.locator('#lavisReplay').click()
+                await page.wait_for_timeout(130)
+                active=await image.evaluate('el=>({animation:getComputedStyle(el).animationName,clip:getComputedStyle(el).clipPath,opacity:parseFloat(getComputedStyle(el).opacity)})')
+                assert active['animation']=='lavis-reveal',active
+                assert active['opacity']<1,active
+                await page.wait_for_timeout(2900)
+                complete=await image.evaluate('el=>({animation:getComputedStyle(el).animationName,clip:getComputedStyle(el).clipPath,opacity:parseFloat(getComputedStyle(el).opacity),source:el.currentSrc,width:el.naturalWidth})')
+                assert complete['opacity']==1 and complete['animation']=='none',complete
+                assert '/assets/illustrations/checkupauto-lavis-option2-' in complete['source'],complete
+                # srcset naturalWidth is density-corrected CSS pixels, not encoded pixel width.
+                assert complete['width']>0,complete
+                assert any(complete['source'].endswith(f'-{w}.webp') for w in (765,1020,1530)),complete
+                await page.locator('#lavisReplay').click()
+                await page.locator('#lavisStill').click()
+                assert await image.evaluate('el=>getComputedStyle(el).animationName')=='none'
                 assert not model_requests,model_requests
-                results.append({'case':args.browser+' ink SVG traces, stops and replays',
-                    'passed':True,'startOffset':start,'endOffset':completed,'replayOffset':replay,'GLBRequests':0})
+                await page.screenshot(path=str(out/f'{args.browser}-390-lavis-option2.png'))
+                results.append({'case':args.browser+' approved lavis reveals, stops and replays',
+                    'passed':True,'active':active,'complete':complete,'GLBRequests':0})
                 await context.close()
-                # Reduced motion: art is visible immediately, replay control is hidden.
+                # Reduced motion: complete artwork, no reveal, static button still usable.
                 context=await browser.new_context(viewport={'width':390,'height':844},
                     is_mobile=True,has_touch=True,reduced_motion='reduce')
                 await context.route('**/*',route_request)
                 page=await context.new_page()
                 await page.goto(ORIGIN,wait_until='load')
-                assert await page.locator('#inkCar').is_visible()
-                assert await page.locator('#inkReplay').is_hidden()
-                still=await page.locator('.ink-main').first.evaluate('el=>parseFloat(getComputedStyle(el).strokeDashoffset)')
-                assert abs(still)<1,still
+                assert await page.locator('#lavisArtwork').is_visible()
+                assert await page.locator('#lavisReplay').is_hidden()
+                assert await page.locator('#lavisArtwork').evaluate('el=>getComputedStyle(el).animationName')=='none'
+                assert await page.locator('#lavisStill').get_attribute('aria-pressed')=='true'
                 assert not model_requests,model_requests
-                results.append({'case':args.browser+' ink hero reduced-motion accessible fallback','passed':True})
+                results.append({'case':args.browser+' lavis reduced-motion still image','passed':True})
                 await context.close()
                 # Normal-motion mode must not hide a planner taller than the viewport.
                 context=await browser.new_context(viewport={'width':320,'height':568},is_mobile=True)
@@ -331,10 +338,10 @@ async def run(args) -> int:
                         is_mobile=viewport_w<600,reduced_motion='reduce')
                     await context.route('**/*',route_request)
                     page=await context.new_page()
-                    await page.goto(ORIGIN+'/#inkCarStage',wait_until='load')
-                    geometry=await page.evaluate("() => ({top:document.querySelector('#inkCarStage').getBoundingClientRect().top,header:document.querySelector('.header').getBoundingClientRect().bottom})")
+                    await page.goto(ORIGIN+'/#lavisHero',wait_until='load')
+                    geometry=await page.evaluate("() => ({top:document.querySelector('#lavisHero').getBoundingClientRect().top,header:document.querySelector('.header').getBoundingClientRect().bottom})")
                     assert geometry['top']>=geometry['header']+10,geometry
-                    assert await page.locator('#inkCar').is_visible()
+                    assert await page.locator('#lavisArtwork').is_visible()
                     results.append({'case':args.browser+f' {viewport_w} ink deep-link clears sticky header','passed':True,**geometry})
                     await context.close()
                 # Native mobile menu still works when scripts cannot run.
@@ -342,7 +349,7 @@ async def run(args) -> int:
                 await context.route('**/*',route_request);page=await context.new_page()
                 await page.goto(ORIGIN);await page.locator('.mobile-navigation summary').click()
                 assert await page.locator('.mobile-nav-links a[href="/compte"]').is_visible()
-                assert await page.locator('#inkCar').is_visible()
+                assert await page.locator('#lavisArtwork').is_visible()
                 assert await page.locator('#vehicle3DCanvas').count()==0
                 results.append({'case':args.browser+' native menu and ink art without JavaScript','passed':True})
                 await context.close()

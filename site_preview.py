@@ -16,6 +16,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 MEDIA = {
+    "assets/illustrations/checkupauto-lavis-option2-765.webp": "image/webp",
+    "assets/illustrations/checkupauto-lavis-option2-1020.webp": "image/webp",
+    "assets/illustrations/checkupauto-lavis-option2-1530.webp": "image/webp",
     "assets/vehicle.mp4": "video/mp4",
     "assets/checkupauto-centre-map-osm.webp": "image/webp",
     **{

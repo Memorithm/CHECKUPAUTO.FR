@@ -1,30 +1,47 @@
-// This illustration runs on CSS only. JavaScript merely starts it when visible
-// on a small screen, and lets the customer replay it without any frame loop.
-const inkArtwork=document.getElementById('inkCar');
-const inkReducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
-const playInk=()=>{
-  if(!inkArtwork||inkReducedMotion)return;
-  inkArtwork.classList.remove('ink-animate');
-  void inkArtwork.getBoundingClientRect().width;
-  inkArtwork.classList.add('ink-animate');
-};
-if(inkArtwork&&!inkReducedMotion&&'IntersectionObserver' in window){
-  // A drawing far below the mobile fold must not finish before it is seen.
-  if(inkArtwork.getBoundingClientRect().top>innerHeight+60){
-    inkArtwork.classList.remove('ink-animate');
+// Lavis presentation: original image, finite CSS reveal, no render loop/network cache.
+(()=>{
+ const image=document.getElementById('lavisArtwork');if(!image)return;
+ const controls=document.querySelector('.lavis-controls');
+ const replay=document.getElementById('lavisReplay'),still=document.getElementById('lavisStill');
+ const status=document.getElementById('lavisStatus');
+ const preference=matchMedia('(prefers-reduced-motion: reduce)');
+ let observer=null,finished=false;
+ const setStatus=text=>{if(status)status.textContent=text};
+ const stop=()=>{
+  observer?.disconnect();observer=null;finished=true;
+  image.classList.remove('lavis-revealing');
+  still?.setAttribute('aria-pressed','true');setStatus('Image fixe · illustration complète');
+ };
+ const play=()=>{
+  observer?.disconnect();observer=null;
+  if(preference.matches){stop();return}
+  if(!image.complete||!image.naturalWidth)return;
+  finished=false;image.classList.remove('lavis-revealing');
+  void image.getBoundingClientRect().width;
+  image.classList.add('lavis-revealing');
+  still?.setAttribute('aria-pressed','false');setStatus('Apparition du lavis…');
+ };
+ image.addEventListener('animationend',event=>{
+  if(event.animationName==='lavis-reveal'){
+   image.classList.remove('lavis-revealing');finished=true;
+   still?.setAttribute('aria-pressed','true');setStatus('Illustration complète · sans 3D');
   }
-  const visibleInk=new IntersectionObserver(entries=>{
-    if(entries.some(entry=>entry.isIntersecting)){
-      playInk();
-      visibleInk.disconnect();
-    }
-  },{rootMargin:'120px 0px',threshold:0});
-  visibleInk.observe(inkArtwork);
-}
-document.getElementById('inkReplay')?.addEventListener('click',playInk);
+ });
+ const ready=()=>{
+  if(!image.naturalWidth)return;
+  if(controls)controls.hidden=false;
+  if(preference.matches){stop();return}
+  if('IntersectionObserver' in window){
+   observer=new IntersectionObserver(entries=>{if(!finished&&entries.some(e=>e.isIntersecting))play()},{threshold:.15});
+   observer.observe(image);
+  }else play();
+ };
+ replay?.addEventListener('click',play);still?.addEventListener('click',stop);
+ image.addEventListener('error',()=>{if(controls)controls.hidden=true;setStatus('Illustration indisponible. La réservation reste accessible.')},{once:true});
+ if(image.complete&&image.naturalWidth)ready();else image.addEventListener('load',ready,{once:true});
+ preference.addEventListener?.('change',()=>{if(preference.matches)stop()});
+})();
 const service=document.querySelector('#service');const price=document.querySelector('#price');service?.addEventListener('change',()=>{const cfg=window.cyberCheckConfig?.services?.[service.value];if(cfg&&price)price.textContent=String(cfg.price)});
-const video=document.querySelector('#vehicleVideo');const stage=document.querySelector('.stage');let px=0,py=0,tx=0,ty=0;
-if(stage&&video&&!matchMedia('(prefers-reduced-motion: reduce)').matches){stage.addEventListener('pointermove',e=>{const r=stage.getBoundingClientRect();tx=((e.clientX-r.left)/r.width-.5)*2;ty=((e.clientY-r.top)/r.height-.5)*2});stage.addEventListener('pointerleave',()=>{tx=0;ty=0});const tick=()=>{px+=(tx-px)*.045;py+=(ty-py)*.045;video.style.transform=`perspective(1200px) rotateY(${px*1.8}deg) rotateX(${-py*.8}deg) translate3d(${px*5}px,${py*3}px,35px)`;requestAnimationFrame(tick)};requestAnimationFrame(tick)}
 // Essential booking controls must never depend on intersection ratios.
 // A tall mobile planner may never reach a fractional visibility threshold.
 const revealTargets=document.querySelectorAll('.section article,.section h2,.section .kicker');

@@ -329,83 +329,31 @@ footer span{min-width:0;overflow-wrap:anywhere}
 @media(max-width:640px){.booking-promo-preview-banner{margin:14px 0 0;padding:12px}}
 
 
-/* Concept 01 — encre de Chine. Zero WebGL, zero canvas, no perpetual animation.
-   The whole visual is an inline accessible SVG: it loads with the HTML.
-   Only opacity and stroke-dashoffset animate, once per visit/replay. */
-.hero-visual .stage-ink{
-  inset:48px -14px 55px -65px;
-  display:grid;
-  place-items:center;
-  isolation:isolate;
-  overflow:hidden;
-  border-radius:28px;
-  background:radial-gradient(ellipse at 60% 51%,rgba(230,239,230,.67),rgba(249,250,247,.52) 54%,transparent 78%);
-}
-.stage-ink::after{content:none}
-/* Deep links must clear the sticky header on mobile and desktop. */
-#inkCarStage{scroll-margin-top:120px}
-@media(max-width:1100px){#inkCarStage{scroll-margin-top:165px}}
-.ink-car-art{
-  position:relative;
-  z-index:2;
-  width:100%;
-  height:100%;
-  display:block;
-  overflow:visible;
-  pointer-events:none;
-  contain:layout style paint;
-}
-.ink-car-art .ink-draw{stroke-dasharray:100;stroke-dashoffset:0}
-.ink-car-art .ink-wash{opacity:1}
-.ink-car-art.ink-animate .ink-draw{
-  animation:ink-draw-stroke var(--ink-duration,1.55s) cubic-bezier(.23,.78,.3,1) var(--ink-delay,0s) both;
-}
-.ink-car-art.ink-animate .ink-wash{
-  animation:ink-wash-appear 1.45s ease-out var(--ink-delay,.2s) both;
-}
-@keyframes ink-draw-stroke{
-  from{stroke-dashoffset:100;opacity:.06}
-  to{stroke-dashoffset:0;opacity:1}
-}
-@keyframes ink-wash-appear{
-  from{opacity:0}
-  to{opacity:1}
-}
-.ink-caption{
-  position:absolute;z-index:6;right:22px;top:17px;
-  display:grid;gap:5px;padding:10px 14px;
-  border-left:2px solid #84a68b;
-  background:rgba(249,251,247,.74);
-  color:#355a45;font:700 10px/1.3 var(--mono);letter-spacing:.075em;
-}
-.ink-caption small{color:#788b7d;font:400 10px/1.4 var(--sans);letter-spacing:normal}
-.ink-replay{
-  position:absolute;z-index:8;right:23px;bottom:12px;
-  min-height:44px;min-width:44px;padding:10px 16px;
-  border:1px solid #afc5b5;border-radius:999px;
-  background:rgba(255,255,255,.94);color:#22533f;
-  font:700 12px/1.4 var(--sans);cursor:pointer;
-  box-shadow:0 4px 14px rgba(31,84,67,.07);
-}
-.ink-replay:hover{border-color:#21543e;background:#edf5ef}
-.ink-replay:focus-visible{outline:3px solid #1f5443;outline-offset:3px}
-@media(max-width:980px){
-  .hero-visual .stage-ink{inset:35px 0 45px}
-}
-@media(max-width:760px){
-  .hero-visual .stage-ink{inset:12px 0 46px}
-  .ink-caption{right:9px;top:8px;padding:7px 9px;font-size:9px}
-  .ink-caption small{font-size:9px}
-  .ink-replay{right:7px;bottom:4px;padding:10px 12px}
-}
-@media(max-width:480px){
-  .hero-visual .stage-ink{inset:16px -2px 50px}
-  .ink-caption{top:13px;right:6px}
-  .ink-replay{right:8px;bottom:3px}
-}
-@media(prefers-reduced-motion:reduce){
-  .ink-car-art.ink-animate .ink-draw,.ink-car-art.ink-animate .ink-wash{
-    animation:none!important;stroke-dashoffset:0;opacity:1;
-  }
-  .ink-replay{display:none}
-}
+/* Option 2: use the approved painterly illustration, never re-draw its contours.
+   The finite CSS reveal is decoration; the image remains usable without scripts. */
+.hero-visual.lavis-hero{display:flex;flex-direction:column;justify-content:center;gap:16px;min-width:0;min-height:0;align-self:center;overflow:visible;padding:20px 0 18px 24px}
+.lavis-topline{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:0 14px}
+.hero-visual.lavis-hero .offer-seal{position:static;left:auto;right:auto;top:auto;width:auto;max-width:none;flex:none;padding:10px 14px;box-shadow:none;backdrop-filter:none;background:transparent;border-color:#d5dfd3}
+.hero-visual.lavis-hero .offer-seal small{font-size:8px;margin-bottom:3px}
+.hero-visual.lavis-hero .offer-seal strong{font-size:11px}
+.hero-visual.lavis-hero .offer-seal b{font-size:22px;margin-top:1px}
+.lavis-caption{display:grid;gap:5px;color:#315b45;font:700 10px/1.4 var(--mono);letter-spacing:.08em;border-left:2px solid #8bb49a;padding:9px 13px}
+.lavis-caption small{font:400 12px/1.5 var(--sans);letter-spacing:normal;color:#6f8073}
+.lavis-stage{position:relative;isolation:isolate;min-width:0;width:100%;aspect-ratio:1530/811;overflow:hidden;background:#fff;border-radius:12px}
+.lavis-art{display:block;width:100%;height:100%;object-fit:contain;opacity:1;clip-path:inset(0);transform:none}
+.lavis-art.lavis-revealing{animation:lavis-reveal 2.6s cubic-bezier(.22,.7,.2,1) both}
+@keyframes lavis-reveal{0%{opacity:.08;clip-path:inset(0 100% 0 0)}35%{opacity:.72;clip-path:inset(0 52% 0 0)}100%{opacity:1;clip-path:inset(0)}}
+.lavis-controls{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;padding:0 12px}
+.lavis-controls[hidden]{display:none}
+.lavis-action{min-height:44px;min-width:44px;border:1px solid #96b3a0;border-radius:999px;background:#1f5443;color:#fff;padding:11px 17px;font:700 13px/1.4 var(--sans);cursor:pointer}
+.lavis-action:hover{background:#173e30}
+.lavis-action--quiet{background:#fff;color:#234d39}
+.lavis-action--quiet:hover{background:#edf3eb}
+.lavis-action[aria-pressed=true]{background:#e5eee2;border-color:#22553e;color:#204b35}
+.lavis-action:focus-visible{outline:3px solid #1f5443;outline-offset:4px}
+.lavis-status{font:11px/1.5 var(--sans);color:#788578;text-align:right;padding:0 15px}
+#lavisHero,#inkCarStage{scroll-margin-top:120px}
+@media(max-width:1100px){#lavisHero,#inkCarStage{scroll-margin-top:165px}}
+@media(max-width:980px){.hero-visual.lavis-hero{padding:12px 0 24px;gap:13px}.lavis-topline{padding:0 6px}.lavis-stage{border-radius:10px}}
+@media(max-width:480px){.lavis-topline{gap:10px}.hero-visual.lavis-hero .offer-seal{padding:9px}.hero-visual.lavis-hero .offer-seal small{font-size:7px}.hero-visual.lavis-hero .offer-seal strong{font-size:10px}.hero-visual.lavis-hero .offer-seal b{font-size:20px}.lavis-caption{padding:7px 9px;font-size:9px}.lavis-caption small{font-size:10px}.lavis-controls{padding:0;justify-content:center}.lavis-action{font-size:12px;padding:10px 14px}.lavis-status{text-align:center;padding:0}}
+@media(prefers-reduced-motion:reduce){.lavis-art.lavis-revealing{animation:none!important;opacity:1;clip-path:inset(0)}#lavisReplay{display:none}}
