@@ -25,6 +25,24 @@ class MercureBookingEvidenceTest(unittest.TestCase):
             with self.subTest(events=events):
                 self.assertFalse(self.verify(events))
 
+    def test_cancelled_event_is_never_confirmed(self):
+        for event in (
+            {"id":"mercure-123","start":"2026-10-15T10:30:00+02:00","status":"cancelled"},
+            {"id":"mercure-123","start":"2026-10-15T10:30:00+02:00","extendedProps":{"cancelled":True}},
+        ):
+            with self.subTest(event=event):
+                self.assertFalse(self.verify([event]))
+
+    def test_malformed_calendar_is_rejected(self):
+        with patch.object(evidence.mercure,"_session",return_value=object()), \
+             patch.object(evidence.mercure,"_calendar_events",return_value={"events":[]}):
+            with self.assertRaisesRegex(evidence.MercureBookingEvidenceError,"mercure_calendar_invalid"):
+                evidence.verify_appointment(provider_reference="mercure-123",
+                                            date="2026-10-15",time="10:30")
+        with self.assertRaisesRegex(evidence.MercureBookingEvidenceError,"mercure_calendar_invalid"):
+            self.verify([{"id":"mercure-123","start":"2026-10-15T10:30:00+02:00",
+                          "extendedProps":"invalid"}])
+
     def test_provider_failure_cannot_be_interpreted_as_confirmation(self):
         with patch.object(evidence.mercure,"_session",side_effect=TimeoutError):
             with self.assertRaisesRegex(evidence.MercureBookingEvidenceError,"mercure_calendar_unavailable"):

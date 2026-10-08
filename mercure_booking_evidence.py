@@ -40,7 +40,10 @@ def verify_appointment(*, provider_reference: object, date: object, time: object
     event=matching[0]
     # Never claim the booking matches an expected slot if its date/time cannot
     # be established from authoritative calendar event start.
-    if event.get("extendedProps",{}).get("cancelled") is True or event.get("status") in {"cancelled","canceled"}:
+    props=event.get("extendedProps")
+    if props is not None and not isinstance(props,dict):
+        raise MercureBookingEvidenceError("mercure_calendar_invalid")
+    if (props or {}).get("cancelled") is True or event.get("status") in {"cancelled","canceled"}:
         return False
     start=str(event.get("start") or "")
     try:
