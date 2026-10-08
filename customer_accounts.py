@@ -619,7 +619,7 @@ def save_vehicle(
 ) -> dict:
     account_id=_account_id(account_id)
     try:
-        normalized_characteristics=normalize_vehicle_characteristics(characteristics) if characteristics is not None else None
+        normalized_characteristics=require_booking_essentials(characteristics) if characteristics is not None else None
     except VehicleCharacteristicsError as exc:
         raise CustomerAccountError(str(exc)) from exc
     system=_registration_system(registration_system)
