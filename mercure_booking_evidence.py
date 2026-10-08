@@ -32,12 +32,16 @@ def verify_appointment(*, provider_reference: object, date: object, time: object
         events=mercure._calendar_events(session,day,end)
     except Exception as exc:
         raise MercureBookingEvidenceError("mercure_calendar_unavailable") from exc
-    matching=[event for event in events if mercure._event_id(event)==reference]
+    if not isinstance(events,list):
+        raise MercureBookingEvidenceError("mercure_calendar_invalid")
+    matching=[event for event in events if isinstance(event,dict) and mercure._event_id(event)==reference]
     if len(matching)!=1:
         return False
     event=matching[0]
     # Never claim the booking matches an expected slot if its date/time cannot
     # be established from authoritative calendar event start.
+    if event.get("extendedProps",{}).get("cancelled") is True or event.get("status") in {"cancelled","canceled"}:
+        return False
     start=str(event.get("start") or "")
     try:
         parsed_start=dt.datetime.fromisoformat(start.replace("Z","+00:00"))
