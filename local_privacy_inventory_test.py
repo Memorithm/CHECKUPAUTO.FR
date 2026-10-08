@@ -28,7 +28,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertNotIn("inventory_scope_not_yet_exhaustive", state["limitations"])
         self.assertEqual(
             state["unresolvedStores"],
-            ["booking_conversions","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
+            ["booking_conversions","booking_request","consent_receipts","notification_delivery","referral_accounts","referral_ledger","referral_rewards","referral_wallet_owner","review_followup","withdrawal_requests"],
         )
         self.assertEqual(state["unresolvedStoreCount"],10)
         self.assertEqual(rows["review_followup"]["executionState"], "partial_wired")
