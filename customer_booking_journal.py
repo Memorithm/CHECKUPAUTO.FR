@@ -113,7 +113,7 @@ def confirm_verified(*, account_id: str, key: object, provider_reference: object
     """
     token = _key(key)
     reference = str(provider_reference or "").strip()
-    if not verified or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", reference):
+    if verified is not True or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", reference):
         raise BookingJournalError("booking_provider_confirmation_unverified")
     if not account_id:
         raise BookingJournalError("booking_request_invalid")
