@@ -1049,7 +1049,7 @@ def handle(handler) -> bool:
                     registration=payload.get("registration"),
                     formula_number=payload.get("formulaNumber"),
                     card_issue_date=payload.get("cardIssueDate"),
-                    characteristics=payload.get("characteristics"),
+                    **({"characteristics":payload["characteristics"]} if "characteristics" in payload else {}),
                 )
                 handler.send_json({"ok":True,"vehicle":vehicle,"vehicles":customer_accounts.list_vehicles(account_id)},201)
         except customer_accounts.CustomerAccountError as exc:
