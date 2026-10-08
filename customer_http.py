@@ -384,6 +384,20 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <label>Immatriculation<input id="vehicleRegistration" maxlength="32" autocomplete="off" placeholder="AA-123-AA" aria-describedby="vehicleRegistrationFeedback" required><span id="vehicleRegistrationFeedback" class="vehicle-input-feedback" aria-live="polite"></span></label>
 <label id="vehicleFormulaLabel">Numéro de formule<input id="vehicleFormulaNumber" maxlength="11" autocomplete="off" placeholder="2020AB12345" aria-describedby="vehicleFormulaFeedback vehicleFormulaGuideSummary"><span id="vehicleFormulaFeedback" class="vehicle-input-feedback" aria-live="polite"></span><span class="hint">Champ obligatoire pour une carte grise SIV. Le numéro complet n’est jamais réaffiché.</span></label>
 <label id="vehicleCardIssueLabel" hidden>Date d’établissement de la carte grise<input id="vehicleCardIssueDate" aria-describedby="vehicleDateGuideSummary" type="date"></label>
+<fieldset class="vehicle-essentials"><legend>Caractéristiques du véhicule</legend>
+<label>Marque<input id="vehicleBrand" maxlength="120" autocomplete="off" required placeholder="Ex. Peugeot"></label>
+<label>Modèle<input id="vehicleModel" maxlength="120" autocomplete="off" required placeholder="Ex. 208"></label>
+<label>Énergie<input id="vehicleEnergy" maxlength="120" autocomplete="off" required placeholder="Ex. Essence"></label>
+</fieldset>
+<details class="vehicle-optional"><summary>Informations complémentaires (facultatives)</summary>
+<label>Type de véhicule<input id="vehicleType" maxlength="120"></label>
+<label>Date de première immatriculation<input id="vehicleFirstRegistrationDate" type="date"></label>
+<label>VIN<input id="vehicleVin" maxlength="17" autocapitalize="characters"></label>
+<label>Dénomination commerciale<input id="vehicleCommercialName" maxlength="120"></label>
+<label>Carrosserie<input id="vehicleBodyStyle" maxlength="120"></label>
+<label>Catégorie<input id="vehicleCategory" maxlength="120"></label>
+<label>Poids total autorisé (kg)<input id="vehicleGrossWeightKg" inputmode="numeric"></label>
+</details>
 {_vehicle_document_guides()}
 <div class="actions"><button id="vehicleSave" class="primary" type="submit">Ajouter le véhicule</button><button id="vehicleCancel" class="secondary" type="button" hidden>Annuler la modification</button><span id="vehicleStatus" class="vehicle-status" role="status" aria-live="polite"></span></div>
 </form></details>
