@@ -8,7 +8,7 @@ class Tests(unittest.TestCase):
             metadata={"service_id":"1763","duration":"40","centre_type":"1",
                       "line_id":"454","operator_id":"464"},
             observed_metadata={},service_label="TOUT VEHICULE HORS CAMPING CAR",
-            payment_policy={},payment_evidence=None)
+            payment_policy={},payment_evidence=None,slot_evidence={"observed":True})
 
     def test_denied_by_default(self):
         with patch.object(module.customer_booking_server_composition,"execute") as delegate:

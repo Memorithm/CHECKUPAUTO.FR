@@ -13,7 +13,7 @@ class TrustedBookingContextError(ValueError):
 
 
 def execute(*, payload, account, vehicle, metadata, observed_metadata,
-            service_label, payment_policy, payment_evidence,
+            service_label, payment_policy, payment_evidence, slot_evidence=None,
             server_authorized=False):
     if server_authorized is not True:
         raise TrustedBookingContextError("booking_server_not_authorized")
@@ -28,4 +28,5 @@ def execute(*, payload, account, vehicle, metadata, observed_metadata,
         payload=payload,account=account,vehicle=vehicle,
         line_id=metadata["line_id"],operator_id=metadata["operator_id"],
         payment_policy=payment_policy,payment_evidence=payment_evidence,
+        slot_evidence=slot_evidence,
         authorized=True)
