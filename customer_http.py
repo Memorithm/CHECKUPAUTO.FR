@@ -19,6 +19,7 @@ import customer_booking_create_api
 import customer_booking_http_trusted_context
 import customer_booking_server_config_source
 import customer_booking_confirmation_view
+import customer_booking_payment_http_status
 import customer_accounts
 import mercure_brand_energy_reference
 import mercure_vehicle_reference
@@ -904,6 +905,27 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":"booking_key_invalid"},400)
         except Exception:
             handler.send_json({"ok":False,"error":"booking_status_unavailable"},503)
+        return True
+
+    if path=="/api/customer/booking/payment-status":
+        if command!="GET":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=2)
+            if set(query)!={"requestKey"} or len(query["requestKey"])!=1:
+                raise ValueError("booking_key_invalid")
+            result=customer_booking_payment_http_status.status(
+                account_id=account["accountId"],request_key=query["requestKey"][0])
+            handler.send_json(result,200)
+        except ValueError:
+            handler.send_json({"ok":False,"error":"booking_key_invalid"},400)
+        except Exception:
+            handler.send_json({"ok":False,"error":"booking_payment_status_unavailable"},503)
         return True
 
     if path=="/api/customer/booking/readiness":
