@@ -23,7 +23,8 @@ class Tests(unittest.TestCase):
         self.assertIsNotNone(proof)
         self.reader.assert_called_once_with(reference="123",date="2026-10-14",
             account_id="account1",vehicle_id="vehicle1",service="technical",
-            registration="AB-123-CD",expected_service_label="CONTROLE TECHNIQUE")
+            registration="AB-123-CD",expected_service_label="CONTROLE TECHNIQUE",
+            expected_time="09:00")
     def test_reader_missing_fails_closed(self):
         with self.assertRaisesRegex(MercureBookingWriteError,"reader_unqualified"):
             self.adapter().read_identity(self.request,"123")
