@@ -12,7 +12,7 @@ def assess(vehicle: object) -> dict:
         require_booking_essentials(vehicle.get("characteristics"))
     except VehicleCharacteristicsError:
         missing.append("characteristics")
-    if vehicle.get("registrationSystem")=="siv" and not vehicle.get("formulaNumberPresent"):
+    if vehicle.get("registrationSystem")=="siv" and vehicle.get("formulaNumberPresent") is not True:
         missing.append("formulaNumber")
     if vehicle.get("registrationSystem")=="fni" and not vehicle.get("cardIssueDate"):
         missing.append("cardIssueDate")
