@@ -76,4 +76,5 @@ def lookup(*, account_id: str, request_key: str) -> dict:
         row = db.execute('SELECT * FROM payment_binding WHERE request_key=?', (request_key,)).fetchone()
     if row is None or row['account_hash'] != _digest(account_id) or row['provider_booking_ref'] != booking.get('providerReference'):
         return {'bound': False, 'paid': False}
-    return {'bound': True, 'paymentRef': row['payment_ref'], 'provider': row['payment_provider'], 'paid': False}
+    return {'bound': True, 'paymentRef': row['payment_ref'], 'provider': row['payment_provider'],
+            'providerBookingRef': row['provider_booking_ref'], 'paid': False}
