@@ -14,7 +14,7 @@ class BookingCreateUnavailable(RuntimeError):
     pass
 
 
-def create(payload: object, *, account: dict) -> dict:
+def create(payload: object, *, account: dict, executor=None, trusted_context=None) -> dict:
     if not isinstance(payload,dict) or set(payload)!={"service","date","time","vehicleId","requestKey"}:
         raise BookingCreateInvalid("booking_create_request_invalid")
     key=payload.get("requestKey")
@@ -30,4 +30,20 @@ def create(payload: object, *, account: dict) -> dict:
         raise BookingCreateUnavailable("booking_writer_not_qualified")
     # Explicit fail-closed boundary until an authorized server-only provider
     # is wired and its evidence has passed production homologation.
-    raise BookingCreateUnavailable("booking_writer_not_connected")
+    if not callable(executor) or not isinstance(trusted_context,dict):
+        raise BookingCreateUnavailable("booking_writer_not_connected")
+    required={"metadata","observed_metadata","service_label","payment_policy","payment_evidence"}
+    if set(trusted_context)!=required:
+        raise BookingCreateUnavailable("booking_provider_context_unqualified")
+    vehicles=account.get("vehicles")
+    if not isinstance(vehicles,list):
+        raise BookingCreateInvalid("booking_vehicle_not_owned")
+    matches=[item for item in vehicles if isinstance(item,dict)
+             and item.get("vehicleId")==payload["vehicleId"]]
+    if len(matches)!=1:
+        raise BookingCreateInvalid("booking_vehicle_not_owned")
+    result=executor(payload=payload,account=account,vehicle=matches[0],
+                    **trusted_context)
+    if not isinstance(result,dict) or result.get("confirmed") is not True:
+        return {"ok":True,"confirmed":False,"state":"reconciliation_required"}
+    return {"ok":True,"confirmed":True,"state":"confirmed"}
