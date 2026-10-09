@@ -91,6 +91,8 @@ def snapshot(subject_email: object) -> dict:
             "accountId":account_id,
             "kind":str(row["kind"]),
             "displayName":str(profile.get("displayName") or ""),
+            "surname":str(profile.get("surname") or ""),
+            "givenName":str(profile.get("givenName") or ""),
             "email":str(profile.get("email") or ""),
             "companyName":str(profile.get("companyName") or ""),
             "siret":str(profile.get("siret") or ""),
@@ -106,6 +108,7 @@ def snapshot(subject_email: object) -> dict:
                     "registration":str(vehicle.get("registration") or ""),
                     "formulaNumber":str(vehicle.get("formulaNumber") or ""),
                     "cardIssueDate":str(vehicle.get("cardIssueDate") or ""),
+                    "characteristics":dict(vehicle.get("characteristics") or {}),
                     "createdAt":str(vehicle.get("createdAt") or ""),
                     "updatedAt":str(vehicle.get("updatedAt") or ""),
                 }
