@@ -1,4 +1,5 @@
 import unittest
+import datetime as dt
 from unittest.mock import patch
 import customer_booking_server_execution as executor
 
@@ -9,6 +10,13 @@ class Tests(unittest.TestCase):
         self.kw=dict(payload=self.payload,account={"accountId":"account1"},
                      vehicle={"vehicleId":"vehicle1"},metadata={},observed_metadata={},
                      service_label="CONTROLE TECHNIQUE")
+
+        self.kw["metadata"] = {"line_id":"454","service_id":"1763","duration":"40"}
+        self.kw["slot_evidence"] = {"service":"technical","date":self.payload["date"],
+            "time":self.payload["time"],"lineId":"454","serviceId":"1763","duration":"40",
+            "centreType":"1","observed":True,"slotAvailable":True,"slotHeld":False,
+            "priceCents":8000,"source":"mercure-single-vl-resource-and-live-availability",
+            "checkedAt":dt.datetime.now(dt.timezone.utc).isoformat()}
 
     def test_no_server_authorization(self):
         with patch.object(executor.mercure_vl_booking_coordinator,"create_and_verify") as writer:

@@ -9,7 +9,8 @@ class BookingRouteContextError(ValueError):
 
 
 def build(*, service: str, server_config: dict,
-          payment_policy: dict, payment_evidence: dict | None) -> dict:
+          payment_policy: dict, payment_evidence: dict | None,
+          date: str | None = None, time: str | None = None) -> dict:
     if not isinstance(server_config,dict) or set(server_config)!={"lineId","operatorId","enabled"}:
         raise BookingRouteContextError("booking_server_config_invalid")
     if server_config["enabled"] is not True:
@@ -19,7 +20,7 @@ def build(*, service: str, server_config: dict,
     if not isinstance(line_id,str) or not isinstance(operator_id,str):
         raise BookingRouteContextError("booking_provider_ids_invalid")
     resolved=mercure_vl_provider_metadata_resolver.resolve(
-        service=service,line_id=line_id,operator_id=operator_id)
+        service=service,line_id=line_id,operator_id=operator_id,date=date,time=time)
     return {
         "metadata":resolved["metadata"],
         "observed_metadata":resolved["observed_metadata"],

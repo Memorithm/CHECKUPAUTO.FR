@@ -167,6 +167,7 @@ def load(*, service: str, date: str, time: str, line_id: str) -> dict:
     if not today <= day <= today + dt.timedelta(days=90):
         _reject("mercure_slot_date_out_of_range")
     meta = public.service(service)
+    checked_at = dt.datetime.now(dt.timezone.utc).isoformat()
     session = admin._session()
     try:
         response = admin._check_auth(session.get(
@@ -176,5 +177,33 @@ def load(*, service: str, date: str, time: str, line_id: str) -> dict:
     finally:
         session.close()
     raw = public._provider_availability(meta["id"], date)
-    return qualify(service=service, date=date, time=time, line_id=line_id,
-                   resources=resources, availability=raw)
+    result = qualify(service=service, date=date, time=time, line_id=line_id,
+                     resources=resources, availability=raw)
+    return {**result, "checkedAt": checked_at}
+
+
+def validate_bound_snapshot(*, snapshot: object, payload: dict, metadata: dict,
+                            price_cents: int) -> None:
+    """Reject stale, cross-slot, wrong-line or changed-quote evidence before write."""
+    if not isinstance(snapshot, dict):
+        _reject("booking_live_slot_evidence_required")
+    expected = {"service": payload["service"], "date": payload["date"], "time": payload["time"],
+                "lineId": metadata.get("line_id"), "serviceId": metadata.get("service_id"),
+                "duration": metadata.get("duration"), "centreType": "1",
+                "source": "mercure-single-vl-resource-and-live-availability"}
+    if (any(snapshot.get(key) != value or value is None for key, value in expected.items())
+            or snapshot.get("observed") is not True or snapshot.get("slotAvailable") is not True
+            or snapshot.get("slotHeld") is not False):
+        _reject("booking_live_slot_evidence_mismatch")
+    if (type(snapshot.get("priceCents")) is not int or type(price_cents) is not int
+            or snapshot["priceCents"] != price_cents):
+        _reject("booking_slot_quote_changed")
+    try:
+        checked_at = dt.datetime.fromisoformat(snapshot["checkedAt"])
+        if checked_at.tzinfo is None:
+            _reject("booking_live_slot_evidence_stale")
+        age = (dt.datetime.now(dt.timezone.utc) - checked_at).total_seconds()
+        if not 0 <= age <= 60:
+            _reject("booking_live_slot_evidence_stale")
+    except (KeyError, TypeError, ValueError, OverflowError):
+        _reject("booking_live_slot_evidence_stale")
