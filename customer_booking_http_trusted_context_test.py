@@ -18,7 +18,7 @@ class Tests(unittest.TestCase):
                           return_value=qualified):
             executor,result=context.prepare(service="technical",server_config={
                 "enabled":True,"lineId":"454","operatorId":"464"},
-                payment_policy={},payment_evidence=None)
+                payment_policy={"providerVerified":True},payment_evidence=None)
         self.assertIs(executor,context.customer_booking_trusted_executor.execute)
         self.assertEqual(result,qualified)
 
