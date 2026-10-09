@@ -843,6 +843,8 @@ def handle(handler) -> bool:
                 request_body,account=verified_account,
                 executor=executor,trusted_context=trusted_context)
             handler.send_json(result,200)
+        except customer_booking_http_trusted_context.BookingHttpContextError:
+            handler.send_json({"ok":False,"error":"booking_provider_not_qualified"},503)
         except customer_booking_create_api.BookingCreateUnavailable as exc:
             handler.send_json({"ok":False,"error":str(exc)},503)
         except customer_booking_create_api.BookingCreateInvalid as exc:
