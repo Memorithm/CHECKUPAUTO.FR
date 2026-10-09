@@ -11,7 +11,8 @@ class CustomerBookingExecutionError(RuntimeError):
 
 def execute(*, payload: dict, account: dict, vehicle: dict,
             metadata: dict, observed_metadata: dict, service_label: str,
-            server_authorized: bool = False):
+            server_authorized: bool = False, payment_authorizer=None,
+            payment_policy=None, payment_evidence=None):
     if server_authorized is not True:
         raise CustomerBookingExecutionError("booking_execution_not_authorized")
     if not isinstance(payload,dict) or not isinstance(account,dict) or not isinstance(vehicle,dict):
@@ -25,6 +26,10 @@ def execute(*, payload: dict, account: dict, vehicle: dict,
         account={**account,"vehicles":[vehicle]})
     if preflight.get("bookingEnabled") is not True:
         raise CustomerBookingExecutionError("booking_provider_not_ready")
+    if not callable(payment_authorizer):
+        raise CustomerBookingExecutionError("booking_payment_policy_unqualified")
+    payment_authorizer(service=preflight["service"],policy=payment_policy,
+                       payment_evidence=payment_evidence)
     request=BookingWriteRequest(
         request_key=payload["requestKey"],account_id=account["accountId"],
         vehicle_id=vehicle["vehicleId"],service=preflight["service"],
