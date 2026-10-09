@@ -13,7 +13,7 @@ class Tests(unittest.TestCase):
 
     def test_verified_provider_context(self):
         resolved={"metadata":{"service_id":"1763"},"observed_metadata":{},
-                  "service_label":"CONTROLE TECHNIQUE"}
+                  "service_label":"CONTROLE TECHNIQUE","slot_evidence":{"observed":True}}
         with patch.object(context.mercure_vl_provider_metadata_resolver,"resolve",
                           return_value=resolved) as resolver:
             result=context.build(service="technical",server_config={

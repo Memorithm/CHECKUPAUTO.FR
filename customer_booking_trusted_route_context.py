@@ -27,4 +27,5 @@ def build(*, service: str, server_config: dict,
         "service_label":resolved["service_label"],
         "payment_policy":payment_policy,
         "payment_evidence":payment_evidence,
+        "slot_evidence":resolved.get("slot_evidence"),
     }

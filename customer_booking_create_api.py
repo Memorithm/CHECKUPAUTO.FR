@@ -32,7 +32,7 @@ def create(payload: object, *, account: dict, executor=None, trusted_context=Non
     # is wired and its evidence has passed production homologation.
     if not callable(executor) or not isinstance(trusted_context,dict):
         raise BookingCreateUnavailable("booking_writer_not_connected")
-    required={"metadata","observed_metadata","service_label","payment_policy","payment_evidence"}
+    required={"metadata","observed_metadata","service_label","payment_policy","payment_evidence","slot_evidence"}
     if set(trusted_context)!=required:
         raise BookingCreateUnavailable("booking_provider_context_unqualified")
     vehicles=account.get("vehicles")
