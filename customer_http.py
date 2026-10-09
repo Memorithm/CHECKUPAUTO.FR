@@ -17,6 +17,7 @@ import in_site_booking_readiness as booking_readiness
 import customer_booking_api
 import customer_booking_create_api
 import customer_booking_http_trusted_context
+import customer_booking_server_config_source
 import customer_booking_confirmation_view
 import customer_accounts
 import mercure_brand_energy_reference
@@ -837,7 +838,7 @@ def handle(handler) -> bool:
             request_body=_json_body(handler)
             executor,trusted_context=customer_booking_http_trusted_context.prepare(
                 service=request_body.get("service") if isinstance(request_body,dict) else "",
-                server_config={"enabled":False,"lineId":"","operatorId":""},
+                server_config=customer_booking_server_config_source.load(),
                 payment_policy={},payment_evidence=None)
             result=customer_booking_create_api.create(
                 request_body,account=verified_account,
