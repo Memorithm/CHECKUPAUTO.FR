@@ -43,7 +43,7 @@ def create(payload: object, *, account: dict, executor=None, trusted_context=Non
     if len(matches)!=1:
         raise BookingCreateInvalid("booking_vehicle_not_owned")
     result=executor(payload=payload,account=account,vehicle=matches[0],
-                    **trusted_context)
+                    **trusted_context,server_authorized=True)
     if not isinstance(result,dict) or result.get("confirmed") is not True:
         return {"ok":True,"confirmed":False,"state":"reconciliation_required"}
     return {"ok":True,"confirmed":True,"state":"confirmed"}
