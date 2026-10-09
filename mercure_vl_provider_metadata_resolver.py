@@ -35,5 +35,3 @@ def resolve(*, service: str, line_id: str, operator_id: str,
     # ligne_id is a hidden numeric field, not a dropdown. It requires
     # independent slot/resource evidence before any customer write.
     raise MercureVlMetadataResolutionError("mercure_vl_line_evidence_required")
-    return {"metadata":metadata,"observed_metadata":observed,
-            "service_label":str(item["providerLabel"])}
