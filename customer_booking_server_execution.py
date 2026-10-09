@@ -28,8 +28,10 @@ def execute(*, payload: dict, account: dict, vehicle: dict,
         raise CustomerBookingExecutionError("booking_provider_not_ready")
     if not callable(payment_authorizer):
         raise CustomerBookingExecutionError("booking_payment_policy_unqualified")
-    payment_authorizer(service=preflight["service"],policy=payment_policy,
-                       payment_evidence=payment_evidence)
+    payment_result=payment_authorizer(service=preflight["service"],policy=payment_policy,
+                                     payment_evidence=payment_evidence)
+    if not isinstance(payment_result,dict) or payment_result.get("authorized") is not True:
+        raise CustomerBookingExecutionError("booking_payment_not_authorized")
     request=BookingWriteRequest(
         request_key=payload["requestKey"],account_id=account["accountId"],
         vehicle_id=vehicle["vehicleId"],service=preflight["service"],
