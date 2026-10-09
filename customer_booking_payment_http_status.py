@@ -19,7 +19,8 @@ def status(*, account_id: str, request_key: str) -> dict:
     # amount. No amount, provider status or receipt comes from the browser.
     try:
         basis = booking_bridge.authoritative_payment_basis(associated['providerBookingRef'])
-        if (basis.get('provider') != booking_bridge.PROVIDER
+        if (basis.get('bookingReference') != booking_bridge.booking_reference_for_external_id(associated['providerBookingRef'])
+                or basis.get('provider') != booking_bridge.PROVIDER
                 or basis.get('status') not in booking_bridge.CONFIRMED
                 or type(basis.get('amountCents')) is not int):
             return result
