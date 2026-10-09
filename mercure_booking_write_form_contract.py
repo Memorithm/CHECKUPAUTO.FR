@@ -12,7 +12,7 @@ REQUIRED_FIELDS=frozenset({
     "centre_type","ligne_id","duree","client_compte",
     "nom","prenom","email","telephone","marque","modele","energie",
     "immatriculation","prestation","utilisateur","date",
-    "rendezvous_id","tcheckDispo",
+    "rendezvous_id",
 })
 
 
@@ -26,6 +26,7 @@ class MercureWriteFormQualification:
     unknown_fields: tuple[str,...]
     contract_observed: bool
     customer_write_qualified: bool = False
+    javascript_parameters_unverified: tuple[str,...] = ("tcheckDispo",)
 
 
 def audit(observed_fields: object) -> MercureWriteFormQualification:
