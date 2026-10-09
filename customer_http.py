@@ -16,8 +16,8 @@ from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 import in_site_booking_readiness as booking_readiness
 import customer_booking_api
 import customer_booking_create_api
+import customer_booking_http_trusted_context
 import customer_booking_confirmation_view
-import customer_booking_http_trusted_composition
 import customer_accounts
 import mercure_brand_energy_reference
 import mercure_vehicle_reference
@@ -834,18 +834,15 @@ def handle(handler) -> bool:
             return True
         try:
             verified_account={**account,"vehicles":customer_accounts.list_vehicles(account["accountId"])}
-            payload=_json_body(handler)
-            executor,trusted_context=customer_booking_http_trusted_composition.compose(
-                payload=payload,
-                server_config_loader=lambda: {"enabled":False},
-                payment_policy_loader=lambda service: None,
-                payment_evidence_loader=lambda service: None)
+            request_body=_json_body(handler)
+            executor,trusted_context=customer_booking_http_trusted_context.prepare(
+                service=request_body.get("service") if isinstance(request_body,dict) else "",
+                server_config={"enabled":False,"lineId":"","operatorId":""},
+                payment_policy={},payment_evidence=None)
             result=customer_booking_create_api.create(
-                payload,account=verified_account,
+                request_body,account=verified_account,
                 executor=executor,trusted_context=trusted_context)
             handler.send_json(result,200)
-        except customer_booking_http_trusted_composition.BookingHttpCompositionUnavailable as exc:
-            handler.send_json({"ok":False,"error":str(exc)},503)
         except customer_booking_create_api.BookingCreateUnavailable as exc:
             handler.send_json({"ok":False,"error":str(exc)},503)
         except customer_booking_create_api.BookingCreateInvalid as exc:
