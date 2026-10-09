@@ -31,7 +31,7 @@ class QualifiedCustomerDetails:
     provider_energy_id: str
     mapping_verified: bool
     registration_system: str = "siv"
-    formula_number_present: bool = False
+    formula_number_present: bool = True
     card_issue_date: str = ""
 
 
