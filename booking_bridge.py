@@ -443,6 +443,16 @@ def authoritative_external_id_for_browser_token(ccid, cct):
     return external_id
 
 
+def booking_reference_for_external_id(external_id):
+    """Canonical hashed provider booking identity; no browser synthetic ID."""
+    external_id=analytics.clean(external_id,120)
+    if not external_id or external_id.startswith(_BROWSER_SYNTHETIC_PREFIX):
+        raise ValueError('authoritative booking reference required')
+    return 'mercure:'+hashlib.sha256(
+        ('mercure-rdv\x00'+str(external_id)).encode('utf-8')
+    ).hexdigest()[:40]
+
+
 def authoritative_payment_basis(external_id):
     external_id=analytics.clean(external_id,120)
     if not external_id or external_id.startswith(_BROWSER_SYNTHETIC_PREFIX):
@@ -471,9 +481,7 @@ def authoritative_payment_basis(external_id):
     amount=int(row['amount_cents'] or 0)
     if amount<1 or amount>maximum:
         raise ValueError('authoritative payment amount invalid')
-    booking_reference='mercure:'+hashlib.sha256(
-        ('mercure-rdv\x00'+str(row['external_id'])).encode('utf-8')
-    ).hexdigest()[:40]
+    booking_reference=booking_reference_for_external_id(row['external_id'])
     return {
         'bookingReference':booking_reference,
         'provider':PROVIDER,
