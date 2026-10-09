@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from customer_vehicle_inputs import (SIV_PATTERN, FNI_PATTERN, FORMULA_PATTERN, FORMULA_FIRST_YEAR, compact_identifier)
 
 import referral_engine
+import mercure_invoice_contact_contract as invoice_contact
 from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, VehicleCharacteristicsError
 
 PROVIDERS = {"google", "apple", "microsoft"}
@@ -508,6 +509,8 @@ def update_profile(
     address_line2: object = "",
     postal_code: object = "",
     city: object = "",
+    surname: object = None,
+    given_name: object = None,
 ) -> dict:
     account_id = _account_id(account_id)
     kind = _kind(kind)
@@ -519,6 +522,11 @@ def update_profile(
     address_line2 = _address_line(address_line2, optional=True)
     postal_code = _postal_code(postal_code)
     city = _city(city)
+    billing_names=None
+    if surname is not None or given_name is not None:
+        if not all(isinstance(v,str) and v.strip() and len(v)<=120 and not any(ord(c)<32 for c in v) for v in (surname,given_name)):
+            raise CustomerAccountError("customer_billing_name_invalid")
+        billing_names={"surname":" ".join(surname.split()),"givenName":" ".join(given_name.split())}
     init_db()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -529,6 +537,8 @@ def update_profile(
         if not row:
             raise CustomerAccountError("customer_account_not_found")
         current = _decrypt_profile(account_id, row["profile_blob"])
+        if billing_names is not None:
+            current.update(billing_names)
         current.update({
             "displayName": display_name,
             "companyName": company_name,
@@ -587,6 +597,8 @@ def update_contact_details(
 
 def _contact_details(profile_data: dict) -> dict:
     return {
+        "surname":str(profile_data.get("surname") or ""),
+        "givenName":str(profile_data.get("givenName") or ""),
         "email":str(profile_data.get("email") or ""),
         "phone":str(profile_data.get("phone") or ""),
         "addressLine1":str(profile_data.get("addressLine1") or ""),
@@ -594,6 +606,28 @@ def _contact_details(profile_data: dict) -> dict:
         "postalCode":str(profile_data.get("postalCode") or ""),
         "city":str(profile_data.get("city") or ""),
     }
+
+
+def _invoice_contact(profile_data: dict) -> dict:
+    # Read explicit names only. Never split an OAuth display name into legal names.
+    return invoice_contact.validate({
+        "surname":profile_data.get("surname"),"givenName":profile_data.get("givenName"),
+        "address":profile_data.get("addressLine1"),"postalCode":profile_data.get("postalCode"),
+        "city":profile_data.get("city"),"phone":profile_data.get("phone"),"email":profile_data.get("email"),
+    })
+
+
+def _billing_complete(profile_data: dict) -> bool:
+    try:
+        _invoice_contact(profile_data)
+        return True
+    except invoice_contact.MercureInvoiceContactError:
+        return False
+
+
+def billing_contact(account_id: object) -> dict:
+    """Account-scoped invoicing projection using the verified email, not vehicle input."""
+    return _invoice_contact(profile(account_id))
 
 
 def _contact_complete(profile_data: dict) -> bool:
@@ -1074,6 +1108,9 @@ def profile(account_id: object) -> dict:
         "accountId": account_id,
         "kind": str(row["kind"]),
         "displayName": str(profile_data.get("displayName") or ""),
+        "surname": str(profile_data.get("surname") or ""),
+        "givenName": str(profile_data.get("givenName") or ""),
+        "billingContactComplete": _billing_complete(profile_data),
         "email": str(profile_data.get("email") or ""),
         "companyName": str(profile_data.get("companyName") or ""),
         "siret": str(profile_data.get("siret") or ""),

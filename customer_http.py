@@ -411,6 +411,8 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 </section>
 <section class="profile"><div class="eyebrow">PROFIL ET COORDONNÉES</div><h2>Vos informations de contact</h2><p class="sub">Nom, e-mail vérifié, téléphone et adresse sont disponibles pour sécuriser le suivi de vos demandes sans les ressaisir dans chaque message.</p>
 <form id="profileForm">
+<label>Nom<input id="surname" value="{html.escape(str(account.get('surname') or ''),quote=True)}" autocomplete="family-name" maxlength="120" required></label>
+<label>Prénom<input id="givenName" value="{html.escape(str(account.get('givenName') or ''),quote=True)}" autocomplete="given-name" maxlength="120" required></label>
 <label>Nom affiché<input id="displayName" value="{display}" maxlength="120" required></label>
 <label>Statut<select id="kind"><option value="individual"{" selected" if not pro else ""}>Particulier</option><option value="professional"{" selected" if pro else ""}>Professionnel</option></select></label>
 <label>Raison sociale<input id="companyName" value="{company}" maxlength="160"></label>
@@ -431,7 +433,7 @@ const vehicleList=document.getElementById('vehicleList'),vehicleEditor=document.
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
 const setReviewRating=rating=>{{reviewStars.forEach(star=>{{const value=Number(star.dataset.rating);star.classList.toggle('selected',value<=rating);star.setAttribute('aria-checked',String(value===rating));}});reviewRatingText.textContent=rating+' étoile'+(rating>1?'s':'')+' sélectionnée'+(rating>1?'s':'')+'.';}};
 reviewStars.forEach(star=>star.addEventListener('click',()=>setReviewRating(Number(star.dataset.rating))));
-document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value,phone:document.getElementById('phone').value,addressLine1:document.getElementById('addressLine1').value,addressLine2:document.getElementById('addressLine2').value,postalCode:document.getElementById('postalCode').value,city:document.getElementById('city').value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
+document.getElementById('profileForm').addEventListener('submit',async e=>{{e.preventDefault();status.textContent='Enregistrement…';const payload={{kind:kind.value,surname:document.getElementById('surname').value,givenName:document.getElementById('givenName').value,displayName:document.getElementById('displayName').value,companyName:company.value,siret:siret.value,phone:document.getElementById('phone').value,addressLine1:document.getElementById('addressLine1').value,addressLine2:document.getElementById('addressLine2').value,postalCode:document.getElementById('postalCode').value,city:document.getElementById('city').value}};try{{const r=await fetch('{PROFILE_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'profile_failed');status.textContent='Profil enregistré.';}}catch(e){{status.textContent='Enregistrement impossible.';}}}});
 const el=(tag,text='')=>{{const node=document.createElement(tag);if(text)node.textContent=text;return node;}};
 
 const vehicleMessage=code=>({{
@@ -1314,7 +1316,8 @@ def handle(handler) -> bool:
 
         try:
             payload=_json_body(handler)
-            if set(payload)!={"kind","displayName","companyName","siret","phone","addressLine1","addressLine2","postalCode","city"}:
+            base_fields={"kind","displayName","companyName","siret","phone","addressLine1","addressLine2","postalCode","city"}
+            if set(payload) not in (base_fields,base_fields|{"surname","givenName"}):
                 raise ValueError
             updated=customer_accounts.update_profile(
                 account["accountId"],
@@ -1327,6 +1330,7 @@ def handle(handler) -> bool:
                 address_line2=payload.get("addressLine2"),
                 postal_code=payload.get("postalCode"),
                 city=payload.get("city"),
+                **({"surname":payload["surname"],"given_name":payload["givenName"]} if "surname" in payload else {}),
             )
             handler.send_json(updated)
         except Exception:
