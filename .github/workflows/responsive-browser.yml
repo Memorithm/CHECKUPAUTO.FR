@@ -13,6 +13,7 @@ on:
       - 'app_download.py'
       - 'responsive_ui.py'
       - 'scripts/check-responsive-browser.py'
+      - 'scripts/check-customer-vehicle-editor.py'
       - '.github/workflows/responsive-browser.yml'
   push:
     branches: [main]
@@ -27,6 +28,7 @@ on:
       - 'app_download.py'
       - 'responsive_ui.py'
       - 'scripts/check-responsive-browser.py'
+      - 'scripts/check-customer-vehicle-editor.py'
       - '.github/workflows/responsive-browser.yml'
   workflow_dispatch:
 
@@ -57,6 +59,10 @@ jobs:
       - name: Check WebKit geometry and interactions
         if: success() || failure()
         run: .browser-venv/bin/python scripts/check-responsive-browser.py --browser webkit --output "$RUNNER_TEMP/responsive-evidence-${{ github.run_id }}"
+      - name: Exercise vehicle save, edit, stale responses and outage handling
+        run: |
+          .browser-venv/bin/python scripts/check-customer-vehicle-editor.py --browser chromium
+          .browser-venv/bin/python scripts/check-customer-vehicle-editor.py --browser webkit
       - name: Publish synthetic screenshots and measurements
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
