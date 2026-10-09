@@ -1,7 +1,5 @@
 """Internal booking execution. Never accept provider authority from browser input."""
 from __future__ import annotations
-import secrets
-
 import customer_booking_api
 import mercure_vl_booking_coordinator
 from mercure_booking_write_contract import BookingWriteRequest
@@ -16,10 +14,12 @@ def execute(*, payload: dict, account: dict, vehicle: dict,
             server_authorized: bool = False):
     if server_authorized is not True:
         raise CustomerBookingExecutionError("booking_execution_not_authorized")
-    if not isinstance(account,dict) or not isinstance(vehicle,dict):
+    if not isinstance(payload,dict) or not isinstance(account,dict) or not isinstance(vehicle,dict):
         raise CustomerBookingExecutionError("booking_context_missing")
     if vehicle.get("vehicleId")!=payload.get("vehicleId"):
         raise CustomerBookingExecutionError("booking_vehicle_mismatch")
+    if set(payload)!={"service","date","time","vehicleId","requestKey"}:
+        raise CustomerBookingExecutionError("booking_payload_invalid")
     preflight=customer_booking_api.preflight(
         {key:payload[key] for key in ("service","date","time","vehicleId")},
         account={**account,"vehicles":[vehicle]})
