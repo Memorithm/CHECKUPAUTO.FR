@@ -15,6 +15,7 @@ from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 
 import in_site_booking_readiness as booking_readiness
 import customer_booking_api
+import customer_booking_create_api
 import customer_booking_confirmation_view
 import customer_accounts
 import mercure_brand_energy_reference
@@ -814,6 +815,33 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":str(exc)},400)
         except Exception:
             handler.send_json({"ok":False,"error":"vehicle_reference_unavailable"},503)
+        return True
+
+    if path=="/api/customer/booking/create":
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+        try:
+            verified_account={**account,"vehicles":customer_accounts.list_vehicles(account["accountId"])}
+            result=customer_booking_create_api.create(
+                _json_body(handler),account=verified_account)
+            handler.send_json(result,200)
+        except customer_booking_create_api.BookingCreateUnavailable as exc:
+            handler.send_json({"ok":False,"error":str(exc)},503)
+        except customer_booking_create_api.BookingCreateInvalid as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except Exception:
+            handler.send_json({"ok":False,"error":"booking_creation_unavailable"},503)
         return True
 
     if path=="/api/customer/booking/preflight":
