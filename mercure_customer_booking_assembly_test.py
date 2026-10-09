@@ -15,6 +15,7 @@ class CustomerBookingAssemblyTests(unittest.TestCase):
                       "addressLine1":"1 rue Exemple","postalCode":"75001","city":"Paris",
                       "phone":"0102030405","email":"client@example.invalid"}
         self.vehicle={"vehicleId":"vehicle-1","registration":"AB-123-CD",
+                      "registrationSystem":"siv","formulaNumberPresent":True,
                       "characteristics":{"brand":"Peugeot","model":"208","energy":"Essence"}}
         self.mapping={"brandId":"132","modelId":"42","energyId":"2","mappingVerified":True}
 
