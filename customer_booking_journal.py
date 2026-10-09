@@ -151,3 +151,42 @@ def status(*, account_id: str, key: object) -> dict:
         raise BookingJournalError("booking_request_not_found")
     return {"state": row["state"], "confirmed": row["state"] == "confirmed",
             "providerReference": row["provider_reference"] if row["state"] == "confirmed" else ""}
+
+
+def record_provider_receipt(*, account_id: str, key: object, provider_reference: str) -> None:
+    """Persist the provider receipt BEFORE any fallible verification read."""
+    token=_key(key)
+    if not isinstance(provider_reference,str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}",provider_reference):
+        raise BookingJournalError("booking_provider_confirmation_unverified")
+    from contextlib import closing
+    with closing(_connect()) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            _initialize(db)
+            row=db.execute("SELECT * FROM booking_request WHERE request_key=?",(token,)).fetchone()
+            if row is None or not account_id or row["account_hash"]!=_digest(account_id):
+                raise BookingJournalError("booking_request_not_found")
+            if row["state"] not in {"reconciliation_required","confirmed"}:
+                raise BookingJournalError("booking_reconciliation_required")
+            if row["provider_reference"] and row["provider_reference"]!=provider_reference:
+                raise BookingJournalError("booking_provider_reference_conflict")
+            used=db.execute("SELECT request_key FROM booking_request WHERE provider_reference=? AND request_key<>?",(provider_reference,token)).fetchone()
+            if used is not None:
+                raise BookingJournalError("booking_provider_reference_conflict")
+            db.execute("UPDATE booking_request SET provider_reference=?,updated_at=? WHERE request_key=?",(provider_reference,dt.datetime.now(dt.timezone.utc).isoformat(),token))
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+
+
+def pending_provider_reference(*, account_id: str, key: object) -> str:
+    """Internal account-scoped recovery lookup, not a browser confirmation token."""
+    token=_key(key)
+    from contextlib import closing
+    with closing(_connect()) as db:
+        _initialize(db)
+        row=db.execute("SELECT * FROM booking_request WHERE request_key=?",(token,)).fetchone()
+    if row is None or not account_id or row["account_hash"]!=_digest(account_id):
+        raise BookingJournalError("booking_request_not_found")
+    return row["provider_reference"]
