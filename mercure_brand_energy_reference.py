@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import re
 
 import mercure_admin_client as mercure
+from mercure_reference_integrity import selectable as validate_reference_rows
 
 
 SELECT_IDS={"marque","marque_add","energie","energie_add"}
@@ -36,7 +37,7 @@ class _SelectParser(HTMLParser):
             if self.current and re.fullmatch(r"[0-9]{1,12}",item["id"]):
                 label=item["label"].strip()
                 if label:
-                    self.result[self.current].append({"id":item["id"],"label":label[:120]})
+                    self.result[self.current].append({"id":item["id"],"label":label})
         elif tag=="select":
             self.current=None
             self.option=None
@@ -49,7 +50,10 @@ def parse_references(html: str) -> dict:
     parser.feed(html)
     if not parser.result["marque"] or not parser.result["energie"]:
         raise ValueError("mercure_reference_dropdown_missing")
-    return parser.result
+    result={key:validate_reference_rows(rows) for key,rows in parser.result.items()}
+    if not result["marque"] or not result["energie"]:
+        raise ValueError("mercure_reference_dropdown_missing")
+    return result
 
 
 def fetch_references() -> dict:

@@ -5,6 +5,7 @@ import re
 import requests
 
 import mercure_admin_client as mercure
+from mercure_reference_integrity import selectable as validate_reference_rows, MercureReferenceIntegrityError
 
 
 class MercureReferenceError(RuntimeError):
@@ -33,5 +34,8 @@ def models(*, centre_type: str, brand_id: str) -> list[dict]:
         label=item.get("libele")
         if not re.fullmatch(r"[0-9]{1,12}",identifier) or not isinstance(label,str) or not label.strip():
             raise MercureReferenceError("mercure_reference_invalid")
-        result.append({"id":identifier,"label":label.strip()[:120]})
-    return result
+        result.append({"id":identifier,"label":label.strip()})
+    try:
+        return validate_reference_rows(result)
+    except MercureReferenceIntegrityError as exc:
+        raise MercureReferenceError("mercure_reference_invalid") from exc
