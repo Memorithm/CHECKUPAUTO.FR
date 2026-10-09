@@ -17,6 +17,8 @@ def prepare(*, service: str, server_config: dict,
             payment_policy: dict, payment_evidence: dict | None):
     if not isinstance(server_config,dict) or server_config.get("enabled") is not True:
         raise BookingHttpContextError("booking_server_not_qualified")
+    if not isinstance(payment_policy,dict) or payment_policy.get("providerVerified") is not True:
+        raise BookingHttpContextError("booking_payment_policy_unqualified")
     context=customer_booking_trusted_route_context.build(
         service=service,server_config=server_config,
         payment_policy=payment_policy,payment_evidence=payment_evidence)
