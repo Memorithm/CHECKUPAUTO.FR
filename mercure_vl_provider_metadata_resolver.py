@@ -11,7 +11,7 @@ class MercureVlMetadataResolutionError(ValueError):
 
 
 def resolve(*, service: str, line_id: str, operator_id: str,
-            centre_type: str = "1") -> dict:
+            centre_type: str = "1", line_evidence: dict | None = None) -> dict:
     item=mercure_public_client.service(service)
     metadata={"service_id":str(item["id"]),"duration":str(item["duration"]),
               "centre_type":centre_type,"line_id":line_id,"operator_id":operator_id}
