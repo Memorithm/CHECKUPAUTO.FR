@@ -8,7 +8,7 @@ class Tests(unittest.TestCase):
                  "vehicleId":"v1","requestKey":"booking-route-key-0000001"}
         account={"accountId":"a1","vehicles":[{"vehicleId":"v1"}]}
         trusted=dict(metadata={},observed_metadata={},service_label="CT",
-                     payment_policy={},payment_evidence=None)
+                     payment_policy={},payment_evidence=None,slot_evidence={"observed":True})
         executor=Mock(return_value={"confirmed":True})
         ready={"bookingEnabled":True}
         with patch.object(api.customer_booking_api,"preflight",return_value=ready),patch.object(
