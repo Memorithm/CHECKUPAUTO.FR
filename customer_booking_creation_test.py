@@ -15,6 +15,10 @@ class FakeWriter:
         self.receipt=receipt or BookingWriteReceipt(provider_reference="mercure-123",accepted=True)
         self.error=error
 
+    def read_identity(self,request,provider_reference):
+        from mercure_booking_identity_evidence import VerifiedBookingIdentity
+        return VerifiedBookingIdentity(provider_reference,request.account_id,request.vehicle_id,request.service,True)
+
     def create_once(self, request):
         self.calls+=1
         if self.error:

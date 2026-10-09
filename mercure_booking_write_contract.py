@@ -32,10 +32,15 @@ class BookingWriteReceipt:
 
 class BookingWriter(Protocol):
     def create_once(self, request: BookingWriteRequest) -> BookingWriteReceipt:
-        """Return provider evidence; on timeout caller must reconcile, never retry blindly."""
+        """On timeout callers must reconcile without replaying the write."""
+        ...
+
+    def read_identity(self, request: BookingWriteRequest, provider_reference: str):
+        """Return independently read VerifiedBookingIdentity for the provider record."""
         ...
 
 
+# The reader is a separate authenticated provider operation, not receipt.accepted.
 class UnqualifiedMercureWriter:
     """Explicit production default until a real Mercure API is homologated."""
 

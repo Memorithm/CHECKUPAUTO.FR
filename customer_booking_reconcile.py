@@ -44,8 +44,24 @@ def reconcile_with_identity(*, account_id: str, request_key: str,
     Identity evidence must be assembled by a trusted provider-side reader,
     never from customer-submitted JSON.
     """
+    from booking_confirmation_evidence_gate import can_confirm
     from mercure_booking_identity_evidence import validate_identity
+    state=journal.status(account_id=account_id,key=request_key)
     validate_identity(identity_evidence,appointment_reference=provider_reference,
                       account_id=account_id,vehicle_id=vehicle_id,service=service)
-    return reconcile(account_id=account_id,request_key=request_key,
-                     provider_reference=provider_reference,date=date,time=time)
+    if state["state"]=="confirmed":
+        if state["providerReference"]!=provider_reference:
+            raise BookingReconciliationError("booking_provider_reference_conflict")
+        return state
+    if state["state"]!="reconciliation_required":
+        raise BookingReconciliationError("booking_reconciliation_required")
+    try:
+        calendar_verified=evidence.verify_appointment(provider_reference=provider_reference,date=date,time=time)
+    except evidence.MercureBookingEvidenceError as exc:
+        raise BookingReconciliationError("booking_provider_evidence_unavailable") from exc
+    if not can_confirm(reference=provider_reference,account_id=account_id,
+                       vehicle_id=vehicle_id,service=service,evidence=identity_evidence,
+                       calendar_verified=calendar_verified):
+        return {"state":"reconciliation_required","confirmed":False}
+    return journal.confirm_verified(account_id=account_id,key=request_key,
+                                    provider_reference=provider_reference,verified=True)
