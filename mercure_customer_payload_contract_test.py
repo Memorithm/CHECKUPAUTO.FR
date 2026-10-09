@@ -25,6 +25,21 @@ class CustomerPayloadQualificationTests(unittest.TestCase):
         self.assertEqual(result["marque"],"132")
         self.assertEqual(result["date"],self.request.date+"T10:20")
 
+    def test_fni_requires_card_issue_date_and_no_formula(self):
+        from dataclasses import replace
+        valid=replace(self.details,registration="1234 AB 78",registration_system="fni",
+                      formula_number_present=False,card_issue_date="2020-01-15")
+        self.assertEqual(qualify(self.request,valid)["immatriculation"],"1234 AB 78")
+        for changed in (replace(valid,card_issue_date=""),replace(valid,formula_number_present=True),
+                        replace(valid,registration="AB-123-CD")):
+            with self.assertRaises(CustomerPayloadNotQualified):
+                qualify(self.request,changed)
+
+    def test_siv_requires_formula_presence(self):
+        from dataclasses import replace
+        with self.assertRaisesRegex(CustomerPayloadNotQualified,"mercure_registration_document_invalid"):
+            qualify(self.request,replace(self.details,formula_number_present=False))
+
     def test_unverified_mapping_cannot_be_used(self):
         with self.assertRaisesRegex(CustomerPayloadNotQualified,"mercure_vehicle_mapping_unverified"):
             qualify(self.request,replace(self.details,mapping_verified=False))
