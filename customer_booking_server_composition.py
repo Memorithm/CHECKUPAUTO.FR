@@ -18,10 +18,12 @@ def execute(*, payload: dict, account: dict, vehicle: dict,
     if not isinstance(payload,dict) or payload.get("service") not in {"technical","fitted"}:
         raise CustomerBookingCompositionError("booking_service_invalid")
     provider=mercure_vl_provider_metadata_resolver.resolve(
-        service=payload["service"],line_id=line_id,operator_id=operator_id)
+        service=payload["service"],line_id=line_id,operator_id=operator_id,
+        date=payload.get("date"),time=payload.get("time"))
     return customer_booking_server_execution.execute(
         payload=payload,account=account,vehicle=vehicle,
         metadata=provider["metadata"],observed_metadata=provider["observed_metadata"],
         service_label=provider["service_label"],server_authorized=True,
         payment_authorizer=customer_booking_payment_policy.authorize,
-        payment_policy=payment_policy,payment_evidence=payment_evidence)
+        payment_policy=payment_policy,payment_evidence=payment_evidence,
+        slot_evidence=provider.get("slot_evidence"))

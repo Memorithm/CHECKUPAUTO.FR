@@ -836,10 +836,13 @@ def handle(handler) -> bool:
         try:
             verified_account={**account,"vehicles":customer_accounts.list_vehicles(account["accountId"])}
             request_body=_json_body(handler)
+            if (not isinstance(request_body,dict)
+                    or set(request_body)!={"service","date","time","vehicleId","requestKey"}
+                    or not all(isinstance(value,str) for value in request_body.values())):
+                raise customer_booking_create_api.BookingCreateInvalid("booking_create_request_invalid")
             executor,trusted_context=customer_booking_http_trusted_context.prepare(
-                service=request_body.get("service") if isinstance(request_body,dict) else "",
-                server_config=customer_booking_server_config_source.load(),
-                payment_policy={},payment_evidence=None)
+                service=request_body["service"],date=request_body["date"],time=request_body["time"],
+                server_config=customer_booking_server_config_source.load())
             result=customer_booking_create_api.create(
                 request_body,account=verified_account,
                 executor=executor,trusted_context=trusted_context)
