@@ -11,9 +11,10 @@ class PaymentPolicySourceTests(unittest.TestCase):
         self.assertTrue(policy["paymentRequired"])
         self.assertNotIn("paid", policy)
 
-    def test_centre_permission_never_downgrades_online_checkout(self):
-        with self.assertRaisesRegex(source.MercurePaymentPolicyError, "online_payment_unavailable"):
-            source.qualify(service="technical", response={"paiementCentre": True, "paiementWeb": False})
+    def test_centre_payment_is_explicitly_unpaid(self):
+        policy=source.qualify(service="technical", response={"paiementCentre": True, "paiementWeb": False})
+        self.assertEqual(policy["paymentMode"], "centre")
+        self.assertFalse(policy["paymentRequired"])
 
     def test_ambiguous_flags_are_not_provider_authority(self):
         for value in ({}, {"paiementCentre": True}, {"paiementCentre": True, "paiementWeb": 1},

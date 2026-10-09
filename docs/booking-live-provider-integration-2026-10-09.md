@@ -50,3 +50,12 @@ et les notifications restent à qualifier après résolution des prérequis.
 
 Les tests de composition utilisent des fixtures explicites. Ils valident le
 raccordement et les refus ; ils ne constituent pas une homologation réelle.
+
+## Extension des modes de paiement (9 octobre 2026)
+
+Le mode **centre** est désormais qualifiable quand Mercure l'autorise et que
+le mode web n'est pas disponible. Il signifie **paiement dû au centre**, jamais
+`paid=true`. Si le paiement web est autorisé, le mode **online** conserve
+l'obligation d'un reçu fournisseur vérifié. Si aucun mode n'est disponible,
+la réservation est refusée. Aucun paramètre Mercure n'est modifié et les
+contrôles d'homologation indépendants restent obligatoires.
