@@ -28,6 +28,6 @@ class Tests(unittest.TestCase):
         with patch.object(executor.customer_booking_api,"preflight",return_value=result),patch.object(
             executor.mercure_vl_booking_coordinator,"create_and_verify",
             return_value={"confirmed":True}) as coordinator:
-            output=executor.execute(**self.kw,server_authorized=True)
+            output=executor.execute(**self.kw,server_authorized=True,\n                payment_authorizer=lambda **kwargs: {"authorized":True})
         self.assertTrue(output["confirmed"])
         self.assertEqual(coordinator.call_args.kwargs["request"].account_id,"account1")
