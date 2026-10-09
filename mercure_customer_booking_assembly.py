@@ -37,7 +37,10 @@ def assemble(*, request: BookingWriteRequest, account: dict, vehicle: dict) -> d
         surname=billing["surname"],given_name=billing["givenName"],
         email=billing["email"],telephone=billing["phone"],
         provider_brand_id=mapping["brandId"],provider_model_id=mapping["modelId"],
-        provider_energy_id=mapping["energyId"],mapping_verified=True)
+        provider_energy_id=mapping["energyId"],mapping_verified=True,
+        registration_system=str(vehicle.get("registrationSystem") or ""),
+        formula_number_present=vehicle.get("formulaNumberPresent") is True,
+        card_issue_date=str(vehicle.get("cardIssueDate") or ""))
     payload=qualify(request,details)
     return {"appointment":payload,"billing":billing,
             "providerWritePerformed":False,"bookingConfirmed":False}
