@@ -17,4 +17,5 @@ def status(*, account_id: str, request_key: str) -> dict:
     if not isinstance(result,dict):
         raise BookingStatusError("booking_status_invalid")
     confirmed=result.get("state")=="confirmed" and result.get("confirmed") is True
-    return {"ok":True,"state":result.get("state","unknown"),"confirmed":confirmed}
+    return {"ok":True,"state":result.get("state","unknown"),"confirmed":confirmed,
+            "reconciliationRequired":result.get("state")=="reconciliation_required"}
