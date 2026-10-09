@@ -34,4 +34,9 @@ def resolve(*, service: str, line_id: str, operator_id: str,
         raise MercureVlMetadataResolutionError("mercure_vl_operator_unverified")
     # ligne_id is a hidden numeric field, not a dropdown. It requires
     # independent slot/resource evidence before any customer write.
-    raise MercureVlMetadataResolutionError("mercure_vl_line_evidence_required")
+    if not isinstance(line_evidence,dict) or line_evidence.get("observed") is not True:
+        raise MercureVlMetadataResolutionError("mercure_vl_line_evidence_required")
+    if line_evidence.get("lineId")!=line_id or line_evidence.get("slotAvailable") is not True:
+        raise MercureVlMetadataResolutionError("mercure_vl_slot_evidence_required")
+    return {"metadata":metadata,"observed_metadata":observed,
+            "service_label":str(item["providerLabel"])}
