@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import mercure_admin_client as mercure
 from mercure_vl_appointment_row_identity import verify as verify_row
+from mercure_vl_appointment_slot_proof import verify as verify_slot
 
 
 class MercureVlLiveIdentityError(ValueError):
@@ -12,7 +13,7 @@ class MercureVlLiveIdentityError(ValueError):
 
 def read_and_verify(*, reference: str, date: str, account_id: str,
                     vehicle_id: str, service: str, registration: str,
-                    expected_service_label: str):
+                    expected_service_label: str, expected_time: str | None = None):
     try:
         day=dt.date.fromisoformat(date)
     except (TypeError,ValueError) as exc:
@@ -26,6 +27,9 @@ def read_and_verify(*, reference: str, date: str, account_id: str,
     matches=[row for row in rows if isinstance(row,dict) and str(row.get("id") or "")==reference]
     if len(matches)!=1:
         raise MercureVlLiveIdentityError("mercure_appointment_missing_or_ambiguous")
+    if expected_time is None:
+        raise MercureVlLiveIdentityError("mercure_slot_time_required")
+    verify_slot(row=matches[0],expected_date=date,expected_time=expected_time)
     return verify_row(row=matches[0],reference=reference,account_id=account_id,
                       vehicle_id=vehicle_id,service=service,registration=registration,
                       expected_service_label=expected_service_label)
