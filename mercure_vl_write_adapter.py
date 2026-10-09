@@ -62,4 +62,5 @@ class MercureVlWriteAdapter:
             reference=provider_reference,date=request.date,
             account_id=request.account_id,vehicle_id=request.vehicle_id,
             service=request.service,registration=self.payload["immatriculation"],
-            expected_service_label=self.expected_service_label)
+            expected_service_label=self.expected_service_label,
+            expected_time=request.time)
