@@ -8,7 +8,7 @@ import customer_booking_api as api
 class CustomerBookingAPITest(unittest.TestCase):
     def setUp(self):
         self.day=(dt.date.today()+dt.timedelta(days=1)).isoformat()
-        self.account={"vehicles":[{"vehicleId":"vehicle-test-1"}]}
+        self.account={"vehicles":[{"vehicleId":"vehicle-test-1","registration":"AB-123-CD","registrationSystem":"siv","formulaNumberPresent":True,"characteristics":{"brand":"Peugeot","model":"208","energy":"Essence"}}]}
         self.payload={"service":"technical","date":self.day,"time":"10:30","vehicleId":"vehicle-test-1"}
 
     def test_verified_slot_is_only_preflight_not_booking(self):
