@@ -324,6 +324,14 @@
       "subjectExecutionRequired": false
     },
     {
+      "table": "payment_binding",
+      "module": "customer_booking_payment_binding.py",
+      "subjectRelation": "pseudonymous",
+      "executionState": "partial",
+      "adapter": "",
+      "subjectExecutionRequired": true
+    },
+    {
       "table": "payment_events",
       "module": "payment_core.py",
       "subjectRelation": "sandbox",
