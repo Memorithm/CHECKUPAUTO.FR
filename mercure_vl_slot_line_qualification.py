@@ -2,6 +2,7 @@
 from __future__ import annotations
 import datetime as dt
 import re
+from zoneinfo import ZoneInfo
 from mercure_vl_calendar_line_evidence import verify
 
 
@@ -16,7 +17,7 @@ def qualify(*, events: list, line_id: str, date: str, time: str) -> dict:
         try:
             start=dt.datetime.fromisoformat(str(event.get("start") or "").replace("Z","+00:00"))
             if start.tzinfo is not None:
-                start=start.astimezone(dt.timezone(dt.timedelta(hours=2))).replace(tzinfo=None)
+                start=start.astimezone(ZoneInfo('Europe/Paris')).replace(tzinfo=None)
         except ValueError:
             continue
         if start!=expected:
