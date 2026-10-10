@@ -207,7 +207,8 @@ class CustomerOIDCTest(unittest.TestCase):
 
     def test_microsoft_consumer_issuer_is_accepted_after_signature_verification(self):
         state,nonce,_=self.flow("microsoft")
-        token=self.token(provider="microsoft",client_id="ms-client",nonce=nonce)
+        # S-08: the latent Microsoft path only accepts an explicitly verified e-mail.
+        token=self.token(provider="microsoft",client_id="ms-client",nonce=nonce,overrides={"email_verified":True})
         with patch.object(oidc.customer_accounts,"create_from_verified_identity",return_value={"accountId":"id"}) as create, \
              patch.object(oidc.customer_accounts,"issue_session",return_value={"token":"t"}):
             result=self.complete(
@@ -217,6 +218,18 @@ class CustomerOIDCTest(unittest.TestCase):
             )
         self.assertEqual(result["session"]["token"],"t")
         self.assertEqual(create.call_args.args[0],"microsoft")
+
+    def test_microsoft_without_verified_email_fails_closed(self):
+        state,nonce,_=self.flow("microsoft")
+        token=self.token(provider="microsoft",client_id="ms-client",nonce=nonce)
+        with patch.object(oidc.customer_accounts,"create_from_verified_identity") as create:
+            with self.assertRaises(oidc.CustomerOIDCError):
+                self.complete(
+                    "microsoft",state,"code",
+                    poster=lambda *a,**k:Response(payload={"id_token":token}),
+                    jwks_fetcher=lambda *a,**k:Response(payload={"keys":[self.jwk]}),
+                )
+        create.assert_not_called()
 
 
 if __name__=="__main__":
