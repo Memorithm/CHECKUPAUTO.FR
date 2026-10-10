@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
+import fcntl
 from io import BytesIO
 import hashlib
 import hmac
@@ -12,6 +14,7 @@ import re
 import secrets
 import struct
 import tempfile
+import threading
 import time
 from urllib.parse import quote, urlencode
 
@@ -20,7 +23,9 @@ from qrcode.image.svg import SvgPathImage
 
 
 COOKIE_NAME = "CyberCheckAdmin2FAV2"
-SESSION_TTL_SECONDS = 8 * 3600
+SESSION_TTL_SECONDS = 2 * 3600
+REQUIRED_ENV = "CYBERCHECK_ADMIN_MFA_REQUIRED"
+_STATE_LOCK = threading.RLock()
 PENDING_TTL_SECONDS = 15 * 60
 TOTP_PERIOD_SECONDS = 30
 TOTP_DIGITS = 6
@@ -56,6 +61,33 @@ def _session_key_path() -> Path:
 
 def _recovery_path() -> Path:
     return _mfa_dir() / "recovery.json"
+
+
+def _last_step_path() -> Path:
+    return _mfa_dir() / "totp-last-step"
+
+
+def _revoked_path() -> Path:
+    return _mfa_dir() / "revoked-sessions.json"
+
+
+def required() -> bool:
+    """Opt-in: refuse admin APIs until a TOTP is enrolled (see docs/admin-2fa.md)."""
+    return str(os.environ.get(REQUIRED_ENV) or "").strip().lower() in {"1", "true", "yes"}
+
+
+@contextmanager
+def _state_lock():
+    """Serialise read-modify-write of MFA state across threads and processes."""
+    with _STATE_LOCK:
+        root = _ensure_dir()
+        fd = os.open(root / ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
 
 def _ensure_dir() -> Path:
@@ -119,6 +151,26 @@ def totp_at(
     return str(value % (10 ** digits)).zfill(digits)
 
 
+def matching_step(
+    secret: str,
+    code: str,
+    *,
+    now: int | float | None = None,
+    window: int = TOTP_WINDOW,
+) -> int | None:
+    """Return the TOTP time-step matched by ``code`` or ``None``."""
+    candidate = str(code or "").strip()
+    if not _CODE_RE.fullmatch(candidate):
+        return None
+    instant = int(time.time() if now is None else now)
+    for delta in range(-max(0, int(window)), max(0, int(window)) + 1):
+        moment = instant + delta * TOTP_PERIOD_SECONDS
+        expected = totp_at(secret, moment)
+        if hmac.compare_digest(expected, candidate):
+            return moment // TOTP_PERIOD_SECONDS
+    return None
+
+
 def verify_totp(
     secret: str,
     code: str,
@@ -126,18 +178,21 @@ def verify_totp(
     now: int | float | None = None,
     window: int = TOTP_WINDOW,
 ) -> bool:
-    candidate = str(code or "").strip()
-    if not _CODE_RE.fullmatch(candidate):
-        return False
-    instant = int(time.time() if now is None else now)
-    for delta in range(-max(0, int(window)), max(0, int(window)) + 1):
-        expected = totp_at(
-            secret,
-            instant + delta * TOTP_PERIOD_SECONDS,
-        )
-        if hmac.compare_digest(expected, candidate):
-            return True
-    return False
+    return matching_step(secret, code, now=now, window=window) is not None
+
+
+def _last_step() -> int:
+    path = _last_step_path()
+    if path.is_symlink() or not path.is_file():
+        return -1
+    try:
+        return int(path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return -1
+
+
+def _record_step(step: int) -> None:
+    _atomic_write(_last_step_path(), f"{int(step)}\n".encode("ascii"))
 
 
 def _read_secret() -> str:
@@ -418,6 +473,8 @@ def validate_session(token: str, *, now: int | None = None) -> bool:
         return False
     if payload["iat"] > instant + 60 or payload["exp"] <= instant:
         return False
+    if _is_revoked(payload.get("n")):
+        return False
     try:
         return hmac.compare_digest(
             str(payload.get("mfa") or ""),
@@ -425,6 +482,58 @@ def validate_session(token: str, *, now: int | None = None) -> bool:
         )
     except Exception:
         return False
+
+
+def _session_payload(token: str) -> dict | None:
+    raw = str(token or "").strip()
+    try:
+        body, signature = raw.split(".", 1)
+        expected = _b64url(
+            hmac.new(_session_key(create=False), body.encode("ascii"), hashlib.sha256).digest()
+        )
+    except Exception:
+        return None
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        payload = json.loads(_b64url_decode(body).decode("utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _revoked() -> dict:
+    path = _revoked_path()
+    if path.is_symlink() or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    entries = payload.get("revoked") if isinstance(payload, dict) else None
+    if not isinstance(entries, dict):
+        return {}
+    return {str(k): int(v) for k, v in entries.items() if isinstance(v, int) and not isinstance(v, bool)}
+
+
+def _is_revoked(nonce: object) -> bool:
+    return bool(nonce) and str(nonce) in _revoked()
+
+
+def revoke_session(token: str, *, now: int | None = None) -> bool:
+    """Invalidate one MFA session server-side (logout)."""
+    payload = _session_payload(token)
+    if not payload or not payload.get("n") or not isinstance(payload.get("exp"), int):
+        return False
+    instant = int(time.time() if now is None else now)
+    with _state_lock():
+        entries = {k: v for k, v in _revoked().items() if v > instant}
+        entries[str(payload["n"])] = int(payload["exp"])
+        _atomic_write(
+            _revoked_path(),
+            (json.dumps({"schemaVersion": 1, "revoked": entries}, sort_keys=True) + "\n").encode("utf-8"),
+        )
+    return True
 
 
 def token_from_cookie(cookie_header: str) -> str:
@@ -468,8 +577,10 @@ def confirm_enrollment(
         except FileNotFoundError:
             pass
         raise RuntimeError("enrôlement 2FA expiré")
-    if not verify_totp(pending["secret"], code, now=instant):
+    step = matching_step(pending["secret"], code, now=instant)
+    if step is None:
         raise PermissionError("code TOTP invalide")
+    _record_step(step)
 
     recovery = _new_recovery_codes()
     _write_recovery(recovery)
@@ -500,11 +611,16 @@ def verify_login(
     instant = int(time.time() if now is None else now)
     candidate = str(code or "").strip()
     used_recovery = False
-    if verify_totp(secret, candidate, now=instant):
-        valid = True
-    else:
-        valid = _consume_recovery(candidate)
-        used_recovery = valid
+    with _state_lock():
+        step = matching_step(secret, candidate, now=instant)
+        if step is not None:
+            # A TOTP code is single use: reject replay of the same or an older step.
+            valid = step > _last_step()
+            if valid:
+                _record_step(step)
+        else:
+            valid = _consume_recovery(candidate)
+            used_recovery = valid
     if not valid:
         raise PermissionError("second facteur invalide")
     return {
@@ -519,6 +635,7 @@ def status(cookie_header: str = "", *, now: int | None = None) -> dict:
     token = token_from_cookie(cookie_header)
     return {
         "configured": active,
+        "required": required(),
         "sessionAuthenticated": bool(active and validate_session(token, now=now)),
         "recoveryRemaining": recovery_remaining() if active else 0,
     }

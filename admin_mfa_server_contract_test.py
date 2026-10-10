@@ -19,7 +19,7 @@ class AdminMFAServerContractTest(unittest.TestCase):
             self.assertIn(route, source)
 
         self.assertIn("import admin_mfa as admin_mfa", source)
-        self.assertIn("admin_mfa.configured() and not self._mfa_session_valid()", source)
+        self.assertIn("(admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid()", source)
         self.assertIn("'two_factor_required'", source)
         self.assertIn("'Set-Cookie':admin_mfa.session_cookie(token)", source)
         self.assertIn("'Set-Cookie':admin_mfa.clear_session_cookie()", source)
@@ -55,7 +55,7 @@ class AdminMFAServerContractTest(unittest.TestCase):
         self.assertIn("if not self.authorized(): return self.require_auth()", block)
         self.assertIn("if not self._admin_origin_ok()", block)
         self.assertIn(
-            "admin_mfa.configured() and not self._mfa_session_valid()",
+            "(admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid()",
             block,
         )
         self.assertIn("return self.require_mfa()", block)
