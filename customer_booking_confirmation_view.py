@@ -1,7 +1,7 @@
 """Safe customer booking confirmation presentation data.
 
-A confirmed Mercure appointment is not evidence that the customer has paid.
-The confirmation page must not claim a card capture or a paid balance.
+A confirmed Mercure appointment is not evidence of payment or payment mode.
+The payment state must be fetched from the separate account-scoped endpoint.
 """
 from __future__ import annotations
 from customer_booking_status_api import status
@@ -14,4 +14,4 @@ def view(*, account_id: str, request_key: str) -> dict:
                 "paymentConfirmed":False}
     return {"confirmed":True,"message":"Rendez-vous confirmé",
             "paymentConfirmed":False,
-            "paymentMessage":"Paiement à effectuer au centre le jour du rendez-vous"}
+            "paymentMessage":"Statut du paiement à vérifier séparément"}
