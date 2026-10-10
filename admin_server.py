@@ -1356,7 +1356,10 @@ Le contenu canonique et les règles d’exploration sont définis par robots.txt
 def build_structured_data(c):
  seo=c['seo']; sd=seo['structuredData']; b=c['business']; s=c['services']
  offers=[{'@type':'Offer','name':v['label'],'price':v['price'],'priceCurrency':'EUR'} for v in s.values()]
- return {'@context':'https://schema.org','@type':'LocalBusiness','name':sd['businessName'],'url':seo['canonicalUrl'],'description':seo['description'],'telephone':b['phone'],'priceRange':sd['priceRange'],'address':{'@type':'PostalAddress','streetAddress':sd['streetAddress'],'postalCode':sd['postalCode'],'addressLocality':sd['locality'],'addressCountry':sd['country']},'makesOffer':offers}
+ # AutoRepair is the schema.org LocalBusiness subtype for automotive services (audit F-02).
+ data={'@context':'https://schema.org','@type':'AutoRepair','name':sd['businessName'],'url':seo['canonicalUrl'],'description':seo['description'],'telephone':b['phone'],'priceRange':sd['priceRange'],'address':{'@type':'PostalAddress','streetAddress':sd['streetAddress'],'postalCode':sd['postalCode'],'addressLocality':sd['locality'],'addressCountry':sd['country']},'makesOffer':offers}
+ if seo.get('ogImage'): data['image']=asset_url(c,seo['ogImage'])
+ return data
 def text(v,name,maxlen=300,allow_empty=False):
  if not isinstance(v,str): raise ValueError(f'{name} must be text')
  v=v.strip()
