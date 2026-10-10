@@ -6,6 +6,7 @@ import datetime
 import hashlib
 import math
 import os
+from contextlib import contextmanager
 import sqlite3
 import statistics
 import threading
@@ -13,6 +14,17 @@ import time
 
 STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
+
+@contextmanager
+def _db():
+    """One transaction on a connection that is always closed (audit Q-03)."""
+    connection = sqlite3.connect(DB)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
 _LOCK = threading.RLock()
 _SESSIONS = defaultdict(lambda: {
     'requests': deque(), 'responses': deque(), 'paths': deque(),
@@ -29,7 +41,7 @@ def _day():
 
 def init_db():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.execute('''CREATE TABLE IF NOT EXISTS behavior_profiles(
           day TEXT NOT NULL,
           fingerprint TEXT NOT NULL,
@@ -139,7 +151,7 @@ def _persist(fp: str, client: str, state: dict, risk: float, force=False):
     errors = sum(1 for _, status in responses if status >= 400)
     unique = len({p for _, p in state['paths']})
     stamp = _now_iso(); day = _day(); cls = _classification(risk)
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.execute('''INSERT INTO behavior_profiles(day,fingerprint,client_hash,first_seen,last_seen,requests,errors,unique_paths,max_risk,classification)
           VALUES(?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(day,fingerprint) DO UPDATE SET
@@ -192,7 +204,7 @@ def profiles(limit=25, days=1):
     init_db()
     limit = max(1, min(int(limit), 100)); days = max(1, min(int(days), 30))
     since = (datetime.date.today() - datetime.timedelta(days=days-1)).isoformat()
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.row_factory = sqlite3.Row
         rows = [dict(r) for r in db.execute('''SELECT day,fingerprint,client_hash,last_seen,requests,errors,unique_paths,max_risk,classification
           FROM behavior_profiles WHERE day>=? ORDER BY max_risk DESC,last_seen DESC LIMIT ?''',(since,limit))]

@@ -8,6 +8,7 @@ import ipaddress
 import json
 import os
 import socket
+from contextlib import contextmanager
 import sqlite3
 import threading
 from urllib.parse import urlparse
@@ -16,6 +17,17 @@ import requests
 
 STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
+
+@contextmanager
+def _db():
+    """One transaction on a connection that is always closed (audit Q-03)."""
+    connection = sqlite3.connect(DB)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
 _LOCK = threading.RLock()
 _STOP = threading.Event()
 _THREAD = None
@@ -40,7 +52,7 @@ def _now():
 
 def init_db():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.execute('''CREATE TABLE IF NOT EXISTS security_alerts(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           created_at TEXT NOT NULL,
@@ -140,7 +152,7 @@ def _delivery_error(exc: Exception) -> str:
 def _record_delivery_result(alert_id: int, *, delivered: bool, error: str = '', now=None) -> dict:
     now = now or _utcnow()
     attempted_at = now.isoformat(timespec='seconds')
-    with _LOCK, sqlite3.connect(DB) as db:
+    with _LOCK, _db() as db:
         row = db.execute('SELECT delivery_attempts FROM security_alerts WHERE id=?', (int(alert_id),)).fetchone()
         if not row:
             return {'attempts': 0, 'nextAttemptAt': ''}
@@ -184,7 +196,7 @@ def emit(level: str, kind: str, title: str, detail='', fingerprint='', metadata=
     now = _utcnow()
     created_at = now.isoformat(timespec='seconds')
     since = (now - datetime.timedelta(seconds=max(0,int(cooldown)))).isoformat(timespec='seconds')
-    with _LOCK, sqlite3.connect(DB) as db:
+    with _LOCK, _db() as db:
         row = db.execute('SELECT id FROM security_alerts WHERE dedup_key=? AND created_at>=? ORDER BY id DESC LIMIT 1',(dedup_key,since)).fetchone()
         if row:
             return {'created':False,'id':row[0]}
@@ -204,7 +216,7 @@ def retry_pending(limit=20):
     limit=max(1,min(int(limit),100)); attempted=0; delivered=0
     now = _utcnow()
     now_text = now.isoformat(timespec='seconds')
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.row_factory=sqlite3.Row
         deferred = db.execute('''SELECT COUNT(*) n FROM security_alerts
           WHERE delivered=0 AND acknowledged=0 AND level IN ('high','critical')
@@ -248,7 +260,7 @@ def list_alerts(limit=50, unacknowledged=False):
     init_db()
     limit = max(1,min(int(limit),200))
     where = 'WHERE acknowledged=0' if unacknowledged else ''
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.row_factory = sqlite3.Row
         rows = [dict(r) for r in db.execute(f'''SELECT id,created_at,level,kind,title,detail,fingerprint,acknowledged,delivered,
           delivery_attempts,last_delivery_attempt_at,next_delivery_attempt_at,last_delivery_error
@@ -258,14 +270,14 @@ def list_alerts(limit=50, unacknowledged=False):
 
 def acknowledge(alert_id: int):
     init_db()
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         cur = db.execute('UPDATE security_alerts SET acknowledged=1 WHERE id=?',(int(alert_id),))
     return {'ok':True,'updated':cur.rowcount}
 
 
 def resolve_after_rebaseline():
     init_db()
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         cur=db.execute('''UPDATE security_alerts SET acknowledged=1 WHERE acknowledged=0 AND (
           kind='integrity' OR
           (kind='system_event' AND detail='integrity_mismatch') OR
@@ -286,7 +298,7 @@ def resolve_recovered_dependencies(*, dependencies_ok: bool, vulnerability_count
     if not kinds:
         return {'ok':True,'updated':0,'kinds':[]}
     placeholders = ','.join('?' for _ in kinds)
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         cur = db.execute(
             f'''UPDATE security_alerts SET acknowledged=1
                 WHERE acknowledged=0 AND kind IN ({placeholders})''',
@@ -298,7 +310,7 @@ def resolve_recovered_dependencies(*, dependencies_ok: bool, vulnerability_count
 def summary():
     init_db()
     now_text = _now()
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.row_factory = sqlite3.Row
         open_count = db.execute('SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0').fetchone()['n']
         high = db.execute("SELECT COUNT(*) n FROM security_alerts WHERE acknowledged=0 AND level IN ('high','critical')").fetchone()['n']
