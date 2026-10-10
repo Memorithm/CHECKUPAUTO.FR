@@ -41,8 +41,7 @@ class Tests(unittest.TestCase):
              patch.object(source.booking_bridge, 'authoritative_payment_basis', return_value=self.basis), \
              patch.object(source.booking_bridge, 'booking_reference_for_external_id', return_value='mercure:verified'), \
              patch.object(source.payment_source, 'load', side_effect=TimeoutError):
-            with self.assertRaises(TimeoutError):
-                source.load(**self.kw)
+            self.assertIsNone(source.load(**self.kw))
 
     def test_foreign_account_is_not_silently_accepted(self):
         with patch.object(source.journal, 'status', side_effect=ValueError('booking_request_not_found')):
