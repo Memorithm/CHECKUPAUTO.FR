@@ -46,10 +46,40 @@ extension ReminderPlanTests {
             registration: "AA-123-BB",
             controlDueDate: date(2027, 1, 1)
         )
-        VehicleDeadlineStore.save([vehicle], defaults: defaults)
-        XCTAssertEqual(VehicleDeadlineStore.load(defaults: defaults), [vehicle])
-        VehicleDeadlineStore.clear(defaults: defaults)
-        XCTAssertTrue(VehicleDeadlineStore.load(defaults: defaults).isEmpty)
+        let storage = InMemoryVehicleDeadlineStorage()
+        VehicleDeadlineStore.save([vehicle], defaults: defaults, storage: storage)
+        XCTAssertNil(defaults.data(forKey: VehicleDeadlineStore.storageKey))
+        XCTAssertEqual(VehicleDeadlineStore.load(defaults: defaults, storage: storage), [vehicle])
+        VehicleDeadlineStore.clear(defaults: defaults, storage: storage)
+        XCTAssertTrue(VehicleDeadlineStore.load(defaults: defaults, storage: storage).isEmpty)
+    }
+
+    func testLegacyUserDefaultsDeadlinesMigrateToSecureStorage() throws {
+        let suite = "VehicleDeadlineStoreMigration.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Unable to create isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vehicle = VehicleDeadline(registration: "CC-456-DD", controlDueDate: date(2027, 2, 1))
+        defaults.set(try JSONEncoder().encode([vehicle]), forKey: VehicleDeadlineStore.storageKey)
+        let storage = InMemoryVehicleDeadlineStorage()
+
+        XCTAssertEqual(VehicleDeadlineStore.load(defaults: defaults, storage: storage), [vehicle])
+        XCTAssertNil(defaults.data(forKey: VehicleDeadlineStore.storageKey))
+        XCTAssertNotNil(storage.read())
+    }
+
+    func testDeadlinesStayInDefaultsWhenSecureStorageFails() {
+        let suite = "VehicleDeadlineStoreFailure.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            return XCTFail("Unable to create isolated defaults")
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vehicle = VehicleDeadline(registration: "EE-789-FF", controlDueDate: date(2027, 3, 1))
+        let storage = InMemoryVehicleDeadlineStorage(failWrites: true)
+
+        VehicleDeadlineStore.save([vehicle], defaults: defaults, storage: storage)
+        XCTAssertEqual(VehicleDeadlineStore.load(defaults: defaults, storage: storage), [vehicle])
     }
 
     func testUsesServerSuppliedLeadDaysAndHour() {
@@ -134,3 +164,29 @@ extension ReminderPlanTests {
     }
 }
 #endif
+
+final class InMemoryVehicleDeadlineStorage: VehicleDeadlineSecureStorage, @unchecked Sendable {
+    private let lock = NSLock()
+    private var data: Data?
+    private let failWrites: Bool
+
+    init(failWrites: Bool = false) {
+        self.failWrites = failWrites
+    }
+
+    func read() -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        return data
+    }
+
+    func write(_ data: Data) throws {
+        if failWrites { throw URLError(.cannotWriteToFile) }
+        lock.lock(); defer { lock.unlock() }
+        self.data = data
+    }
+
+    func delete() {
+        lock.lock(); defer { lock.unlock() }
+        data = nil
+    }
+}
