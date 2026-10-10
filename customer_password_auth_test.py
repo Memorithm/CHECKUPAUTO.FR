@@ -72,7 +72,10 @@ class CustomerPasswordAuthTest(unittest.TestCase):
             "google","subject-1","client@example.test","Client Test",email_verified=True,
         )
         pending=passwords.begin_registration("client@example.test",None,"Correct horse battery 42")
-        verified=passwords.verify_registration(pending["token"])
+        # Sign-up never attaches a password to an existing account: the mailbox
+        # owner chooses it through the one-time link (S-02).
+        self.assertEqual(pending["purpose"],"reset")
+        verified=passwords.reset_password(pending["token"],"Owner chosen passphrase 42")
         self.assertEqual(verified["accountId"],federated["accountId"])
         self.assertEqual(verified["displayName"],"Client Test")
         self.assertEqual(verified["providers"],["google"])
@@ -82,11 +85,14 @@ class CustomerPasswordAuthTest(unittest.TestCase):
             "google","subject-1","client@example.test","Client Test",email_verified=True,
         )
         pending=self.register()
-        verified=passwords.verify_registration(pending["token"])
+        self.assertEqual(pending["purpose"],"reset")
+        with self.assertRaises(PermissionError):
+            passwords.authenticate("client@example.test","Correct horse battery 42")
+        verified=passwords.reset_password(pending["token"],"Owner chosen passphrase 42")
         self.assertEqual(verified["accountId"],federated["accountId"])
         self.assertTrue(verified["passwordConfigured"])
         self.assertEqual(verified["providers"],["google"])
-        self.assertEqual(passwords.authenticate("client@example.test","Correct horse battery 42")["accountId"],federated["accountId"])
+        self.assertEqual(passwords.authenticate("client@example.test","Owner chosen passphrase 42")["accountId"],federated["accountId"])
 
     def test_registration_on_existing_local_account_issues_reset_not_duplicate(self):
         first=self.register()
