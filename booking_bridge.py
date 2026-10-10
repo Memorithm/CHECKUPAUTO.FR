@@ -1,6 +1,7 @@
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-import datetime, hashlib, hmac, json, os, re, secrets, unicodedata, html
+import datetime, hashlib, hmac, json, os, re, secrets, time, unicodedata, html
+from contextlib import closing
 from zoneinfo import ZoneInfo
 import analytics_store as analytics
 import referral_engine as referrals
@@ -195,6 +196,49 @@ def verify_signature(raw, header):
     if header.startswith('sha256='): header=header[7:]
     expected=hmac.new(ensure_secret().encode(),raw,hashlib.sha256).hexdigest()
     return bool(header) and hmac.compare_digest(header.lower(),expected.lower())
+
+
+WEBHOOK_TOLERANCE_SECONDS=300
+WEBHOOK_REPLAY_DAYS=30
+WEBHOOK_TIMESTAMP_REQUIRED_ENV='CYBERCHECK_MERCURE_WEBHOOK_TIMESTAMP_REQUIRED'
+
+
+def _webhook_timestamp_required():
+    return os.environ.get(WEBHOOK_TIMESTAMP_REQUIRED_ENV,'').strip().lower() in {'1','true','yes','on'}
+
+
+def verify_webhook(raw, signature, timestamp=None, now=None):
+    """Verify a Mercure webhook (audit S-13).
+
+    With ``X-CyberCheck-Timestamp`` the signature covers ``timestamp + "." +
+    body`` and the timestamp must be within five minutes.  Without it the
+    legacy body-only signature is accepted unless timestamps are required.
+    """
+    stamp=str(timestamp or '').strip()
+    if not stamp:
+        return (not _webhook_timestamp_required()) and verify_signature(raw,signature)
+    if not stamp.isdigit() or len(stamp)>12:
+        return False
+    current=int(now if now is not None else time.time())
+    if abs(current-int(stamp))>WEBHOOK_TOLERANCE_SECONDS:
+        return False
+    header=str(signature or '').strip()
+    if header.startswith('sha256='): header=header[7:]
+    expected=hmac.new(ensure_secret().encode(),stamp.encode()+b'.'+raw,hashlib.sha256).hexdigest()
+    return bool(header) and hmac.compare_digest(header.lower(),expected.lower())
+
+
+def remember_webhook(raw, timestamp=None):
+    """Record a verified delivery; return False when it was already processed."""
+    digest=hashlib.sha256(str(timestamp or '').encode()+b'.'+raw).hexdigest()
+    now=datetime.datetime.now(datetime.timezone.utc)
+    cutoff=(now-datetime.timedelta(days=WEBHOOK_REPLAY_DAYS)).isoformat(timespec='seconds')
+    with closing(analytics.connect()) as db, db:
+        db.execute('CREATE TABLE IF NOT EXISTS booking_webhook_replay(delivery_hash TEXT PRIMARY KEY, seen_at TEXT NOT NULL)')
+        db.execute('DELETE FROM booking_webhook_replay WHERE seen_at<?',(cutoff,))
+        inserted=db.execute('INSERT OR IGNORE INTO booking_webhook_replay(delivery_hash,seen_at) VALUES(?,?)',
+                            (digest,now.isoformat(timespec='seconds'))).rowcount
+    return bool(inserted)
 
 
 def browser_token(ccid):
@@ -598,7 +642,9 @@ def browser_confirmation(payload):
     # The provider callback only fires after a successful appointment creation.
     # Use a deterministic id so retries/beacons remain idempotent until the
     # authoritative provider conversion can be reconciled through attribution.
-    external=_BROWSER_SYNTHETIC_PREFIX+hashlib.sha256((ccid+'|'+route).encode()).hexdigest()[:24]
+    # The route is observed but never part of the id: one intent yields at most
+    # one synthetic conversion (audit S-13).
+    external=_BROWSER_SYNTHETIC_PREFIX+hashlib.sha256(ccid.encode()).hexdigest()[:24]
     service=intent['service']
     amount=0.0
     presta=mercure_prestation(service)

@@ -759,9 +759,12 @@ class Handler(SimpleHTTPRequestHandler):
     length=int(self.headers.get('Content-Length','0'))
     if length<=0 or length>MAX_BODY: raise ValueError('invalid body size')
     raw=self.rfile.read(length)
-    if not booking.verify_signature(raw,self.headers.get('X-CyberCheck-Signature')):
+    stamp=self.headers.get('X-CyberCheck-Timestamp')
+    if not booking.verify_webhook(raw,self.headers.get('X-CyberCheck-Signature'),stamp):
      return self.send_json({'ok':False,'error':'invalid signature'},401)
-    payload=json.loads(raw); return self.send_json(booking.apply_conversion(payload),200)
+    payload=json.loads(raw)
+    if not booking.remember_webhook(raw,stamp): return self.send_json({'ok':True,'duplicate':True},200)
+    return self.send_json(booking.apply_conversion(payload),200)
    except Exception: return self.send_json({'ok':False,'error':'mercure_booking_confirmation_invalid'},400)
   if path=='/api/mobile/installations/register':
    try:
