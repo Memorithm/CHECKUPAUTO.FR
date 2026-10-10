@@ -26,8 +26,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Validate portable GLB contract without SSH
+        run: |
+          set -euo pipefail
+          python3 -m unittest glb_contract_test
+          python3 -m py_compile 3d/scripts/prepare_vehicle_cutout.py
   export-glb:
-    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && github.event_name != 'pull_request'
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 45
     env:
