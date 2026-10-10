@@ -124,12 +124,12 @@ class NotificationAdminContractTest(unittest.TestCase):
         self.assertLess(guard, email_post)
         guard_block = server[guard:email_post]
         self.assertIn("if not self.authorized(): return self.require_auth()", guard_block)
-        self.assertIn("admin_mfa.configured() and not self._mfa_session_valid()", guard_block)
+        self.assertIn("(admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid()", guard_block)
         delete = server.index(" def do_DELETE(self):")
         email_delete = server.index("if path=='/api/admin/email/config':", delete)
         delete_guard = server[delete:email_delete]
         self.assertIn("if not self.authorized(): return self.require_auth()", delete_guard)
-        self.assertIn("admin_mfa.configured() and not self._mfa_session_valid()", delete_guard)
+        self.assertIn("(admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid()", delete_guard)
 
     def test_admin_exposes_ios_distribution_channel(self):
         html = (ROOT / "admin" / "index.html").read_text()

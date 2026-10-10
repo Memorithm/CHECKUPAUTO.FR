@@ -270,7 +270,7 @@ class Handler(SimpleHTTPRequestHandler):
   except Exception: return False
   return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
  def _mfa_session_valid(self):
-  if not admin_mfa.configured(): return True
+  if not admin_mfa.configured(): return not admin_mfa.required()
   token=admin_mfa.token_from_cookie(self.headers.get('Cookie',''))
   return admin_mfa.validate_session(token)
  def require_mfa(self):
@@ -373,7 +373,7 @@ class Handler(SimpleHTTPRequestHandler):
    except Exception: return self.send_json({'ok':False,'error':'two_factor_enrollment_unavailable'},400)
   if path.startswith('/api/admin/'):
    if not self.authorized(): return self.require_auth()
-   if admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
+   if (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
   if path=='/api/admin/compliance':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(compliance_admin.snapshot())
@@ -846,7 +846,7 @@ class Handler(SimpleHTTPRequestHandler):
    ctype=(self.headers.get('Content-Type') or '').split(';',1)[0].strip().lower()
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
    mfa_exempt={'/api/admin/auth/2fa/setup','/api/admin/auth/2fa/confirm','/api/admin/auth/2fa/verify','/api/admin/auth/2fa/logout'}
-   if path not in mfa_exempt and admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
+   if path not in mfa_exempt and (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
   if path=='/api/admin/auth/2fa/setup':
    try:
     result=admin_mfa.begin_enrollment(account=USER,issuer='CheckupAuto')
@@ -878,6 +878,8 @@ class Handler(SimpleHTTPRequestHandler):
    except RuntimeError: return self.send_json({'ok':False,'error':'two_factor_not_configured'},409)
    except Exception: return self.send_json({'ok':False,'error':'two_factor_verification_failed'},400)
   if path=='/api/admin/auth/2fa/logout':
+   try: admin_mfa.revoke_session(admin_mfa.token_from_cookie(self.headers.get('Cookie','')))
+   except Exception: pass
    return self.send_json({'ok':True},200,{'Set-Cookie':admin_mfa.clear_session_cookie()})
   if path=='/api/admin/compliance/settings':
    try: return self.send_json({'ok':True,'settings':compliance.save_settings(self._read_json())})
@@ -976,9 +978,6 @@ class Handler(SimpleHTTPRequestHandler):
     payload=self._read_json(); return self.send_json({'ok':True,'incident':compliance.set_incident_status(payload.get('id'),payload.get('status'))})
    except LookupError: return self.send_json({'ok':False,'error':'compliance_incident_not_found'},404)
    except Exception: return self.send_json({'ok':False,'error':'compliance_incident_invalid'},400)
-  if path=='/api/admin/deployment/source':
-   try: return self.send_json(deployment_admin.delete_update_source_token())
-   except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try: return self.send_json(deployment_admin.save_target(self._read_json()),201)
    except ValueError: return self.send_json({'ok':False,'error':'deployment_target_invalid'},400)
@@ -1204,7 +1203,7 @@ class Handler(SimpleHTTPRequestHandler):
   parsed=urlparse(self.path); path=parsed.path
   if not self.authorized(): return self.require_auth()
   if not self._admin_origin_ok(): return self.send_json({'ok':False,'error':'origin_not_allowed'},403)
-  if path.startswith('/api/admin/') and admin_mfa.configured() and not self._mfa_session_valid(): return self.require_mfa()
+  if path.startswith('/api/admin/') and (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
   if path=='/api/admin/email/config':
    try: return self.send_json({'ok':True,'config':email_gateway.delete_private_smtp_config()})
    except RuntimeError: return self.send_json({'ok':False,'error':'email_configuration_invalid'},409)
@@ -1214,6 +1213,9 @@ class Handler(SimpleHTTPRequestHandler):
     return self.send_json({'ok':True,'config':mercure_provider_coverage.delete_private_configuration()})
    except RuntimeError: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_locked'},409)
    except Exception: return self.send_json({'ok':False,'error':'mercure_provider_coverage_configuration_unavailable'},500)
+  if path=='/api/admin/deployment/source':
+   try: return self.send_json(deployment_admin.delete_update_source_token())
+   except Exception: return self.send_json({'ok':False,'error':'deployment_source_unavailable'},500)
   if path=='/api/admin/deployment/target':
    try:
     q=parse_qs(parsed.query); name=(q.get('name') or [''])[0]

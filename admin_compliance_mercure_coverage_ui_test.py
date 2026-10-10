@@ -111,7 +111,7 @@ class ComplianceMercureCoverageUiTest(unittest.TestCase):
         self.assertLess(post_guard, post_route)
         guard_block = SERVER[post_guard:post_route]
         self.assertIn(
-            "admin_mfa.configured() and not self._mfa_session_valid()",
+            "(admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid()",
             guard_block,
         )
 
@@ -122,7 +122,7 @@ class ComplianceMercureCoverageUiTest(unittest.TestCase):
         )
         delete_guard = SERVER[delete:delete_route]
         self.assertIn(
-            "admin_mfa.configured() and not self._mfa_session_valid()",
+            "(admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid()",
             delete_guard,
         )
 
