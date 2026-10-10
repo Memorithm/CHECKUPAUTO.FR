@@ -19,6 +19,7 @@ import customer_booking_create_api
 import customer_booking_http_trusted_context
 import customer_booking_server_config_source
 import customer_booking_confirmation_view
+import customer_booking_confirmation_payment_source
 import customer_booking_payment_http_status
 import customer_accounts
 import mercure_brand_energy_reference
@@ -898,8 +899,12 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":"booking_key_invalid"},400)
             return True
         try:
+            request_key=query["requestKey"][0]
+            payment_policy=customer_booking_confirmation_payment_source.load(
+                account_id=account["accountId"],request_key=request_key)
             result=customer_booking_confirmation_view.view(
-                account_id=account["accountId"],request_key=query["requestKey"][0])
+                account_id=account["accountId"],request_key=request_key,
+                payment_status=payment_policy)
             handler.send_json({"ok":True,**result},200)
         except ValueError:
             handler.send_json({"ok":False,"error":"booking_key_invalid"},400)
