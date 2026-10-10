@@ -49,6 +49,7 @@ REPORT_DELETE_ROUTE="/api/customer/reports/delete"
 WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
+MOBILE_APPLE_NONCE_ROUTE="/api/mobile/auth/apple/nonce"
 PASSWORD_LOGIN_ROUTE="/compte/connexion"
 PASSWORD_REGISTER_ROUTE="/compte/inscription"
 PASSWORD_VERIFY_ROUTE="/compte/verifier-email"
@@ -336,7 +337,7 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     pending=f'{int(loyalty["pendingCents"])/100:.2f} €'
     google_review_url=html.escape(_google_review_url(),quote=True)
     vehicle_rows=account.get("vehicles") if isinstance(account.get("vehicles"),list) else []
-    vehicles_json=json.dumps(vehicle_rows,ensure_ascii=True,separators=(",",":"),sort_keys=True).replace("<","\u003c")
+    vehicles_json=json.dumps(vehicle_rows,ensure_ascii=True,separators=(",",":"),sort_keys=True).replace("<","\\u003c").replace(">","\\u003e").replace("&","\\u0026")
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive">
 <title>Tableau de bord | Checkup Auto</title>
@@ -1107,7 +1108,8 @@ def handle(handler) -> bool:
             auth_query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=8)
             mobile=(provider=="google" and (auth_query.get("mobile") or [""])[0]=="1")
             return_to=_account_return_target((auth_query.get("returnTo") or [""])[0])
-            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding,mobile=mobile,return_to=return_to)
+            mobile_challenge=(auth_query.get("code_challenge") or [""])[0] if mobile else ""
+            target=customer_oidc.begin(provider,_browser_origin(handler),browser_binding=binding,mobile=mobile,return_to=return_to,mobile_challenge=mobile_challenge)
             state=parse_qs(urlsplit(target).query)["state"][0]
             handler.send_response(302)
             handler.send_header("Location",target)
@@ -1145,7 +1147,10 @@ def handle(handler) -> bool:
             result=customer_oidc.complete(provider,state,code,
                 browser_binding=_cookie(handler,_flow_cookie_name(provider,state)),origin=_browser_origin(handler))
             if provider=="google" and result.get("mobile"):
-                ticket=mobile_auth_ticket.issue(result["session"]["token"])
+                # The ticket references the account only; the app receives its
+                # session at exchange time, after proving the PKCE verifier.
+                customer_accounts.close_session(result["session"]["token"])
+                ticket=mobile_auth_ticket.issue(result["account"]["accountId"],code_challenge=result.get("mobileChallenge",""))
                 handler.send_redirect("checkupauto://auth/google?ticket="+quote(ticket,safe=""),303)
             else:
                 _send_cookie_redirect(handler,str(result.get("returnTo") or ACCOUNT_ROUTE),result["session"],provider,state)
@@ -1160,13 +1165,23 @@ def handle(handler) -> bool:
             return True
         try:
             payload=_json_body(handler)
-            if set(payload)!={"ticket"}:
+            if "ticket" not in payload or not set(payload).issubset({"ticket","code_verifier"}):
                 raise ValueError
-            session_token=mobile_auth_ticket.consume(payload.get("ticket"))
-            account_id=customer_accounts.authenticate_session(session_token)
-            handler.send_json({"ok":True,"accountId":account_id,"sessionToken":session_token})
+            account_id=mobile_auth_ticket.consume(payload.get("ticket"),payload.get("code_verifier") or "")
+            session=customer_accounts.issue_session(account_id)
+            handler.send_json({"ok":True,"accountId":account_id,"sessionToken":session["token"],"expiresAt":session["expiresAt"]})
         except Exception:
             handler.send_json({"ok":False,"error":"mobile_auth_ticket_invalid"},401)
+        return True
+
+    if path==MOBILE_APPLE_NONCE_ROUTE:
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        try:
+            handler.send_json({"ok":True,**customer_oidc.issue_native_nonce()})
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_apple_nonce_unavailable"},503)
         return True
 
     if path==MOBILE_APPLE_AUTH_ROUTE:
@@ -1186,7 +1201,9 @@ def handle(handler) -> bool:
             subject=str(claims.get("sub") or "")
             if not hmac.compare_digest(subject,str(payload.get("userIdentifier") or "")):
                 raise customer_oidc.CustomerOIDCError("customer_oidc_subject_mismatch")
-            email=str(claims.get("email") or payload.get("email") or "")
+            customer_oidc.consume_native_nonce(payload.get("nonce") or "")
+            # Only the signed claim is trusted (audit S-06); the body value is ignored.
+            email=str(claims.get("email") or "")
             if str(claims.get("email_verified") or "").lower() not in {"true","1"} or not email:
                 raise customer_oidc.CustomerOIDCError("customer_oidc_email_unverified")
             name=" ".join(x for x in [str(payload.get("givenName") or "").strip(),str(payload.get("familyName") or "").strip()] if x)

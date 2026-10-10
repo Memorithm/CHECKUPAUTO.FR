@@ -156,6 +156,14 @@
       "subjectExecutionRequired": false
     },
     {
+      "table": "customer_native_nonce",
+      "module": "customer_oidc.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_oidc",
+      "subjectExecutionRequired": false
+    },
+    {
       "table": "customer_passage_confirmation",
       "module": "customer_accounts.py",
       "subjectRelation": "transient",

@@ -350,7 +350,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["status"],302)
         self.assertEqual(h.response["headers"]["Location"],"https://accounts.example/auth?state=sssssssssssssssssssssssssssssssssssssssssss")
         binding=h.response["cookies"][0].split("=",1)[1].split(";",1)[0]
-        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding,mobile=False,return_to="")
+        begin.assert_called_once_with("google","https://stage.example",browser_binding=binding,mobile=False,return_to="",mobile_challenge="")
         self.assertIn("__Host-checkupauto_oidc_google_sssssssssssssssssssssssssssssssssssssssssss=",h.response["cookies"][0])
         self.assertIn("HttpOnly; Secure; SameSite=Lax",h.response["cookies"][0])
 
@@ -376,7 +376,7 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(auth))
         binding=auth.response["cookies"][0].split("=",1)[1].split(";",1)[0]
         begin.assert_called_once_with(
-            "google","https://stage.example",browser_binding=binding,mobile=False,return_to=passage
+            "google","https://stage.example",browser_binding=binding,mobile=False,return_to=passage,mobile_challenge=""
         )
 
     def test_oidc_callback_returns_to_booking_client_step(self):
@@ -447,6 +447,7 @@ class CustomerHttpTest(unittest.TestCase):
                  "email":"alice@example.test",
                  "email_verified":"true",
              }) as verify, \
+             patch.object(http.customer_oidc,"consume_native_nonce") as consume_nonce, \
              patch.object(http.customer_accounts,"create_from_verified_identity",return_value=account) as create, \
              patch.object(http.customer_accounts,"issue_session",return_value={
                  "token":"mobile-session-token",
@@ -457,6 +458,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertEqual(h.response["json"]["accountId"],account["accountId"])
         self.assertEqual(h.response["json"]["sessionToken"],"mobile-session-token")
         verify.assert_called_once_with("jwt-token",client_id="fr.checkupauto.reminder",nonce="nonce-42")
+        consume_nonce.assert_called_once_with("nonce-42")
         create.assert_called_once_with(
             "apple","apple-subject-42","alice@example.test","Alice Martin",email_verified=True
         )
