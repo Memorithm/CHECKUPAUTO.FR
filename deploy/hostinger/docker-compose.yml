@@ -19,6 +19,11 @@ services:
       CYBERCHECK_RUNTIME_ENV: "staging"
       CYBERCHECK_PROMO_PREVIEW: "1"
       CYBERCHECK_STAGING_HOST: "${CHECKUPAUTO_STAGING_HOST:-stage.179.198.210.187.sslip.io}"
+      # Links sent by e-mail use this origin, never the request Host header.
+      CYBERCHECK_PUBLIC_ORIGINS: "https://${CHECKUPAUTO_STAGING_HOST:-stage.179.198.210.187.sslip.io}"
+      # Traefik (Coolify network) is the only peer allowed to supply the client IP.
+      CYBERCHECK_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      CYBERCHECK_CLIENT_IP_HEADER: "x-forwarded-for"
       CYBERCHECK_MOBILE_PUSH_ENABLED: "0"
       CYBERCHECK_PAYMENT_REQUIRED: "1"
       CYBERCHECK_PAYMENT_TEST_ENABLED: "1"

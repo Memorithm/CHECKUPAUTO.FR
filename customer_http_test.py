@@ -674,7 +674,8 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h))
         self.assertEqual(h.response["status"],201)
         self.assertEqual(h.response["json"]["claimType"],"referral_wallet")
-        self.assertTrue(h.response["json"]["claimUrl"].startswith("https://stage.example/app/claim#token=rw_"))
+        # Out-of-band links use the canonical public origin, never the request Host (S-01).
+        self.assertTrue(h.response["json"]["claimUrl"].startswith("https://www.checkupauto.fr/app/claim#token=rw_"))
         self.assertFalse(h.response["json"]["rawTokenPersisted"])
         self.assertNotIn("accountId",repr(h.response["json"]))
         issue.assert_called_once_with("TEST-1234")

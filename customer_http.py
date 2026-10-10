@@ -26,6 +26,7 @@ import mercure_brand_energy_reference
 import mercure_vehicle_reference
 import customer_password_auth
 import email_gateway
+import public_origin
 import customer_ct_reports
 import customer_oidc
 import referral_wallet_claims
@@ -269,7 +270,8 @@ def _password_mail(handler, result: dict, return_to: str) -> None:
         text="Choisissez un nouveau mot de passe Checkup Auto en ouvrant ce lien :\n"
     else:
         raise ValueError("customer_password_mail_purpose_invalid")
-    link=_browser_origin(handler)+path
+    # Never trust the request Host header for links delivered by e-mail.
+    link=_public_origin(handler)+path
     safe_link=html.escape(link,quote=True)
     email_gateway.send_email(
         email,subject,text+link+"\n\nCe lien expire dans 30 minutes et ne peut être utilisé qu’une fois.",
@@ -725,6 +727,10 @@ def _browser_origin(handler) -> str:
     return "https://" + host
 
 
+def _public_origin(handler) -> str:
+    return public_origin.origin_for_host(handler.headers.get("Host"))
+
+
 def _same_origin(handler) -> bool:
     if handler.headers.get("Sec-Fetch-Site","")=="cross-site":
         return False
@@ -950,9 +956,14 @@ def handle(handler) -> bool:
         token=(query.get("token") or [""])[0]
         return_to=_account_return_target((query.get("returnTo") or [""])[0])
         try:
-            account=customer_password_auth.verify_registration(token)
-            session=customer_accounts.issue_session(account["accountId"])
-            _send_session_redirect(handler,return_to or ACCOUNT_ROUTE,session)
+            customer_password_auth.verify_registration(token)
+            # Confirming the address does not open a session: the person must
+            # prove knowledge of the password chosen at sign-up, so a link
+            # triggered by someone else cannot hand over a pre-seeded account.
+            handler.send_bytes(
+                _login_page(info="Adresse e-mail confirmée. Connectez-vous avec votre mot de passe.",return_to=return_to),
+                "text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"},
+            )
         except Exception:
             handler.send_bytes(
                 _login_page("Ce lien de confirmation est invalide ou expiré.",return_to=return_to),
@@ -1446,7 +1457,7 @@ def handle(handler) -> bool:
                 if payload:
                     raise ValueError
                 claim=referral_wallet_claims.issue(account["loyalty"]["referralCode"])
-                claim_url=_browser_origin(handler)+"/app/claim#token="+quote(str(claim["claimToken"]),safe="")
+                claim_url=_public_origin(handler)+"/app/claim#token="+quote(str(claim["claimToken"]),safe="")
                 handler.send_json({
                     "ok":True,
                     "claimType":"referral_wallet",

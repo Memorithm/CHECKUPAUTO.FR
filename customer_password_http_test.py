@@ -105,14 +105,16 @@ class CustomerPasswordHttpTest(unittest.TestCase):
         cookie=h.response["cookies"][0]
         self.assertIn("HttpOnly",cookie); self.assertIn("Secure",cookie); self.assertIn("SameSite=Lax",cookie)
 
-    def test_verification_consumes_token_and_opens_session(self):
-        account=self.account(); session={"token":"s"*48,"maxAge":43200,"accountId":account["accountId"]}
+    def test_verification_consumes_token_without_opening_session(self):
+        account=self.account()
         h=Handler("/compte/verifier-email?token="+("v"*43))
-        with patch.object(http.customer_password_auth,"verify_registration",return_value=account) as verify, patch.object(http.customer_accounts,"issue_session",return_value=session):
+        with patch.object(http.customer_password_auth,"verify_registration",return_value=account) as verify, patch.object(http.customer_accounts,"issue_session") as issue:
             self.assertTrue(http.handle(h))
-        self.assertEqual(h.response["status"],303)
-        self.assertEqual(h.response["headers"]["Location"],"/compte")
+        # The address is confirmed but the person must log in with the password (S-02).
+        self.assertEqual(h.response["status"],200)
+        self.assertIn("Adresse e-mail confirmée",h.response["data"].decode())
         verify.assert_called_once_with("v"*43)
+        issue.assert_not_called()
 
     def test_reset_request_is_enumeration_safe(self):
         h=form_handler("/compte/mot-de-passe-oublie",{"email":"unknown@example.test","returnTo":""})
