@@ -343,6 +343,14 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_customer_password_token_account
               ON customer_password_token(account_id,purpose,expires_at);
+            CREATE TABLE IF NOT EXISTS customer_password_throttle(
+              account_id TEXT NOT NULL REFERENCES customer_account(account_id) ON DELETE CASCADE,
+              client_key TEXT NOT NULL,
+              failed_attempts INTEGER NOT NULL DEFAULT 0,
+              locked_until TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY(account_id,client_key)
+            );
             CREATE TABLE IF NOT EXISTS customer_passage_confirmation(
               passage_hash TEXT PRIMARY KEY,
               account_id TEXT NOT NULL REFERENCES customer_account(account_id) ON DELETE CASCADE,
@@ -1216,3 +1224,40 @@ def close_session(token: object) -> None:
     init_db()
     with _connect() as db:
         db.execute("DELETE FROM customer_session WHERE session_hash=?", (token_hash,))
+
+
+def purge_expired_sessions(*, dry_run: bool = False) -> int:
+    """Remove expired customer sessions (retention job, not only on next use)."""
+    if not data_path().is_file():
+        return 0
+    init_db()
+    now = _now_iso()
+    from contextlib import closing
+    with closing(_connect()) as db:
+        count = int(db.execute("SELECT COUNT(*) FROM customer_session WHERE expires_at<?", (now,)).fetchone()[0])
+        if count and not dry_run:
+            db.execute("DELETE FROM customer_session WHERE expires_at<?", (now,))
+            db.commit()
+    return count
+
+
+def inactive_account_ids(cutoff_iso: str) -> list[str]:
+    """Accounts with no profile update, login or session since ``cutoff_iso``."""
+    if not data_path().is_file():
+        return []
+    init_db()
+    from contextlib import closing
+    with closing(_connect()) as db:
+        rows = db.execute(
+            """SELECT a.account_id FROM customer_account a
+               WHERE a.updated_at<? AND a.created_at<?
+                 AND NOT EXISTS (SELECT 1 FROM customer_identity i
+                                 WHERE i.account_id=a.account_id AND i.last_login_at>=?)
+                 AND NOT EXISTS (SELECT 1 FROM customer_password_credential c
+                                 WHERE c.account_id=a.account_id AND (c.last_login_at>=? OR c.updated_at>=?))
+                 AND NOT EXISTS (SELECT 1 FROM customer_session s
+                                 WHERE s.account_id=a.account_id AND s.last_seen_at>=?)
+               ORDER BY a.account_id""",
+            (cutoff_iso,) * 6,
+        ).fetchall()
+    return [str(row["account_id"]) for row in rows]

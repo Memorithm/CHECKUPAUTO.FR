@@ -988,7 +988,7 @@ def handle(handler) -> bool:
             try:
                 payload=_customer_form(handler,{"email","password","returnTo"})
                 return_to=_account_return_target(payload.get("returnTo"))
-                account=customer_password_auth.authenticate(payload.get("email"),payload.get("password"))
+                account=customer_password_auth.authenticate(payload.get("email"),payload.get("password"),client_key=getattr(handler,"_security_client",""))
                 session=customer_accounts.issue_session(account["accountId"])
                 _send_session_redirect(handler,return_to or ACCOUNT_ROUTE,session)
             except customer_accounts.CustomerAccountError as exc:

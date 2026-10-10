@@ -24,8 +24,12 @@ SCRYPT_P = 1
 SCRYPT_DKLEN = 32
 SCRYPT_MAXMEM = 64 * 1024 * 1024
 TOKEN_TTL_MINUTES = 30
+# Per (account, client) throttle: a third party can only lock its own attempts.
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_LOCK_MINUTES = 15
+# Account-wide ceiling against distributed guessing; locks never extend while active.
+ACCOUNT_FAILURE_LIMIT = 50
+ACCOUNT_LOCK_MINUTES = 15
 PENDING_ACCOUNT_TTL_HOURS = 24
 
 
@@ -238,7 +242,22 @@ def verify_registration(token: object) -> dict:
     return accounts.profile(account_id)
 
 
-def authenticate(email: object, password: object) -> dict:
+def _client_key(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    return raw if re.fullmatch(r"[0-9a-f]{8,64}", raw) else "unknown"
+
+
+def _locked(value: object, now_dt: dt.datetime) -> bool:
+    raw = str(value or "")
+    if not raw:
+        return False
+    try:
+        return now_dt < dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+
+
+def authenticate(email: object, password: object, *, client_key: object = "") -> dict:
     raw_password = _login_password(password)
     try:
         clean_email = accounts._email(email)
@@ -250,6 +269,7 @@ def authenticate(email: object, password: object) -> dict:
         _dummy_verify(raw_password)
         raise PermissionError("customer_login_invalid")
 
+    client = _client_key(client_key)
     accounts.init_db()
     now_dt = accounts._now()
     now = now_dt.isoformat(timespec="seconds")
@@ -265,27 +285,49 @@ def authenticate(email: object, password: object) -> dict:
             _dummy_verify(raw_password)
             raise PermissionError("customer_login_invalid")
         account_id = str(row["account_id"])
-        locked_until = str(row["locked_until"] or "")
-        locked = False
-        if locked_until:
-            try:
-                locked = now_dt < dt.datetime.fromisoformat(locked_until.replace("Z", "+00:00"))
-            except ValueError:
-                locked = True
+        throttle = db.execute(
+            "SELECT failed_attempts,locked_until FROM customer_password_throttle WHERE account_id=? AND client_key=?",
+            (account_id, client),
+        ).fetchone()
+        client_locked = bool(throttle) and _locked(throttle["locked_until"], now_dt)
+        account_locked = _locked(row["locked_until"], now_dt)
         valid = _verify_password(raw_password, str(row["password_hash"] or ""))
-        if locked or not valid:
-            failures = int(row["failed_attempts"] or 0) + 1
-            new_lock = locked_until
-            if failures >= LOGIN_FAILURE_LIMIT:
-                new_lock = (now_dt + dt.timedelta(minutes=LOGIN_LOCK_MINUTES)).isoformat(timespec="seconds")
+        if client_locked or account_locked:
+            # Rejected without extending any lock, so a third party cannot keep
+            # an account locked indefinitely.
+            raise PermissionError("customer_login_invalid")
+        if not valid:
+            client_failures = (int(throttle["failed_attempts"] or 0) if throttle else 0) + 1
+            client_lock = ""
+            if client_failures >= LOGIN_FAILURE_LIMIT:
+                client_lock = (now_dt + dt.timedelta(minutes=LOGIN_LOCK_MINUTES)).isoformat(timespec="seconds")
+                client_failures = 0
+            db.execute(
+                """INSERT INTO customer_password_throttle(account_id,client_key,failed_attempts,locked_until,updated_at)
+                   VALUES(?,?,?,?,?)
+                   ON CONFLICT(account_id,client_key) DO UPDATE SET
+                     failed_attempts=excluded.failed_attempts,
+                     locked_until=excluded.locked_until,
+                     updated_at=excluded.updated_at""",
+                (account_id, client, client_failures, client_lock, now),
+            )
+            account_failures = int(row["failed_attempts"] or 0) + 1
+            account_lock = ""
+            if account_failures >= ACCOUNT_FAILURE_LIMIT:
+                account_lock = (now_dt + dt.timedelta(minutes=ACCOUNT_LOCK_MINUTES)).isoformat(timespec="seconds")
+                account_failures = 0
             db.execute(
                 "UPDATE customer_password_credential SET failed_attempts=?,locked_until=?,updated_at=? WHERE account_id=?",
-                (failures, new_lock, now, account_id),
+                (account_failures, account_lock, now, account_id),
             )
             db.commit()
             raise PermissionError("customer_login_invalid")
         if not str(row["verified_at"] or ""):
             raise accounts.CustomerAccountError("customer_email_not_verified")
+        db.execute(
+            "DELETE FROM customer_password_throttle WHERE account_id=? AND client_key=?",
+            (account_id, client),
+        )
         db.execute(
             """UPDATE customer_password_credential
                SET failed_attempts=0,locked_until='',last_login_at=?,updated_at=?
@@ -366,6 +408,7 @@ def reset_password(token: object, password: object) -> dict:
         db.execute("DELETE FROM customer_session WHERE account_id=?", (account_id,))
         db.execute("UPDATE customer_password_token SET consumed_at=? WHERE token_hash=?", (now, digest))
         db.execute("DELETE FROM customer_password_token WHERE account_id=? AND purpose='reset' AND token_hash<>?", (account_id, digest))
+        db.execute("DELETE FROM customer_password_throttle WHERE account_id=?", (account_id,))
     accounts._ensure_wallet(account_id)
     return accounts.profile(account_id)
 
@@ -385,3 +428,43 @@ def status(account_id: object) -> dict:
         "updatedAt": str(row["updated_at"] or "") if row else "",
         "lastLoginAt": str(row["last_login_at"] or "") if row else "",
     }
+
+
+def purge_stale(*, dry_run: bool = False) -> int:
+    """Retention: never-verified sign-ups, spent tokens and stale throttles."""
+    if not accounts.data_path().is_file():
+        return 0
+    accounts.init_db()
+    now_dt = accounts._now()
+    now = now_dt.isoformat(timespec="seconds")
+    pending_cutoff = (now_dt - dt.timedelta(hours=PENDING_ACCOUNT_TTL_HOURS)).isoformat(timespec="seconds")
+    throttle_cutoff = (now_dt - dt.timedelta(days=1)).isoformat(timespec="seconds")
+    from contextlib import closing
+    with closing(accounts._connect()) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            pending = int(db.execute(
+                """SELECT COUNT(*) FROM customer_password_credential c
+                   WHERE c.verified_at='' AND c.created_at<?
+                     AND NOT EXISTS (SELECT 1 FROM customer_identity i WHERE i.account_id=c.account_id)""",
+                (pending_cutoff,),
+            ).fetchone()[0])
+            tokens = int(db.execute(
+                "SELECT COUNT(*) FROM customer_password_token WHERE expires_at<? OR consumed_at<>''", (now,)
+            ).fetchone()[0])
+            throttles = int(db.execute(
+                "SELECT COUNT(*) FROM customer_password_throttle WHERE updated_at<? AND (locked_until='' OR locked_until<?)",
+                (throttle_cutoff, now),
+            ).fetchone()[0])
+            if not dry_run:
+                _cleanup_pending_accounts(db, now_dt)
+                _cleanup_tokens(db, now)
+                db.execute(
+                    "DELETE FROM customer_password_throttle WHERE updated_at<? AND (locked_until='' OR locked_until<?)",
+                    (throttle_cutoff, now),
+                )
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+    return pending + tokens + throttles

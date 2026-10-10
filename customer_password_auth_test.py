@@ -127,9 +127,10 @@ class CustomerPasswordAuthTest(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError,"customer_login_invalid"):
             passwords.authenticate("client@example.test","Correct horse battery 42")
         with accounts._connect() as db:
-            row=db.execute("SELECT failed_attempts,locked_until FROM customer_password_credential").fetchone()
-        self.assertGreaterEqual(int(row["failed_attempts"]),passwords.LOGIN_FAILURE_LIMIT)
+            row=db.execute("SELECT failed_attempts,locked_until FROM customer_password_throttle").fetchone()
+            credential=db.execute("SELECT failed_attempts FROM customer_password_credential").fetchone()
         self.assertTrue(row["locked_until"])
+        self.assertGreaterEqual(int(credential["failed_attempts"]),passwords.LOGIN_FAILURE_LIMIT)
 
     def test_invalid_or_unknown_reset_request_is_enumeration_safe(self):
         self.assertEqual(passwords.begin_reset("nobody@example.test"),{"ok":True,"deliver":False})
