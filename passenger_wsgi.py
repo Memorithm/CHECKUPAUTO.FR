@@ -35,6 +35,11 @@ _HOP_BY_HOP = {
     "transfer-encoding",
     "upgrade",
 }
+DEFAULT_BODY_LIMIT = 131072
+# Routes accepting file uploads keep the backend's own limit (customer_ct_reports.MAX_UPLOAD_BYTES).
+UPLOAD_BODY_LIMITS = {
+    ("POST", "/api/customer/reports"): 12 * 1024 * 1024,
+}
 _INTERNAL_HEADERS = {
     "x-checkupauto-proxy-token",
     "x-checkupauto-client-ip",
@@ -102,6 +107,12 @@ def _request_headers(environ: dict) -> dict[str, str]:
     return headers
 
 
+def _body_limit(environ: dict) -> int:
+    method = str(environ.get("REQUEST_METHOD") or "GET").upper()
+    path = str(environ.get("PATH_INFO") or "/")
+    return UPLOAD_BODY_LIMITS.get((method, path), DEFAULT_BODY_LIMIT)
+
+
 def _request_body(environ: dict) -> bytes:
     raw = str(environ.get("CONTENT_LENGTH") or "").strip()
     if not raw:
@@ -110,7 +121,7 @@ def _request_body(environ: dict) -> bytes:
         length = int(raw)
     except ValueError as exc:
         raise ValueError("CONTENT_LENGTH invalide") from exc
-    if length < 0 or length > 131072:
+    if length < 0 or length > _body_limit(environ):
         raise ValueError("corps WSGI trop volumineux")
     if length == 0:
         return b""
