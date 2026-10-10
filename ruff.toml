@@ -1,0 +1,9 @@
+# Configuration ruff minimale (audit Q-07).
+# Seules les erreurs bloquantes sont vérifiées : syntaxe (E9), comparaisons
+# invalides (F63), instructions mal placées (F7) et noms indéfinis (F82).
+# Aucune règle de style : pas de reformatage de masse.
+target-version = "py312"
+extend-exclude = [".ci-venv", ".browser-venv", "node_modules", "3d/blend"]
+
+[lint]
+select = ["E9", "F63", "F7", "F82"]

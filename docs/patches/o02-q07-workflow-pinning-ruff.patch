@@ -1,0 +1,136 @@
+diff --git a/.github/workflows/federated-auth-fast-gate.yml b/.github/workflows/federated-auth-fast-gate.yml
+index 0a2964f..13d198d 100644
+--- a/.github/workflows/federated-auth-fast-gate.yml
++++ b/.github/workflows/federated-auth-fast-gate.yml
+@@ -21,8 +21,8 @@ jobs:
+     runs-on: ubuntu-latest
+     timeout-minutes: 10
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: actions/setup-python@v6
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+         with:
+           python-version: '3.12'
+       - run: pip install pytest httpx cryptography
+diff --git a/.github/workflows/ios-core-ci.yml b/.github/workflows/ios-core-ci.yml
+index 8b3fd60..52f91a5 100644
+--- a/.github/workflows/ios-core-ci.yml
++++ b/.github/workflows/ios-core-ci.yml
+@@ -31,7 +31,7 @@ jobs:
+     runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]
+     timeout-minutes: 30
+     steps:
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+           persist-credentials: false
+@@ -63,7 +63,7 @@ jobs:
+     runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]
+     timeout-minutes: 30
+     steps:
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+           persist-credentials: false
+diff --git a/.github/workflows/ios-testflight.yml b/.github/workflows/ios-testflight.yml
+index a6126ce..2c9380c 100644
+--- a/.github/workflows/ios-testflight.yml
++++ b/.github/workflows/ios-testflight.yml
+@@ -27,7 +27,7 @@ jobs:
+       CHECKUPAUTO_MAC_USER: tarek
+ 
+     steps:
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           fetch-depth: 1
+           persist-credentials: false
+diff --git a/.github/workflows/payment-ci.yml b/.github/workflows/payment-ci.yml
+index 4a7a346..ec8fc11 100644
+--- a/.github/workflows/payment-ci.yml
++++ b/.github/workflows/payment-ci.yml
+@@ -51,7 +51,7 @@ jobs:
+               exit 1
+             fi
+           done
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           persist-credentials: false
+       - name: Prepare isolated payment runtime
+diff --git a/.github/workflows/production-deploy.yml b/.github/workflows/production-deploy.yml
+index 65f7cef..560012f 100644
+--- a/.github/workflows/production-deploy.yml
++++ b/.github/workflows/production-deploy.yml
+@@ -89,7 +89,7 @@ jobs:
+           print(f"Deployment gate approved for {sha}")
+           PY
+       - name: Checkout approved main commit
+-        uses: actions/checkout@v5
++        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           ref: ${{ inputs.sha }}
+           persist-credentials: false
+diff --git a/.github/workflows/security-ci.yml b/.github/workflows/security-ci.yml
+index e7b2a2c..19fb03f 100644
+--- a/.github/workflows/security-ci.yml
++++ b/.github/workflows/security-ci.yml
+@@ -35,6 +35,10 @@ jobs:
+         run: |
+           python3 -m venv .ci-venv
+           .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
++      - name: Static analysis (ruff, syntax errors and undefined names)
++        run: |
++          .ci-venv/bin/python -m pip install --disable-pip-version-check ruff==0.17.0
++          .ci-venv/bin/ruff check .
+       - name: Prepare isolated runtime data
+         run: |
+           test -d /dev/shm && test -w /dev/shm
+diff --git a/.github/workflows/staging-deploy.yml b/.github/workflows/staging-deploy.yml
+index b961fc2..ce4c392 100644
+--- a/.github/workflows/staging-deploy.yml
++++ b/.github/workflows/staging-deploy.yml
+@@ -112,7 +112,7 @@ jobs:
+           print(f"Staging gate approved: action={action} sha={sha}")
+           PY
+ 
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.workflow_run.head_sha }}
+           fetch-depth: 0
+diff --git a/workflow_pinning_test.py b/workflow_pinning_test.py
+new file mode 100644
+index 0000000..9c8d313
+--- /dev/null
++++ b/workflow_pinning_test.py
+@@ -0,0 +1,26 @@
++"""O-02 / Q-07: third-party actions pinned by commit SHA; ruff runs in Security CI."""
++import re
++import unittest
++from pathlib import Path
++
++WORKFLOWS = Path(__file__).resolve().parent / ".github" / "workflows"
++
++
++class WorkflowPinningTest(unittest.TestCase):
++    def test_every_action_is_pinned_by_full_commit_sha(self):
++        for path in sorted(WORKFLOWS.glob("*.yml")):
++            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
++                match = re.search(r"\buses:\s*([^\s#]+)", line)
++                if not match or match.group(1).startswith("./"):
++                    continue
++                with self.subTest(workflow=path.name, line=number):
++                    self.assertRegex(match.group(1), r"@[0-9a-f]{40}$")
++
++    def test_security_ci_runs_ruff_with_repository_config(self):
++        text = (WORKFLOWS / "security-ci.yml").read_text(encoding="utf-8")
++        self.assertIn("ruff==", text)
++        self.assertIn("ruff check .", text)
++
++
++if __name__ == "__main__":
++    unittest.main()
