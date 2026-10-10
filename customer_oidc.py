@@ -464,3 +464,18 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
         "mobile": bool(flow.get("mobile",0)),
         "returnTo": str(flow.get("return_to") or ""),
     }
+
+
+def purge_expired_flows(*, dry_run: bool = False) -> int:
+    """Remove abandoned OIDC login flows once they can no longer complete."""
+    if not _flow_path().is_file():
+        return 0
+    init_db()
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    from contextlib import closing
+    with closing(_connect()) as db:
+        count = int(db.execute("SELECT COUNT(*) FROM customer_oidc_flow WHERE expires_at<?", (now,)).fetchone()[0])
+        if count and not dry_run:
+            db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now,))
+            db.commit()
+    return count

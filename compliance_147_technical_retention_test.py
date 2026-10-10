@@ -47,7 +47,7 @@ class Compliance147TechnicalRetentionTest(unittest.TestCase):
             second=seed.apply(db)
             self.assertEqual(first["changedRuleIds"],["reminder_targets","review_followup","security_telemetry"])
             self.assertEqual(second["changedRuleIds"],[])
-            self.assertEqual(first["readyRuleCount"],10)
+            self.assertEqual(first["readyRuleCount"],15)
             self.assertFalse(first["retentionBound"])
             for rule_id in (
                 "booking_conversions","contract_consent_receipts","withdrawal_evidence",
