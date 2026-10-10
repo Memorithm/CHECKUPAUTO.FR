@@ -182,9 +182,11 @@ def _security_client_ip(handler):
   return peer
 
 class Handler(SimpleHTTPRequestHandler):
- server_version='CyberCheck'
+ server_version='web'
  sys_version=''
- def version_string(self): return 'CyberCheck'
+ # Bounded socket I/O: a client that stalls mid-request is dropped (audit S-18).
+ timeout=int(os.environ.get('CYBERCHECK_HTTP_TIMEOUT_SECONDS','30') or '30')
+ def version_string(self): return self.server_version
  def list_directory(self,path):
   self.send_error(404); return None
  def _migration_write_allowed(self):
@@ -266,9 +268,13 @@ class Handler(SimpleHTTPRequestHandler):
  def authorized(self):
   raw=self.headers.get('Authorization','')
   if not raw.startswith('Basic '): return False
-  try: userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
+  try:
+   userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
+   # Bytes comparison: str compare_digest raises on non-ASCII input (audit S-10).
+   user_ok=hmac.compare_digest(user.encode('utf-8'),str(USER).encode('utf-8'))
+   pw_ok=hmac.compare_digest(pw.encode('utf-8'),str(PASSWORD).encode('utf-8'))
   except Exception: return False
-  return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
+  return user_ok and pw_ok
  def _mfa_session_valid(self):
   if not admin_mfa.configured(): return not admin_mfa.required()
   token=admin_mfa.token_from_cookie(self.headers.get('Cookie',''))
@@ -1459,9 +1465,30 @@ def server_bind_address(environment=None):
   raise ValueError('CYBERCHECK_BIND_PORT invalide')
  return host, port
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+ """ThreadingHTTPServer with a ceiling on concurrent handler threads (audit S-18).
+
+ When the ceiling is reached the accept loop waits for a slot, so excess
+ connections queue in the kernel backlog instead of spawning unbounded threads.
+ """
+ daemon_threads=True
+ def __init__(self,address,handler,max_threads=None):
+  limit=max_threads if max_threads is not None else int(os.environ.get('CYBERCHECK_HTTP_MAX_THREADS','64') or '64')
+  self.max_threads=max(1,int(limit))
+  self._slots=threading.BoundedSemaphore(self.max_threads)
+  super().__init__(address,handler)
+ def process_request(self,request,client_address):
+  self._slots.acquire()
+  try: super().process_request(request,client_address)
+  except Exception:
+   self._slots.release(); raise
+ def process_request_thread(self,request,client_address):
+  try: super().process_request_thread(request,client_address)
+  finally: self._slots.release()
+
 if __name__=='__main__':
  initialize_runtime(background=True)
  host,port=server_bind_address()
  printable_host='127.0.0.1' if host=='0.0.0.0' else host
  print(f'CyberCheck admin/SEO server on http://{printable_host}:{port}',flush=True)
- ThreadingHTTPServer((host,port),Handler).serve_forever()
+ BoundedThreadingHTTPServer((host,port),Handler).serve_forever()
