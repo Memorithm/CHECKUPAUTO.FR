@@ -19,25 +19,59 @@ on:
       - '.github/workflows/3d-asset-ci.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: checkupauto-3d-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  export-glb:
-    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, Linux, ARM64, internal]
-    timeout-minutes: 45
-    env:
-      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
-      CHECKUPAUTO_MAC_USER: tarek
+  pr-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Validate portable GLB contract without SSH
+        run: |
+          set -euo pipefail
+          python3 -m unittest glb_contract_test
+          python3 -m py_compile 3d/scripts/prepare_vehicle_cutout.py
+  export-glb:
+    if: github.repository == 'Memorithm/CHECKUPAUTO.FR' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, Linux, ARM64, internal]
+    timeout-minutes: 45
+    env:
+      CHECKUPAUTO_MAC_HOST: ${{ vars.CHECKUPAUTO_MAC_HOST }}
+      CHECKUPAUTO_MAC_USER: ${{ vars.CHECKUPAUTO_MAC_USER }}
+    steps:
+      - name: Refuse protected runners for pull request code
+        if: github.event_name == 'pull_request'
+        env:
+          PROTECTED_RUNNERS: ${{ vars.CHECKUPAUTO_PROTECTED_RUNNERS }}
+        run: |
+          set -euo pipefail
+          # Runs before checkout: pull request code never reaches a runner listed
+          # in the CHECKUPAUTO_PROTECTED_RUNNERS repository variable.
+          if [ -z "${PROTECTED_RUNNERS:-}" ]; then
+            echo "::warning::CHECKUPAUTO_PROTECTED_RUNNERS is not set; protected runner guard inactive"
+            exit 0
+          fi
+          IFS=',' read -r -a protected <<< "$PROTECTED_RUNNERS"
+          for name in "${protected[@]}"; do
+            name="$(printf '%s' "$name" | tr -d '[:space:]')"
+            if [ -n "$name" ] && [ "$RUNNER_NAME" = "$name" ]; then
+              echo "::error::Pull request jobs must not run on protected runner $RUNNER_NAME"
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: ${{ github.event_name == 'pull_request' }}
+          persist-credentials: false
 
       - name: Validate portable GLB contract
         run: |
@@ -48,53 +82,31 @@ jobs:
       - name: Resolve authorized Mac SSH identity
         env:
           CHECKUPAUTO_MAC_SSH_KEY: ${{ secrets.CHECKUPAUTO_MAC_SSH_KEY }}
+          CHECKUPAUTO_MAC_KNOWN_HOSTS: ${{ vars.CHECKUPAUTO_MAC_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          key="$RUNNER_TEMP/checkupauto-3d-mac-key"
-          auth="$RUNNER_TEMP/checkupauto-3d-mac-auth"
-          rm -f "$key" "$auth"
+          # Only the dedicated repository secret is used: no runner-local key is
+          # searched, and the Mac host key must be pinned (no trust on first use).
+          [ -n "${CHECKUPAUTO_MAC_HOST:-}" ] && [ -n "${CHECKUPAUTO_MAC_USER:-}" ] || {
+            echo "::error::Set repository variables CHECKUPAUTO_MAC_HOST and CHECKUPAUTO_MAC_USER"; exit 2; }
+          [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ] || { echo "::error::Secret CHECKUPAUTO_MAC_SSH_KEY is required"; exit 2; }
+          [ -n "${CHECKUPAUTO_MAC_KNOWN_HOSTS:-}" ] || { echo "::error::Variable CHECKUPAUTO_MAC_KNOWN_HOSTS (pinned host key) is required"; exit 2; }
           umask 077
-
-          verify_key() {
-            candidate="$1"
-            [ -r "$candidate" ] || return 1
-            timeout 3 ssh-keygen -y -f "$candidate" >/dev/null 2>&1 || return 1
-            timeout 8 ssh -i "$candidate" -o BatchMode=yes -o IdentitiesOnly=yes               -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new               "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1
-          }
-
-          if [ -n "${CHECKUPAUTO_MAC_SSH_KEY:-}" ]; then
-            printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$key"
-            if verify_key "$key"; then
-              printf '%s\n' key > "$auth"
-            else
-              rm -f "$key"
-            fi
-          fi
-
-          if [ ! -s "$auth" ] && timeout 8 ssh -o BatchMode=yes -o ConnectTimeout=5             -o StrictHostKeyChecking=accept-new             "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST" true >/dev/null 2>&1; then
-            printf '%s\n' default > "$auth"
-          fi
-
-          if [ ! -s "$auth" ]; then
-            for candidate in               /root/.ssh/checkupauto_macmini_ed25519               "$HOME/.ssh/checkupauto_macmini_ed25519"               /opt/actions-runner/.ssh/checkupauto_macmini_ed25519               /root/.ssh/remoteops_thor_ed25519               "$HOME/.ssh/remoteops_thor_ed25519"               /opt/actions-runner/.ssh/remoteops_thor_ed25519; do
-              if verify_key "$candidate"; then
-                cp "$candidate" "$key"
-                chmod 600 "$key"
-                printf '%s\n' key > "$auth"
-                break
-              fi
-            done
-          fi
-
-          [ -s "$auth" ] || { echo "::error::No authorized Mac mini SSH identity is available"; exit 2; }
-          printf '%s\n' "$auth" > "$RUNNER_TEMP/checkupauto-3d-auth-path"
-          if [ -s "$key" ]; then printf '%s\n' "$key" > "$RUNNER_TEMP/checkupauto-3d-key-path"; fi
+          key="$RUNNER_TEMP/checkupauto-3d-mac-key"
+          known="$RUNNER_TEMP/checkupauto-3d-known-hosts"
+          rm -f "$key" "$known"
+          printf '%s\n' "$CHECKUPAUTO_MAC_SSH_KEY" > "$key"
+          printf '%s\n' "$CHECKUPAUTO_MAC_KNOWN_HOSTS" > "$known"
+          timeout 3 ssh-keygen -y -f "$key" >/dev/null
+          printf '%s\n' key > "$RUNNER_TEMP/checkupauto-3d-auth"
+          printf '%s\n' "$RUNNER_TEMP/checkupauto-3d-auth" > "$RUNNER_TEMP/checkupauto-3d-auth-path"
+          printf '%s\n' "$key" > "$RUNNER_TEMP/checkupauto-3d-key-path"
 
       - name: Stage exact 3D source on Mac mini
         run: |
           set -euo pipefail
           auth="$(cat "$RUNNER_TEMP/checkupauto-3d-auth-path")"
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/checkupauto-3d-known-hosts")
           if [ "$(cat "$auth")" = key ]; then
             ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-3d-key-path")" -o IdentitiesOnly=yes)
           fi
@@ -109,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           auth="$(cat "$RUNNER_TEMP/checkupauto-3d-auth-path")"
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/checkupauto-3d-known-hosts")
           if [ "$(cat "$auth")" = key ]; then
             ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-3d-key-path")" -o IdentitiesOnly=yes)
           fi
@@ -144,7 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           auth="$(cat "$RUNNER_TEMP/checkupauto-3d-auth-path")"
-          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+          ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/checkupauto-3d-known-hosts")
           if [ "$(cat "$auth")" = key ]; then
             ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-3d-key-path")" -o IdentitiesOnly=yes)
           fi
@@ -163,35 +175,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Commit verified GLB into same-repository PR branch
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          target="assets/3d/CyberCheckVehicle_Photo3D.glb"
-          mkdir -p "$(dirname "$target")"
-          cp "$GLB_EXPORT_PATH" "$target"
-          python3 glb_contract.py "$target" --max-bytes 4194304
-          git add -- "$target"
-          if git diff --cached --quiet; then
-            echo "GLB_ALREADY_CURRENT"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "build: update verified CyberCheck GLB"
-          git push origin "HEAD:$PR_HEAD_REF"
-
       - name: Clean temporary 3D material
         if: always()
         run: |
           set -u
           if [ -s "$RUNNER_TEMP/checkupauto-3d-auth-path" ] && [ -s "$RUNNER_TEMP/checkupauto-3d-remote-dir" ]; then
             auth="$(cat "$RUNNER_TEMP/checkupauto-3d-auth-path")"
-            ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+            ssh_args=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/checkupauto-3d-known-hosts")
             if [ "$(cat "$auth")" = key ] && [ -s "$RUNNER_TEMP/checkupauto-3d-key-path" ]; then
               ssh_args+=(-i "$(cat "$RUNNER_TEMP/checkupauto-3d-key-path")" -o IdentitiesOnly=yes)
             fi
@@ -208,3 +198,46 @@ jobs:
             rm -f "$(cat "$RUNNER_TEMP/checkupauto-3d-key-path")"
           fi
           rm -f "$RUNNER_TEMP/checkupauto-3d-auth-path"                 "$RUNNER_TEMP/checkupauto-3d-key-path"                 "$RUNNER_TEMP/checkupauto-3d-remote-dir"                 "$RUNNER_TEMP/checkupauto-3d-local-dir"
+          rm -f "$RUNNER_TEMP/checkupauto-3d-known-hosts" "$RUNNER_TEMP/checkupauto-3d-auth"
+
+  commit-glb:
+    # Only this GitHub-hosted job receives a write token, and only for
+    # same-repository pull requests. It never runs on the self-hosted fleet.
+    needs: export-glb
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+      - name: Download verified GLB artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cybercheck-vehicle-glb
+          path: ${{ runner.temp }}/glb
+      - name: Commit verified GLB into same-repository PR branch
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          GLB_EXPORT_PATH: ${{ runner.temp }}/glb/CyberCheckVehicle_Photo3D.glb
+        run: |
+          set -euo pipefail
+          target="assets/3d/CyberCheckVehicle_Photo3D.glb"
+          mkdir -p "$(dirname "$target")"
+          cp "$GLB_EXPORT_PATH" "$target"
+          python3 glb_contract.py "$target" --max-bytes 4194304
+          git add -- "$target"
+          if git diff --cached --quiet; then
+            echo "GLB_ALREADY_CURRENT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: update verified CyberCheck GLB"
+          git push origin "HEAD:$PR_HEAD_REF"
+
