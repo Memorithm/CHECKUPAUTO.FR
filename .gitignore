@@ -33,8 +33,12 @@ cloudflared
 *.swp
 *~
 
-# Test / coverage caches
+# Test / coverage / lint caches
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ci-venv/
+node_modules/
 .coverage
 htmlcov/
 

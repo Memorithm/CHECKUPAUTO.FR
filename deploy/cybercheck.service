@@ -34,6 +34,12 @@ SystemCallArchitectures=native
 ProtectProc=invisible
 ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Resource ceilings and syscall filter (audit O-04). Adjust MemoryMax if OCR
+# of large uploads needs more headroom.
+MemoryMax=1536M
+TasksMax=512
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 CapabilityBoundingSet=
 AmbientCapabilities=
 ReadWritePaths=/root/CyberCheckPrivate /root/CyberCheckSecurity /root/CyberCheckData /root/CyberCheckLive/data
