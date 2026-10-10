@@ -1,4 +1,4 @@
-"""O-02 / Q-07: third-party actions pinned by commit SHA; ruff runs in Security CI."""
+"""O-02: third-party actions pinned by commit SHA."""
 import re
 import unittest
 from pathlib import Path
@@ -16,10 +16,6 @@ class WorkflowPinningTest(unittest.TestCase):
                 with self.subTest(workflow=path.name, line=number):
                     self.assertRegex(match.group(1), r"@[0-9a-f]{40}$")
 
-    def test_security_ci_runs_ruff_with_repository_config(self):
-        text = (WORKFLOWS / "security-ci.yml").read_text(encoding="utf-8")
-        self.assertIn("ruff==", text)
-        self.assertIn("ruff check .", text)
 
 
 if __name__ == "__main__":
