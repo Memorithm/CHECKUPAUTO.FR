@@ -18,6 +18,12 @@ class IOSCIContractTest(unittest.TestCase):
         self.assertNotIn("secrets.",text)
         self.assertIn("brew install xcodegen",text)
 
+    def test_hosted_runners_select_the_ios_26_sdk(self):
+        text=WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(text.count("if: runner.environment == 'github-hosted'"),2)
+        self.assertIn("/Applications/Xcode_26*.app",text)
+        self.assertIn('DEVELOPER_DIR=$xcode/Contents/Developer',text)
+
     def test_ci_no_longer_relays_through_ssh(self):
         text=WORKFLOW.read_text(encoding="utf-8")
         for legacy in ("CHECKUPAUTO_MAC_SSH_KEY","CHECKUPAUTO_MAC_HOST","ssh_args","remoteops_thor_ed25519","tar -czf - ios/CheckupAutoReminder"):

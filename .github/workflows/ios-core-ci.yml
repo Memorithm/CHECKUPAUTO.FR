@@ -39,10 +39,18 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
-
-
-
+      - name: Select Xcode 26 on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          # The Live Activity code needs the iOS 26 SDK; the image default is older.
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26 on this runner image"
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
       - name: Install XcodeGen when missing
         run: |
           set -euo pipefail
@@ -67,7 +75,15 @@ jobs:
         run: |
           set -euo pipefail
           swiftc -D DEBUG Sources/MobileAPI.swift Sources/MobileBootstrap.swift Monitoring/LiveStagingBootstrapSmoke.swift -o /tmp/checkupauto-live-staging
-          CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging
+          # Staging occasionally exceeds the 8 s client timeout: retry before failing.
+          for attempt in 1 2 3; do
+            if CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging; then
+              exit 0
+            fi
+            echo "::warning::live staging smoke attempt $attempt failed"
+            sleep 15
+          done
+          exit 1
   xcode:
     needs: swift
     runs-on: ${{ vars.CHECKUPAUTO_IOS_SELF_HOSTED == 'true' && fromJSON('["self-hosted","macOS","ARM64","checkupauto","ios","ios-heavy"]') || 'macos-15' }}
@@ -77,6 +93,18 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Select Xcode 26 on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          # The Live Activity code needs the iOS 26 SDK; the image default is older.
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26 on this runner image"
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
       - name: Install XcodeGen when missing
         run: |
           set -euo pipefail

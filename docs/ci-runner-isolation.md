@@ -96,3 +96,9 @@ XcodeGen est installé via Homebrew s'il manque.
 Pour revenir aux Mac privés une fois le pool en ligne : variable de dépôt
 `CHECKUPAUTO_IOS_SELF_HOSTED=true`. Attention : sur un dépôt privé, les minutes
 macOS hébergées sont décomptées avec un multiplicateur (×10).
+
+## Xcode 26 et smoke staging
+
+- Les images `macos-15` utilisent Xcode 16 par défaut. Or `CheckupControlLiveActivityCoordinator.swift` appelle `Activity.request(style:alertConfiguration:start:)`, qui demande le SDK iOS 26. Sur les runners hébergés, les deux jobs sélectionnent donc la version stable la plus récente de `/Applications/Xcode_26*.app` via `DEVELOPER_DIR`.
+- Le smoke de l'API de staging (`test.checkupauto.fr`, délai client de 8 s) est retenté trois fois avant d'échouer.
+
