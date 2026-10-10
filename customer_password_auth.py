@@ -157,29 +157,16 @@ def begin_registration(email: object, display_name: object, password: object) ->
             "SELECT account_id FROM customer_account WHERE email_hash=?", (email_hash,)
         ).fetchone()
         if row:
+            # Never attach or replace a password on an existing account from an
+            # unauthenticated sign-up form. The mailbox owner instead receives a
+            # one-time link to choose the password (reset flow), so an attacker
+            # cannot pre-seed a password on a federated or pending account.
             account_id = str(row["account_id"])
-            credential = db.execute(
-                "SELECT verified_at FROM customer_password_credential WHERE account_id=?",
+            purpose = "reset"
+            db.execute(
+                "DELETE FROM customer_password_token WHERE account_id=? AND purpose='verify'",
                 (account_id,),
-            ).fetchone()
-            if credential and str(credential["verified_at"] or ""):
-                purpose = "reset"
-            else:
-                if credential:
-                    db.execute(
-                        """UPDATE customer_password_credential
-                           SET password_hash=?,failed_attempts=0,locked_until='',updated_at=?
-                           WHERE account_id=?""",
-                        (encoded, now, account_id),
-                    )
-                else:
-                    db.execute(
-                        """INSERT INTO customer_password_credential(
-                             account_id,password_hash,verified_at,failed_attempts,locked_until,
-                             created_at,updated_at,last_login_at
-                           ) VALUES(?,?,'',0,'',?,?,'')""",
-                        (account_id, encoded, now, now),
-                    )
+            )
         else:
             account_id = str(uuid.uuid4())
             encrypted = accounts._encrypt_profile(account_id, {
@@ -359,7 +346,22 @@ def reset_password(token: object, password: object) -> dict:
                WHERE account_id=?""",
             (encoded, now, now, account_id),
         ).rowcount
-        if updated != 1:
+        if updated == 0:
+            account_exists = db.execute(
+                "SELECT 1 FROM customer_account WHERE account_id=?", (account_id,)
+            ).fetchone()
+            if not account_exists:
+                raise PermissionError("customer_password_token_invalid")
+            # Mailbox ownership was proven by the one-time link: the owner of a
+            # federated account may add a password here.
+            db.execute(
+                """INSERT INTO customer_password_credential(
+                     account_id,password_hash,verified_at,failed_attempts,locked_until,
+                     created_at,updated_at,last_login_at
+                   ) VALUES(?,?,?,0,'',?,?,'')""",
+                (account_id, encoded, now, now, now),
+            )
+        elif updated != 1:
             raise PermissionError("customer_password_token_invalid")
         db.execute("DELETE FROM customer_session WHERE account_id=?", (account_id,))
         db.execute("UPDATE customer_password_token SET consumed_at=? WHERE token_hash=?", (now, digest))
