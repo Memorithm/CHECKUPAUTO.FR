@@ -1353,12 +1353,17 @@ def build_llms(c):
 ## Référencement
 Le contenu canonique et les règles d’exploration sont définis par robots.txt et les métadonnées HTML du site.
 '''
+CENTRE_LATITUDE=48.980120
+CENTRE_LONGITUDE=1.890251
 def build_structured_data(c):
  seo=c['seo']; sd=seo['structuredData']; b=c['business']; s=c['services']
  offers=[{'@type':'Offer','name':v['label'],'price':v['price'],'priceCurrency':'EUR'} for v in s.values()]
  # AutoRepair is the schema.org LocalBusiness subtype for automotive services (audit F-02).
  data={'@context':'https://schema.org','@type':'AutoRepair','name':sd['businessName'],'url':seo['canonicalUrl'],'description':seo['description'],'telephone':b['phone'],'priceRange':sd['priceRange'],'address':{'@type':'PostalAddress','streetAddress':sd['streetAddress'],'postalCode':sd['postalCode'],'addressLocality':sd['locality'],'addressCountry':sd['country']},'makesOffer':offers}
  if seo.get('ogImage'): data['image']=asset_url(c,seo['ogImage'])
+ # Coordonnées réelles du centre, identiques au lien d'itinéraire de index.html (audit F-02).
+ data['geo']={'@type':'GeoCoordinates','latitude':CENTRE_LATITUDE,'longitude':CENTRE_LONGITUDE}
+ data['hasMap']=f'https://www.openstreetmap.org/?mlat={CENTRE_LATITUDE:.6f}&mlon={CENTRE_LONGITUDE:.6f}'
  return data
 def text(v,name,maxlen=300,allow_empty=False):
  if not isinstance(v,str): raise ValueError(f'{name} must be text')
