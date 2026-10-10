@@ -20,7 +20,7 @@ class ProductionDeployWorkflowTest(unittest.TestCase):
         self.assertLess(deploy, verify)
 
     def test_checkout_is_exact_approved_sha_without_persisted_credentials(self):
-        self.assertIn("uses: actions/checkout@v5", self.workflow)
+        self.assertIn("uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09", self.workflow)
         self.assertIn("ref: ${{ inputs.sha }}", self.workflow)
         self.assertIn("persist-credentials: false", self.workflow)
 
