@@ -11,6 +11,7 @@ from pathlib import Path
 import email_gateway as email_transport
 import apns_gateway as push_transport
 import delivery_resilience as resilience
+from sqlite_closing import ClosingConnection
 
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
 DB = DATA_DIR / "notification-broker.sqlite3"
@@ -85,7 +86,7 @@ def connect() -> sqlite3.Connection:
         DATA_DIR.chmod(0o700)
     except PermissionError:
         pass
-    db = sqlite3.connect(DB, timeout=10)
+    db = sqlite3.connect(DB, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     return db
 

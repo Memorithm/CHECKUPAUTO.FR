@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from collections import Counter
 import datetime, json, math, os, sqlite3
+from sqlite_closing import ClosingConnection
 
 DATA_DIR = Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
 DB = DATA_DIR / 'competitive.sqlite3'
@@ -29,7 +30,7 @@ def connect():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try: DATA_DIR.chmod(0o700)
     except PermissionError: pass
-    db=sqlite3.connect(DB, timeout=10)
+    db=sqlite3.connect(DB, timeout=10, factory=ClosingConnection)
     db.row_factory=sqlite3.Row
     return db
 

@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 import customer_accounts
+from sqlite_closing import ClosingConnection
 
 PROVIDERS = {
     "google": {
@@ -143,7 +144,7 @@ def _provider_config(provider: str) -> dict:
 def _connect() -> sqlite3.Connection:
     path = _flow_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=10)
+    db = sqlite3.connect(path, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     return db
 

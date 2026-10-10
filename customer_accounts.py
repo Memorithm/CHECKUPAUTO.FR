@@ -24,6 +24,7 @@ from customer_vehicle_inputs import (SIV_PATTERN, FNI_PATTERN, FORMULA_PATTERN, 
 import referral_engine
 import mercure_invoice_contact_contract as invoice_contact
 from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, require_booking_essentials, VehicleCharacteristicsError
+from sqlite_closing import ClosingConnection
 
 PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
@@ -303,7 +304,7 @@ def _connect() -> sqlite3.Connection:
         path.parent.chmod(0o700)
     except PermissionError:
         pass
-    db = sqlite3.connect(path, timeout=10)
+    db = sqlite3.connect(path, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     return db

@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 from pathlib import Path
+from sqlite_closing import ClosingConnection
 
 
 class BookingJournalError(ValueError):
@@ -25,7 +26,7 @@ def database_path() -> Path:
 def _connect() -> sqlite3.Connection:
     path = database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=10, isolation_level=None)
+    db = sqlite3.connect(path, timeout=10, isolation_level=None, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout=10000")
     return db

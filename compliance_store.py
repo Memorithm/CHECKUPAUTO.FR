@@ -12,6 +12,7 @@ import uuid
 import legacy_legal_baseline
 from pathlib import Path
 from urllib.parse import urlparse
+from sqlite_closing import ClosingConnection
 
 
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
@@ -146,7 +147,7 @@ def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
         target.parent.chmod(0o700)
     except PermissionError:
         pass
-    db = sqlite3.connect(target, timeout=10)
+    db = sqlite3.connect(target, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     return db
 

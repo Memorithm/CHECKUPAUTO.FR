@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 import privacy_suppression as privacy
+from sqlite_closing import ClosingConnection
 
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
 DB = DATA_DIR / "mobile-devices.sqlite3"
@@ -132,7 +133,7 @@ def connect() -> sqlite3.Connection:
         DATA_DIR.chmod(0o700)
     except PermissionError:
         pass
-    db = sqlite3.connect(DB, timeout=10)
+    db = sqlite3.connect(DB, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     return db
 
