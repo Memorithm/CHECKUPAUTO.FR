@@ -25,9 +25,9 @@ RUN apt-get update \
       tesseract-ocr-fra \
  && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
+COPY requirements.txt requirements.lock ./
 RUN python -m pip install --no-cache-dir --upgrade pip==26.2.1 \
- && python -m pip install --no-cache-dir -r requirements.txt
+ && python -m pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY --chown=cybercheck:cybercheck . /app
 

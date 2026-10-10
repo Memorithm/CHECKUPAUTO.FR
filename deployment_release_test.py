@@ -232,6 +232,8 @@ class DeploymentReleaseTest(unittest.TestCase):
         self.assertIn(setuptools_pin,script)
         self.assertIn("CHECKUPAUTO_BOOTSTRAP_VERSIONS",script)
         self.assertLess(script.index(pip_pin),script.index('-r "$candidate/requirements.txt"'))
+        self.assertLess(script.index(pip_pin),script.index('--require-hashes -r "$candidate/requirements.lock"'))
+        self.assertLess(script.index('if [ -f "$candidate/requirements.lock" ]'),script.index('-r "$candidate/requirements.txt"'))
         self.assertEqual(release._BOOTSTRAP_PIP_VERSION,"26.2.1")
         self.assertEqual(release._BOOTSTRAP_SETUPTOOLS_VERSION,"84.0.0")
 

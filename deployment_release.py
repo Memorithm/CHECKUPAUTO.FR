@@ -263,7 +263,12 @@ for name,version in expected.items():
     if actual != version:
         raise SystemExit("bootstrap package version mismatch")
 CHECKUPAUTO_BOOTSTRAP_VERSIONS
-"$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
+# Audit D-01 : installation vérifiée par empreintes quand le verrou est livré.
+if [ -f "$candidate/requirements.lock" ]; then
+  "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input --require-hashes -r "$candidate/requirements.lock"
+else
+  "$candidate/.venv/bin/python" -m pip install --disable-pip-version-check --no-input -r "$candidate/requirements.txt"
+fi
 printf '__STAGE_STEP_PREFIX__compile\n'
 "$candidate/.venv/bin/python" -m compileall -q "$candidate"
 printf '__STAGE_STEP_PREFIX__marker\n'

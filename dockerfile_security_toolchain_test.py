@@ -12,7 +12,7 @@ class DockerfileSecurityToolchainTest(unittest.TestCase):
     def test_pip_upgrade_happens_before_runtime_requirements(self):
         text=DOCKERFILE.read_text(encoding="utf-8")
         upgrade=text.index("pip==26.2.1")
-        requirements=text.index("-r requirements.txt")
+        requirements=text.index("--require-hashes -r requirements.lock")
         self.assertLess(upgrade,requirements)
 
 if __name__=="__main__":
