@@ -1,6 +1,7 @@
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 import datetime, re, sqlite3, os
+from sqlite_closing import ClosingConnection
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
@@ -29,7 +30,7 @@ _PHONE_RE = re.compile(r'(?<!\d)(?:\+?\d[\s().-]*){8,}(?!\d)')
 
 def connect():
     DB.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB, timeout=5)
+    db = sqlite3.connect(DB, timeout=5, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     return db
 

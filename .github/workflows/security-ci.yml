@@ -34,7 +34,7 @@ jobs:
       - name: Create isolated Python test environment
         run: |
           python3 -m venv .ci-venv
-          .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+          .ci-venv/bin/python -m pip install --disable-pip-version-check --require-hashes -r requirements.lock
       - name: Static analysis (ruff, syntax errors and undefined names)
         run: |
           .ci-venv/bin/python -m pip install --disable-pip-version-check ruff==0.17.0

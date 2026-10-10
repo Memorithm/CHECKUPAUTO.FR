@@ -9,6 +9,7 @@ import email_gateway as mail
 import notification_broker as notifications
 import privacy_suppression as privacy
 import mercure_admin_client as mercure
+from sqlite_closing import ClosingConnection
 
 DATA_DIR=Path(os.environ.get('CYBERCHECK_DATA_DIR','/root/CyberCheckData'))
 DB=DATA_DIR/'review-followup.sqlite3'
@@ -49,7 +50,7 @@ def connect():
     DATA_DIR.mkdir(parents=True,exist_ok=True)
     try: DATA_DIR.chmod(0o700)
     except PermissionError: pass
-    db=sqlite3.connect(DB,timeout=10)
+    db=sqlite3.connect(DB,timeout=10, factory=ClosingConnection)
     db.row_factory=sqlite3.Row
     return db
 

@@ -21,6 +21,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import ct_advisor
+from sqlite_closing import ClosingConnection
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 120_000
@@ -101,7 +102,7 @@ def _ensure_key() -> bytes:
 def _connect() -> sqlite3.Connection:
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=10)
+    db = sqlite3.connect(path, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     return db
 
