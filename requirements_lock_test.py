@@ -47,6 +47,10 @@ class RequirementsLockTest(unittest.TestCase):
         self.assertIn("--require-hashes -r requirements.lock", text)
         self.assertNotIn("-r requirements.txt", text)
 
+    def test_security_ci_installs_the_lock_with_hash_checking(self):
+        text = (ROOT / ".github" / "workflows" / "security-ci.yml").read_text(encoding="utf-8")
+        self.assertIn("--require-hashes -r requirements.lock", text)
+
 
 if __name__ == "__main__":
     unittest.main()
