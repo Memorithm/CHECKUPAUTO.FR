@@ -1,5 +1,7 @@
 import AuthenticationServices
+import CryptoKit
 import Foundation
+import Security
 
 @MainActor
 final class GoogleCustomerSignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
@@ -7,9 +9,14 @@ final class GoogleCustomerSignIn: NSObject, ASWebAuthenticationPresentationConte
 
     func start() async throws {
         var components = URLComponents(url: MobileAPI.endpoint("/auth/customer/google"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "mobile", value: "1")]
+        // PKCE: the server only redeems the ticket for the holder of this verifier.
+        let verifier = try Self.makeCodeVerifier()
+        components.queryItems = [
+            URLQueryItem(name: "mobile", value: "1"),
+            URLQueryItem(name: "code_challenge", value: Self.codeChallenge(for: verifier))
+        ]
         let url = components.url!
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let auth = ASWebAuthenticationSession(url: url, callbackURLScheme: "checkupauto") { callback, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -33,7 +40,7 @@ final class GoogleCustomerSignIn: NSObject, ASWebAuthenticationPresentationConte
                         var request = URLRequest(url: MobileAPI.endpoint("/api/mobile/auth/exchange"))
                         request.httpMethod = "POST"
                         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                        request.httpBody = try JSONSerialization.data(withJSONObject: ["ticket": ticket])
+                        request.httpBody = try JSONSerialization.data(withJSONObject: ["ticket": ticket, "code_verifier": verifier])
                         let (data, response) = try await URLSession.shared.data(for: request)
                         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
                               let body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -56,6 +63,25 @@ final class GoogleCustomerSignIn: NSObject, ASWebAuthenticationPresentationConte
                 return
             }
         }
+    }
+
+    static func makeCodeVerifier() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            throw URLError(.cannotLoadFromNetwork)
+        }
+        return base64URL(Data(bytes))
+    }
+
+    static func codeChallenge(for verifier: String) -> String {
+        base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {

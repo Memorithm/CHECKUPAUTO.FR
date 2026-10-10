@@ -99,7 +99,7 @@ class RetentionCustomerDataTest(unittest.TestCase):
             self.assertEqual([r[0] for r in db.execute("SELECT state_hash FROM customer_oidc_flow")], ["new"])
 
     def test_expired_mobile_tickets_are_purged_without_new_issue(self):
-        ticket = mobile_auth_ticket.issue("session-token")
+        ticket = mobile_auth_ticket.issue("acct-retention")
         with sqlite3.connect(mobile_auth_ticket._path()) as db:
             db.execute("UPDATE mobile_auth_ticket SET expires_at=?", (_iso(-1),))
         self.assertEqual(mobile_auth_ticket.purge_expired(), 1)

@@ -35,6 +35,10 @@ jobs:
         run: |
           python3 -m venv .ci-venv
           .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Static analysis (ruff, syntax errors and undefined names)
+        run: |
+          .ci-venv/bin/python -m pip install --disable-pip-version-check ruff==0.17.0
+          .ci-venv/bin/ruff check .
       - name: Prepare isolated runtime data
         run: |
           test -d /dev/shm && test -w /dev/shm

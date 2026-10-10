@@ -84,6 +84,24 @@ def _hmac(label: str, value: str) -> str:
     return hmac.new(_ensure_key(), (label + "\x00" + value).encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def _subkey(purpose: str) -> bytes:
+    """Purpose-bound key derived from the account master key (HKDF-SHA256).
+
+    New uses get their own subkey instead of sharing the AES-GCM key (audit
+    S-07).  Existing e-mail/subject indexes keep the master key so that stored
+    lookups remain valid; migrating them requires a re-index.
+    """
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"checkupauto-customer-accounts-v1",
+        info=("purpose:" + purpose).encode("ascii"),
+    ).derive(_ensure_key())
+
+
 def _provider(value: object) -> str:
     raw = str(value or "").strip().lower()
     if raw not in PROVIDERS:
@@ -1204,7 +1222,7 @@ def csrf_token(session_token: object) -> str:
     raw = str(session_token or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw):
         raise PermissionError("customer_session_invalid")
-    return _hmac("csrf", raw)
+    return hmac.new(_subkey("csrf"), raw.encode("ascii"), hashlib.sha256).hexdigest()
 
 
 def verify_csrf(session_token: object, supplied: object) -> bool:

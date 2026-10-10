@@ -182,9 +182,11 @@ def _security_client_ip(handler):
   return peer
 
 class Handler(SimpleHTTPRequestHandler):
- server_version='CyberCheck'
+ server_version='web'
  sys_version=''
- def version_string(self): return 'CyberCheck'
+ # Bounded socket I/O: a client that stalls mid-request is dropped (audit S-18).
+ timeout=int(os.environ.get('CYBERCHECK_HTTP_TIMEOUT_SECONDS','30') or '30')
+ def version_string(self): return self.server_version
  def list_directory(self,path):
   self.send_error(404); return None
  def _migration_write_allowed(self):
@@ -266,9 +268,13 @@ class Handler(SimpleHTTPRequestHandler):
  def authorized(self):
   raw=self.headers.get('Authorization','')
   if not raw.startswith('Basic '): return False
-  try: userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
+  try:
+   userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
+   # Bytes comparison: str compare_digest raises on non-ASCII input (audit S-10).
+   user_ok=hmac.compare_digest(user.encode('utf-8'),str(USER).encode('utf-8'))
+   pw_ok=hmac.compare_digest(pw.encode('utf-8'),str(PASSWORD).encode('utf-8'))
   except Exception: return False
-  return hmac.compare_digest(user,USER) and hmac.compare_digest(pw,PASSWORD)
+  return user_ok and pw_ok
  def _mfa_session_valid(self):
   if not admin_mfa.configured(): return not admin_mfa.required()
   token=admin_mfa.token_from_cookie(self.headers.get('Cookie',''))
@@ -346,7 +352,7 @@ class Handler(SimpleHTTPRequestHandler):
   return raw.replace('</head>',block+'\n</head>',1).encode()
  def do_GET(self):
   if not self._guard(): return
-  if customer_oidc_admin_http.handle(self,secret=PASSWORD): return
+  if customer_oidc_admin_http.handle(self,secret=customer_oidc_admin_http.csrf_secret()): return
   if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
@@ -686,7 +692,7 @@ class Handler(SimpleHTTPRequestHandler):
   return {key:(values[0] if values else '') for key,values in parsed.items()}
  def do_POST(self):
   if not self._guard(): return
-  if customer_oidc_admin_http.handle(self,secret=PASSWORD): return
+  if customer_oidc_admin_http.handle(self,secret=customer_oidc_admin_http.csrf_secret()): return
   if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
@@ -753,9 +759,12 @@ class Handler(SimpleHTTPRequestHandler):
     length=int(self.headers.get('Content-Length','0'))
     if length<=0 or length>MAX_BODY: raise ValueError('invalid body size')
     raw=self.rfile.read(length)
-    if not booking.verify_signature(raw,self.headers.get('X-CyberCheck-Signature')):
+    stamp=self.headers.get('X-CyberCheck-Timestamp')
+    if not booking.verify_webhook(raw,self.headers.get('X-CyberCheck-Signature'),stamp):
      return self.send_json({'ok':False,'error':'invalid signature'},401)
-    payload=json.loads(raw); return self.send_json(booking.apply_conversion(payload),200)
+    payload=json.loads(raw)
+    if not booking.remember_webhook(raw,stamp): return self.send_json({'ok':True,'duplicate':True},200)
+    return self.send_json(booking.apply_conversion(payload),200)
    except Exception: return self.send_json({'ok':False,'error':'mercure_booking_confirmation_invalid'},400)
   if path=='/api/mobile/installations/register':
    try:
@@ -1347,7 +1356,10 @@ Le contenu canonique et les règles d’exploration sont définis par robots.txt
 def build_structured_data(c):
  seo=c['seo']; sd=seo['structuredData']; b=c['business']; s=c['services']
  offers=[{'@type':'Offer','name':v['label'],'price':v['price'],'priceCurrency':'EUR'} for v in s.values()]
- return {'@context':'https://schema.org','@type':'LocalBusiness','name':sd['businessName'],'url':seo['canonicalUrl'],'description':seo['description'],'telephone':b['phone'],'priceRange':sd['priceRange'],'address':{'@type':'PostalAddress','streetAddress':sd['streetAddress'],'postalCode':sd['postalCode'],'addressLocality':sd['locality'],'addressCountry':sd['country']},'makesOffer':offers}
+ # AutoRepair is the schema.org LocalBusiness subtype for automotive services (audit F-02).
+ data={'@context':'https://schema.org','@type':'AutoRepair','name':sd['businessName'],'url':seo['canonicalUrl'],'description':seo['description'],'telephone':b['phone'],'priceRange':sd['priceRange'],'address':{'@type':'PostalAddress','streetAddress':sd['streetAddress'],'postalCode':sd['postalCode'],'addressLocality':sd['locality'],'addressCountry':sd['country']},'makesOffer':offers}
+ if seo.get('ogImage'): data['image']=asset_url(c,seo['ogImage'])
+ return data
 def text(v,name,maxlen=300,allow_empty=False):
  if not isinstance(v,str): raise ValueError(f'{name} must be text')
  v=v.strip()
@@ -1459,9 +1471,30 @@ def server_bind_address(environment=None):
   raise ValueError('CYBERCHECK_BIND_PORT invalide')
  return host, port
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+ """ThreadingHTTPServer with a ceiling on concurrent handler threads (audit S-18).
+
+ When the ceiling is reached the accept loop waits for a slot, so excess
+ connections queue in the kernel backlog instead of spawning unbounded threads.
+ """
+ daemon_threads=True
+ def __init__(self,address,handler,max_threads=None):
+  limit=max_threads if max_threads is not None else int(os.environ.get('CYBERCHECK_HTTP_MAX_THREADS','64') or '64')
+  self.max_threads=max(1,int(limit))
+  self._slots=threading.BoundedSemaphore(self.max_threads)
+  super().__init__(address,handler)
+ def process_request(self,request,client_address):
+  self._slots.acquire()
+  try: super().process_request(request,client_address)
+  except Exception:
+   self._slots.release(); raise
+ def process_request_thread(self,request,client_address):
+  try: super().process_request_thread(request,client_address)
+  finally: self._slots.release()
+
 if __name__=='__main__':
  initialize_runtime(background=True)
  host,port=server_bind_address()
  printable_host='127.0.0.1' if host=='0.0.0.0' else host
  print(f'CyberCheck admin/SEO server on http://{printable_host}:{port}',flush=True)
- ThreadingHTTPServer((host,port),Handler).serve_forever()
+ BoundedThreadingHTTPServer((host,port),Handler).serve_forever()

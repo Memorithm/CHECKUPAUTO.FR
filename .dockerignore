@@ -17,3 +17,20 @@ CyberCheckIntegrity
 CyberCheckBackups
 ios
 3d/blend
+
+# Secrets that must never reach the image context (audit O-03)
+.admin-password
+private/
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+.ci-venv
+.browser-venv
+.ruff_cache
+.mypy_cache
+.pytest_cache
+node_modules
+responsive-evidence

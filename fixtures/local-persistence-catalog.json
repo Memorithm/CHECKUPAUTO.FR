@@ -52,6 +52,14 @@
       "subjectExecutionRequired": true
     },
     {
+      "table": "booking_webhook_replay",
+      "module": "booking_bridge.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
+    },
+    {
       "table": "booking_schema_meta",
       "module": "booking_bridge.py",
       "subjectRelation": "none",
@@ -149,6 +157,14 @@
     },
     {
       "table": "customer_oidc_flow",
+      "module": "customer_oidc.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_oidc",
+      "subjectExecutionRequired": false
+    },
+    {
+      "table": "customer_native_nonce",
       "module": "customer_oidc.py",
       "subjectRelation": "transient",
       "executionState": "ephemeral",

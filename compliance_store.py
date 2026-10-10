@@ -460,12 +460,23 @@ def cookie_policy(db_path: Path | str | None = None) -> dict:
     rows = cookies(db_path)
     active = [row for row in rows if row["enabled"]]
     consent = [row for row in active if not row["essential"] and row["storageKind"] != "none"]
+    # Fingerprint of everything a visitor consents to: a stored choice made for
+    # another list of trackers is no longer valid (audit R-02).
+    material = json.dumps(
+        sorted(
+            [row["key"], row["provider"], row["purpose"], row["category"], row["durationDays"], row["storageKind"]]
+            for row in consent
+        ),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return {
         "registry": rows,
         "activeCount": len(active),
         "consentRequired": bool(consent),
         "consentKeys": [row["key"] for row in consent],
         "defaultNonEssential": "denied",
+        "policyVersion": hashlib.sha256(material.encode("utf-8")).hexdigest()[:16],
     }
 
 

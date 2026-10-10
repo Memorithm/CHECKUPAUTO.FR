@@ -9,25 +9,10 @@ workflow lui-même provient de la tête de la PR : un garde-fou écrit dans le
 dépôt ne peut donc **pas** empêcher à lui seul une personne ayant le droit
 d'écriture de modifier le workflow et d'atteindre ce runner.
 
-## Changements préparés (correctif à appliquer)
+## Changements dans le dépôt
 
-Le jeton utilisé pour ouvrir la PR d'audit n'a pas la portée `workflow` :
-GitHub refuse donc toute modification de `.github/workflows/` poussée par ce
-jeton. Les changements ci-dessous sont livrés sous forme de correctif,
-accompagné de son test de configuration (`ci_runner_isolation_test.py`) :
+Les changements de workflows décrits ci-dessous sont appliqués (ils avaient d'abord été livrés sous forme de correctif, faute de portée `workflow` sur le jeton).
 
-```bash
-git apply docs/patches/o01-ci-runner-isolation.patch
-python -m unittest ci_runner_isolation_test
-git rm docs/patches/o01-ci-runner-isolation.patch
-git add -A .github/workflows ci_runner_isolation_test.py
-git commit -m "ci(O-01): isoler le code de PR des runners protégés"
-```
-
-Ce commit doit être poussé par un compte (ou un jeton) ayant la portée
-`workflow`.
-
-### Contenu du correctif
 
 - `security-ci.yml` : les PR s'exécutent sur `ubuntu-24.04` (hébergé par
   GitHub). Les `push` sur `main` gardent le runner interne.
@@ -98,3 +83,22 @@ journal de réservation du compte et vérifie qu'il ne reste aucune ligne.
 La télémétrie de sécurité (`security_telemetry`, 30 jours) est couverte par le
 script existant `scripts/checkupauto-compliance-seed-technical-retention.py`,
 à exécuter en production s'il ne l'a pas encore été.
+
+# CI iOS (octobre 2026)
+
+Depuis le 3 octobre 2026, `ios-core-ci.yml` exigeait un pool de Mac auto-hébergés
+(`[self-hosted, macOS, ARM64, checkupauto, ios, ios-light|ios-heavy]`) qu'aucun
+runner enregistré ne fournit : tous les jobs restaient en file d'attente puis
+étaient annulés. Les jobs `swift` et `xcode` n'utilisent aucun secret ; ils
+tournent désormais par défaut sur `macos-15` (hébergé par GitHub, Xcode 16).
+XcodeGen est installé via Homebrew s'il manque.
+
+Pour revenir aux Mac privés une fois le pool en ligne : variable de dépôt
+`CHECKUPAUTO_IOS_SELF_HOSTED=true`. Attention : sur un dépôt privé, les minutes
+macOS hébergées sont décomptées avec un multiplicateur (×10).
+
+## Xcode 26 et smoke staging
+
+- Les images `macos-15` utilisent Xcode 16 par défaut. Or `CheckupControlLiveActivityCoordinator.swift` appelle `Activity.request(style:alertConfiguration:start:)`, qui demande le SDK iOS 26. Sur les runners hébergés, les deux jobs sélectionnent donc la version stable la plus récente de `/Applications/Xcode_26*.app` via `DEVELOPER_DIR`.
+- Le smoke de l'API de staging (`test.checkupauto.fr`, délai client de 8 s) est retenté trois fois avant d'échouer.
+

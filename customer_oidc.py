@@ -162,7 +162,8 @@ def init_db() -> None:
               expires_at TEXT NOT NULL,
               browser_hash TEXT NOT NULL DEFAULT '',
               mobile INTEGER NOT NULL DEFAULT 0,
-              return_to TEXT NOT NULL DEFAULT ''
+              return_to TEXT NOT NULL DEFAULT '',
+              mobile_challenge TEXT NOT NULL DEFAULT ''
             )"""
         )
         columns = {row[1] for row in db.execute("PRAGMA table_info(customer_oidc_flow)")}
@@ -172,7 +173,17 @@ def init_db() -> None:
             db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN mobile INTEGER NOT NULL DEFAULT 0")
         if "return_to" not in columns:
             db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN return_to TEXT NOT NULL DEFAULT ''")
+        if "mobile_challenge" not in columns:
+            db.execute("ALTER TABLE customer_oidc_flow ADD COLUMN mobile_challenge TEXT NOT NULL DEFAULT ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_customer_oidc_expiry ON customer_oidc_flow(expires_at)")
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS customer_native_nonce(
+              nonce_hash TEXT PRIMARY KEY,
+              server_issued INTEGER NOT NULL DEFAULT 0,
+              used_at TEXT NOT NULL DEFAULT '',
+              expires_at TEXT NOT NULL
+            )"""
+        )
     try:
         _flow_path().chmod(0o600)
     except PermissionError:
@@ -201,8 +212,11 @@ def _return_to(value: object) -> str:
     return parts.path+(("?" + parts.query) if parts.query else "")
 
 
-def begin(provider: object, origin: object, *, browser_binding: str, mobile: bool=False, return_to: object="") -> str:
+def begin(provider: object, origin: object, *, browser_binding: str, mobile: bool=False, return_to: object="", mobile_challenge: object="") -> str:
     provider = _provider(provider)
+    mobile_challenge = str(mobile_challenge or "").strip() if mobile else ""
+    if mobile_challenge and not re.fullmatch(r"[A-Za-z0-9_-]{43}", mobile_challenge):
+        raise CustomerOIDCError("customer_oidc_mobile_challenge_invalid")
     origin = _origin(origin)
     browser_hash = _browser_hash(browser_binding)
     return_to = _return_to(return_to)
@@ -219,8 +233,8 @@ def begin(provider: object, origin: object, *, browser_binding: str, mobile: boo
         db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now.isoformat(timespec="seconds"),))
         db.execute(
             """INSERT INTO customer_oidc_flow(
-                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash,mobile,return_to
-               ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                 state_hash,provider,nonce,verifier,redirect_uri,created_at,expires_at,browser_hash,mobile,return_to,mobile_challenge
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 hashlib.sha256(state.encode()).hexdigest(),
                 provider,
@@ -232,6 +246,7 @@ def begin(provider: object, origin: object, *, browser_binding: str, mobile: boo
                 browser_hash,
                 1 if mobile else 0,
                 return_to,
+                mobile_challenge,
             ),
         )
     meta = PROVIDERS[provider]
@@ -440,7 +455,13 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
         fetcher=jwks_fetcher,
     )
     subject = str(claims.get("sub") or "")
-    email = str(claims.get("email") or claims.get("preferred_username") or "")
+    # Only the signed ``email`` claim is used: ``preferred_username`` is not a
+    # verified address (audit S-08).  Microsoft does not assert
+    # ``email_verified``, so that latent provider fails closed until a
+    # verified-domain policy exists.
+    email = str(claims.get("email") or "")
+    if provider == "microsoft" and claims.get("email_verified") is not True:
+        raise CustomerOIDCError("customer_oidc_email_unverified")
     if provider == "google" and claims.get("email_verified") is not True:
         raise CustomerOIDCError("customer_oidc_email_unverified")
     if provider == "apple" and str(claims.get("email_verified") or "").lower() not in {"true", "1"}:
@@ -463,6 +484,7 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
         "session": session,
         "mobile": bool(flow.get("mobile",0)),
         "returnTo": str(flow.get("return_to") or ""),
+        "mobileChallenge": str(flow.get("mobile_challenge") or ""),
     }
 
 
@@ -475,7 +497,76 @@ def purge_expired_flows(*, dry_run: bool = False) -> int:
     from contextlib import closing
     with closing(_connect()) as db:
         count = int(db.execute("SELECT COUNT(*) FROM customer_oidc_flow WHERE expires_at<?", (now,)).fetchone()[0])
+        count += int(db.execute("SELECT COUNT(*) FROM customer_native_nonce WHERE expires_at<?", (now,)).fetchone()[0])
         if count and not dry_run:
             db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now,))
+            db.execute("DELETE FROM customer_native_nonce WHERE expires_at<?", (now,))
             db.commit()
     return count
+
+
+# --- Native Sign in with Apple nonces (audit S-06) -------------------------
+NATIVE_NONCE_TTL_MINUTES = 10
+# Identity tokens are short-lived; a consumed nonce is remembered well beyond
+# their lifetime so a stolen token+nonce pair cannot be replayed.
+NATIVE_NONCE_REPLAY_HOURS = 24
+NATIVE_NONCE_REQUIRED_ENV = "CYBERCHECK_APPLE_SERVER_NONCE_REQUIRED"
+
+
+def native_nonce_required() -> bool:
+    return os.environ.get(NATIVE_NONCE_REQUIRED_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def issue_native_nonce() -> dict:
+    """Issue a single-use, short-lived nonce for the native Apple flow."""
+    nonce = secrets.token_urlsafe(32)
+    now = _now()
+    expires = now + dt.timedelta(minutes=NATIVE_NONCE_TTL_MINUTES)
+    init_db()
+    from contextlib import closing
+    with closing(_connect()) as db, db:
+        db.execute(
+            "INSERT INTO customer_native_nonce(nonce_hash,server_issued,used_at,expires_at) VALUES(?,?,?,?)",
+            (hashlib.sha256(nonce.encode("ascii")).hexdigest(), 1, "", expires.isoformat(timespec="seconds")),
+        )
+    return {"nonce": nonce, "expiresAt": expires.isoformat(timespec="seconds")}
+
+
+def consume_native_nonce(nonce: object) -> None:
+    """Burn a native nonce after its identity token was verified.
+
+    A nonce issued by the server must be unexpired and unused.  A nonce chosen
+    by the app (legacy builds) is accepted once unless the server-issued mode
+    is required, so a replay of the same token and nonce is always refused.
+    """
+    raw = str(nonce or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw):
+        raise CustomerOIDCError("customer_oidc_nonce_invalid")
+    digest = hashlib.sha256(raw.encode("ascii")).hexdigest()
+    now = _now()
+    init_db()
+    from contextlib import closing
+    with closing(_connect()) as db, db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT server_issued,used_at,expires_at FROM customer_native_nonce WHERE nonce_hash=?",
+            (digest,),
+        ).fetchone()
+        replay_until = (now + dt.timedelta(hours=NATIVE_NONCE_REPLAY_HOURS)).isoformat(timespec="seconds")
+        if row is None:
+            if native_nonce_required():
+                raise CustomerOIDCError("customer_oidc_nonce_unknown")
+            db.execute(
+                "INSERT INTO customer_native_nonce(nonce_hash,server_issued,used_at,expires_at) VALUES(?,?,?,?)",
+                (digest, 0, now.isoformat(timespec="seconds"), replay_until),
+            )
+            return
+        if str(row["used_at"] or ""):
+            raise CustomerOIDCError("customer_oidc_nonce_replayed")
+        expires = dt.datetime.fromisoformat(str(row["expires_at"]))
+        if now >= expires:
+            raise CustomerOIDCError("customer_oidc_nonce_expired")
+        db.execute(
+            "UPDATE customer_native_nonce SET used_at=?,expires_at=? WHERE nonce_hash=?",
+            (now.isoformat(timespec="seconds"), replay_until, digest),
+        )

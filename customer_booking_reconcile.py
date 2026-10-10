@@ -5,8 +5,13 @@ It performs no provider writes or payment actions.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import customer_booking_journal as journal
 import mercure_booking_evidence as evidence
+
+if TYPE_CHECKING:  # pragma: no cover - typing only (audit Q-06)
+    from mercure_booking_identity_evidence import VerifiedBookingIdentity
 
 
 class BookingReconciliationError(RuntimeError):

@@ -28,20 +28,38 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]
+    # GitHub-hosted macOS by default: the self-hosted Mac pool has not picked up
+    # a job since 2026-10-03. Set the repository variable
+    # CHECKUPAUTO_IOS_SELF_HOSTED=true to return to the private Mac runners.
+    # No secret is used by this job.
+    runs-on: ${{ vars.CHECKUPAUTO_IOS_SELF_HOSTED == 'true' && fromJSON('["self-hosted","macOS","ARM64","checkupauto","ios","ios-light"]') || 'macos-15' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
-
-
-
+      - name: Select Xcode 26 on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          # The Live Activity code needs the iOS 26 SDK; the image default is older.
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26 on this runner image"
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Install XcodeGen when missing
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          command -v xcodegen >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
       - name: Verify Apple toolchain
         run: |
           set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           sw_vers
           xcodebuild -version
           xcodegen --version
@@ -57,16 +75,41 @@ jobs:
         run: |
           set -euo pipefail
           swiftc -D DEBUG Sources/MobileAPI.swift Sources/MobileBootstrap.swift Monitoring/LiveStagingBootstrapSmoke.swift -o /tmp/checkupauto-live-staging
-          CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging
+          # Staging occasionally exceeds the 8 s client timeout: retry before failing.
+          for attempt in 1 2 3; do
+            if CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging; then
+              exit 0
+            fi
+            echo "::warning::live staging smoke attempt $attempt failed"
+            sleep 15
+          done
+          exit 1
   xcode:
     needs: swift
-    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]
-    timeout-minutes: 30
+    runs-on: ${{ vars.CHECKUPAUTO_IOS_SELF_HOSTED == 'true' && fromJSON('["self-hosted","macOS","ARM64","checkupauto","ios","ios-heavy"]') || 'macos-15' }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Select Xcode 26 on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          # The Live Activity code needs the iOS 26 SDK; the image default is older.
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26 on this runner image"
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Install XcodeGen when missing
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          command -v xcodegen >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
       - name: Generate project and run simulator tests
         working-directory: ios/CheckupAutoReminder
         run: |

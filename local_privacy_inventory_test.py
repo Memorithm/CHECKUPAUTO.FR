@@ -16,7 +16,7 @@ class LocalPrivacyInventoryTest(unittest.TestCase):
         self.assertFalse(state["knownExecutionCoverageComplete"])
         self.assertEqual(state["scope"], "known-local-privacy-stores-v4")
         self.assertTrue(state["persistenceCatalog"]["complete"])
-        self.assertEqual(state["persistenceCatalog"]["tableCount"], 83)
+        self.assertEqual(state["persistenceCatalog"]["tableCount"], 85)
         self.assertTrue(state["persistenceCatalog"]["mappingComplete"])
         self.assertEqual(state["persistenceCatalog"]["subjectExecutionRequiredCount"],23)
         self.assertEqual(state["persistenceCatalog"]["executionGapCount"],10)

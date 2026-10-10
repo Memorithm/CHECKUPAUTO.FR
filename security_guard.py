@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from contextlib import contextmanager
 from pathlib import Path
 import datetime
 import hashlib
@@ -29,7 +30,7 @@ _AUTH_FAIL = defaultdict(deque)
 _AUTH_FAIL_BURST = {}
 _AUTH_FAIL_BURST_SECONDS = 5.0
 _ENDPOINT_REQ = defaultdict(deque)
-_ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/api/events': 60, '/go/booking': 20, '/api/booking-test/create': 10, '/api/booking-test/remove': 10, '/api/mobile/installations/register': 12, '/api/mobile/installations/delete': 12, '/api/mobile/devices/register': 12, '/api/mobile/devices/unregister': 12, '/api/mobile/claims/consume': 20, '/api/mobile/inventory': 30, '/api/mobile/reminders/sync': 30, '/api/admin/mobile/claims/issue': 12, '/api/admin/auth/2fa/setup': 4, '/api/admin/auth/2fa/confirm': 8, '/api/admin/auth/2fa/verify': 8, '/api/payments/payline/start': 8, '/api/payment-test/session': 4, '/api/payment-test/create': 4, '/api/payment-test/result': 8, '/api/payment-test/status': 12, '/api/payment-test/remove': 6, '/api/customer/reports': 6, '/compte/connexion': 10, '/compte/inscription': 4, '/compte/mot-de-passe-oublie': 4, '/compte/reinitialiser': 6, '/api/customer/vehicles': 20, '/api/customer/vehicles/delete': 10}
+_ENDPOINT_LIMITS = {'/api/geo/coverage': 6, '/api/geo/quote': 30, '/api/booking/availability': 45, '/api/events': 60, '/go/booking': 20, '/api/booking-test/create': 10, '/api/booking-test/remove': 10, '/api/mobile/installations/register': 12, '/api/mobile/installations/delete': 12, '/api/mobile/devices/register': 12, '/api/mobile/devices/unregister': 12, '/api/mobile/claims/consume': 20, '/api/mobile/inventory': 30, '/api/mobile/reminders/sync': 30, '/api/admin/mobile/claims/issue': 12, '/api/admin/auth/2fa/setup': 4, '/api/admin/auth/2fa/confirm': 8, '/api/admin/auth/2fa/verify': 8, '/api/payments/payline/start': 8, '/api/payment-test/session': 4, '/api/payment-test/create': 4, '/api/payment-test/result': 8, '/api/payment-test/status': 12, '/api/payment-test/remove': 6, '/api/customer/reports': 6, '/compte/connexion': 10, '/compte/inscription': 4, '/compte/mot-de-passe-oublie': 4, '/compte/reinitialiser': 6, '/api/customer/vehicles': 20, '/api/customer/vehicles/delete': 10, '/api/mobile/auth/exchange': 10, '/api/mobile/auth/apple': 10, '/api/mobile/auth/apple/nonce': 10}
 _BANNED = {}
 _RISK = {}
 _STATE_WRITE = {}
@@ -68,9 +69,24 @@ def _ensure_secret():
         SECRET_FILE.write_text(secrets.token_urlsafe(48) + '\n')
         SECRET_FILE.chmod(0o600)
     return SECRET_FILE.read_text().strip()
+@contextmanager
+def _db():
+    """One transaction on a connection that is always closed (audit Q-03).
+
+    ``with sqlite3.connect(...)`` only commits; the handle stayed open until
+    garbage collection, leaking descriptors in the long-running server.
+    """
+    connection = sqlite3.connect(DB)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def init_db():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.execute('''CREATE TABLE IF NOT EXISTS security_events(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           occurred_at TEXT NOT NULL,
@@ -196,7 +212,7 @@ def _persist_state(client: str, force=False):
     _STATE_WRITE[client]=now_m
     now=_utcnow(); until=(now+datetime.timedelta(seconds=remaining)).isoformat(timespec='seconds') if remaining>0 else ''
     try:
-        with sqlite3.connect(DB) as db:
+        with _db() as db:
             db.execute('''INSERT INTO security_client_state(day,client_hash,risk,last_seen,quarantine_until)
               VALUES(?,?,?,?,?) ON CONFLICT(day,client_hash) DO UPDATE SET
               risk=excluded.risk,last_seen=excluded.last_seen,quarantine_until=excluded.quarantine_until''',
@@ -208,7 +224,7 @@ def _persist_state(client: str, force=False):
 def _restore_persistent_state():
     today=datetime.date.today().isoformat(); now=_utcnow(); mono=time.monotonic()
     try:
-        with sqlite3.connect(DB) as db:
+        with _db() as db:
             db.row_factory=sqlite3.Row
             rows=list(db.execute('SELECT client_hash,risk,last_seen,quarantine_until FROM security_client_state WHERE day=?',(today,)))
         for row in rows:
@@ -234,7 +250,7 @@ def _prune_paths(q: deque, now: float, window: float):
 
 def _record(client: str, method: str, path: str, action: str, reason: str, risk=0, status=0):
     try:
-        with sqlite3.connect(DB) as db:
+        with _db() as db:
             db.execute(
                 'INSERT INTO security_events(occurred_at,client_hash,method,path,status,risk,action,reason) VALUES(?,?,?,?,?,?,?,?)',
                 (_now_iso(), client, method[:12], path[:180], int(status), int(risk), action[:24], reason[:180]),
@@ -442,7 +458,7 @@ STATUS_MAX_DAYS = 30
 def status(days=1):
     days = max(1, min(int(days), STATUS_MAX_DAYS))
     since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).isoformat(timespec='seconds')
-    with sqlite3.connect(DB) as db:
+    with _db() as db:
         db.row_factory = sqlite3.Row
         total = db.execute('SELECT COUNT(*) n FROM security_events WHERE occurred_at>=?', (since,)).fetchone()['n']
         blocked = db.execute("SELECT COUNT(*) n FROM security_events WHERE occurred_at>=? AND action IN ('block','quarantine')", (since,)).fetchone()['n']
