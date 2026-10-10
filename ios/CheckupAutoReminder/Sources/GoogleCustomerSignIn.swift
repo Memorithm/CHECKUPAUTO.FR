@@ -16,7 +16,7 @@ final class GoogleCustomerSignIn: NSObject, ASWebAuthenticationPresentationConte
             URLQueryItem(name: "code_challenge", value: Self.codeChallenge(for: verifier))
         ]
         let url = components.url!
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let auth = ASWebAuthenticationSession(url: url, callbackURLScheme: "checkupauto") { callback, error in
                 if let error {
                     continuation.resume(throwing: error)
