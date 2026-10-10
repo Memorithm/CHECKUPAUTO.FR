@@ -12,6 +12,7 @@ import sqlite3
 import threading
 import time
 from urllib.parse import unquote, urlsplit
+import ipaddress
 
 import security_behavior as behavior
 import security_alerts as alerts
@@ -105,8 +106,68 @@ def client_hash(ip: str) -> str:
     return hmac.new(_ensure_secret().encode(), raw, hashlib.sha256).hexdigest()[:20]
 
 
+TRUSTED_PROXIES_ENV = 'CYBERCHECK_TRUSTED_PROXIES'
+CLIENT_IP_HEADER_ENV = 'CYBERCHECK_CLIENT_IP_HEADER'
+# Production runs behind a local Cloudflare Tunnel connector (loopback peer).
+DEFAULT_TRUSTED_PROXIES = '127.0.0.0/8,::1/128'
+DEFAULT_CLIENT_IP_HEADER = 'cf-connecting-ip'
+_CLIENT_IP_HEADERS = {'cf-connecting-ip', 'x-forwarded-for', 'none'}
+
+
+def _valid_ip(value) -> str:
+    try:
+        return str(ipaddress.ip_address(str(value or '').strip()))
+    except ValueError:
+        return ''
+
+
+def trusted_proxy_networks() -> tuple:
+    raw = os.environ.get(TRUSTED_PROXIES_ENV)
+    raw = DEFAULT_TRUSTED_PROXIES if raw is None else raw
+    networks = []
+    for item in str(raw).split(','):
+        item = item.strip()
+        if not item or item.lower() == 'none':
+            continue
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
+def client_ip_header() -> str:
+    value = str(os.environ.get(CLIENT_IP_HEADER_ENV) or DEFAULT_CLIENT_IP_HEADER).strip().lower()
+    return value if value in _CLIENT_IP_HEADERS else 'none'
+
+
+def _peer_is_trusted_proxy(peer: str) -> bool:
+    if not peer:
+        return False
+    address = ipaddress.ip_address(peer)
+    return any(address.version == net.version and address in net for net in trusted_proxy_networks())
+
+
 def client_ip(headers, peer_ip=''):
-    return (headers.get('CF-Connecting-IP') or headers.get('X-Forwarded-For', '').split(',')[0].strip() or peer_ip or 'unknown')[:80]
+    """Return the client address used for rate limits and bans.
+
+    Forwarding headers are client-controlled unless the direct peer is a
+    configured trusted proxy (``CYBERCHECK_TRUSTED_PROXIES``). Only the single
+    header named by ``CYBERCHECK_CLIENT_IP_HEADER`` is then honoured; for
+    ``X-Forwarded-For`` the right-most entry (added by the trusted proxy) is used.
+    """
+    peer = _valid_ip(peer_ip)
+    if peer and _peer_is_trusted_proxy(peer):
+        header = client_ip_header()
+        forwarded = ''
+        if header == 'cf-connecting-ip':
+            forwarded = _valid_ip(headers.get('CF-Connecting-IP'))
+        elif header == 'x-forwarded-for':
+            entries = [part.strip() for part in str(headers.get('X-Forwarded-For') or '').split(',')]
+            forwarded = _valid_ip(entries[-1]) if entries else ''
+        if forwarded:
+            return forwarded
+    return (peer or str(peer_ip or '').strip() or 'unknown')[:80]
 
 
 def _utcnow():
