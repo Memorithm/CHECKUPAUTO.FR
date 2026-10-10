@@ -28,10 +28,14 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]
+    # GitHub-hosted macOS by default: the self-hosted Mac pool has not picked up
+    # a job since 2026-10-03. Set the repository variable
+    # CHECKUPAUTO_IOS_SELF_HOSTED=true to return to the private Mac runners.
+    # No secret is used by this job.
+    runs-on: ${{ vars.CHECKUPAUTO_IOS_SELF_HOSTED == 'true' && fromJSON('["self-hosted","macOS","ARM64","checkupauto","ios","ios-light"]') || 'macos-15' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
@@ -39,9 +43,15 @@ jobs:
 
 
 
+      - name: Install XcodeGen when missing
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          command -v xcodegen >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
       - name: Verify Apple toolchain
         run: |
           set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           sw_vers
           xcodebuild -version
           xcodegen --version
@@ -60,13 +70,18 @@ jobs:
           CHECKUPAUTO_API_BASE_URL='https://test.checkupauto.fr' /tmp/checkupauto-live-staging
   xcode:
     needs: swift
-    runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]
-    timeout-minutes: 30
+    runs-on: ${{ vars.CHECKUPAUTO_IOS_SELF_HOSTED == 'true' && fromJSON('["self-hosted","macOS","ARM64","checkupauto","ios","ios-heavy"]') || 'macos-15' }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Install XcodeGen when missing
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          command -v xcodegen >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
       - name: Generate project and run simulator tests
         working-directory: ios/CheckupAutoReminder
         run: |

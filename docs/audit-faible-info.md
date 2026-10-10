@@ -73,7 +73,7 @@ Ce document accompagne la PR « Audit sécurité : correctifs de sévérité Fai
 - **Q-06** : l'annotation `VerifiedBookingIdentity` est importée sous `TYPE_CHECKING`.
 - **Q-07**
   - `ruff.toml` contient une configuration minimale (E9, F63, F7, F82), sans règle de style.
-  - L'étape CI correspondante est dans `docs/patches/o02-q07-workflow-pinning-ruff.patch` (voir plus bas).
+  - L'étape CI correspondante est ajoutée à `security-ci.yml`.
 - **R-02**
   - Le consentement cookies est lié à une empreinte de la liste des traceurs (`policyVersion`). Si la liste change, la question est reposée.
   - Les visiteurs déjà décidés verront le bandeau **une fois** après le déploiement, car leur choix ne porte pas encore de version.
@@ -103,17 +103,6 @@ Ce document accompagne la PR « Audit sécurité : correctifs de sévérité Fai
 - **H-02** : `.gitignore` couvre `.ruff_cache/`, `.mypy_cache/`, `.ci-venv/` et `node_modules/`.
 - **H-01, H-03, H-04, H-05** : rien à corriger dans le code. Pour H-01, activer la suppression automatique des branches fusionnées et nettoyer les branches distantes.
 
-## Correctif de workflows (portée `workflow` requise)
+## Workflows
 
-Le jeton utilisé pour cette PR ne peut pas modifier `.github/workflows/`. Il faut appliquer, **dans cet ordre**, avec un compte disposant de la portée `workflow` :
-
-```bash
-git apply docs/patches/o01-ci-runner-isolation.patch          # PR Moyenne
-git apply docs/patches/o02-q07-workflow-pinning-ruff.patch    # cette PR
-python -m unittest ci_runner_isolation_test workflow_pinning_test
-git rm docs/patches/*.patch
-git add -A .github/workflows ci_runner_isolation_test.py workflow_pinning_test.py
-git commit -m "ci: isolation des runners, épinglage des actions et ruff (audit O-01, O-02, Q-07)"
-```
-
-L'étape ruff échoue tant que la PR Élevée (#687, correctif Q-01) n'est pas fusionnée, car elle détecte précisément le `NameError` corrigé par Q-01.
+Les correctifs de workflows (O-01, O-02, Q-07) et la CI iOS sur `macos-15` sont appliqués directement dans `.github/workflows/` (voir `docs/ci-runner-isolation.md`).

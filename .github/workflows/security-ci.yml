@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    # Pull request code runs on ephemeral GitHub-hosted runners, never on the
+    # self-hosted fleet that shares labels with the production deploy runner.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-24.04' || fromJSON('["self-hosted","Linux","ARM64","internal"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -33,6 +35,10 @@ jobs:
         run: |
           python3 -m venv .ci-venv
           .ci-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Static analysis (ruff, syntax errors and undefined names)
+        run: |
+          .ci-venv/bin/python -m pip install --disable-pip-version-check ruff==0.17.0
+          .ci-venv/bin/ruff check .
       - name: Prepare isolated runtime data
         run: |
           test -d /dev/shm && test -w /dev/shm

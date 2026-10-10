@@ -7,9 +7,16 @@ WORKFLOW=ROOT/".github"/"workflows"/"ios-core-ci.yml"
 class IOSCIContractTest(unittest.TestCase):
     def test_native_mac_runner_labels_are_required(self):
         text=WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-light]",text)
-        self.assertIn("runs-on: [self-hosted, macOS, ARM64, checkupauto, ios, ios-heavy]",text)
+        self.assertIn('fromJSON(\'["self-hosted","macOS","ARM64","checkupauto","ios","ios-light"]\')',text)
+        self.assertIn('fromJSON(\'["self-hosted","macOS","ARM64","checkupauto","ios","ios-heavy"]\')',text)
         self.assertIn("needs: swift",text)
+
+    def test_hosted_macos_is_default_and_no_secret_is_used(self):
+        text=WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(text.count("|| 'macos-15' }}"),2)
+        self.assertIn("vars.CHECKUPAUTO_IOS_SELF_HOSTED == 'true'",text)
+        self.assertNotIn("secrets.",text)
+        self.assertIn("brew install xcodegen",text)
 
     def test_ci_no_longer_relays_through_ssh(self):
         text=WORKFLOW.read_text(encoding="utf-8")
