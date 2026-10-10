@@ -4,14 +4,47 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import re
+import secrets
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import customer_oidc_admin
 
 ROUTE = "/api/admin/customers/oidc"
 MAX_BODY = 16384
+
+
+def _csrf_key_path() -> Path:
+    return Path(os.environ.get("CYBERCHECK_PRIVATE_DIR", "/root/CyberCheckPrivate")) / "admin" / "csrf.key"
+
+
+def csrf_secret() -> str:
+    """Dedicated random CSRF key, independent of the admin password (audit S-07)."""
+    path = _csrf_key_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except PermissionError:
+        pass
+    if not path.exists() and not path.is_symlink():
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            fd = -1
+        if fd >= 0:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(secrets.token_bytes(32))
+                handle.flush()
+                os.fsync(handle.fileno())
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as handle:
+        key = handle.read(33)
+    if len(key) != 32:
+        raise RuntimeError("admin_csrf_key_invalid")
+    return key.hex()
 
 
 def csrf_token(secret: str, headers, hour: int | None = None) -> str:
