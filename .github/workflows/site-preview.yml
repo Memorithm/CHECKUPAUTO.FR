@@ -22,6 +22,26 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 4
     steps:
+      - name: Refuse protected runners for pull request code
+        if: github.event_name == 'pull_request'
+        env:
+          PROTECTED_RUNNERS: ${{ vars.CHECKUPAUTO_PROTECTED_RUNNERS }}
+        run: |
+          set -euo pipefail
+          # Runs before checkout: pull request code never reaches a runner listed
+          # in the CHECKUPAUTO_PROTECTED_RUNNERS repository variable.
+          if [ -z "${PROTECTED_RUNNERS:-}" ]; then
+            echo "::warning::CHECKUPAUTO_PROTECTED_RUNNERS is not set; protected runner guard inactive"
+            exit 0
+          fi
+          IFS=',' read -r -a protected <<< "$PROTECTED_RUNNERS"
+          for name in "${protected[@]}"; do
+            name="$(printf '%s' "$name" | tr -d '[:space:]')"
+            if [ -n "$name" ] && [ "$RUNNER_NAME" = "$name" ]; then
+              echo "::error::Pull request jobs must not run on protected runner $RUNNER_NAME"
+              exit 1
+            fi
+          done
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
