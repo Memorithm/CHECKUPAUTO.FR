@@ -23,7 +23,7 @@ from customer_vehicle_inputs import (SIV_PATTERN, FNI_PATTERN, FORMULA_PATTERN, 
 
 import referral_engine
 import mercure_invoice_contact_contract as invoice_contact
-from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, VehicleCharacteristicsError
+from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, require_booking_essentials, VehicleCharacteristicsError
 
 PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
