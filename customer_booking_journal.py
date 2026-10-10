@@ -190,3 +190,44 @@ def pending_provider_reference(*, account_id: str, key: object) -> str:
     if row is None or not account_id or row["account_hash"]!=_digest(account_id):
         raise BookingJournalError("booking_request_not_found")
     return row["provider_reference"]
+
+
+def _count_and_delete(predicate: str, args: tuple, *, dry_run: bool) -> int:
+    from contextlib import closing
+    with closing(_connect()) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            _initialize(db)
+            count = int(db.execute(f"SELECT COUNT(*) FROM booking_request WHERE {predicate}", args).fetchone()[0])
+            if count and not dry_run:
+                db.execute(f"DELETE FROM booking_request WHERE {predicate}", args)
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+    return count
+
+
+def erase_account(account_id: str, *, dry_run: bool = False) -> int:
+    """Remove every journal row bound to one erased customer account."""
+    if not account_id:
+        raise BookingJournalError("booking_request_invalid")
+    return _count_and_delete("account_hash=?", (_digest(account_id),), dry_run=dry_run)
+
+
+def remaining_for_account(account_id: str) -> int:
+    return _count_and_delete("account_hash=?", (_digest(account_id),), dry_run=True)
+
+
+def purge_abandoned(cutoff_iso: str, *, dry_run: bool = False) -> int:
+    """Remove 'prepared' rows (no provider write ever attempted) older than cutoff.
+
+    Rows awaiting reconciliation are never purged automatically: an ambiguous
+    provider write must be reconciled first.
+    """
+    return _count_and_delete("state='prepared' AND updated_at<?", (str(cutoff_iso),), dry_run=dry_run)
+
+
+def purge_confirmed(cutoff_iso: str, *, dry_run: bool = False) -> int:
+    """Remove confirmed rows older than an operator-approved retention cutoff."""
+    return _count_and_delete("state='confirmed' AND updated_at<?", (str(cutoff_iso),), dry_run=dry_run)

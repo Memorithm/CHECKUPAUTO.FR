@@ -6,6 +6,7 @@ from pathlib import Path
 
 import customer_account_erasure_plan
 import customer_accounts
+import customer_booking_journal
 import customer_ct_reports
 import data_subject_rights
 
@@ -191,6 +192,10 @@ def erase(
         if remaining_reports:
             raise RuntimeError("effacement rapports client incomplet")
 
+    removed_bookings=customer_booking_journal.erase_account(account_id)
+    if customer_booking_journal.remaining_for_account(account_id):
+        raise RuntimeError("effacement journal de réservation incomplet")
+
     customer_accounts.init_db()
     with customer_accounts._connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -234,6 +239,7 @@ def erase(
         "removedAccountCount":removed_account,
         "removedIdentityCount":removed_identity,
         "removedReportCount":removed_reports,
+        "removedBookingJournalCount":removed_bookings,
         "remainingAccountCount":remaining_account,
         "remainingIdentityCount":remaining_identity,
         "remainingReportCount":remaining_reports,

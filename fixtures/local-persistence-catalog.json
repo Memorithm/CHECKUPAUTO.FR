@@ -47,8 +47,8 @@
       "table": "booking_request",
       "module": "customer_booking_journal.py",
       "subjectRelation": "pseudonymous",
-      "executionState": "partial",
-      "adapter": "",
+      "executionState": "wired",
+      "adapter": "customer_account",
       "subjectExecutionRequired": true
     },
     {
@@ -170,6 +170,14 @@
       "executionState": "wired",
       "adapter": "customer_account",
       "subjectExecutionRequired": true
+    },
+    {
+      "table": "customer_password_throttle",
+      "module": "customer_accounts.py",
+      "subjectRelation": "transient",
+      "executionState": "ephemeral",
+      "adapter": "customer_accounts",
+      "subjectExecutionRequired": false
     },
     {
       "table": "customer_password_token",

@@ -12,6 +12,12 @@ from pathlib import Path
 import analytics_store
 import booking_bridge
 import compliance_store
+import customer_accounts
+import customer_booking_journal
+import customer_ct_reports
+import customer_oidc
+import customer_password_auth
+import mobile_auth_ticket
 import mobile_devices
 import migration_write_freeze
 import notification_broker
@@ -26,6 +32,7 @@ import site_config_store
 
 MAX_RETENTION_DAYS = 36500
 CNIL_OPPOSITION_MIN_DAYS = 1095
+CUSTOMER_BOOKING_ABANDONED_DAYS = 30
 BACKGROUND_INTERVAL_SECONDS = 3600
 _RUN_LOCK = threading.Lock()
 _STOP = threading.Event()
@@ -76,6 +83,42 @@ AUTO_RULES = {
         "source": "CNIL opposition minimum 3 ans",
         "store": "compliance.privacy_suppression",
         "trigger": "updated_at after deactivation",
+    },
+    "customer_expired_sessions": {
+        "label": "Sessions client expirées",
+        "mode": "event",
+        "source": "customer_accounts.SESSION_TTL_HOURS",
+        "store": "customer_accounts.customer_session",
+        "trigger": "expires_at",
+    },
+    "customer_password_transient": {
+        "label": "Inscriptions non confirmées, jetons et limitations de connexion",
+        "mode": "event",
+        "source": "customer_password_auth.PENDING_ACCOUNT_TTL_HOURS / token expiry",
+        "store": "customer_accounts.customer_password_credential/token/throttle",
+        "trigger": "created_at / expires_at / updated_at",
+    },
+    "customer_oidc_flows": {
+        "label": "Parcours de connexion OIDC abandonnés",
+        "mode": "event",
+        "source": "OIDC flow expiry",
+        "store": "customer_oidc.customer_oidc_flow",
+        "trigger": "expires_at",
+    },
+    "mobile_auth_tickets": {
+        "label": "Tickets de connexion mobile expirés",
+        "mode": "event",
+        "source": "mobile_auth_ticket.TTL_SECONDS",
+        "store": "mobile_auth_ticket.mobile_auth_ticket",
+        "trigger": "expires_at",
+    },
+    "customer_booking_abandoned": {
+        "label": "Réservations préparées jamais transmises",
+        "mode": "fixed_duration",
+        "activeDays": CUSTOMER_BOOKING_ABANDONED_DAYS,
+        "source": "idempotence technique (aucune écriture Mercure tentée)",
+        "store": "customer_booking_journal.booking_request (state=prepared)",
+        "trigger": "updated_at",
     },
     "checkout_acceptance_transient": {
         "label": "Liaison technique acceptation→Mercure",
@@ -146,6 +189,20 @@ CONFIGURABLE_RULES = {
         "store": "security events / behavior / acknowledged alerts",
         "trigger": "event timestamp",
         "minimumDays": 1,
+    },
+    "customer_inactive_accounts": {
+        "label": "Comptes clients inactifs (sans cagnotte en cours)",
+        "store": "customer_account + rapports CT + journal de réservation",
+        "trigger": "dernière activité (profil, connexion, session)",
+        "minimumDays": 365,
+        "recommendedDays": 1095,
+    },
+    "customer_booking_confirmed": {
+        "label": "Journal des réservations confirmées",
+        "store": "customer_booking_journal.booking_request (state=confirmed)",
+        "trigger": "updated_at",
+        "minimumDays": 1,
+        "legalReviewRequired": True,
     },
     "referral_ledger": {
         "label": "Parrainage / ledger",
@@ -678,6 +735,34 @@ def _purge_rights_evidence(days: int, *, dry_run: bool, db_path: Path | str | No
     return removed
 
 
+def _purge_customer_booking_abandoned(*, dry_run: bool) -> int:
+    return customer_booking_journal.purge_abandoned(
+        _cutoff(CUSTOMER_BOOKING_ABANDONED_DAYS), dry_run=dry_run
+    )
+
+
+def _purge_inactive_customer_accounts(days: int, *, dry_run: bool) -> int:
+    """Erase inactive accounts, keeping any account that still holds wallet value."""
+    removed = 0
+    for account_id in customer_accounts.inactive_account_ids(_cutoff(days)):
+        loyalty = customer_accounts.profile(account_id).get("loyalty") or {}
+        if int(loyalty.get("balanceCents") or 0) or int(loyalty.get("pendingCents") or 0):
+            continue
+        removed += 1
+        if dry_run:
+            continue
+        customer_ct_reports.init_db()
+        with customer_ct_reports._connect() as db:
+            db.execute("DELETE FROM customer_ct_report WHERE account_id=?", (account_id,))
+        customer_booking_journal.erase_account(account_id)
+        customer_accounts.init_db()
+        with customer_accounts._connect() as db:
+            db.execute("DELETE FROM customer_account WHERE account_id=?", (account_id,))
+            if db.execute("SELECT COUNT(*) FROM customer_account WHERE account_id=?", (account_id,)).fetchone()[0]:
+                raise RuntimeError("purge compte inactif incomplète")
+    return removed
+
+
 def _compact_referral_ledger(days: int, *, dry_run: bool) -> int:
     result = referral_engine.compact_ledger(days, dry_run=dry_run)
     if not bool(result.get("ok")):
@@ -719,6 +804,10 @@ def _run_configurable_rule(
         return _purge_rights_evidence(days, dry_run=dry_run, db_path=db_path)
     if rule_id == "referral_ledger":
         return _compact_referral_ledger(days, dry_run=dry_run)
+    if rule_id == "customer_inactive_accounts":
+        return _purge_inactive_customer_accounts(days, dry_run=dry_run)
+    if rule_id == "customer_booking_confirmed":
+        return customer_booking_journal.purge_confirmed(_cutoff(days), dry_run=dry_run)
     raise NotImplementedError(rule_id)
 
 
@@ -761,6 +850,21 @@ def _run_once_unlocked(
         elif rule_id == "inactive_privacy_suppressions":
             cutoff_at = _cutoff(CNIL_OPPOSITION_MIN_DAYS)
             removed = _purge_inactive_suppressions(dry_run=dry_run, db_path=db_path)
+        elif rule_id == "customer_expired_sessions":
+            cutoff_at = _now_iso()
+            removed = customer_accounts.purge_expired_sessions(dry_run=dry_run)
+        elif rule_id == "customer_password_transient":
+            cutoff_at = _now_iso()
+            removed = customer_password_auth.purge_stale(dry_run=dry_run)
+        elif rule_id == "customer_oidc_flows":
+            cutoff_at = _now_iso()
+            removed = customer_oidc.purge_expired_flows(dry_run=dry_run)
+        elif rule_id == "mobile_auth_tickets":
+            cutoff_at = _now_iso()
+            removed = mobile_auth_ticket.purge_expired(dry_run=dry_run)
+        elif rule_id == "customer_booking_abandoned":
+            cutoff_at = _cutoff(CUSTOMER_BOOKING_ABANDONED_DAYS)
+            removed = _purge_customer_booking_abandoned(dry_run=dry_run)
         elif rule_id == "checkout_acceptance_transient":
             cutoff_at = _now_iso()
             removed = _purge_checkout_acceptance_transient(

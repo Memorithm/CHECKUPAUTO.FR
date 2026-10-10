@@ -38,3 +38,17 @@ def consume(ticket: str) -> str:
     if not row or now>=dt.datetime.fromisoformat(row["expires_at"]):
         raise PermissionError("mobile_auth_ticket_invalid")
     return str(row["session_token"])
+
+
+def purge_expired(*, dry_run: bool = False) -> int:
+    """Remove expired one-time tickets (retention, independent of new issues)."""
+    if not _path().is_file():
+        return 0
+    now=dt.datetime.now(dt.timezone.utc).isoformat()
+    from contextlib import closing
+    with closing(_db()) as db:
+        count=int(db.execute("SELECT COUNT(*) FROM mobile_auth_ticket WHERE expires_at<?",(now,)).fetchone()[0])
+        if count and not dry_run:
+            db.execute("DELETE FROM mobile_auth_ticket WHERE expires_at<?",(now,))
+            db.commit()
+    return count
