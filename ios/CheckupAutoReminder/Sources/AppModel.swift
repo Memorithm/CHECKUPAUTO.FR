@@ -31,6 +31,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var deletingAllData = false
     @Published private(set) var customerSignedIn = CustomerSessionKeychain.load() != nil
     private var appleSignInNonce: String?
+    private var prefetchedAppleSignInNonce: (value: String, fetchedAt: Date)?
     @Published private(set) var installationRegistrationSuppressed =
         InstallationLifecycleState.isAutoRegistrationSuppressed()
 
@@ -51,6 +52,7 @@ final class AppModel: ObservableObject {
             referralWallets = snapshot.wallets
         }
         Task {
+            await prefetchAppleSignInNonce()
             await refreshNotificationState()
             await rescheduleAll()
             try? await DeviceRegistrationClient.registerInstallation()
@@ -66,7 +68,12 @@ final class AppModel: ObservableObject {
     }
 
     func prepareAppleSignIn(_ request: ASAuthorizationAppleIDRequest) {
-        let nonce = AppleSignInNonce.make()
+        // Nonce serveur pré-chargé si disponible ; sinon nonce local, accepté
+        // tant que CYBERCHECK_APPLE_SERVER_NONCE_REQUIRED n'est pas activé.
+        // Le serveur le garde 10 minutes : au-delà de 8, on n'utilise plus le pré-chargé.
+        let fresh = prefetchedAppleSignInNonce.flatMap { Date().timeIntervalSince($0.fetchedAt) < 480 ? $0.value : nil }
+        let nonce = fresh ?? AppleSignInNonce.make()
+        prefetchedAppleSignInNonce = nil
         appleSignInNonce = nonce
         request.requestedScopes = [.fullName, .email]
         request.nonce = AppleSignInNonce.sha256(nonce)
@@ -89,6 +96,15 @@ final class AppModel: ObservableObject {
                 customerSignedIn = false
                 errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
             }
+            await prefetchAppleSignInNonce()
+        }
+    }
+
+    /// Pré-charge un nonce serveur : la requête Apple est préparée de façon synchrone.
+    func prefetchAppleSignInNonce() async {
+        guard !customerSignedIn else { return }
+        if let nonce = try? await AppleSignInNonceClient.fetch() {
+            prefetchedAppleSignInNonce = (nonce, Date())
         }
     }
 

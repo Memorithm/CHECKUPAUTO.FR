@@ -185,6 +185,7 @@ struct ContentView: View {
                 }
                 .signInWithAppleButtonStyle(.black)
                 .frame(height: 48)
+                .task { await model.prefetchAppleSignInNonce() }
                 Button("Continuer avec Google") { model.signInWithGoogle() }
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity, minHeight: 48)

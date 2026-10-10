@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 struct VehicleDeadline: Codable, Identifiable, Hashable {
     let id: UUID
@@ -54,24 +55,98 @@ enum ReminderPlan {
     }
 }
 
+/// Stockage protégé des échéances locales (audit I-02).
+///
+/// Les immatriculations ne restent plus dans `UserDefaults` (plist en clair
+/// dans les sauvegardes non chiffrées) : elles vont dans le trousseau, classe
+/// `AfterFirstUnlock` pour que les rappels puissent être replanifiés en arrière-plan.
+protocol VehicleDeadlineSecureStorage: Sendable {
+    func read() -> Data?
+    func write(_ data: Data) throws
+    func delete()
+}
+
+struct KeychainVehicleDeadlineStorage: VehicleDeadlineSecureStorage {
+    var service = "fr.checkupauto.reminder.vehicle-deadlines"
+    var account = VehicleDeadlineStore.storageKey
+
+    private var base: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+    }
+
+    func read() -> Data? {
+        var query = base
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
+        return item as? Data
+    }
+
+    func write(_ data: Data) throws {
+        SecItemDelete(base as CFDictionary)
+        var insert = base
+        insert[kSecValueData as String] = data
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(insert as CFDictionary, nil)
+        guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+    }
+
+    func delete() {
+        SecItemDelete(base as CFDictionary)
+    }
+}
+
 enum VehicleDeadlineStore {
     static let storageKey = MobileAPI.storageKey("checkupauto.vehicle.deadlines.v1")
 
-    static func load(defaults: UserDefaults = .standard) -> [VehicleDeadline] {
-        guard let data = defaults.data(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode([VehicleDeadline].self, from: data) else {
+    static func load(
+        defaults: UserDefaults = .standard,
+        storage: any VehicleDeadlineSecureStorage = KeychainVehicleDeadlineStorage()
+    ) -> [VehicleDeadline] {
+        if let data = storage.read() {
+            return decode(data)
+        }
+        // Migration unique depuis UserDefaults : la copie en clair n'est
+        // supprimée qu'une fois l'écriture dans le trousseau réussie.
+        guard let legacy = defaults.data(forKey: storageKey) else { return [] }
+        if (try? storage.write(legacy)) != nil {
+            defaults.removeObject(forKey: storageKey)
+        }
+        return decode(legacy)
+    }
+
+    static func save(
+        _ vehicles: [VehicleDeadline],
+        defaults: UserDefaults = .standard,
+        storage: any VehicleDeadlineSecureStorage = KeychainVehicleDeadlineStorage()
+    ) {
+        guard let data = try? JSONEncoder().encode(vehicles) else { return }
+        if (try? storage.write(data)) != nil {
+            defaults.removeObject(forKey: storageKey)
+        } else {
+            // Ne jamais perdre les échéances si le trousseau est indisponible.
+            defaults.set(data, forKey: storageKey)
+        }
+    }
+
+    static func clear(
+        defaults: UserDefaults = .standard,
+        storage: any VehicleDeadlineSecureStorage = KeychainVehicleDeadlineStorage()
+    ) {
+        storage.delete()
+        defaults.removeObject(forKey: storageKey)
+    }
+
+    private static func decode(_ data: Data) -> [VehicleDeadline] {
+        guard let decoded = try? JSONDecoder().decode([VehicleDeadline].self, from: data) else {
             return []
         }
         return decoded.sorted { $0.controlDueDate < $1.controlDueDate }
-    }
-
-    static func save(_ vehicles: [VehicleDeadline], defaults: UserDefaults = .standard) {
-        guard let data = try? JSONEncoder().encode(vehicles) else { return }
-        defaults.set(data, forKey: storageKey)
-    }
-
-    static func clear(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: storageKey)
     }
 }
 

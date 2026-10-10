@@ -61,6 +61,27 @@ enum AppleSignInNonce {
     }
 }
 
+/// Nonce émis par le serveur, à usage unique et valable 10 minutes (audit S-06).
+struct AppleSignInServerNonce: Decodable {
+    let ok: Bool
+    let nonce: String
+}
+
+enum AppleSignInNonceClient {
+    static func fetch() async throws -> String {
+        var request = URLRequest(url: MobileAPI.endpoint("/api/mobile/auth/apple/nonce"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let decoded = try JSONDecoder().decode(AppleSignInServerNonce.self, from: data)
+        guard decoded.ok, decoded.nonce.count >= 32 else { throw URLError(.badServerResponse) }
+        return decoded.nonce
+    }
+}
+
 enum AppleSignInClient {
     static func authenticate(_ payload: AppleSignInCredentialPayload) async throws -> AppleSignInSessionResponse {
         var request = URLRequest(url: MobileAPI.endpoint("/api/mobile/auth/apple"))
