@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 import base64
+import fcntl
 import json
 import os
 import re
 import secrets
 import tempfile
+import threading
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -16,29 +19,72 @@ from deployment_center import DeploymentTarget
 _SCHEMA = 1
 _AAD = b"checkupauto-deployment-vault-v1"
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+KEY_FILE_ENV = "CYBERCHECK_DEPLOYMENT_VAULT_KEY_FILE"
+SYSTEMD_CREDENTIAL = "deployment-vault.key"
+_THREAD_LOCK = threading.RLock()
+
+
+def _external_key_path() -> Path | None:
+    """Key kept outside the vault directory (audit S-15).
+
+    ``CYBERCHECK_DEPLOYMENT_VAULT_KEY_FILE`` names it explicitly; otherwise a
+    systemd ``LoadCredential=deployment-vault.key:...`` is used when present.
+    """
+    explicit = os.environ.get(KEY_FILE_ENV, "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    credentials = os.environ.get("CREDENTIALS_DIRECTORY", "").strip()
+    if credentials and (Path(credentials) / SYSTEMD_CREDENTIAL).is_file():
+        return Path(credentials) / SYSTEMD_CREDENTIAL
+    return None
 
 
 class DeploymentVault:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser()
-        self.key_path = self.root / "master.key"
+        external = _external_key_path()
+        self.external_key = external is not None
+        self.key_path = external if external is not None else self.root / "master.key"
         self.data_path = self.root / "targets.enc"
 
     def _ensure_root(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.root.chmod(0o700)
 
+    @contextmanager
+    def _locked(self):
+        """Serialise read-modify-write cycles across threads and processes."""
+        self._ensure_root()
+        with _THREAD_LOCK:
+            fd = os.open(self.root / ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+
+    def _read_key(self) -> bytes:
+        try:
+            fd = os.open(self.key_path, os.O_RDONLY | os.O_NOFOLLOW)
+        except OSError as exc:
+            raise RuntimeError("clé du coffre de déploiement invalide") from exc
+        with os.fdopen(fd, "rb") as handle:
+            raw = handle.read(33)
+        if len(raw) != 32:
+            raise RuntimeError("clé du coffre de déploiement invalide")
+        return raw
+
     def _key(self) -> bytes:
         self._ensure_root()
-        if self.key_path.exists():
-            raw = self.key_path.read_bytes()
-            if len(raw) != 32:
-                raise RuntimeError("clé du coffre de déploiement invalide")
-            return raw
+        if self.external_key:
+            return self._read_key()
+        if self.key_path.exists() or self.key_path.is_symlink():
+            return self._read_key()
         raw = secrets.token_bytes(32)
         fd = os.open(
             self.key_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
             0o600,
         )
         try:
@@ -127,12 +173,13 @@ class DeploymentVault:
             secret = {"password": password}
         else:
             raise ValueError("mode d authentification invalide")
-        records = self._read_records()
-        records[key] = {
-            "target": target.public_dict(),
-            "credential": secret,
-        }
-        self._write_records(records)
+        with self._locked():
+            records = self._read_records()
+            records[key] = {
+                "target": target.public_dict(),
+                "credential": secret,
+            }
+            self._write_records(records)
 
     def load(self, name: str) -> dict[str, Any]:
         key = self._name(name)
@@ -143,10 +190,11 @@ class DeploymentVault:
 
     def delete(self, name: str) -> bool:
         key = self._name(name)
-        records = self._read_records()
-        removed = records.pop(key, None) is not None
-        if removed:
-            self._write_records(records)
+        with self._locked():
+            records = self._read_records()
+            removed = records.pop(key, None) is not None
+            if removed:
+                self._write_records(records)
         return removed
 
     def summaries(self) -> list[dict[str, Any]]:
