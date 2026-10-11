@@ -55,6 +55,7 @@ class BookingRouteTest(unittest.TestCase):
         self.customer_http = SimpleNamespace(
             consume_booking_confirmation=Mock(return_value={"required": False, "consumed": False}),
             booking_confirmation_url=Mock(return_value="/compte/reserver?returnTo=%2Fgo%2Fbooking"),
+            _account=Mock(return_value=("", None)),
         )
         scope = dict(
             booking=self.booking,
@@ -103,6 +104,12 @@ class BookingRouteTest(unittest.TestCase):
         self.handler.send_bytes.assert_called_once_with(b"<html>review</html>", "text/html; charset=utf-8", cache="no-store")
         self.booking.require_published_terms.assert_called_once_with()
         self.booking.create_intent.assert_called_once()
+
+    def test_logged_in_profile_is_passed_to_the_delegated_page(self):
+        account = {"accountId": "a", "surname": "Martin"}
+        self.customer_http._account.return_value = ("session", account)
+        self.route(self.handler)
+        self.assertIs(self.booking.auto_submit_html.call_args.kwargs["customer"], account)
 
     def test_flag_off_never_consults_on_site_routing(self):
         self.handler._in_site_booking_doc = Mock(side_effect=AssertionError("on-site routing"))

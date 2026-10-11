@@ -21,6 +21,13 @@ VEHICLE = {"vehicleId": "00000000-0000-4000-8000-0000000000aa", "registrationSys
 QUERY = urlencode({"referrer": "", "utmSource": "", "utmCampaign": "", "device": "desktop",
                    "path": "/", "service": "Contrôle technique",
                    "preferredDate": "2026-12-15", "preferredTime": "09:00"})
+# Logged-in customer whose profile is available: the delegated page additionally
+# shows, on our side only, the values to type into Mercure (Mercure accepts no
+# prefill parameter). Recomputed deliberately when that panel was introduced; the
+# page minus that panel must still be exactly GOLDEN_SHA256 (see the test below).
+GOLDEN_LOGGED_IN_SHA256 = "77d05b935ba3cb3bf34c145600397432909637292dc6247b408f2c0a82fb675f"
+ACCOUNT = {"accountId": "00000000-0000-4000-8000-000000000001", "surname": "Martin", "givenName": "Jeanne",
+           "email": "jeanne@example.test", "phone": "+33 6 12 34 56 78"}
 ON_SITE_ENV = ("CHECKUPAUTO_IN_SITE_BOOKING_ENABLED", "CHECKUPAUTO_MERCURE_CUSTOMER_WRITE_ENABLED",
                "CHECKUPAUTO_MERCURE_VL_LINE_ID", "CHECKUPAUTO_MERCURE_VL_OPERATOR_ID")
 
@@ -125,13 +132,54 @@ class DelegatedGoBookingRegressionTest(unittest.TestCase):
                                   return_value={"bookingEnabled": case["ready"]}), \
                         patch.object(app.booking_health, "session_status",
                                      return_value={"connected": case["connected"], "state": "x"}), \
-                        patch.object(app.customer_http, "_account", return_value=("t" * 43, {"accountId": "a"})), \
+                        patch.object(app.customer_http, "_account", return_value=("t" * 43, ACCOUNT)), \
                         patch.object(app.in_site_booking_page, "render_summary",
                                      side_effect=RuntimeError("boom") if case.get("render_error") else AssertionError("must not render")):
                     status, _, body = self.fetch(address)
-                self.assert_golden(body, status)
+                self.assertEqual(status, 200)
+                self.assertEqual(hashlib.sha256(body).hexdigest(), GOLDEN_LOGGED_IN_SHA256)
                 if reason != "render_error":
                     self.assertEqual(app.booking_health.snapshot()["fallbackReasons"], {reason: 1})
+
+    def test_logged_in_page_only_adds_the_mercure_copy_panel(self):
+        with self.server() as (app, address):
+            with patch.object(app.customer_http, "_account", return_value=("t" * 43, ACCOUNT)):
+                status, csp, body = self.fetch(address)
+        self.assertEqual(status, 200)
+        self.assertEqual(hashlib.sha256(body).hexdigest(), GOLDEN_LOGGED_IN_SHA256)
+        text = body.decode()
+        # Removing the panel and its script gives back the exact previous page.
+        panel_start = text.index('<style>.mc{')
+        panel_end = text.index('</section>', panel_start) + len('</section>')
+        script_start = text.index('<script nonce="nonce-000000000000000001">(()=>{')
+        script_end = text.index('</script>', script_start) + len('</script>')
+        stripped = text[:panel_start] + text[panel_end:script_start] + text[script_end:]
+        self.assertEqual(hashlib.sha256(stripped.encode()).hexdigest(), GOLDEN_SHA256)
+        panel = text[panel_start:panel_end]
+        for value in ("Martin", "Jeanne", "0612345678", "jeanne@example.test", "AB-123-CD",
+                      "mardi 15 décembre 2026 à 09:00"):
+            self.assertIn(value, panel)
+        # Personal data never goes into the form posted to Mercure nor into its URL.
+        form = text[text.index('<form id="mercure"'):text.index('</form>')]
+        for value in ("Martin", "Jeanne", "0612345678", "jeanne@example"):
+            self.assertNotIn(value, form)
+        self.assertEqual(form.count('<input type="hidden"'), 2)
+        self.assertIn("nonce-000000000000000001", csp)
+
+    def test_logged_in_without_usable_profile_keeps_previous_page(self):
+        with self.server() as (app, address):
+            vehicle_less = dict(VEHICLE, registration="")
+            for account in (None, {"accountId": "a"}):
+                with self.subTest(account=account), \
+                        patch.object(app.customer_http, "_account", return_value=("", account)), \
+                        patch.object(app.customer_http, "consume_booking_confirmation",
+                                     return_value={"required": True, "consumed": True, "confirmedAt": "",
+                                                   "vehicleId": VEHICLE["vehicleId"], "vehicle": vehicle_less}):
+                    with app.analytics.connect() as db:
+                        db.execute("DELETE FROM booking_intents")
+                    status, _, body = self.fetch(address)
+                self.assertEqual(status, 200)
+                self.assertNotIn(b'class="mc"', body)
 
     def test_flag_on_and_ready_renders_on_site_summary_with_delegated_fallback(self):
         account = {"accountId": "00000000-0000-4000-8000-000000000001", "givenName": "Jeanne",

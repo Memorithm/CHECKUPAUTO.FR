@@ -334,7 +334,94 @@ def preferred_mercure_quote(service, preferred_date, preferred_time):
     return None
 
 
-def auto_submit_html(token, service, nonce="", vehicle=None):
+_MONTHS_FR=("janvier","février","mars","avril","mai","juin","juillet","août",
+            "septembre","octobre","novembre","décembre")
+_WEEKDAYS_FR=("lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche")
+
+
+def _mercure_phone(value):
+    """Mercure n'accepte qu'une suite d'au moins 10 chiffres (pas de +33, ni d'espaces)."""
+    digits=re.sub(r'\D','',str(value or ''))
+    if str(value or '').strip().startswith('+33') or (digits.startswith('33') and len(digits)==11):
+        digits='0'+digits[2:]
+    return digits if re.fullmatch(r'\d{10,15}',digits) else ''
+
+
+def _slot_label(date_value,time_value):
+    try:
+        day=datetime.date.fromisoformat(str(date_value or ''))
+    except ValueError:
+        return ''
+    label=f"{_WEEKDAYS_FR[day.weekday()]} {day.day} {_MONTHS_FR[day.month-1]} {day.year}"
+    if re.fullmatch(r'\d{2}:\d{2}',str(time_value or '')):
+        label+=' à '+str(time_value)
+    return label
+
+
+def mercure_copy_fields(customer, vehicle):
+    """Valeurs à reporter dans le formulaire Mercure, dans l'ordre de ce formulaire.
+
+    Mercure ne lit aucun paramètre de pré-remplissage : ces valeurs restent sur
+    notre page et ne sont jamais ajoutées au formulaire envoyé à Mercure."""
+    if not isinstance(customer,dict):
+        return []
+    characteristics=dict((vehicle or {}).get('characteristics') or {}) if isinstance(vehicle,dict) else {}
+    rows=[
+        ('Nom',customer.get('surname')),('Prénom',customer.get('givenName')),
+        ('Téléphone',_mercure_phone(customer.get('phone'))),('E-mail',customer.get('email')),
+        ('Marque',characteristics.get('brand')),('Modèle',characteristics.get('model')),
+        ('Énergie',characteristics.get('energy')),
+        ('Immatriculation',(vehicle or {}).get('registration') if isinstance(vehicle,dict) else ''),
+    ]
+    return [(label,' '.join(str(value).split())) for label,value in rows if str(value or '').strip()]
+
+
+def _mercure_copy_markup(customer, vehicle, requirements, nonce):
+    fields=mercure_copy_fields(customer,vehicle)
+    if not fields:
+        return '',''
+    slot=_slot_label(requirements.get('preferredDate'),requirements.get('preferredTime'))
+    slot_markup=('<p class="mc-slot">Dans Mercure, choisissez le créneau du <strong>'
+                 +html.escape(slot)+'</strong>. Mercure affiche les créneaux à partir '
+                 'd’aujourd’hui : avancez jusqu’à cette date.</p>') if slot else ''
+    rows=''.join(
+        '<div class="mc-row"><dt>'+html.escape(label)+'</dt><dd><span id="mc-v'+str(i)+'">'
+        +html.escape(value)+'</span> <button type="button" class="mc-copy" data-copy="mc-v'+str(i)
+        +'" aria-label="Copier '+html.escape(label,quote=True)+'">Copier</button></dd></div>'
+        for i,(label,value) in enumerate(fields))
+    markup=('<style>.mc{border:1px solid #dedfd8;border-radius:16px;padding:16px 18px;margin:18px 0}'
+            '.mc h2{font-size:1.05rem;margin:0 0 6px}.mc dl{margin:10px 0 0}.mc-row{display:flex;flex-wrap:wrap;'
+            'justify-content:space-between;gap:6px 12px;padding:7px 0;border-top:1px solid #eeefe9}'
+            '.mc dt{font-weight:600}.mc dd{margin:0;overflow-wrap:anywhere}.mc .mc-copy{padding:4px 12px;'
+            'font-weight:600;background:#fff;color:#111;border:1px solid #111}.mc-note{font-size:.9rem;color:#4b4f45}'
+            '</style><section class="mc" aria-labelledby="mc-title"><h2 id="mc-title">Vos informations à reporter dans Mercure</h2>'
+            +slot_markup+'<p class="mc-note">Mercure ne permet pas de pré-remplir son formulaire depuis notre site. '
+            'Ces informations, issues de votre compte, restent sur cette page : rien n’est transmis à Mercure '
+            'tant que vous ne les saisissez pas.</p><dl>'+rows+'</dl><p id="mc-status" class="mc-note" role="status"></p></section>')
+    # Mercure s'ouvre dans un onglet nommé, ouvert pendant le clic (pas de blocage
+    # de fenêtre surgissante) : cette page reste disponible pour copier les valeurs.
+    # Si l'ouverture est refusée, le formulaire part dans l'onglet courant, comme avant.
+    script=('<script nonce="'+html.escape(str(nonce),quote=True)+'">(()=>{'
+            'const form=document.getElementById(\'mercure\'),terms=document.getElementById(\'terms\'),'
+            'immediate=document.getElementById(\'immediate\'),error=document.getElementById(\'error\'),'
+            'status=document.getElementById(\'mc-status\');let tab=null;'
+            'document.getElementById(\'continue\').addEventListener(\'click\',()=>{'
+            'if(!terms.checked||(immediate.type===\'checkbox\'&&!immediate.checked))return;'
+            'tab=window.open(\'about:blank\',\'checkupauto-mercure\');'
+            'if(tab){try{tab.opener=null}catch(_e){}form.target=\'checkupauto-mercure\';status.textContent=\'Mercure s’ouvre dans un nouvel onglet. '
+            'Gardez cet onglet pour copier vos informations.\'}else{form.removeAttribute(\'target\')}});'
+            'new MutationObserver(()=>{if(error.textContent&&tab){tab.close();tab=null;form.removeAttribute(\'target\')}})'
+            '.observe(error,{childList:true,characterData:true,subtree:true});'
+            'document.querySelectorAll(\'.mc-copy\').forEach(b=>b.addEventListener(\'click\',async()=>{'
+            'const node=document.getElementById(b.dataset.copy);'
+            'try{await navigator.clipboard.writeText(node.textContent);'
+            'status.textContent=b.getAttribute(\'aria-label\').replace(\'Copier\',\'Copié :\')}catch(_e){'
+            'const r=document.createRange();r.selectNodeContents(node);const w=getSelection();w.removeAllRanges();'
+            'w.addRange(r);status.textContent=\'Valeur sélectionnée : copiez-la avec Ctrl+C (ou appui long).\'}}))})();</script>')
+    return markup,script
+
+
+def auto_submit_html(token, service, nonce="", vehicle=None, customer=None):
     prestation=mercure_prestation(service)
     if not prestation: return None
     terms=require_published_terms()
@@ -373,12 +460,13 @@ def auto_submit_html(token, service, nonce="", vehicle=None):
         registration_system=str(vehicle.get('registrationSystem') or '').strip().upper()
         if registration:
             vehicle_markup='<br>Véhicule : '+html.escape(registration_system+' · '+registration)
+    copy_markup,copy_script=_mercure_copy_markup(customer,vehicle,requirements,nonce)
     token_js=json.dumps(token)
     cct_js=json.dumps(cct)
     version_js=json.dumps(terms["version"])
     hash_js=json.dumps(terms["contentHash"])
     immediate_required_js='true' if immediate_required else 'false'
-    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>{html.escape(price_label)} : {html.escape(str(price))} € TTC{preferred_markup}{vehicle_markup}<br><small>{html.escape(notice)}</small></div><p><a class="action-button" href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</label>{immediate_markup}<button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error'),requiresImmediate={immediate_required_js};const update=()=>{{button.disabled=!terms.checked||(requiresImmediate&&!immediate.checked)}};terms.addEventListener('change',update);if(requiresImmediate)immediate.addEventListener('change',update);form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked||(requiresImmediate&&!immediate.checked))return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:requiresImmediate?immediate.checked:false}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script><noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
+    return f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Vérification de votre réservation</title><style>body{{font-family:system-ui,-apple-system,sans-serif;background:#f5f6f1;color:#111;padding:24px}}main{{max-width:680px;margin:24px auto;background:#fff;border:1px solid #dedfd8;border-radius:24px;padding:28px}}.summary{{padding:18px;border-radius:16px;background:#f3f4ef;margin:18px 0}}label{{display:block;margin:18px 0;line-height:1.45}}button{{border:0;border-radius:999px;padding:14px 20px;background:#111;color:#fff;font-weight:700}}button:disabled{{opacity:.45}}a{{color:#111}}#error{{color:#9a1b1b;min-height:1.5em}}</style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head><body><main><h1>Vérifiez avant de continuer</h1><p>Vous allez être redirigé vers Mercure pour finaliser votre rendez-vous.</p><div class="summary"><strong>{html.escape(str(service))}</strong><br>{html.escape(price_label)} : {html.escape(str(price))} € TTC{preferred_markup}{vehicle_markup}<br><small>{html.escape(notice)}</small></div>{copy_markup}<p><a class="action-button" href="/">Modifier mon choix</a></p><form id="mercure" method="post" action="{html.escape(action,quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{html.escape(prestation,quote=True)}"><label><input id="terms" type="checkbox"> J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</label>{immediate_markup}<button id="continue" type="submit" disabled>Accepter et continuer vers la réservation</button><p id="error" role="alert"></p></form><script nonce="{html.escape(str(nonce),quote=True)}">const form=document.getElementById('mercure'),terms=document.getElementById('terms'),immediate=document.getElementById('immediate'),button=document.getElementById('continue'),error=document.getElementById('error'),requiresImmediate={immediate_required_js};const update=()=>{{button.disabled=!terms.checked||(requiresImmediate&&!immediate.checked)}};terms.addEventListener('change',update);if(requiresImmediate)immediate.addEventListener('change',update);form.addEventListener('submit',async(e)=>{{e.preventDefault();if(!terms.checked||(requiresImmediate&&!immediate.checked))return;button.disabled=true;error.textContent='';try{{const r=await fetch('/api/booking/accept-terms',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ccid:{token_js},cct:{cct_js},termsVersion:{version_js},termsContentHash:{hash_js},accepted:true,reviewed:true,immediatePerformance:requiresImmediate?immediate.checked:false}})}});if(!r.ok)throw new Error('acceptance_failed');form.submit()}}catch(_e){{error.textContent='Impossible d’enregistrer votre acceptation. Réessayez.';button.disabled=false}}}});</script>{copy_script}<noscript>JavaScript est nécessaire afin d’enregistrer la preuve d’acceptation des CGV avant la réservation.</noscript></main></body></html>'''.encode()
 
 
 def create_intent(params, booking_url):
