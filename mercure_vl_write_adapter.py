@@ -13,7 +13,7 @@ from mercure_vl_write_payload import build
 class MercureVlWriteAdapter:
     def __init__(self, *, session, base_url: str, metadata: dict,
                  appointment: dict, authorized: bool = False, identity_reader=None,
-                 expected_service_label: str = ""):
+                 expected_service_label: str = "", notifications: dict | None = None):
         if authorized is not True:
             raise MercureBookingWriteError("mercure_customer_write_not_authorized")
         if not base_url.startswith("https://"):
@@ -22,7 +22,7 @@ class MercureVlWriteAdapter:
             raise MercureBookingWriteError("mercure_write_transport_invalid")
         self.session=session
         self.base_url=base_url.rstrip("/")
-        self.payload=build(appointment=appointment,**metadata)
+        self.payload=build(appointment=appointment,notifications=notifications,**metadata)
         self._attempted=False
         self.identity_reader=identity_reader
         self.expected_service_label=expected_service_label

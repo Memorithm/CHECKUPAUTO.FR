@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import mercure_admin_client as mercure
+import mercure_vl_notification_config
 from mercure_vl_write_adapter import MercureVlWriteAdapter
 from mercure_vl_live_identity_lookup import read_and_verify
 
@@ -26,7 +27,12 @@ def create(*, appointment: dict, metadata: dict, observed_metadata: dict,
             raise MercureVlWriterFactoryError("mercure_metadata_unverified")
     if not isinstance(expected_service_label,str) or not expected_service_label.strip():
         raise MercureVlWriterFactoryError("mercure_service_label_unqualified")
+    try:
+        notifications=mercure_vl_notification_config.load()
+    except mercure_vl_notification_config.MercureNotificationConfigError as exc:
+        raise MercureVlWriterFactoryError(str(exc)) from None
     return MercureVlWriteAdapter(
         session=mercure._session(),base_url=mercure.BASE,metadata=metadata,
         appointment=appointment,authorized=True,identity_reader=read_and_verify,
-        expected_service_label=expected_service_label)
+        expected_service_label=expected_service_label,
+        notifications=notifications)
