@@ -41,6 +41,7 @@ def _reset_for_tests() -> None:
             "counters": {"confirmed": 0, "reconciliationRequired": 0, "providerFailures": 0,
                          "slotLost": 0, "customerErrors": 0, "disabled": 0},
             "lastProviderFailure": None, "lastReconciliation": None,
+            "routes": {"in_site": 0, "delegated": 0}, "fallbackReasons": {},
         })
 
 
@@ -140,6 +141,18 @@ def record_create_result(result: object) -> str:
     return "reconciliationRequired"
 
 
+def record_route(mode: str, reason: str) -> None:
+    """Count /go/booking routing decisions (only evaluated when the flag is on)."""
+    mode = "in_site" if mode == "in_site" else "delegated"
+    with _LOCK:
+        _STATE["routes"][mode] += 1
+        if mode == "delegated" and reason:
+            reasons = _STATE["fallbackReasons"]
+            key = str(reason)[:60]
+            if key in reasons or len(reasons) < 20:
+                reasons[key] = reasons.get(key, 0) + 1
+
+
 def snapshot() -> dict:
     with _LOCK:
         return {
@@ -148,4 +161,6 @@ def snapshot() -> dict:
             "counters": dict(_STATE["counters"]),
             "lastProviderFailure": _STATE["lastProviderFailure"],
             "lastReconciliation": _STATE["lastReconciliation"],
+            "routes": dict(_STATE["routes"]),
+            "fallbackReasons": dict(_STATE["fallbackReasons"]),
         }

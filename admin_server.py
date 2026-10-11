@@ -11,6 +11,8 @@ import booking_demand
 import booking_promo_preview
 import booking_page
 import booking_health
+import in_site_booking_page
+import in_site_booking_routing
 import in_site_booking_readiness as booking_readiness
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
@@ -332,6 +334,15 @@ class Handler(SimpleHTTPRequestHandler):
    self.send_response(404); self.end_headers(); return
   if security.static_allowed(path,False): return super().do_HEAD()
   self.send_response(404); self.end_headers(); return
+ def _in_site_booking_doc(self,token,service,params,vehicle,nonce,c):
+  try:
+   route=in_site_booking_routing.decide(service_label=service,preferred_date=params.get('preferredDate',''),preferred_time=params.get('preferredTime',''),vehicle=vehicle)
+   if route.get('mode')!='in_site': return None
+   session_token,account=customer_http._account(self)
+   if not session_token or not account: return None
+   return in_site_booking_page.render_summary(token=token,service_label=service,service_key=route['service'],nonce=nonce,vehicle=vehicle,account=account,csrf=customer_http.customer_accounts.csrf_token(session_token),business=c.get('business') or {})
+  except Exception:
+   return None
  def render_index(self,c):
   nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
   raw=(ROOT/'index.html').read_text()
@@ -579,12 +590,26 @@ class Handler(SimpleHTTPRequestHandler):
      customer_confirmation=customer_http.consume_booking_confirmation(self,target)
     except PermissionError:
      return self.send_redirect(customer_http.booking_confirmation_url(target),303)
-    result=booking.create_intent(params,c['business']['bookingUrl']); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce; doc=booking.auto_submit_html(result['token'],service,nonce,vehicle=customer_confirmation.get('vehicle'))
+    result=booking.create_intent(params,c['business']['bookingUrl']); nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
+    doc=None
+    if booking_readiness.in_site_flag_enabled():
+     # On-site journey only when every prerequisite holds; otherwise the
+     # unchanged delegated page below (automatic fallback).
+     doc=self._in_site_booking_doc(result['token'],service,params,customer_confirmation.get('vehicle'),nonce,c)
+    if doc is None: doc=booking.auto_submit_html(result['token'],service,nonce,vehicle=customer_confirmation.get('vehicle'))
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
    except booking.BookingTermsUnavailable:
     return self.send_bytes(booking_page.unavailable_html(terms_missing=True,phone=(c.get('business') or {}).get('phone','')),'text/html; charset=utf-8',503,cache='no-store')
    except Exception:
     return self.send_bytes(booking_page.unavailable_html(phone=(c.get('business') or {}).get('phone','')),'text/html; charset=utf-8',503,cache='no-store')
+  if path==in_site_booking_page.CONFIRMATION_ROUTE:
+   token,account=customer_http._account(self)
+   if not token or not account: return self.send_redirect('/compte',303)
+   try:
+    nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
+    key=(parse_qs(parsed.query).get('cle') or [''])[0]
+    return self.send_bytes(in_site_booking_page.render_status(request_key=key,nonce=nonce,business=load_config().get('business') or {}),'text/html; charset=utf-8',cache='no-store')
+   except ValueError: return self.send_redirect('/compte',303)
   if path.startswith('/api/admin/mercure/'):
    if not self.authorized(): return self.require_auth()
    try:

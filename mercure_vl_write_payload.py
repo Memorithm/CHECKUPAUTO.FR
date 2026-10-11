@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from mercure_booking_write_schema import VL_REQUIRED,audit_fields
+import mercure_vl_notification_config
 
 
 class MercureVlWritePayloadError(ValueError):
@@ -11,7 +12,8 @@ class MercureVlWritePayloadError(ValueError):
 
 
 def build(*, appointment: dict, service_id: str, duration: str,
-          centre_type: str, line_id: str, operator_id: str) -> dict:
+          centre_type: str, line_id: str, operator_id: str,
+          notifications: dict | None = None) -> dict:
     if not isinstance(appointment,dict):
         raise MercureVlWritePayloadError("mercure_vl_appointment_invalid")
     for value in (service_id,duration,centre_type,line_id,operator_id):
@@ -32,6 +34,11 @@ def build(*, appointment: dict, service_id: str, duration: str,
         "prestation":service_id,"utilisateur":operator_id,"date":appointment["date"],
         "rendezvous_id":"","tcheckDispo":"true",
     }
+    try:
+        extra=mercure_vl_notification_config.validate(notifications)
+    except mercure_vl_notification_config.MercureNotificationConfigError as exc:
+        raise MercureVlWritePayloadError(str(exc)) from None
+    payload.update(extra)
     if not audit_fields(vehicle_class="vl",observed=set(payload))["schemaObserved"]:
         raise MercureVlWritePayloadError("mercure_vl_schema_incomplete")
     return payload

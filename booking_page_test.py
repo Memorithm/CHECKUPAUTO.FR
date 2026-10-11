@@ -59,6 +59,7 @@ class BookingRouteTest(unittest.TestCase):
         scope = dict(
             booking=self.booking,
             booking_page=booking_page,
+            booking_readiness=SimpleNamespace(in_site_flag_enabled=Mock(return_value=False)),
             customer_http=self.customer_http,
             load_config=self.config,
             parsed=SimpleNamespace(query="service=Contr%C3%B4le+technique"),
@@ -102,6 +103,18 @@ class BookingRouteTest(unittest.TestCase):
         self.handler.send_bytes.assert_called_once_with(b"<html>review</html>", "text/html; charset=utf-8", cache="no-store")
         self.booking.require_published_terms.assert_called_once_with()
         self.booking.create_intent.assert_called_once()
+
+    def test_flag_off_never_consults_on_site_routing(self):
+        self.handler._in_site_booking_doc = Mock(side_effect=AssertionError("on-site routing"))
+        self.route(self.handler)
+        self.handler.send_bytes.assert_called_once_with(b"<html>review</html>", "text/html; charset=utf-8", cache="no-store")
+
+    def test_flag_on_without_on_site_page_keeps_delegated_review_page(self):
+        self.route.__globals__["booking_readiness"].in_site_flag_enabled.return_value = True
+        self.handler._in_site_booking_doc = Mock(return_value=None)
+        self.route(self.handler)
+        self.handler._in_site_booking_doc.assert_called_once()
+        self.handler.send_bytes.assert_called_once_with(b"<html>review</html>", "text/html; charset=utf-8", cache="no-store")
 
     def test_authenticated_customer_without_confirmation_is_redirected_before_intent(self):
         self.customer_http.consume_booking_confirmation.side_effect = PermissionError("confirmation required")

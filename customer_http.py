@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 
 import in_site_booking_readiness as booking_readiness
+import customer_booking_vehicle_mapping
 import customer_booking_api
 import customer_booking_create_api
 import customer_booking_http_trusted_context
@@ -43,6 +44,7 @@ ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
 VEHICLES_ROUTE="/api/customer/vehicles"
 VEHICLE_REFERENCES_ROUTE="/api/customer/vehicle-references"
+BOOKING_VEHICLE_MAPPING_ROUTE="/api/customer/booking/vehicle-mapping"
 VEHICLE_DELETE_ROUTE="/api/customer/vehicles/delete"
 LOGOUT_ROUTE="/api/customer/logout"
 LOGOUT_FORM_ROUTE="/compte/deconnexion"
@@ -870,6 +872,41 @@ def handle(handler) -> bool:
         except Exception:
             booking_health.record_create_failure("booking_creation_unavailable")
             handler.send_json({"ok":False,"error":"booking_creation_unavailable"},503)
+        return True
+
+    if path==BOOKING_VEHICLE_MAPPING_ROUTE:
+        if command not in ("GET","POST"):
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            if command=="GET":
+                query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=2)
+                if set(query)!={"vehicleId"} or len(query["vehicleId"])!=1:
+                    raise customer_booking_vehicle_mapping.VehicleMappingError("vehicle_mapping_request_invalid")
+                result=customer_booking_vehicle_mapping.check(
+                    account_id=account["accountId"],vehicle_id=query["vehicleId"][0])
+            else:
+                if not _same_origin(handler):
+                    handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+                    return True
+                if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+                    handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+                    return True
+                result=customer_booking_vehicle_mapping.apply(
+                    account_id=account["accountId"],payload=_json_body(handler))
+            handler.send_json(result,200)
+        except customer_booking_vehicle_mapping.VehicleMappingError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except customer_booking_vehicle_mapping.VehicleMappingUnavailable:
+            handler.send_json({"ok":False,"error":"vehicle_reference_unavailable"},503)
+        except ValueError:
+            handler.send_json({"ok":False,"error":"vehicle_mapping_request_invalid"},400)
+        except Exception:
+            handler.send_json({"ok":False,"error":"vehicle_reference_unavailable"},503)
         return True
 
     if path=="/api/customer/booking/preflight":
