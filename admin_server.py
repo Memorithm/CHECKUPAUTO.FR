@@ -596,7 +596,11 @@ class Handler(SimpleHTTPRequestHandler):
      # On-site journey only when every prerequisite holds; otherwise the
      # unchanged delegated page below (automatic fallback).
      doc=self._in_site_booking_doc(result['token'],service,params,customer_confirmation.get('vehicle'),nonce,c)
-    if doc is None: doc=booking.auto_submit_html(result['token'],service,nonce,vehicle=customer_confirmation.get('vehicle'))
+    if doc is None:
+     # Mercure n'accepte aucun pré-remplissage : le profil du client connecté sert
+     # uniquement à afficher, sur notre page, les valeurs à reporter dans Mercure.
+     _session,account=customer_http._account(self)
+     doc=booking.auto_submit_html(result['token'],service,nonce,vehicle=customer_confirmation.get('vehicle'),customer=account)
     return self.send_bytes(doc,'text/html; charset=utf-8',cache='no-store')
    except booking.BookingTermsUnavailable:
     return self.send_bytes(booking_page.unavailable_html(terms_missing=True,phone=(c.get('business') or {}).get('phone','')),'text/html; charset=utf-8',503,cache='no-store')
