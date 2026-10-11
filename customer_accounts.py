@@ -765,6 +765,49 @@ def save_vehicle(
     return _vehicle_summary(existing)
 
 
+def update_vehicle_characteristics(account_id: object, vehicle_id: object, updates: object) -> dict:
+    """Replace only brand/model/energy descriptors of an owned vehicle.
+
+    Used by the booking vehicle-mapping step with labels taken verbatim from the
+    Mercure reference lists; registration and formula data are left untouched.
+    """
+    account_id=_account_id(account_id)
+    wanted=_vehicle_id(vehicle_id)
+    if not isinstance(updates,dict) or set(updates)!={"brand","model","energy"}:
+        raise CustomerAccountError("customer_vehicle_characteristics_invalid")
+    now=_now_iso()
+    init_db()
+    with _connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row=db.execute(
+            "SELECT profile_blob FROM customer_account WHERE account_id=?",
+            (account_id,),
+        ).fetchone()
+        if not row:
+            raise CustomerAccountError("customer_account_not_found")
+        current=_decrypt_profile(account_id,row["profile_blob"])
+        vehicles=_vehicle_records(current)
+        existing=next(
+            (item for item in vehicles if hmac.compare_digest(str(item.get("vehicleId") or ""),wanted)),
+            None,
+        )
+        if existing is None:
+            raise CustomerAccountError("customer_vehicle_not_found")
+        merged={**dict(existing.get("characteristics") or {}),**updates}
+        try:
+            normalized=require_booking_essentials(merged)
+        except VehicleCharacteristicsError as exc:
+            raise CustomerAccountError(str(exc)) from exc
+        existing["characteristics"]=normalized
+        existing["updatedAt"]=now
+        current["vehicles"]=vehicles
+        db.execute(
+            "UPDATE customer_account SET profile_blob=?,updated_at=? WHERE account_id=?",
+            (_encrypt_profile(account_id,current),now,account_id),
+        )
+    return _vehicle_summary(existing)
+
+
 def delete_vehicle(account_id: object, vehicle_id: object) -> dict:
     account_id=_account_id(account_id)
     wanted=_vehicle_id(vehicle_id)
