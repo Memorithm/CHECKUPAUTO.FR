@@ -10,6 +10,8 @@ import booking_bridge as booking
 import booking_demand
 import booking_promo_preview
 import booking_page
+import booking_health
+import in_site_booking_readiness as booking_readiness
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
@@ -591,6 +593,7 @@ class Handler(SimpleHTTPRequestHandler):
      return self.send_json({'provider':'AutoBilan-Systems / Mercure RDV','centreId':240,'bookingUrl':c['business']['bookingUrl'],'secret':booking.secret_info(False),'stats':booking.stats(days),'providerProtection':mercure_public.provider_health(),'lowDemandPromotions':booking_demand.worker_status(),'webhookUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/booking-confirmed','browserCallbackUrl':canonical_origin(c['seo']['canonicalUrl'])+'/api/integrations/mercure/browser-confirmed'})
     if path=='/api/admin/mercure/live-summary': return self.send_json(mercure_admin.live_summary(days))
     if path=='/api/admin/mercure/session-status': return self.send_json(mercure_admin.session_status())
+    if path=='/api/admin/mercure/booking-health': return self.send_json({'ok':True,'readiness':booking_readiness.public_status(),'health':booking_health.snapshot(),'session':booking_health.session_status(refresh=parse_qs(parsed.query).get('refresh',[''])[0]=='1')})
     if path=='/api/admin/mercure/promotions':
      q=parse_qs(parsed.query); today=mercure_admin.business_today(); start=(q.get('start') or [today.isoformat()])[0]; end=(q.get('end') or [(today+datetime.timedelta(days=30)).isoformat()])[0]
      return self.send_json({'promotions':mercure_admin.list_promotions(),'events':mercure_admin.promotion_events(start,end),'start':start,'end':end})
