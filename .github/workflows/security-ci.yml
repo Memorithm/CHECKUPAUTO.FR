@@ -60,6 +60,8 @@ jobs:
         run: node --test admin/terms-file.test.js
       - name: Verify browser-side public asset cache safety
         run: node --test assets/public-asset-cache.test.mjs
+      - name: Verify on-site booking journey (front-end)
+        run: node --test assets/booking-journey.test.mjs
       - name: Check JavaScript syntax
         run: |
           while IFS= read -r file; do
