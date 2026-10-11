@@ -23,6 +23,7 @@ import customer_booking_confirmation_view
 import customer_booking_confirmation_payment_source
 import customer_booking_payment_http_status
 import customer_accounts
+import booking_health
 import mercure_brand_energy_reference
 import mercure_vehicle_reference
 import customer_password_auth
@@ -857,14 +858,19 @@ def handle(handler) -> bool:
             result=customer_booking_create_api.create(
                 request_body,account=verified_account,
                 executor=executor,trusted_context=trusted_context)
+            booking_health.record_create_result(result)
             handler.send_json(result,200)
-        except customer_booking_http_trusted_context.BookingHttpContextError:
+        except customer_booking_http_trusted_context.BookingHttpContextError as exc:
+            booking_health.record_create_failure(str(exc))
             handler.send_json({"ok":False,"error":"booking_provider_not_qualified"},503)
         except customer_booking_create_api.BookingCreateUnavailable as exc:
+            booking_health.record_create_failure(str(exc))
             handler.send_json({"ok":False,"error":str(exc)},503)
         except customer_booking_create_api.BookingCreateInvalid as exc:
+            booking_health.record_create_failure(str(exc))
             handler.send_json({"ok":False,"error":str(exc)},422)
         except Exception:
+            booking_health.record_create_failure("booking_creation_unavailable")
             handler.send_json({"ok":False,"error":"booking_creation_unavailable"},503)
         return True
 
