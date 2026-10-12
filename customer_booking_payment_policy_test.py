@@ -6,10 +6,10 @@ class Tests(unittest.TestCase):
         with self.assertRaises(BookingPaymentPolicyError):
             authorize(service="technical",policy={})
 
-    def test_payment_not_required_only_if_provider_verified(self):
-        result=authorize(service="technical",policy={
-            "service":"technical","providerVerified":True,"paymentRequired":False})
-        self.assertTrue(result["authorized"])
+    def test_centre_payment_rejected_even_if_provider_verified(self):
+        with self.assertRaisesRegex(BookingPaymentPolicyError, "booking_online_payment_required"):
+            authorize(service="technical",policy={"service":"technical",
+                "providerVerified":True,"paymentRequired":False,"paymentMode":"centre"})
 
     def test_required_payment_without_proof_fails(self):
         with self.assertRaises(BookingPaymentPolicyError):
