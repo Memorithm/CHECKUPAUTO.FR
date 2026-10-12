@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          .payment-ci-venv/bin/python -m unittest -v             payment_checkout_test.py             payment_connectors_test.py             payment_payline_config_test.py             payment_payline_private_test.py             payment_payline_test.py             payment_payline_http_test.py             payment_state_machine_regression_test.py             payment_test_lab_test.py             payment_test_http_test.py             payment_contract_test.py             payment_contract_routes_test.py             payment_contract_csrf_test.py             payment_contract_frontend_test.py
+          .payment-ci-venv/bin/python -m unittest -v             payment_checkout_test.py             payment_connectors_test.py             payment_payline_config_test.py             payment_payline_private_test.py             payment_payline_test.py             payment_payline_http_test.py             payment_payline_production_test.py             payment_state_machine_regression_test.py             payment_test_lab_test.py             payment_test_http_test.py             payment_contract_test.py             payment_contract_routes_test.py             payment_contract_csrf_test.py             payment_contract_frontend_test.py
       - name: Check payment JavaScript syntax
         shell: bash
         run: node --check admin/payments.js

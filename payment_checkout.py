@@ -97,7 +97,9 @@ def start_payline_for_booking(external_id: str, *, starter=None) -> dict:
     quote=quote_for_confirmed_booking(external_id)
     store,db=_start_connection()
     try:
-        intent=store.create(quote,"payline")
+        # New payments follow the gated active environment; an intent created
+        # earlier in another environment is a conflict, never silently reused.
+        intent=store.create(quote,"payline",payline_private.active_environment())
         db.execute("BEGIN IMMEDIATE")
         existing=db.execute(
             "SELECT * FROM payment_provider_starts WHERE payment_id=?",
@@ -109,7 +111,7 @@ def start_payline_for_booking(external_id: str, *, starter=None) -> dict:
                 return {
                     "paymentId":intent.payment_id,
                     "provider":"payline",
-                    "environment":"sandbox",
+                    "environment":intent.environment,
                     "state":intent.state,
                     "amountCents":intent.amount_cents,
                     "currency":"EUR",
@@ -117,7 +119,7 @@ def start_payline_for_booking(external_id: str, *, starter=None) -> dict:
                     "reused":True,
                 }
             raise PaymentError("payment_start_reconciliation_required")
-        config=payline_private.load()
+        config=payline_private.load(intent.environment)
         start_fn=starter or payline.start
         now=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         db.execute("""INSERT INTO payment_provider_starts(
@@ -176,7 +178,7 @@ def start_payline_for_booking(external_id: str, *, starter=None) -> dict:
         return {
             "paymentId":bound.payment_id,
             "provider":"payline",
-            "environment":"sandbox",
+            "environment":bound.environment,
             "state":bound.state,
             "amountCents":bound.amount_cents,
             "currency":"EUR",
@@ -266,5 +268,6 @@ def capability() -> dict:
         "providerStartBound": True,
         "publicStartRouteBound": True,
         "ambiguousStartRetryBlocked": True,
-        "livePaymentsEnabled": False,
+        "activeEnvironment": payline_private.active_environment(),
+        "livePaymentsEnabled": payline_private.live_enabled(),
     }

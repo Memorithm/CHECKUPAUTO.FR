@@ -52,7 +52,7 @@ def _apply_by_payment_id(payment_id: str):
     intent = store.get(payment_id)
     if intent.provider != "payline" or not intent.provider_reference:
         raise PaymentError("payline_bound_intent_required")
-    config = private_config.load()
+    config = private_config.load(intent.environment)
     event = payline.refresh(intent, config)
     return store._apply_verified(event)
 
@@ -60,7 +60,7 @@ def _apply_by_payment_id(payment_id: str):
 def _apply_by_token(token: str):
     store = _journal_existing()
     intent = store.get_by_provider_reference("payline", token)
-    config = private_config.load()
+    config = private_config.load(intent.environment)
     event = payline.refresh(intent, config)
     return store._apply_verified(event)
 

@@ -28,9 +28,8 @@ def status(*, account_id: str, request_key: str) -> dict:
                                expected_amount_cents=basis['amountCents'])
     except (KeyError, ValueError, TypeError, OSError):
         result['payment']['state'] = 'bound_unverified'
-        result['payment']['environment'] = 'sandbox'
         return result
-    result['payment']['environment'] = 'sandbox'
+    result['payment']['environment'] = verified.get('environment', 'unknown')
     result['payment']['state'] = verified['state']
     result['payment']['paid'] = (verified.get('paid') is True
         and verified.get('providerVerified') is True

@@ -41,8 +41,8 @@ class PaylineConfigurationTest(unittest.TestCase):
                 payline.PaylineSandboxConfig.from_mapping(values)
             self.assertNotIn("private-submitted-value", str(caught.exception))
 
-    def test_production_or_ambiguous_environment_is_refused(self):
-        for environment in ("live", "production", "homologation", "Sandbox", "", True, None):
+    def test_ambiguous_environment_is_refused(self):
+        for environment in ("live", "prod", "homologation", "Sandbox", "Production", "", True, None):
             with self.subTest(environment=environment), self.assertRaises(payline.PaylineConfigurationError):
                 payline.PaylineSandboxConfig.from_mapping({**fixture(), "environment": environment})
 
@@ -74,12 +74,14 @@ class PaylineConfigurationTest(unittest.TestCase):
         for origin in ("https://sandbox.example", "https://sandbox.example/", "https://sandbox.example:443"):
             payline.PaylineSandboxConfig.from_mapping({**fixture(), "publicOrigin": origin})
 
-    def test_endpoint_is_pinned_to_homologation(self):
+    def test_endpoint_follows_explicit_environment(self):
         config = payline.PaylineSandboxConfig.from_mapping(fixture())
         self.assertEqual(config.webpayment_endpoint, "https://homologation.payline.com/V4/services/WebPaymentAPI")
         self.assertEqual(config.directpayment_endpoint, "https://homologation.payline.com/V4/services/DirectPaymentAPI")
-        with self.assertRaises(payline.PaylineConfigurationError):
-            replace(config, environment="production")
+        live = replace(config, environment="production")
+        self.assertEqual(live.webpayment_endpoint, "https://services.payline.com/V4/services/WebPaymentAPI")
+        self.assertEqual(live.directpayment_endpoint, "https://services.payline.com/V4/services/DirectPaymentAPI")
+        self.assertEqual(payline.preflight(live)["providerEnvironment"], "production")
 
     def test_authentication_uses_api_merchant_id_not_contract_number(self):
         config = payline.PaylineSandboxConfig.from_mapping(fixture())

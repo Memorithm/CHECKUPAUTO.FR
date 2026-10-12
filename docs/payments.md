@@ -1,6 +1,6 @@
 # Paiements CheckupAuto — PayPal direct et Payline / Monext
 
-État : transport Payline/Monext sandbox implémenté, non raccordé au checkout. Aucune transaction réelle.
+État : transport Payline/Monext implémenté en homologation ; production codée derrière un double verrou (voir « Production Payline »).
 Mise à jour : 24 septembre 2026.
 
 ## Plateforme bancaire identifiée : Payline / Monext, pas Monetico
@@ -91,6 +91,26 @@ Le parcours serveur comprend désormais `POST /api/payments/payline/start`. Cett
 Le démarrage est idempotent après une réponse fournisseur confirmée : le même rendez-vous restitue la même URL hébergée Payline sans créer un nouvel appel. Si l'appel réseau est ambigu (timeout ou rupture après envoi), l'intention passe dans un état de démarrage `indeterminate` et **aucune relance automatique vers Payline n'est effectuée**. Une réconciliation explicite est alors requise, afin d'éviter deux sessions bancaires concurrentes.
 
 Le checkout reste strictement en environnement d'homologation. Une configuration privée Payline absente retourne un échec fermé et n'empoisonne pas l'intention pour une tentative ultérieure après configuration. `livePaymentsEnabled=false` demeure inchangé.
+
+## Production Payline (12 octobre 2026)
+
+La production est codée mais **fermée par défaut**. Elle ne s'ouvre que si deux verrous indépendants sont réunis :
+
+1. **Fichier privé de production** : `$CYBERCHECK_PRIVATE_DIR/payments/payline-production.json`, ou le chemin donné par `CYBERCHECK_PAYLINE_PRODUCTION_CONFIG_PATH`. Le fichier appartient à l'utilisateur du service, avec les droits `600`. Il contient les mêmes cinq champs que le fichier de test, avec `"environment": "production"` et le `merchantId`, l'`accessKey` et le `contractNumber` **de production**.
+2. **Interrupteur** : `CHECKUPAUTO_PAYLINE_LIVE_ENABLED=true`, exactement cette valeur.
+
+Une fois les deux verrous réunis :
+
+- **Nouveaux paiements.** Ils sont créés en environnement `production`. Les appels SOAP partent vers `https://services.payline.com/V4/services/WebPaymentAPI`. Seules les pages hébergées `webpayment.payline.com` et `payment.payline.com` sont acceptées pour la redirection.
+- **Paiements existants.** Chaque intention garde son environnement d'origine. Un retour ou une notification relit toujours le paiement avec la configuration de **cet** environnement, jamais avec l'autre.
+- **Fichiers non interchangeables.** Un fichier de test qui déclare `production`, ou l'inverse, est refusé (`payline_private_environment_mismatch`).
+- **Pas de changement d'environnement pour un même rendez-vous.** Si un rendez-vous a déjà un paiement en homologation, aucun paiement de production ne peut lui être créé (`booking_payment_conflict`).
+- **Remboursements.** Aucun remboursement n'est exposé sur le site (`refundsBound=false`).
+- **Montants.** Ils restent bornés de 1 à 9 000 centimes. Une prestation de test à 0,01 € est donc possible, une fois rattachée côté Mercure.
+
+**Retour arrière** : retirer `CHECKUPAUTO_PAYLINE_LIVE_ENABLED`. Les nouveaux paiements repartent alors en homologation, sans redéploiement. Les intentions de production déjà créées ne peuvent plus être relues tant que l'interrupteur est fermé. Leurs retours renvoient « vérification indisponible », jamais un faux succès.
+
+Le journal `payments.sqlite3` existant est migré automatiquement au démarrage : la contrainte passe de `sandbox` seul à `sandbox` ou `production`, sans réécrire l'historique.
 
 ## Procédure de demande concernant un remboursement
 
