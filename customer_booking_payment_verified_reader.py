@@ -1,4 +1,4 @@
-"""Read-only payment state from account-bound sandbox journal evidence.
+"""Read-only payment state from account-bound journal evidence (homologation or production).
 
 A locally captured state alone is not a receipt: a matching provider transaction
 record, captured amount and provider reference are all required.
@@ -29,12 +29,12 @@ def read(*, account_id: str, request_key: str, expected_amount_cents: int) -> di
         intent = journal.get(payment_ref)
     except (PaymentError, OSError, ValueError):
         raise VerifiedPaymentReadError('payment_intent_unavailable') from None
-    if (intent.provider != 'payline' or intent.environment != 'sandbox'
+    if (intent.provider != 'payline' or intent.environment not in ('sandbox', 'production')
             or intent.amount_cents != expected_amount_cents):
         raise VerifiedPaymentReadError('payment_intent_mismatch')
     if intent.state != 'captured':
         return {'state': intent.state, 'paid': False, 'providerVerified': False,
-                'bookingPaymentBound': True, 'environment': 'sandbox'}
+                'bookingPaymentBound': True, 'environment': intent.environment}
     if not intent.provider_reference:
         raise VerifiedPaymentReadError('payment_provider_reference_missing')
     try:
@@ -47,4 +47,4 @@ def read(*, account_id: str, request_key: str, expected_amount_cents: int) -> di
             or not transaction.get('transactionId')):
         raise VerifiedPaymentReadError('payment_capture_mismatch')
     return {'state': 'captured', 'paid': True, 'providerVerified': True,
-            'bookingPaymentBound': True, 'environment': 'sandbox'}
+            'bookingPaymentBound': True, 'environment': intent.environment}

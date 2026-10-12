@@ -13,6 +13,9 @@ from urllib.parse import urlsplit
 
 SANDBOX_WEBPAYMENT_ENDPOINT = "https://homologation.payline.com/V4/services/WebPaymentAPI"
 SANDBOX_DIRECTPAYMENT_ENDPOINT = "https://homologation.payline.com/V4/services/DirectPaymentAPI"
+PRODUCTION_WEBPAYMENT_ENDPOINT = "https://services.payline.com/V4/services/WebPaymentAPI"
+PRODUCTION_DIRECTPAYMENT_ENDPOINT = "https://services.payline.com/V4/services/DirectPaymentAPI"
+ENVIRONMENTS = ("sandbox", "production")
 REQUIRED_FIELDS = ("environment", "merchantId", "accessKey", "contractNumber", "publicOrigin")
 
 
@@ -61,8 +64,10 @@ class PaylineSandboxConfig:
     environment: str = "sandbox"
 
     def __post_init__(self):
-        if self.environment != "sandbox":
-            raise PaylineConfigurationError("payline_sandbox_required")
+        # "production" is only reachable through the separately gated private
+        # loader (payment_payline_private); this class only validates shape.
+        if self.environment not in ENVIRONMENTS:
+            raise PaylineConfigurationError("payline_environment_invalid")
         # These are bounded project input policies, not proof of valid accounts.
         _value(self.merchant_id, r"[0-9]{1,32}", "payline_merchant_id_invalid")
         _value(self.access_key, r"[\x21-\x7e]{1,256}", "payline_access_key_invalid")
@@ -86,10 +91,14 @@ class PaylineSandboxConfig:
 
     @property
     def webpayment_endpoint(self) -> str:
+        if self.environment == "production":
+            return PRODUCTION_WEBPAYMENT_ENDPOINT
         return SANDBOX_WEBPAYMENT_ENDPOINT
 
     @property
     def directpayment_endpoint(self) -> str:
+        if self.environment == "production":
+            return PRODUCTION_DIRECTPAYMENT_ENDPOINT
         return SANDBOX_DIRECTPAYMENT_ENDPOINT
 
     def authentication_headers(self) -> dict[str, str]:
@@ -107,7 +116,9 @@ def preflight(config: PaylineSandboxConfig | None = None) -> dict:
         blockers.insert(0, "explicit_api_configuration_missing")
     return {
         "provider": "payline", "providerLabel": "Payline / Monext",
-        "environment": "sandbox", "providerEnvironment": "homologation",
+        "environment": config.environment if config is not None else "sandbox",
+        "providerEnvironment": ("production" if config is not None and config.environment == "production"
+                                else "homologation"),
         "configurationSyntaxValid": config is not None,
         "requiredFields": list(REQUIRED_FIELDS),
         "credentialsVerified": False, "contractBindingVerified": False,

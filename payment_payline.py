@@ -1,10 +1,11 @@
-"""Payline / Monext WebPayment sandbox transport.
+"""Payline / Monext WebPayment transport (homologation or production).
 
-Implements only the homologation SOAP WebPayment flow:
+The environment comes from the private configuration; production is only
+reachable when payment_payline_private's live gate is open. Flow:
 - doWebPayment -> token + hosted redirect URL
 - getWebPaymentDetails -> authenticated final-state reread
 
-No production endpoint, PAN/CVV collection, browser-trusted success path or public refund route exists here.
+No PAN/CVV collection, browser-trusted success path or public refund route exists here.
 """
 from __future__ import annotations
 
@@ -46,9 +47,11 @@ class StartResult:
     token: str
     redirect_url: str
 
+    environment: str = "sandbox"
+
     def __post_init__(self):
         _token(self.token)
-        _redirect(self.redirect_url)
+        _redirect(self.redirect_url, self.environment)
 
 
 def _token(value: object) -> str:
@@ -57,7 +60,13 @@ def _token(value: object) -> str:
     return value
 
 
-def _redirect(value: object) -> str:
+REDIRECT_HOSTS = {
+    "sandbox": frozenset({"homologation-webpayment.payline.com", "homologation-payment.payline.com"}),
+    "production": frozenset({"webpayment.payline.com", "payment.payline.com"}),
+}
+
+
+def _redirect(value: object, environment: str = "sandbox") -> str:
     if not isinstance(value, str) or len(value) > 2048 or not value.isascii():
         raise PaymentError("payline_redirect_invalid")
     try:
@@ -67,7 +76,7 @@ def _redirect(value: object) -> str:
     if u.scheme != "https" or not u.hostname or u.username or u.password or u.fragment:
         raise PaymentError("payline_redirect_invalid")
     host = u.hostname.lower()
-    allowed = host in {"homologation-webpayment.payline.com", "homologation-payment.payline.com"}
+    allowed = host in REDIRECT_HOSTS.get(environment, frozenset())
     if not allowed:
         raise PaymentError("payline_redirect_invalid")
     return value
@@ -102,10 +111,12 @@ def _urls(config: PaylineSandboxConfig, payment_id: str) -> tuple[str, str, str]
 
 
 def do_web_payment_xml(intent: Intent, config: PaylineSandboxConfig) -> bytes:
-    if not isinstance(intent, Intent) or intent.provider != "payline" or intent.environment != "sandbox":
+    if not isinstance(intent, Intent) or intent.provider != "payline":
         raise PaymentError("payline_intent_required")
     if not isinstance(config, PaylineSandboxConfig):
         raise PaymentError("payline_configuration_required")
+    if intent.environment != config.environment:
+        raise PaymentError("payline_environment_mismatch")
 
     envelope, req = _soap("doWebPaymentRequest")
     _sub(req, IMPL_NS, "version", API_VERSION)
@@ -142,12 +153,14 @@ def do_web_payment_xml(intent: Intent, config: PaylineSandboxConfig) -> bytes:
 
 def refund_xml(intent: Intent, transaction_id: str, amount_cents: int,
                config: PaylineSandboxConfig, sequence_number: str, comment: str = "") -> bytes:
-    if not isinstance(intent, Intent) or intent.provider != "payline" or intent.environment != "sandbox":
+    if not isinstance(intent, Intent) or intent.provider != "payline":
         raise PaymentError("payline_intent_required")
     if intent.state != "captured":
         raise PaymentError("captured_payment_required")
     if not isinstance(config, PaylineSandboxConfig):
         raise PaymentError("payline_configuration_required")
+    if intent.environment != config.environment:
+        raise PaymentError("payline_environment_mismatch")
     if not isinstance(transaction_id, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{1,50}", transaction_id):
         raise PaymentError("payline_transaction_invalid")
     amount=cents(amount_cents)
@@ -269,7 +282,7 @@ def _child_text(node: ET.Element, name: str, code: str, *, required: bool = True
     return values[0]
 
 
-def parse_start_response(xml: bytes) -> StartResult:
+def parse_start_response(xml: bytes, environment: str = "sandbox") -> StartResult:
     root = _parse(xml)
     result = _first(root, "result", "payline_result_missing")
     code = _child_text(result, "code", "payline_result_missing")
@@ -277,12 +290,12 @@ def parse_start_response(xml: bytes) -> StartResult:
         raise PaymentError("payline_start_refused")
     token = _one_text(root, "token", "payline_token_missing")
     redirect = _one_text(root, "redirectURL", "payline_redirect_missing")
-    return StartResult(_token(token), _redirect(redirect))
+    return StartResult(_token(token), _redirect(redirect, environment), environment)
 
 
 def start(intent: Intent, config: PaylineSandboxConfig, *, sender=None) -> StartResult:
     sender = sender or (lambda body: _post(config, body, "doWebPayment"))
-    return parse_start_response(sender(do_web_payment_xml(intent, config)))
+    return parse_start_response(sender(do_web_payment_xml(intent, config)), config.environment)
 
 
 def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEvent:
@@ -347,6 +360,8 @@ def parse_details_response(xml: bytes, intent: Intent, token: str) -> VerifiedEv
 
 
 def refresh(intent: Intent, config: PaylineSandboxConfig, *, sender=None) -> VerifiedEvent:
+    if not isinstance(config, PaylineSandboxConfig) or intent.environment != config.environment:
+        raise PaymentError("payline_environment_mismatch")
     sender = sender or (lambda body: _post(config, body, "getWebPaymentDetails"))
     return parse_details_response(sender(get_details_xml(intent.provider_reference)), intent, intent.provider_reference)
 

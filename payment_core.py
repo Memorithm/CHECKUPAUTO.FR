@@ -2,7 +2,9 @@
 
 A trusted booking adapter must create Quote from provider-authoritative price and
 recorded terms acceptance. That adapter/public routes are intentionally not bound
-by this tranche. No live environment or browser-success mutation is supported.
+by this tranche. Payline intents may be "production" only when created by the
+gated checkout (payment_payline_private live gate); browser-success mutations
+are never supported.
 """
 from __future__ import annotations
 
@@ -15,6 +17,8 @@ import re
 import sqlite3
 import stat
 import uuid
+
+ENVIRONMENTS = ("sandbox", "production")
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -81,7 +85,10 @@ class Intent:
 
     def __post_init__(self):
         text(self.payment_id, r"[0-9a-f]{32}", "payment_id_invalid")
-        if self.provider not in {"paypal", "monetico", "payline"} or self.environment != "sandbox":
+        if self.provider not in {"paypal", "monetico", "payline"}:
+            raise PaymentError("sandbox_provider_required")
+        # Only Payline has a gated production path; other providers stay sandbox.
+        if self.environment not in ENVIRONMENTS or (self.environment == "production" and self.provider != "payline"):
             raise PaymentError("sandbox_provider_required")
         cents(self.amount_cents)
         try:
@@ -153,7 +160,7 @@ class SandboxJournal:
               booking_hash TEXT NOT NULL UNIQUE,
               quote_hash TEXT NOT NULL,
               provider TEXT NOT NULL CHECK(provider IN ('paypal','monetico','payline')),
-              environment TEXT NOT NULL CHECK(environment='sandbox'),
+              environment TEXT NOT NULL CHECK(environment IN ('sandbox','production')),
               amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
               currency TEXT NOT NULL CHECK(currency='EUR'),
               provider_reference TEXT NOT NULL DEFAULT '',
@@ -186,6 +193,7 @@ class SandboxJournal:
                 "'payline'" not in sql
                 or "'cancelled'" not in sql
                 or "'error'" not in sql
+                or "'production'" not in sql
             )
             if needs_rebuild:
                 provider_starts_exists = bool(db.execute(
@@ -208,7 +216,7 @@ class SandboxJournal:
                   booking_hash TEXT NOT NULL UNIQUE,
                   quote_hash TEXT NOT NULL,
                   provider TEXT NOT NULL CHECK(provider IN ('paypal','monetico','payline')),
-                  environment TEXT NOT NULL CHECK(environment='sandbox'),
+                  environment TEXT NOT NULL CHECK(environment IN ('sandbox','production')),
                   amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents BETWEEN 1 AND 9000),
                   currency TEXT NOT NULL CHECK(currency='EUR'),
                   provider_reference TEXT NOT NULL DEFAULT '',
@@ -318,8 +326,10 @@ class SandboxJournal:
             "updatedAt":str(row["updated_at"]),
         }
 
-    def create(self, quote: Quote, provider: str) -> Intent:
+    def create(self, quote: Quote, provider: str, environment: str = "sandbox") -> Intent:
         if not isinstance(quote, Quote) or provider not in {"paypal", "monetico", "payline"}:
+            raise PaymentError("quote_or_provider_invalid")
+        if environment not in ENVIRONMENTS or (environment == "production" and provider != "payline"):
             raise PaymentError("quote_or_provider_invalid")
         binding = digest(["mercure-rdv", quote.booking_reference])
         quote_hash = digest([quote.service, quote.amount_cents, quote.terms_hash])
@@ -327,14 +337,15 @@ class SandboxJournal:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM payment_intents WHERE booking_hash=?", (binding,)).fetchone()
             if row:
-                if row["provider"] != provider or row["quote_hash"] != quote_hash:
+                if (row["provider"] != provider or row["quote_hash"] != quote_hash
+                        or row["environment"] != environment):
                     raise PaymentError("booking_payment_conflict")
                 return self._intent(row)
             payment_id = uuid.uuid4().hex
             db.execute("""INSERT INTO payment_intents
                 (payment_id,booking_hash,quote_hash,provider,environment,amount_cents,currency,state,created_at)
-                VALUES(?,?,?,?,'sandbox',?,'EUR','created',?)""",
-                (payment_id, binding, quote_hash, provider, quote.amount_cents, stamp()))
+                VALUES(?,?,?,?,?,?,'EUR','created',?)""",
+                (payment_id, binding, quote_hash, provider, environment, quote.amount_cents, stamp()))
             return self._intent(db.execute("SELECT * FROM payment_intents WHERE payment_id=?", (payment_id,)).fetchone())
 
     def bind_provider(self, payment_id: str, provider_reference: str) -> Intent:
