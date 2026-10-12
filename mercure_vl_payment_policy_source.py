@@ -18,12 +18,10 @@ def qualify(*, service: str, response: object) -> dict:
             or type(response.get("paiementCentre")) is not bool
             or type(response.get("paiementWeb")) is not bool):
         raise MercurePaymentPolicyError("booking_payment_policy_unverified")
-    if response["paiementWeb"] is True:
-        mode, required = "online", True
-    elif response["paiementCentre"] is True:
-        mode, required = "centre", False
-    else:
-        raise MercurePaymentPolicyError("booking_no_payment_mode_available")
+    # Online prepayment is mandatory for CheckupAuto customer bookings.
+    if response["paiementWeb"] is not True:
+        raise MercurePaymentPolicyError("booking_online_payment_unavailable")
+    mode, required = "online", True
     return {"service": service, "providerVerified": True, "paymentRequired": required,
             "source": "mercure-service-payment-options", "paymentMode": mode}
 
