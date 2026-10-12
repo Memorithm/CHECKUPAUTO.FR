@@ -11,9 +11,12 @@ class PaymentPolicySourceTests(unittest.TestCase):
         self.assertTrue(policy["paymentRequired"])
         self.assertNotIn("paid", policy)
 
-    def test_centre_only_is_rejected_without_fallback(self):
-        with self.assertRaisesRegex(source.MercurePaymentPolicyError, "booking_online_payment_unavailable"):
-            source.qualify(service="technical", response={"paiementCentre": True, "paiementWeb": False})
+    def test_centre_only_mercure_still_requires_checkupauto_prepayment(self):
+        policy = source.qualify(service="technical", response={"paiementCentre": True, "paiementWeb": False})
+        self.assertEqual(policy["paymentMode"], "online")
+        self.assertEqual(policy["providerSettlementMode"], "centre")
+        self.assertTrue(policy["paymentRequired"])
+        self.assertNotIn("paid", policy)
 
     def test_ambiguous_flags_are_not_provider_authority(self):
         for value in ({}, {"paiementCentre": True}, {"paiementCentre": True, "paiementWeb": 1},
