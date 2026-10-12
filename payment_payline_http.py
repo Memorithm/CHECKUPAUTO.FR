@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import payment_payline as payline
 import payment_checkout as checkout
+import customer_booking_payment_binding as booking_payment_binding
 import payment_payline_private as private_config
 import payment_mode
 import site_config_store
@@ -138,6 +139,16 @@ def _browser_result(handler, query: str) -> bool:
             "text/html; charset=utf-8", 503, "no-store",
             {"X-Robots-Tag": "noindex, nofollow, noarchive", "Retry-After": "30"},
         )
+        return True
+
+    try:
+        request_key = booking_payment_binding.request_key_for_payment(payment_id)
+    except Exception:
+        request_key = None
+    if request_key:
+        # In-site booking: go back to the confirmation page, which re-reads
+        # booking and payment state for the authenticated account.
+        handler.send_redirect("/compte/reservation?cle=" + request_key, 303)
         return True
 
     if intent.state == "captured":

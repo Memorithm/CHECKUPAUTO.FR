@@ -36,4 +36,11 @@ class Tests(unittest.TestCase):
     def test_foreign_account_cannot_see_binding(self):
         binding.bind(**self.kw,authorized=True)
         self.assertFalse(binding.lookup(account_id='a2',request_key=self.kw['request_key'])['bound'])
+    def test_payment_reference_routes_back_to_its_request_key_only(self):
+        self.assertIsNone(binding.request_key_for_payment('pay_123'))
+        binding.bind(**self.kw,authorized=True)
+        self.assertEqual(binding.request_key_for_payment('pay_123'),self.kw['request_key'])
+        self.assertIsNone(binding.request_key_for_payment('other_123'))
+        with self.assertRaises(ValueError):
+            binding.request_key_for_payment('../x')
 if __name__=='__main__':unittest.main()

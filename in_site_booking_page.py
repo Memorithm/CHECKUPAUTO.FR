@@ -14,7 +14,7 @@ import re
 import booking_bridge as booking
 import mercure_public_client
 
-ASSET_VERSION = "20261011-1"
+ASSET_VERSION = "20261012-1"
 CONFIRMATION_ROUTE = "/compte/reservation"
 
 
@@ -90,13 +90,13 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
     page = f'''{_head("Confirmer votre rendez-vous")}<body class="bj"><main><section class="bj-card" aria-labelledby="bjTitle">
 <div class="bj-eyebrow">Réservation · récapitulatif</div>
 <h1 id="bjTitle">Vérifiez et confirmez votre rendez-vous.</h1>
-<p>Le rendez-vous est réservé directement auprès du centre depuis cette page. Le créneau n’est bloqué qu’après confirmation.</p>
+<p>Le rendez-vous est réservé directement auprès du centre depuis cette page, puis réglé en ligne par carte bancaire. Le créneau n’est bloqué qu’après confirmation.</p>
 <div class="bj-highlight"><strong>{esc(service_label)}</strong><span id="bjSlot">{esc(date)} · {esc(time)}</span></div>
 <dl class="bj-summary">
 <dt>Prestation</dt><dd>{esc(service_label)}</dd>
 <dt>Créneau</dt><dd>{esc(date)} à {esc(time)}</dd>
 <dt>Tarif</dt><dd id="bjPrice">{esc(price_text)}</dd>
-<dt>Paiement</dt><dd>Aucun paiement n’est demandé sur cette page.</dd>
+<dt>Paiement</dt><dd>En ligne par carte bancaire, sur la page de paiement sécurisée, juste après la confirmation du rendez-vous.</dd>
 </dl>
 <section class="bj-section" aria-labelledby="bjCustomerTitle"><div class="bj-eyebrow">1 / Coordonnées</div>
 <h2 id="bjCustomerTitle">Vos informations</h2>
@@ -117,7 +117,7 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
 <h2 id="bjConfirmTitle">Conditions et confirmation</h2>
 <label class="bj-consent"><input id="bjTerms" type="checkbox"> <span>J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</span></label>
 {immediate_markup}
-<div class="bj-actions"><button id="bjConfirm" class="primary" type="submit" disabled>Confirmer le rendez-vous</button>
+<div class="bj-actions"><button id="bjConfirm" class="primary" type="submit" disabled>Confirmer et payer</button>
 <a class="action-button" href="/#reservation">Modifier mon choix</a></div>
 <p id="bjStatus" class="bj-status" role="status" aria-live="polite"></p></form>
 <section id="bjSlotLost" class="bj-panel bj-panel--warn" hidden aria-labelledby="bjSlotLostTitle"><h2 id="bjSlotLostTitle">Ce créneau n’est plus disponible.</h2>
@@ -138,18 +138,20 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
     return page.encode("utf-8")
 
 
-def render_status(*, request_key: str, nonce: str, business: dict) -> bytes:
+def render_status(*, request_key: str, nonce: str, business: dict, csrf: str = "") -> bytes:
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,128}", str(request_key or "")):
         raise ValueError("booking_key_invalid")
     phone = str(business.get("phone") or "")
     esc = html.escape
-    data = {"mode": "status", "requestKey": request_key, "pollMs": 5000, "maxPolls": 24}
+    data = {"mode": "status", "requestKey": request_key, "pollMs": 5000, "maxPolls": 24, "csrf": csrf}
     page = f'''{_head("Votre rendez-vous")}<body class="bj"><main><section class="bj-card" aria-labelledby="bjStatusTitle">
 <div class="bj-eyebrow">Réservation · confirmation</div>
 <h1 id="bjStatusTitle">Vérification de votre rendez-vous…</h1>
 <p id="bjStatusText" role="status" aria-live="polite">Nous interrogeons le centre.</p>
 <dl id="bjStatusDetails" class="bj-summary" hidden></dl>
 <p id="bjStatusPayment" hidden></p>
+<p id="bjStatusPay" hidden><button id="bjPayNow" class="primary" type="button">Payer maintenant</button></p>
+<p id="bjPayError" class="bj-error" role="alert"></p>
 <p id="bjStatusRestart" hidden><a class="action-button action-button--primary" href="/#reservation">Choisir un créneau</a></p>
 <p id="bjStatusLogin" hidden><a class="action-button action-button--primary" href="/compte">Me connecter</a></p>
 <p id="bjStatusCall" hidden><a class="action-button" href="tel:{esc(_tel(phone), quote=True)}">Appeler le centre · {esc(phone)}</a></p>

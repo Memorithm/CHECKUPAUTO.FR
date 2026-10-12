@@ -17,7 +17,8 @@ Documents détaillés :
    - preuve d'acceptation (`/api/booking/accept-terms`, inchangé) ;
    - `POST /api/customer/booking/preflight` ;
    - `POST /api/customer/booking/create`, avec une clé d'idempotence unique par intention.
-4. La page `/compte/reservation?cle=…` affiche la confirmation. Si la réservation est en attente de vérification ou de rapprochement, elle interroge `/api/customer/booking/status` toutes les 5 secondes.
+4. Une fois le rendez-vous confirmé par Mercure, le serveur l'enregistre comme payable (référence Mercure, prix relu avant écriture, preuve CGV). La page lance ensuite `POST /api/customer/booking/payment/start` et redirige vers Payline.
+5. Au retour de Payline, le paiement est relu côté serveur, puis le client revient sur `/compte/reservation?cle=…`. Cette page affiche « réservé, paiement à effectuer » (bouton « Payer maintenant ») ou « confirmé et payé ». Si la réservation est en attente de vérification ou de rapprochement, elle interroge `/api/customer/booking/status` toutes les 5 secondes.
 
 Cas d'erreur :
 
@@ -39,7 +40,7 @@ Si l'interrupteur est actif mais qu'un prérequis manque, `/go/booking` revient 
 | Validation et preuve de mise en production | `CHECKUPAUTO_BOOKING_SIGNOFF_FILE` et `CHECKUPAUTO_BOOKING_SIGNOFF_KEY_FILE` (voir doc 1) | aucune preuve, donc fermé |
 | Qui envoie les confirmations | `CHECKUPAUTO_MERCURE_NOTIFY_EMAIL_CONFIRMATION`, `…_PRINT_CONFIRMATION`, `…_SMS_CONFIRMATION`, `…_SMS_REMINDER` (`true` ou `false`) | absents : charge utile inchangée |
 | Modèle générique « Autres modèles » | `CHECKUPAUTO_MERCURE_ALLOW_GENERIC_MODEL=true` | masqué |
-| Paiement | Hors périmètre. La politique de paiement Mercure (`mercure_vl_payment_policy_source`) reste le seul arbitre, et aucun module de paiement n'est modifié. Les capacités de paiement ne sont jamais déclarées. | inchangé |
+| Paiement | **Après** l'écriture Mercure, par Payline / Monext (page hébergée). La politique Mercure doit être vérifiée, mais aucun reçu n'est exigé avant l'écriture. Le paiement est ensuite lancé par `POST /api/customer/booking/payment/start`, avec la clé de la demande pour seule donnée. Le mode « délégué à MercureWeb » de la configuration bloque cette route. | paiement dû après réservation |
 | Session admin Mercure de production | Surveillée par `/api/admin/mercure/booking-health`. Une session invalide entraîne la bascule vers le chemin délégué. | — |
 | Réservation de test réelle | Aucune n'est effectuée par ce code ni par ses tests. | — |
 

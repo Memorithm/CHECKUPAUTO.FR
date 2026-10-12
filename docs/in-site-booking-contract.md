@@ -12,9 +12,9 @@ Le client reste sur le site Checkup Auto pour sélectionner une prestation, choi
 2. Une session client authentifiée et vérifiée est obligatoire ; les données du véhicule sont validées côté serveur, et le numéro de formule n'est jamais affiché intégralement dans les récapitulatifs.
 3. Le client revoit prestation, prix final, date, heure, véhicule et CGV, puis confirme.
 4. Le serveur crée une intention idempotente liée à l'identité client, au véhicule, à la prestation et au créneau, puis effectue l'opération métier autorisée via un connecteur Mercure qualifié. Toute réponse ambiguë est réconciliée auprès de Mercure avant une nouvelle tentative. Ne jamais créer une seconde réservation aveuglément.
-5. Si un règlement est requis, le site ouvre une fenêtre de paiement intégrée **uniquement** si Mercure ou son prestataire fournit un composant embarquable autorisé (CSP, cookies, authentification, 3-D Secure et origine vérifiés). Une fermeture de popup ou un retour navigateur n'est pas une preuve de paiement. Une redirection vers MercureWeb ne constitue pas une solution de repli conforme.
-6. Le backend vérifie indépendamment le résultat de paiement et l'état de réservation auprès de la source autorisée, puis affiche la confirmation finale sur Checkup Auto avec référence, prestation, véhicule, horaire, prix et statut. Ne pas envoyer de confirmation client avant cet état.
-7. Les annulations, expirations et échecs de paiement sont réconciliés sans doublons, et le client reçoit une information explicite sur l'état réel.
+5. **Le rendez-vous est écrit dans Mercure avant le paiement.** Dès que Mercure l'a confirmé (relecture indépendante), le client est envoyé vers la page de paiement hébergée Payline / Monext de Checkup Auto (`POST /api/customer/booking/payment/start`, qui n'accepte que la clé de la demande). Le montant et la référence viennent du serveur : prix relu dans Mercure avant l'écriture, référence du rendez-vous, preuve CGV rattachée. Une fermeture de popup ou un retour navigateur n'est pas une preuve de paiement. En attendant l'API de paiement Mercure, Payline reste le seul encaissement en ligne.
+6. Au retour de Payline, le serveur relit le paiement (`getWebPaymentDetails`), puis renvoie le client vers `/compte/reservation?cle=…`. Cette page affiche « réservé, paiement à effectuer » avec un bouton « Payer maintenant », ou « confirmé et payé » une fois le paiement vérifié. Ne pas envoyer de confirmation de paiement au client avant cet état.
+7. Les annulations, expirations et échecs de paiement sont réconciliés sans doublons, et le client reçoit une information explicite sur l'état réel. **Non livré à ce stade :** l'annulation automatique dans Mercure d'un rendez-vous resté impayé. Il faut un connecteur d'annulation qualifié ; en attendant, ces rendez-vous restent visibles dans le planning et se traitent manuellement.
 
 ## Contraintes de mise en œuvre
 
@@ -31,6 +31,6 @@ Le client reste sur le site Checkup Auto pour sélectionner une prestation, choi
 - Parcours nouveau véhicule SIV, FNI et véhicule enregistré ; refus des identifiants invalides.
 - Créneau indisponible, double clic, timeout Mercure, reconnexion et nouvelle tentative : aucune réservation en double.
 - Paiement non requis : confirmation interne après vérification Mercure.
-- Paiement requis : fenêtre intégrée qualifiée, retour sur Checkup Auto, confirmation côté serveur ; échec, abandon et 3-D Secure traités.
+- Paiement requis : rendez-vous écrit dans Mercure, puis page Payline hébergée, retour sur Checkup Auto et confirmation côté serveur. Échec, abandon et 3-D Secure sont traités ; « Payer maintenant » reste disponible tant que le paiement n'est pas vérifié.
 - Test réel contrôlé avec un rendez-vous synthétique créé, relu et supprimé dans Mercure, puis test d'homologation paiement sans débit bancaire.
 - Aucun résultat de test synthétique ne doit être présenté comme une réservation client réelle.
