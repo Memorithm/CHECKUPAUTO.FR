@@ -18,12 +18,15 @@ def qualify(*, service: str, response: object) -> dict:
             or type(response.get("paiementCentre")) is not bool
             or type(response.get("paiementWeb")) is not bool):
         raise MercurePaymentPolicyError("booking_payment_policy_unverified")
-    # Online prepayment is mandatory for CheckupAuto customer bookings.
-    if response["paiementWeb"] is not True:
-        raise MercurePaymentPolicyError("booking_online_payment_unavailable")
-    mode, required = "online", True
-    return {"service": service, "providerVerified": True, "paymentRequired": required,
-            "source": "mercure-service-payment-options", "paymentMode": mode}
+    # CheckupAuto requires a verified external online payment. The Mercure
+    # settlement flag is separate: centre-only Mercure does not mean the
+    # CheckupAuto customer may pay at the centre.
+    if not response["paiementWeb"] and not response["paiementCentre"]:
+        raise MercurePaymentPolicyError("booking_no_payment_mode_available")
+    settlement = "online" if response["paiementWeb"] else "centre"
+    return {"service": service, "providerVerified": True, "paymentRequired": True,
+            "source": "mercure-service-payment-options", "paymentMode": "online",
+            "providerSettlementMode": settlement}
 
 
 def load(*, service: str) -> dict:
