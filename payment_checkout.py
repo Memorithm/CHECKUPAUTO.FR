@@ -85,7 +85,15 @@ def start_payline_for_browser(ccid: str, cct: str, *, starter=None) -> dict:
         raise PaymentError("payment_browser_token_invalid") from None
     except Exception:
         raise PaymentError("authoritative_booking_required") from None
+    return start_payline_for_booking(external_id, starter=starter)
 
+
+def start_payline_for_booking(external_id: str, *, starter=None) -> dict:
+    """Start (or reuse) the Payline checkout of a confirmed Mercure booking.
+
+    Callers must already have resolved ``external_id`` from server-side
+    authority (browser token or the authenticated customer journal).
+    """
     quote=quote_for_confirmed_booking(external_id)
     store,db=_start_connection()
     try:

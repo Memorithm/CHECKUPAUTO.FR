@@ -11,10 +11,17 @@ class Tests(unittest.TestCase):
             authorize(service="technical",policy={"service":"technical",
                 "providerVerified":True,"paymentRequired":False,"paymentMode":"centre"})
 
-    def test_required_payment_without_proof_fails(self):
+    def test_required_payment_is_due_after_booking(self):
+        result=authorize(service="technical",policy={
+            "service":"technical","providerVerified":True,"paymentRequired":True})
+        self.assertEqual((result["authorized"],result["paid"],result["paymentDue"]),
+                         (True,False,"after_booking"))
+
+    def test_supplied_unverified_proof_fails(self):
         with self.assertRaises(BookingPaymentPolicyError):
             authorize(service="technical",policy={
-                "service":"technical","providerVerified":True,"paymentRequired":True})
+                "service":"technical","providerVerified":True,"paymentRequired":True},
+                payment_evidence={"providerVerified":False,"paid":True})
 
     def test_required_payment_with_provider_proof(self):
         result=authorize(service="technical",policy={

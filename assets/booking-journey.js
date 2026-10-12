@@ -21,6 +21,8 @@
     preflight: '/api/customer/booking/preflight',
     create: '/api/customer/booking/create',
     status: '/api/customer/booking/status',
+    paymentStart: '/api/customer/booking/payment/start',
+    paymentStatus: '/api/customer/booking/payment-status',
     mapping: '/api/customer/booking/vehicle-mapping',
     references: '/api/customer/vehicle-references'
   };
@@ -151,7 +153,8 @@
     const preflight = classifyPreflight(pre.status, pre.body);
     if (preflight.state !== 'ready') return Object.assign({ consentRecorded: true }, preflight);
     step('create');
-    const created = await fetchJson(fetchImpl, ROUTES.create, post(Object.assign({}, slot, { requestKey })));
+    const created = await fetchJson(fetchImpl, ROUTES.create,
+      post(Object.assign({}, slot, { requestKey, ccid: data.ccid, cct: data.cct })));
     const outcome = classifyCreate(created.status, created.body);
     if (outcome.state !== 'verify') {
       return Object.assign({ consentRecorded: true, requestKey, priceCents: preflight.priceCents }, outcome);
@@ -165,6 +168,22 @@
     }
     if (known.state === 'confirmed') return { state: 'confirmed', consentRecorded: true, requestKey };
     return { state: 'pending', reason: outcome.reason, consentRecorded: true, requestKey };
+  }
+
+  /* Paiement Payline après la création du rendez-vous dans Mercure.
+   * Le serveur relit le rendez-vous et le montant ; le navigateur ne fournit
+   * que la clé de la demande. */
+  async function startPayment({ fetchImpl, csrf, requestKey }) {
+    const res = await fetchJson(fetchImpl, ROUTES.paymentStart, jsonPost(csrf)({ requestKey }));
+    const body = res.body || {};
+    if (res.status === 200 && body.ok === true) {
+      if (body.paid === true) return { state: 'paid' };
+      if (typeof body.redirectUrl === 'string' && /^https:\/\//.test(body.redirectUrl)) {
+        return { state: 'redirect', url: body.redirectUrl };
+      }
+    }
+    if (res.status === 401) return { state: 'auth' };
+    return { state: 'error', reason: errorCode(body) || 'http_' + res.status };
   }
 
   function formatDate(iso) {
@@ -327,8 +346,15 @@
             service: data.serviceLabel, date: data.date, time: data.time, vehicle: data.vehicleLabel,
             price: result.priceCents }));
         } catch (_e) { /* affichage minimal */ }
-        status.textContent = result.state === 'confirmed' ? 'Rendez-vous confirmé.' : 'Vérification en cours…';
-        win.location.assign(data.confirmationUrl + '?cle=' + encodeURIComponent(requestKey));
+        const confirmationUrl = data.confirmationUrl + '?cle=' + encodeURIComponent(requestKey);
+        if (result.state === 'confirmed') {
+          status.textContent = 'Rendez-vous enregistré. Ouverture du paiement sécurisé…';
+          const pay = await startPayment({ fetchImpl, csrf: data.csrf, requestKey });
+          if (pay.state === 'redirect') { win.location.assign(pay.url); return; }
+        } else {
+          status.textContent = 'Vérification en cours…';
+        }
+        win.location.assign(confirmationUrl);
         return;
       }
       state.busy = false;
@@ -371,10 +397,20 @@
       const res = await fetchJson(fetchImpl, '/api/customer/booking/status?requestKey=' + encodeURIComponent(data.requestKey));
       const result = classifyStatus(res.status, res.body);
       if (result.state === 'confirmed') {
-        title.textContent = 'Votre rendez-vous est confirmé.';
-        text.textContent = 'Le centre a enregistré votre rendez-vous. Conservez cette page.';
+        const paid = await fetchJson(fetchImpl, ROUTES.paymentStatus + '?requestKey=' + encodeURIComponent(data.requestKey));
+        const settled = paid.status === 200 && paid.body && paid.body.payment && paid.body.payment.paid === true;
+        if (settled) {
+          title.textContent = 'Votre rendez-vous est confirmé et payé.';
+          text.textContent = 'Le centre a enregistré votre rendez-vous et votre paiement a été vérifié. Conservez cette page.';
+          if (payment) { payment.textContent = 'Paiement reçu.'; payment.hidden = false; }
+          doc.body.dataset.bookingState = 'paid';
+          return;
+        }
+        title.textContent = 'Votre rendez-vous est réservé : paiement à effectuer.';
+        text.textContent = 'Le centre a enregistré votre rendez-vous. Réglez-le en ligne pour finaliser votre réservation.';
         if (payment) { payment.textContent = result.paymentMessage; payment.hidden = !result.paymentMessage; }
-        doc.body.dataset.bookingState = 'confirmed';
+        show($('bjStatusPay'), true);
+        doc.body.dataset.bookingState = 'payment_due';
         return;
       }
       if (result.state === 'not_found') {
@@ -397,12 +433,26 @@
       text.textContent = 'La vérification prend plus de temps que prévu. Revenez sur cette page plus tard ou appelez le centre ; ne relancez pas de réservation.';
       show($('bjStatusCall'), true);
     }
+    const payNow = $('bjPayNow');
+    if (payNow) payNow.addEventListener('click', async () => {
+      payNow.disabled = true;
+      const error = $('bjPayError');
+      if (error) error.textContent = '';
+      const pay = await startPayment({ fetchImpl, csrf: data.csrf, requestKey: data.requestKey });
+      if (pay.state === 'redirect') { win.location.assign(pay.url); return; }
+      if (pay.state === 'paid') { attempts = 0; show($('bjStatusPay'), false); poll(); return; }
+      payNow.disabled = false;
+      if (error) error.textContent = pay.state === 'auth'
+        ? 'Votre session a expiré. Reconnectez-vous pour payer.'
+        : 'Le paiement en ligne est momentanément indisponible. Réessayez ou appelez le centre.';
+      show($('bjStatusCall'), true);
+    });
     poll();
   }
 
   return {
     ROUTES, fold, isGenericModel, filterModels, newRequestKey, requestKeyFor,
-    classifyPreflight, classifyCreate, classifyStatus, fetchJson, submitBooking,
+    classifyPreflight, classifyCreate, classifyStatus, fetchJson, submitBooking, startPayment,
     recordConsent, formatDate, formatPrice, boot
   };
 });

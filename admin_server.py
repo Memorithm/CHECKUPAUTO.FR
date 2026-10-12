@@ -612,7 +612,7 @@ class Handler(SimpleHTTPRequestHandler):
    try:
     nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
     key=(parse_qs(parsed.query).get('cle') or [''])[0]
-    return self.send_bytes(in_site_booking_page.render_status(request_key=key,nonce=nonce,business=load_config().get('business') or {}),'text/html; charset=utf-8',cache='no-store')
+    return self.send_bytes(in_site_booking_page.render_status(request_key=key,nonce=nonce,business=load_config().get('business') or {},csrf=customer_http.customer_accounts.csrf_token(token)),'text/html; charset=utf-8',cache='no-store')
    except ValueError: return self.send_redirect('/compte',303)
   if path.startswith('/api/admin/mercure/'):
    if not self.authorized(): return self.require_auth()

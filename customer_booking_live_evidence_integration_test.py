@@ -90,7 +90,7 @@ class ProviderCompositionTests(unittest.TestCase):
                              line_evidence={"observed":True,"slotAvailable":True,"lineId":"454"})
         self.slot_loader.assert_not_called()
 
-    def test_missing_receipt_blocks_composed_executor_before_writer(self):
+    def test_booking_is_written_before_online_payment(self):
         executor, trusted = context.prepare(service="technical",date="2026-10-12",time="09:00",
                                             server_config=self.config,payment_policy=self.policy)
         payload={"service":"technical","date":"2026-10-12","time":"09:00","vehicleId":"v1",
@@ -99,10 +99,12 @@ class ProviderCompositionTests(unittest.TestCase):
         preflight={"service":"technical","date":"2026-10-12","time":"09:00","priceCents":8000,"bookingEnabled":True}
         with patch.object(create_api.customer_booking_api,"preflight",return_value=preflight), \
              patch.object(create_api.in_site_booking_readiness,"public_status",return_value={"bookingEnabled":True}), \
-             patch.object(execution.mercure_vl_booking_coordinator,"create_and_verify") as writer:
-            with self.assertRaisesRegex(ValueError,"payment_evidence_missing"):
-                create_api.create(payload,account=account,executor=executor,trusted_context=trusted)
-        writer.assert_not_called()
+             patch.object(execution.mercure_vl_booking_coordinator,"create_and_verify",
+                          return_value={"confirmed":True}) as writer:
+            result=create_api.create(payload,account=account,executor=executor,trusted_context=trusted)
+        # Payment is collected after the Mercure write, through Payline.
+        writer.assert_called_once()
+        self.assertEqual((result["confirmed"],result["paymentDue"]),(True,"after_booking"))
         self.assertEqual(self.slot_loader.call_count,2)
 
 

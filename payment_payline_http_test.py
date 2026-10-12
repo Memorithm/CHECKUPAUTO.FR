@@ -88,6 +88,20 @@ class PaylineHttpRoutesTest(unittest.TestCase):
         refresh.assert_called_once()
         self.assertIn("noindex", handler.response["headers"]["X-Robots-Tag"])
 
+    def test_bound_in_site_booking_returns_to_confirmation_page_after_reread(self):
+        handler = Handler("/payment/payline/return?paymentId=" + self.intent.payment_id)
+        redirects = []
+        handler.send_redirect = lambda location, status=302: redirects.append((location, status))
+        key = "booking-payline-return-key-01"
+        with patch.object(private_config, "load", return_value=object()), \
+             patch.object(routes.payline, "refresh", return_value=self.verified()), \
+             patch.object(routes.booking_payment_binding, "request_key_for_payment", return_value=key) as lookup:
+            self.assertTrue(routes.handle(handler))
+        lookup.assert_called_once_with(self.intent.payment_id)
+        # The verified provider event is applied before the browser is routed back.
+        self.assertEqual(self.store.get(self.intent.payment_id).state, "captured")
+        self.assertEqual(redirects, [("/compte/reservation?cle=" + key, 303)])
+
     def test_browser_return_distinguishes_provider_cancel_and_technical_error(self):
         cases=(
             ("cancelled","Paiement annul"),

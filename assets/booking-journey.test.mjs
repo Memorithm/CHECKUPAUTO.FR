@@ -150,3 +150,38 @@ test('status classification and formatting', () => {
   assert.equal(J.formatPrice(null), '');
   assert.match(J.formatDate('2026-12-15'), /15 décembre 2026/);
 });
+
+test('create carries the signed intent so the server can bind the CGV receipt for payment', async () => {
+  const f = fakeFetch({
+    [J.ROUTES.acceptTerms]: ok, [J.ROUTES.preflight]: preflightReady,
+    [J.ROUTES.create]: { status: 200, body: { ok: true, confirmed: true, state: 'confirmed', paymentReady: true } }
+  });
+  await J.submitBooking({ fetchImpl: f.impl, data: DATA, requestKey: KEY });
+  const create = f.calls.find(c => c.path === J.ROUTES.create);
+  assert.equal(create.body.ccid, DATA.ccid);
+  assert.equal(create.body.cct, DATA.cct);
+  assert.equal(create.body.requestKey, KEY);
+});
+
+test('payment start sends only the request key and follows an https Payline URL', async () => {
+  const f = fakeFetch({ [J.ROUTES.paymentStart]: { status: 200,
+    body: { ok: true, paid: false, redirectUrl: 'https://homologation-webpayment.payline.com/v2/?token=x' } } });
+  const pay = await J.startPayment({ fetchImpl: f.impl, csrf: DATA.csrf, requestKey: KEY });
+  assert.deepEqual(pay, { state: 'redirect', url: 'https://homologation-webpayment.payline.com/v2/?token=x' });
+  assert.deepEqual(f.calls[0].body, { requestKey: KEY });
+  assert.equal(f.calls[0].headers['X-CheckupAuto-Customer-CSRF'], DATA.csrf);
+});
+
+test('payment start: already paid, non-https URL and failures never redirect', async () => {
+  const paid = fakeFetch({ [J.ROUTES.paymentStart]: { status: 200, body: { ok: true, paid: true } } });
+  assert.equal((await J.startPayment({ fetchImpl: paid.impl, csrf: '', requestKey: KEY })).state, 'paid');
+  const insecure = fakeFetch({ [J.ROUTES.paymentStart]: { status: 200,
+    body: { ok: true, paid: false, redirectUrl: 'javascript:alert(1)' } } });
+  assert.equal((await J.startPayment({ fetchImpl: insecure.impl, csrf: '', requestKey: KEY })).state, 'error');
+  const refused = fakeFetch({ [J.ROUTES.paymentStart]: { status: 409,
+    body: { ok: false, error: 'authoritative_booking_required' } } });
+  assert.deepEqual(await J.startPayment({ fetchImpl: refused.impl, csrf: '', requestKey: KEY }),
+    { state: 'error', reason: 'authoritative_booking_required' });
+  const down = fakeFetch({ [J.ROUTES.paymentStart]: 'network' });
+  assert.equal((await J.startPayment({ fetchImpl: down.impl, csrf: '', requestKey: KEY })).state, 'error');
+});

@@ -46,4 +46,6 @@ def create(payload: object, *, account: dict, executor=None, trusted_context=Non
                     **trusted_context,server_authorized=True)
     if not isinstance(result,dict) or result.get("confirmed") is not True:
         return {"ok":True,"confirmed":False,"state":"reconciliation_required"}
-    return {"ok":True,"confirmed":True,"state":"confirmed"}
+    # The appointment exists in Mercure; online payment (Payline) is now due.
+    return {"ok":True,"confirmed":True,"state":"confirmed","paymentDue":"after_booking",
+            "service":preflight.get("service"),"priceCents":preflight.get("priceCents")}

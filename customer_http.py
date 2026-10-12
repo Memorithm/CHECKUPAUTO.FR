@@ -22,6 +22,9 @@ import customer_booking_server_config_source
 import customer_booking_confirmation_view
 import customer_booking_confirmation_payment_source
 import customer_booking_payment_http_status
+import customer_booking_payment_start
+import payment_mode
+import site_config_store
 import customer_accounts
 import booking_health
 import mercure_brand_energy_reference
@@ -848,9 +851,15 @@ def handle(handler) -> bool:
         try:
             verified_account={**account,"vehicles":customer_accounts.list_vehicles(account["accountId"])}
             request_body=_json_body(handler)
+            # The signed booking intent (ccid/cct) is optional and only used,
+            # after the Mercure write, to bind the CGV receipt for payment.
+            intent={}
+            if isinstance(request_body,dict) and {"ccid","cct"}<=set(request_body):
+                intent={"ccid":request_body.pop("ccid"),"cct":request_body.pop("cct")}
             if (not isinstance(request_body,dict)
                     or set(request_body)!={"service","date","time","vehicleId","requestKey"}
-                    or not all(isinstance(value,str) for value in request_body.values())):
+                    or not all(isinstance(value,str) for value in request_body.values())
+                    or not all(isinstance(value,str) for value in intent.values())):
                 raise customer_booking_create_api.BookingCreateInvalid("booking_create_request_invalid")
             executor,trusted_context=customer_booking_http_trusted_context.prepare(
                 service=request_body["service"],date=request_body["date"],time=request_body["time"],
@@ -859,7 +868,21 @@ def handle(handler) -> bool:
                 request_body,account=verified_account,
                 executor=executor,trusted_context=trusted_context)
             booking_health.record_create_result(result)
-            handler.send_json(result,200)
+            payable=False
+            if result.get("confirmed") is True and intent:
+                try:
+                    customer_booking_payment_start.record_confirmed_booking(
+                        account_id=account["accountId"],request_key=request_body["requestKey"],
+                        ccid=intent["ccid"],cct=intent["cct"],
+                        service=result.get("service"),price_cents=result.get("priceCents"))
+                    payable=True
+                except Exception:
+                    # The appointment exists; payment start will report why it
+                    # cannot proceed instead of failing the booking response.
+                    payable=False
+            handler.send_json({key:value for key,value in result.items()
+                               if key not in ("service","priceCents")}
+                              | ({"paymentReady":payable} if result.get("confirmed") is True else {}),200)
         except customer_booking_http_trusted_context.BookingHttpContextError as exc:
             booking_health.record_create_failure(str(exc))
             handler.send_json({"ok":False,"error":"booking_provider_not_qualified"},503)
@@ -960,6 +983,38 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":"booking_key_invalid"},400)
         except Exception:
             handler.send_json({"ok":False,"error":"booking_status_unavailable"},503)
+        return True
+
+    if path=="/api/customer/booking/payment/start":
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+        try:
+            body=_json_body(handler)
+            if not isinstance(body,dict) or set(body)!={"requestKey"} or not isinstance(body["requestKey"],str):
+                raise ValueError("booking_key_invalid")
+            if payment_mode.status(site_config_store.load()).get("delegated") is True:
+                handler.send_json({"ok":False,"error":"payment_delegated_to_mercureweb"},409)
+                return True
+            result=customer_booking_payment_start.start(
+                account_id=account["accountId"],request_key=body["requestKey"])
+            handler.send_json(result,200)
+        except customer_booking_payment_start.BookingPaymentStartError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},409)
+        except ValueError:
+            handler.send_json({"ok":False,"error":"booking_key_invalid"},400)
+        except Exception:
+            handler.send_json({"ok":False,"error":"booking_payment_start_unavailable"},503)
         return True
 
     if path=="/api/customer/booking/payment-status":

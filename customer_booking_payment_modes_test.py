@@ -4,12 +4,12 @@ from customer_booking_payment_policy import authorize, BookingPaymentPolicyError
 
 
 class Tests(unittest.TestCase):
-    def test_mercure_centre_settlement_requires_external_receipt(self):
+    def test_mercure_centre_settlement_books_then_requires_online_payment(self):
         policy = qualify(service='technical', response={'paiementCentre': True, 'paiementWeb': False})
         self.assertEqual(policy['providerSettlementMode'], 'centre')
         self.assertEqual(policy['paymentMode'], 'online')
-        with self.assertRaisesRegex(BookingPaymentPolicyError, 'evidence_missing'):
-            authorize(service='technical', policy=policy)
+        due = authorize(service='technical', policy=policy)
+        self.assertEqual((due['paid'], due['paymentDue']), (False, 'after_booking'))
         with self.assertRaisesRegex(BookingPaymentPolicyError, 'payment_unverified'):
             authorize(service='technical', policy=policy,
                       payment_evidence={'providerVerified': False, 'paid': True})
@@ -17,11 +17,10 @@ class Tests(unittest.TestCase):
                            payment_evidence={'providerVerified': True, 'paid': True})
         self.assertTrue(result['paid'])
 
-    def test_online_requires_verified_payment(self):
+    def test_online_payment_is_due_after_booking(self):
         policy = qualify(service='technical', response={'paiementCentre': True, 'paiementWeb': True})
         self.assertEqual(policy['paymentMode'], 'online')
-        with self.assertRaisesRegex(BookingPaymentPolicyError, 'evidence_missing'):
-            authorize(service='technical', policy=policy)
+        self.assertFalse(authorize(service='technical', policy=policy)['paid'])
         result = authorize(service='technical', policy=policy,
                            payment_evidence={'providerVerified': True, 'paid': True})
         self.assertTrue(result['paid'])

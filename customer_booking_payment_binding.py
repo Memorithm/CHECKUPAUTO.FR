@@ -78,3 +78,15 @@ def lookup(*, account_id: str, request_key: str) -> dict:
         return {'bound': False, 'paid': False}
     return {'bound': True, 'paymentRef': row['payment_ref'], 'provider': row['payment_provider'],
             'providerBookingRef': row['provider_booking_ref'], 'paid': False}
+
+
+def request_key_for_payment(payment_ref: str) -> str | None:
+    """Request key bound to a payment, used only to route the browser back.
+
+    Never authority: the confirmation page re-reads booking and payment state
+    for the authenticated account.
+    """
+    _reference(payment_ref, r'[A-Za-z0-9_-]{1,128}', 'payment_reference_invalid')
+    with _connect() as db:
+        row = db.execute('SELECT request_key FROM payment_binding WHERE payment_ref=?', (payment_ref,)).fetchone()
+    return str(row['request_key']) if row else None

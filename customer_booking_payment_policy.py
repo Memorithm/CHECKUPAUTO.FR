@@ -1,4 +1,10 @@
-"""Fail-closed payment decision for a Mercure customer booking."""
+"""Fail-closed payment decision for a Mercure customer booking.
+
+Order of operations: the Mercure appointment is written first, then the
+customer pays online through the CheckupAuto Payline checkout bound to that
+confirmed appointment. The write gate therefore requires a verified online
+policy but no prior receipt; payment is due right after the booking.
+"""
 from __future__ import annotations
 
 
@@ -17,11 +23,13 @@ def authorize(*, service: str, policy: dict, payment_evidence: dict | None = Non
     mode=policy.get("paymentMode")
     if required is not True or mode not in (None, "online"):
         raise BookingPaymentPolicyError("booking_online_payment_required")
-    if required:
-        if not isinstance(payment_evidence,dict):
-            raise BookingPaymentPolicyError("booking_payment_evidence_missing")
-        if payment_evidence.get("providerVerified") is not True or payment_evidence.get("paid") is not True:
+    paid=False
+    if payment_evidence is not None:
+        # A receipt is never needed before the write, but a supplied one must
+        # still be provider-verified rather than silently ignored.
+        if (not isinstance(payment_evidence,dict) or payment_evidence.get("providerVerified") is not True
+                or payment_evidence.get("paid") is not True):
             raise BookingPaymentPolicyError("booking_payment_unverified")
-    return {"authorized":True,"paymentRequired":required,
-            "paymentMode":"online",
-            "paid":required and isinstance(payment_evidence,dict) and payment_evidence.get("paid") is True}
+        paid=True
+    return {"authorized":True,"paymentRequired":True,"paymentMode":"online",
+            "paymentDue":"after_booking","paid":paid}
