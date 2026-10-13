@@ -8,6 +8,7 @@ on:
       - 'ios/CheckupAutoReminder/**'
       - 'ios_release_runner.py'
       - 'scripts/checkupauto-testflight-credentials.sh'
+      - 'scripts/ensure-mac-ssh-identity.sh'
       - 'scripts/install-appstore-team-key.sh'
       - '.github/workflows/ios-testflight.yml'
 
@@ -20,7 +21,7 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci]
     timeout-minutes: 45
     env:
       CHECKUPAUTO_MAC_HOST: ${{ vars.CHECKUPAUTO_MAC_HOST || 'Mac-mini-de-tarek.local' }}
@@ -71,6 +72,19 @@ jobs:
             echo "::notice::Configured Mac mini hostname unreachable; using reachable LAN IPv4"
           fi
           printf 'CHECKUPAUTO_MAC_HOST=%s\n' "$selected" >> "$GITHUB_ENV"
+
+      - name: Provision isolated runner SSH identity for Mac mini
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The credential must be stored on the exact, previously diagnosed
+          # CheckupAuto runner, not on an unrelated shared Linux machine.
+          if [ "${RUNNER_NAME:-}" != "checkupauto-thor-arm64-02" ] ||
+             [ "$(id -un)" != "memci-checkupauto" ]; then
+            echo "::error::Unexpected runner identity for TestFlight key provisioning"
+            exit 2
+          fi
+          bash scripts/ensure-mac-ssh-identity.sh "$HOME/.ssh"
 
       - name: Resolve authorized Mac SSH identity
         env:
