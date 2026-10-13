@@ -30,6 +30,7 @@ import booking_health
 import mercure_brand_energy_reference
 import mercure_vehicle_reference
 import customer_password_auth
+import customer_mobile_email_auth
 import email_gateway
 import public_origin
 import customer_ct_reports
@@ -57,6 +58,8 @@ WALLET_MOBILE_CLAIM_ROUTE="/api/customer/wallet/mobile-claim"
 MOBILE_APPLE_AUTH_ROUTE="/api/mobile/auth/apple"
 MOBILE_AUTH_EXCHANGE_ROUTE="/api/mobile/auth/exchange"
 MOBILE_APPLE_NONCE_ROUTE="/api/mobile/auth/apple/nonce"
+MOBILE_EMAIL_SIGNIN_ROUTE="/api/mobile/auth/email/login"
+MOBILE_EMAIL_REGISTER_ROUTE="/api/mobile/auth/email/register"
 PASSWORD_LOGIN_ROUTE="/compte/connexion"
 PASSWORD_REGISTER_ROUTE="/compte/inscription"
 PASSWORD_VERIFY_ROUTE="/compte/verifier-email"
@@ -1266,6 +1269,30 @@ def handle(handler) -> bool:
         except Exception:
             headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
+        return True
+
+    if path in {MOBILE_EMAIL_SIGNIN_ROUTE, MOBILE_EMAIL_REGISTER_ROUTE}:
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        try:
+            payload=_json_body(handler)
+            if path==MOBILE_EMAIL_SIGNIN_ROUTE:
+                result=customer_mobile_email_auth.sign_in(
+                    payload,client_key=getattr(handler,"_security_client",""))
+            else:
+                result=customer_mobile_email_auth.register(
+                    payload,send_confirmation=lambda notice:_password_mail(handler,notice,""))
+            handler.send_json(result,200)
+        except (customer_mobile_email_auth.MobileEmailAuthUnavailable,
+                email_gateway.EmailDeliveryError):
+            handler.send_json({"ok":False,"error":"mobile_email_unavailable"},503)
+        except customer_mobile_email_auth.MobileEmailAuthInvalid:
+            handler.send_json({"ok":False,"error":"mobile_email_input_invalid"},422)
+        except Exception:
+            # Generic response: no account-existence or credential information
+            # is disclosed to a caller of the unauthenticated mobile endpoint.
+            handler.send_json({"ok":False,"error":"mobile_email_auth_failed"},401)
         return True
 
     if path==MOBILE_AUTH_EXCHANGE_ROUTE:
