@@ -157,7 +157,8 @@ class NativeVehiclePersistenceTests(unittest.TestCase):
         self.assertEqual(site[0]["registration"], "AA-123-AA")
         self.assertEqual(site[0]["characteristics"]["model"], "208")
         self.assertTrue(site[0]["formulaNumberPresent"])
-        self.assertNotIn("formulaNumber", str(handler.response["json"]))
+        self.assertNotIn("formulaNumber", handler.response["json"]["vehicle"])
+        self.assertNotIn("2020AB12345", str(handler.response["json"]))
 
     def test_fni_requires_document_issue_date_without_formula(self):
         payload = NativeVehicleHttpTests.siv(plate="1234 AB 78", formula="")
