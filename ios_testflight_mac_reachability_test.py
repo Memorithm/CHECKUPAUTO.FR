@@ -13,7 +13,7 @@ WORKFLOW = Path(__file__).resolve().parent / ".github" / "workflows" / "ios-test
 def resolution_script():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     before = "      - name: Resolve reachable Mac mini SSH endpoint\n"
-    after = "      - name: Resolve authorized Mac SSH identity\n"
+    after = "      - name: Provision isolated runner SSH identity for Mac mini\n"
     assert before in workflow and after in workflow
     assert workflow.index(before) < workflow.index(after)
     section = workflow.split(before, 1)[1].split(after, 1)[0]
