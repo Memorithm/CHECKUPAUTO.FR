@@ -92,6 +92,7 @@ final class AppModel: ObservableObject {
                 _ = try await AppleSignInClient.authenticate(payload)
                 customerSignedIn = true
                 errorMessage = nil
+                await refreshAuthoritativeInventory()
             } catch {
                 customerSignedIn = false
                 errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
@@ -115,6 +116,7 @@ final class AppModel: ObservableObject {
                 customerSignedIn = CustomerSessionKeychain.load() != nil
                 guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
                 errorMessage = nil
+                await refreshAuthoritativeInventory()
             } catch {
                 errorMessage = "La connexion avec Google n’a pas pu être finalisée."
             }
