@@ -1,5 +1,10 @@
 import SwiftUI
 
+private struct AccountHelpPage: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 enum EmailAuthenticationMode: String, Identifiable {
     case signIn
     case register
@@ -18,6 +23,7 @@ struct EmailAccountView: View {
     @State private var submitting = false
     @State private var registrationSubmitted = false
     @State private var message: String?
+    @State private var helpPage: AccountHelpPage?
 
     init(mode: EmailAuthenticationMode) {
         _registering = State(initialValue: mode == .register)
@@ -72,9 +78,10 @@ struct EmailAccountView: View {
                             Text("En créant un compte, vous acceptez le traitement des données nécessaires à sa gestion.")
                                 .font(.caption)
                                 .foregroundStyle(CheckupTheme.muted)
-                            Link("Consulter la politique de confidentialité",
-                                 destination: MobileAPI.endpoint("/confidentialite"))
-                                .font(.caption.weight(.medium))
+                            Button("Consulter la politique de confidentialité") {
+                                helpPage = AccountHelpPage(url: MobileAPI.endpoint("/confidentialite"))
+                            }
+                            .font(.caption.weight(.medium))
                         }
                     }
                     .padding(20)
@@ -127,9 +134,11 @@ struct EmailAccountView: View {
                     .frame(maxWidth: .infinity)
 
                     if !registering {
-                        Link("Mot de passe oublié ?", destination: MobileAPI.endpoint("/compte"))
-                            .font(.footnote)
-                            .frame(maxWidth: .infinity)
+                        Button("Mot de passe oublié ?") {
+                            helpPage = AccountHelpPage(url: MobileAPI.endpoint("/compte"))
+                        }
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity)
                     }
                 }
                 .padding(24)
@@ -146,6 +155,10 @@ struct EmailAccountView: View {
             }
         }
         .tint(CheckupTheme.accent)
+        .sheet(item: $helpPage) { destination in
+            InAppBrowserView(url: destination.url)
+                .ignoresSafeArea()
+        }
     }
 
     private var canSubmit: Bool {
