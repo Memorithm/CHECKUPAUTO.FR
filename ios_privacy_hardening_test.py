@@ -32,7 +32,9 @@ class IOSPrivacyHardeningTest(unittest.TestCase):
         self.assertIn("AppleSignInNonceClient.fetch()", model)
         self.assertIn("prefetchedAppleSignInNonce = nil", model)
         self.assertIn("< 480", model)
-        self.assertIn("prefetchAppleSignInNonce()", _read("Sources/ContentView.swift"))
+        # The premium introduction and account card use the shared Apple
+        # authentication actions; nonce prefetch remains mandatory there.
+        self.assertIn("prefetchAppleSignInNonce()", _read("Sources/CustomerAuthenticationOptions.swift"))
 
 
 if __name__ == "__main__":
