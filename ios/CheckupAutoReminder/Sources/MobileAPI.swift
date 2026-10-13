@@ -11,6 +11,16 @@ enum MobileAPI {
     static func premiumVehicleArtworkURL(baseURL: URL = currentBaseURL) -> URL {
         endpoint("/assets/illustrations/checkupauto-lavis-option2-1020.webp", baseURL: baseURL)
     }
+    // Same two approved illustrations as the website account's carte grise
+    // form. Displayed in-app; no web login or browser navigation is needed.
+    static func vehicleFormulaGuideURL(baseURL: URL = currentBaseURL) -> URL {
+        endpoint("/assets/guides/carte-grise-formule-photo.webp", baseURL: baseURL)
+    }
+
+    static func vehicleCardDateGuideURL(baseURL: URL = currentBaseURL) -> URL {
+        endpoint("/assets/guides/carte-grise-date-photo.webp", baseURL: baseURL)
+    }
+
     static let environmentInfoKey = "CheckupAutoEnvironment"
 
     static func packagedBaseURL(environment: String?) -> URL {
