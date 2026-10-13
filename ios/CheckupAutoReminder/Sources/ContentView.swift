@@ -137,6 +137,7 @@ struct ContentView: View {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate, reminderAt in
                     model.add(registration: registration, name: name, dueDate: dueDate, reminderAt: reminderAt)
                 }
+                .environmentObject(model)
             }
             .fullScreenCover(item: $browserDestination) { destination in
                 InAppBrowserView(url: destination.url)
@@ -371,6 +372,17 @@ struct ContentView: View {
                         Text(vehicle.registration)
                             .font(.caption.monospaced())
                             .foregroundStyle(CheckupTheme.muted)
+                        if let local = model.vehicles.first(where: { $0.registration == vehicle.registration }) {
+                            Text("Prochain CT : " + local.controlDueDate.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption)
+                                .foregroundStyle(CheckupTheme.muted)
+                            if let reminder = local.localReminderAt {
+                                Label("Rappel : " + reminder.formatted(date: .abbreviated, time: .shortened),
+                                      systemImage: "bell")
+                                    .font(.caption)
+                                    .foregroundStyle(CheckupTheme.accent)
+                            }
+                        }
                     }
                     Spacer()
                     Image(systemName: "checkmark.shield")
@@ -393,7 +405,9 @@ struct ContentView: View {
                 )
             }
 
-            ForEach(model.vehicles) { vehicle in
+            ForEach(model.vehicles.filter { local in
+                !model.accountVehicles.contains { $0.registration == local.registration }
+            }) { vehicle in
                 vehicleCard(
                     title: vehicle.displayName.isEmpty ? "Mon véhicule" : vehicle.displayName,
                     registration: vehicle.registration,
