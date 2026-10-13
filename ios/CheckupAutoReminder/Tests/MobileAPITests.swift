@@ -95,6 +95,29 @@ final class MobileAPITests: XCTestCase {
         XCTAssertEqual(MobileAPI.preproductionBaseURL.absoluteString, "https://test.checkupauto.fr")
     }
 
+    func testPremiumArtworkMatchesWebsiteAndBookingGoesDirectlyToMercure() {
+        let productionArtwork = MobileAPI.premiumVehicleArtworkURL(
+            baseURL: MobileAPI.productionBaseURL
+        )
+        let stagingArtwork = MobileAPI.premiumVehicleArtworkURL(
+            baseURL: MobileAPI.preproductionBaseURL
+        )
+        XCTAssertEqual(
+            productionArtwork.absoluteString,
+            "https://www.checkupauto.fr/assets/illustrations/checkupauto-lavis-option2-1020.webp"
+        )
+        XCTAssertEqual(
+            stagingArtwork.absoluteString,
+            "https://test.checkupauto.fr/assets/illustrations/checkupauto-lavis-option2-1020.webp"
+        )
+        XCTAssertEqual(
+            MobileAPI.directMercureBookingURL.absoluteString,
+            "https://rdv.checkupauto.fr"
+        )
+        XCTAssertNil(MobileAPI.directMercureBookingURL.user)
+        XCTAssertNil(MobileAPI.directMercureBookingURL.password)
+    }
+
     func testEndpointComposition() {
         let base = URL(string: "https://preview.example.test")!
         XCTAssertEqual(

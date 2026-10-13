@@ -1,7 +1,6 @@
 import SwiftUI
-import AuthenticationServices
 
-private enum CheckupTheme {
+enum CheckupTheme {
     static let paper = Color(red: 0.965, green: 0.970, blue: 0.945)
     static let card = Color.white
     static let ink = Color(red: 0.115, green: 0.235, blue: 0.185)
@@ -19,11 +18,9 @@ private struct BrowserDestination: Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
-    @State private var testReminderAt = LocalReminderPlan.testDate()
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
     @State private var browserDestination: BrowserDestination?
-    @State private var preproductionClaimLink = ""
 
     var body: some View {
         NavigationStack {
@@ -31,24 +28,6 @@ struct ContentView: View {
                 LazyVStack(spacing: 16) {
                     hero
                     appleAccountCard
-                    if MobileAPI.isPreproduction {
-                        statusCard(title: "Préproduction — environnement de test", systemImage: "wrench.and.screwdriver.fill", tint: .orange)
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Rattacher un véhicule ou une cagnotte de test").font(.headline)
-                            Text("Copiez le lien de rattachement depuis votre compte de test, puis collez-le ici.").font(.subheadline)
-                            SecureField("Lien de rattachement", text: $preproductionClaimLink)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                            Button("Rattacher à cet iPhone") {
-                                let link = preproductionClaimLink.trimmingCharacters(in: .whitespacesAndNewlines)
-                                preproductionClaimLink = ""
-                                if let url = URL(string: link) {
-                                    model.consumeMobileClaim(url: url)
-                                }
-                            }.disabled(preproductionClaimLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }.padding(16).background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 18))
-                    }
-
                     if !model.notificationAuthorized || model.installationRegistrationSuppressed {
                         notificationCard
                     }
@@ -61,14 +40,10 @@ struct ContentView: View {
                         )
                     }
 
-                    localReminderSection
                     quickActions
-                    Text(MobileAPI.isPreproduction
-                         ? "Réservation et paiement de test : aucun débit bancaire réel."
-                         : "Réservez dans l’app. Le paiement s’effectue sur la page sécurisée du prestataire bancaire.")
+                    Text("Choisissez votre créneau sur le portail sécurisé rdv.checkupauto.fr.")
                         .font(.caption).foregroundStyle(CheckupTheme.muted)
                     nextControlCard
-                    loyaltySection
                     vehicleSection
                     privacySection
 
@@ -172,100 +147,14 @@ struct ContentView: View {
                 .font(.headline)
                 .foregroundStyle(CheckupTheme.ink)
             if model.customerSignedIn {
-                Text("Connecté avec Apple")
+                Text("Compte connecté")
                     .font(.subheadline)
                     .foregroundStyle(CheckupTheme.muted)
                 Button("Se déconnecter", role: .cancel) { model.signOutCustomer() }
                     .buttonStyle(.bordered)
             } else {
-                SignInWithAppleButton(.continue) { request in
-                    model.prepareAppleSignIn(request)
-                } onCompletion: { result in
-                    model.completeAppleSignIn(result)
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 48)
-                .task { await model.prefetchAppleSignInNonce() }
-                Button("Continuer avec Google") { model.signInWithGoogle() }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity, minHeight: 48)
-                Text("Votre identifiant Apple sert à retrouver votre compte Checkup Auto. Aucun mot de passe Apple n’est transmis à Checkup Auto.")
-                    .font(.caption)
-                    .foregroundStyle(CheckupTheme.muted)
+                CustomerAuthenticationOptions()
             }
-        }
-        .padding(20)
-        .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
-    }
-
-    private var localReminderSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("Tester les notifications", systemImage: "bell.badge")
-                .font(.headline)
-                .foregroundStyle(CheckupTheme.ink)
-            Text("La popup ci-dessous teste les notifications locales. Le test Dynamic Island est séparé.")
-                .font(.caption)
-                .foregroundStyle(CheckupTheme.muted)
-            DatePicker("Date et heure", selection: $testReminderAt, in: Date()...,
-                       displayedComponents: [.date, .hourAndMinute])
-            Button("Programmer à cette heure") {
-                model.scheduleLocalTest(at: testReminderAt)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.schedulingLocalTest || testReminderAt <= Date())
-            Button("Tester la popup dans 2 minutes") {
-                let date = LocalReminderPlan.testDate()
-                testReminderAt = date
-                model.scheduleLocalTest(at: date)
-            }
-            .buttonStyle(.bordered)
-            .disabled(model.schedulingLocalTest)
-            if let notice = model.localReminderNotice {
-                Text(notice)
-                    .font(.subheadline)
-                    .accessibilityAddTraits(.updatesFrequently)
-            }
-            Button("Annuler le test", role: .cancel) { model.cancelLocalTest() }
-                .font(.caption)
-                .disabled(model.schedulingLocalTest)
-            Divider()
-            Label("Tester la Dynamic Island", systemImage: "livephoto")
-                .font(.headline)
-                .foregroundStyle(CheckupTheme.ink)
-            Text("La voiture argentée apparaît dans la Dynamic Island. Maintenez la barre pour lire « Pensez à votre contrôle technique ».")
-                .font(.caption)
-                .foregroundStyle(CheckupTheme.muted)
-            if let notice = model.localActivityTestNotice {
-                Text(notice).font(.caption.weight(.semibold)).foregroundStyle(CheckupTheme.accent)
-            }
-            if model.localActivityTestRunning {
-                Button("Relancer le test") { model.startLocalActivityTest() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.localActivityTestTransitionPending)
-                Button("Arrêter le test Dynamic Island", role: .cancel) { model.stopLocalActivityTest() }
-                    .buttonStyle(.bordered)
-                    .disabled(model.localActivityTestTransitionPending)
-            } else {
-                Button("Démarrer le test Dynamic Island") { model.startLocalActivityTest() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.localActivityTestTransitionPending)
-            }
-            Picker("Klaxon", selection: $model.selectedHorn) {
-                ForEach(CheckupControlHornChoice.allCases) { choice in
-                    Text(choice.label).tag(choice)
-                }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Choix du klaxon")
-            Button("Écouter le klaxon choisi") { model.previewControlHorn() }
-                .buttonStyle(.bordered)
-            Text("Le klaxon du test est programmé après cinq secondes. Les notifications et leurs sons doivent être autorisés ; le mode silencieux et les réglages Concentration de l’iPhone peuvent empêcher l’alerte sonore.")
-                .font(.caption2)
-                .foregroundStyle(CheckupTheme.muted)
-            Text("Le test se termine après environ deux minutes si l’app reste active. Revenez dans l’app pour nettoyer un test expiré. Nécessite un iPhone compatible, iOS 17 ou ultérieur, et les Activités en direct activées.")
-                .font(.caption2)
-                .foregroundStyle(CheckupTheme.muted)
         }
         .padding(20)
         .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
@@ -291,7 +180,7 @@ struct ContentView: View {
                 .tracking(-1.8)
                 .foregroundStyle(CheckupTheme.ink)
 
-            Text("Échéances, fidélité, rapports de contrôle technique et réservation dans un seul espace.")
+            Text("Vos véhicules, leurs échéances et la réservation de votre prochain contrôle dans un seul espace.")
                 .font(.subheadline)
                 .foregroundStyle(CheckupTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -329,20 +218,37 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionLabel("ACCÈS RAPIDE")
 
-            HStack(spacing: 12) {
-                actionButton(
-                    title: "Scanner mon CT",
-                    subtitle: "Analyse & conseils",
-                    systemImage: "doc.viewfinder",
-                    destination: model.reportScanURL
+            Button {
+                openInApp(MobileAPI.directMercureBookingURL)
+            } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 27, weight: .light))
+                        .frame(width: 50, height: 50)
+                        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 14))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Réserver un créneau en direct")
+                            .font(.headline.weight(.semibold))
+                        Text("Disponibilités Mercure · Réservation sécurisée")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.82))
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "arrow.up.right")
+                        .font(.headline)
+                }
+                .foregroundStyle(.white)
+                .padding(20)
+                .frame(maxWidth: .infinity, minHeight: 106)
+                .background(
+                    LinearGradient(colors: [CheckupTheme.accent, CheckupTheme.ink],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    in: RoundedRectangle(cornerRadius: 24, style: .continuous)
                 )
-                actionButton(
-                    title: "Réserver",
-                    subtitle: "Créneaux en direct",
-                    systemImage: "calendar.badge.plus",
-                    destination: model.bookingURL
-                )
+                .shadow(color: CheckupTheme.accent.opacity(0.2), radius: 18, y: 8)
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("premium-direct-booking")
 
             Button {
                 openInApp(model.accountURL)
@@ -410,70 +316,6 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var loyaltySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("FIDÉLITÉ")
-
-            if model.referralWallets.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("Votre cagnotte Checkup Auto", systemImage: "eurosign.circle")
-                        .font(.headline)
-                        .foregroundStyle(CheckupTheme.ink)
-                    Text("Rattachez la cagnotte depuis votre compte client ou le QR remis par Checkup Auto. Le solde reste calculé côté serveur.")
-                        .font(.caption)
-                        .foregroundStyle(CheckupTheme.muted)
-                    Button("Ouvrir mon compte") {
-                        openInApp(model.accountURL)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                }
-                .padding(20)
-                .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
-                .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
-            } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(
-                            (Double(model.totalReferralBalanceCents) / 100.0)
-                                .formatted(.currency(code: "EUR"))
-                        )
-                        .font(.system(size: 38, weight: .regular, design: .serif))
-                        .foregroundStyle(CheckupTheme.ink)
-                        Spacer()
-                        Label("Vérifiée", systemImage: "checkmark.shield.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(CheckupTheme.accent)
-                    }
-
-                    if model.totalPendingReferralCents > 0 {
-                        Text(
-                            "En attente : " +
-                            (Double(model.totalPendingReferralCents) / 100.0)
-                                .formatted(.currency(code: "EUR"))
-                        )
-                        .font(.caption)
-                        .foregroundStyle(CheckupTheme.muted)
-                    }
-
-                    ForEach(model.referralWallets) { wallet in
-                        HStack {
-                            Text(wallet.referralCode)
-                                .font(.caption.monospaced().weight(.medium))
-                            Spacer()
-                            Text("\(wallet.earnedReferrals) acquis")
-                                .font(.caption)
-                                .foregroundStyle(CheckupTheme.muted)
-                        }
-                    }
-                }
-                .padding(20)
-                .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
-                .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
-            }
-        }
-    }
-
     private var vehicleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -487,7 +329,7 @@ struct ContentView: View {
                 }
             }
 
-            if model.authoritativeVehicles.isEmpty && model.vehicles.isEmpty {
+            if model.accountVehicles.isEmpty && model.authoritativeVehicles.isEmpty && model.vehicles.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "car.side")
                         .font(.system(size: 34))
@@ -508,6 +350,30 @@ struct ContentView: View {
                 .padding(28)
                 .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
                 .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
+            }
+
+            ForEach(model.accountVehicles) { vehicle in
+                HStack(spacing: 14) {
+                    Image(systemName: "car.side.fill")
+                        .font(.title2)
+                        .foregroundStyle(CheckupTheme.accent)
+                        .frame(width: 44, height: 44)
+                        .background(CheckupTheme.soft, in: RoundedRectangle(cornerRadius: 14))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(vehicle.displayName.isEmpty ? "Mon véhicule" : vehicle.displayName)
+                            .font(.headline)
+                            .foregroundStyle(CheckupTheme.ink)
+                        Text(vehicle.registration)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(CheckupTheme.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.shield")
+                        .foregroundStyle(CheckupTheme.accent)
+                }
+                .padding(16)
+                .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(CheckupTheme.line))
             }
 
             ForEach(model.authoritativeVehicles) { vehicle in
@@ -583,36 +449,6 @@ struct ContentView: View {
                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(CheckupTheme.line))
             }
             .disabled(model.deletingAllData)
-        }
-    }
-
-    private func actionButton(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        destination: URL
-    ) -> some View {
-        Button {
-            openInApp(destination)
-        } label: {
-            VStack(alignment: .leading, spacing: 14) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(CheckupTheme.accent)
-                    .frame(width: 44, height: 44)
-                    .background(CheckupTheme.soft, in: RoundedRectangle(cornerRadius: 14))
-                Spacer(minLength: 0)
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(CheckupTheme.ink)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(CheckupTheme.muted)
-            }
-            .frame(maxWidth: .infinity, minHeight: 142, alignment: .leading)
-            .padding(18)
-            .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
-            .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
         }
     }
 

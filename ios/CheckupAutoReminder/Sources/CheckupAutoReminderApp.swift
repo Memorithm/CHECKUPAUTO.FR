@@ -129,12 +129,32 @@ private struct OperationalRootView: View {
     @StateObject private var model = AppModel()
 
     var body: some View {
-        ContentView()
-            .environmentObject(model)
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active {
-                    model.refreshAfterForeground()
+        Group {
+            if model.authenticationResolving {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .tint(Color(red: 0.12, green: 0.33, blue: 0.26))
+                    Text("Vérification de votre compte…")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(red: 0.39, green: 0.45, blue: 0.41))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.965, green: 0.970, blue: 0.945))
+            } else if model.customerSignedIn {
+                ContentView()
+                    .transition(.opacity)
+            } else {
+                PremiumWelcomeView()
+                    .transition(.opacity)
             }
+        }
+        .environmentObject(model)
+        .preferredColorScheme(.light)
+        .animation(.easeInOut(duration: 0.22), value: model.customerSignedIn)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                model.refreshAfterForeground()
+            }
+        }
     }
 }
