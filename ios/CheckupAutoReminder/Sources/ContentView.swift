@@ -329,7 +329,7 @@ struct ContentView: View {
                 }
             }
 
-            if model.authoritativeVehicles.isEmpty && model.vehicles.isEmpty {
+            if model.accountVehicles.isEmpty && model.authoritativeVehicles.isEmpty && model.vehicles.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "car.side")
                         .font(.system(size: 34))
@@ -350,6 +350,30 @@ struct ContentView: View {
                 .padding(28)
                 .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
                 .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
+            }
+
+            ForEach(model.accountVehicles) { vehicle in
+                HStack(spacing: 14) {
+                    Image(systemName: "car.side.fill")
+                        .font(.title2)
+                        .foregroundStyle(CheckupTheme.accent)
+                        .frame(width: 44, height: 44)
+                        .background(CheckupTheme.soft, in: RoundedRectangle(cornerRadius: 14))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(vehicle.displayName.isEmpty ? "Mon véhicule" : vehicle.displayName)
+                            .font(.headline)
+                            .foregroundStyle(CheckupTheme.ink)
+                        Text(vehicle.registration)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(CheckupTheme.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.shield")
+                        .foregroundStyle(CheckupTheme.accent)
+                }
+                .padding(16)
+                .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(CheckupTheme.line))
             }
 
             ForEach(model.authoritativeVehicles) { vehicle in
