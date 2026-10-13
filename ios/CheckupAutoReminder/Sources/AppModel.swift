@@ -121,6 +121,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func signInWithEmail(_ email: String, password: String) async throws {
+        try await EmailCustomerAuthClient.signIn(email: email, password: password)
+        customerSignedIn = CustomerSessionKeychain.load() != nil
+        guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+        errorMessage = nil
+        await refreshAuthoritativeInventory()
+    }
+
     func signOutCustomer() {
         CustomerSessionKeychain.clear()
         customerSignedIn = false
