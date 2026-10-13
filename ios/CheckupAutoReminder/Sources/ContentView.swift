@@ -18,6 +18,7 @@ private struct BrowserDestination: Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
+    @State private var showingNativeAccount = false
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
     @State private var browserDestination: BrowserDestination?
@@ -65,7 +66,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        openInApp(model.accountURL)
+                        showingNativeAccount = true
                     } label: {
                         Image(systemName: "person.crop.circle")
                             .font(.title3)
@@ -127,6 +128,10 @@ struct ContentView: View {
                 Button("Annuler", role: .cancel) {
                     vehiclePendingDeletion = nil
                 }
+            }
+            .sheet(isPresented: $showingNativeAccount) {
+                NativeCustomerAccountView()
+                    .environmentObject(model)
             }
             .sheet(isPresented: $showingAddVehicle) {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate, reminderAt in
@@ -251,7 +256,7 @@ struct ContentView: View {
             .accessibilityIdentifier("premium-direct-booking")
 
             Button {
-                openInApp(model.accountURL)
+                showingNativeAccount = true
             } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "person.text.rectangle")
@@ -263,12 +268,12 @@ struct ContentView: View {
                         Text("Espace client")
                             .font(.headline)
                             .foregroundStyle(CheckupTheme.ink)
-                        Text("Compte particulier ou professionnel · historique · rapports")
+                        Text("Profil et véhicules associés à votre compte")
                             .font(.caption)
                             .foregroundStyle(CheckupTheme.muted)
                     }
                     Spacer()
-                    Image(systemName: "arrow.up.right")
+                    Image(systemName: "chevron.right")
                         .foregroundStyle(CheckupTheme.muted)
                 }
                 .padding(16)
