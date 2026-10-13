@@ -118,5 +118,52 @@ class MobileEmailHttpTests(unittest.TestCase):
         }))
 
 
+    def test_mobile_session_requires_valid_bearer(self):
+        handler = self.Handler(customer_http.MOBILE_AUTH_SESSION_ROUTE, command="GET")
+        handler.headers = {"Authorization": "Bearer " + "a" * 48}
+        with patch.object(customer_http.customer_accounts, "authenticate_session",
+                          return_value="owned-account") as authenticate:
+            customer_http.handle(handler)
+        authenticate.assert_called_once_with("a" * 48)
+        self.assertEqual(handler.response, (200, {
+            "ok": True, "accountId": "owned-account"
+        }))
+
+    def test_missing_or_expired_bearer_never_exposes_account(self):
+        for header in ({}, {"Authorization": "Bearer malformed"},
+                       {"Authorization": "Bearer " + "a" * 48}):
+            handler = self.Handler(customer_http.MOBILE_AUTH_SESSION_ROUTE, command="GET")
+            handler.headers = header
+            with patch.object(customer_http.customer_accounts, "authenticate_session",
+                              side_effect=PermissionError):
+                customer_http.handle(handler)
+            self.assertEqual(handler.response[0], 401)
+
+    def test_native_vehicle_inventory_uses_session_account_only(self):
+        handler = self.Handler(customer_http.MOBILE_ACCOUNT_VEHICLES_ROUTE, command="GET")
+        handler.headers = {"Authorization": "Bearer " + "c" * 48}
+        rows = [{"vehicleId": "veh-1", "registration": "AB-123-CD",
+                 "registrationSystem": "siv", "formulaNumberPresent": True,
+                 "characteristics": {"brand": "Clio", "model": "IV", "vin": "private"}}]
+        with patch.object(customer_http.customer_accounts, "authenticate_session",
+                          return_value="account-1"), patch.object(
+                          customer_http.customer_accounts, "list_vehicles",
+                          return_value=rows) as vehicles:
+            customer_http.handle(handler)
+        vehicles.assert_called_once_with("account-1")
+        self.assertEqual(handler.response[0], 200)
+        item = handler.response[1]["vehicles"][0]
+        self.assertEqual(item["registration"], "AB-123-CD")
+        self.assertNotIn("formulaNumberPresent", item)
+        self.assertNotIn("vin", item)
+
+    def test_vehicle_inventory_cannot_be_requested_without_session(self):
+        handler = self.Handler(customer_http.MOBILE_ACCOUNT_VEHICLES_ROUTE, command="GET")
+        handler.headers = {}
+        with patch.object(customer_http.customer_accounts, "list_vehicles") as vehicles:
+            customer_http.handle(handler)
+        self.assertEqual(handler.response[0], 401)
+        vehicles.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()
