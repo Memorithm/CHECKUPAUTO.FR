@@ -17,7 +17,7 @@ jobs:
       github.actor == 'CHECKUPAUTO' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, Linux, ARM64, internal]
+    runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci]
     timeout-minutes: 5
     steps:
       - name: Compare readable local identities against Mac authorized key fingerprint
