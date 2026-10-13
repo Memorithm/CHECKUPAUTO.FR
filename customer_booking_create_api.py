@@ -42,10 +42,21 @@ def create(payload: object, *, account: dict, executor=None, trusted_context=Non
              and item.get("vehicleId")==payload["vehicleId"]]
     if len(matches)!=1:
         raise BookingCreateInvalid("booking_vehicle_not_owned")
+    # The provider's settlement mode is independent of CheckupAuto prepayment.
+    # Never run a real booking writer on browser-supplied or absent payment proof.
+    policy=trusted_context["payment_policy"]
+    evidence=trusted_context["payment_evidence"]
+    if (not isinstance(policy,dict) or policy.get("providerVerified") is not True
+            or policy.get("paymentRequired") is not True
+            or policy.get("paymentMode") != "online"
+            or not isinstance(evidence,dict)
+            or evidence.get("providerVerified") is not True
+            or evidence.get("paid") is not True):
+        raise BookingCreateUnavailable("booking_verified_prepayment_required")
     result=executor(payload=payload,account=account,vehicle=matches[0],
                     **trusted_context,server_authorized=True)
     if not isinstance(result,dict) or result.get("confirmed") is not True:
         return {"ok":True,"confirmed":False,"state":"reconciliation_required"}
-    # The appointment exists in Mercure; online payment (Payline) is now due.
-    return {"ok":True,"confirmed":True,"state":"confirmed","paymentDue":"after_booking",
+    return {"ok":True,"confirmed":True,"state":"confirmed",
+            "paymentDue":"none","paymentConfirmed":True,
             "service":preflight.get("service"),"priceCents":preflight.get("priceCents")}
