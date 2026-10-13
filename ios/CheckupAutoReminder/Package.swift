@@ -18,14 +18,14 @@ let package = Package(
                 "EmailCustomerAuth.swift", "InAppBrowserView.swift",
                 "ReminderScheduler.swift", "PrivacyInfo.xcprivacy"
             ],
-            sources: ["Models.swift", "NotificationRouting.swift", "MobileAPI.swift", "MobileBootstrap.swift", "DeviceRegistration.swift", "MobileDeadlineSync.swift", "VehicleClaim.swift", "ReferralWalletClaim.swift", "AuthoritativeInventory.swift"]
+            sources: ["Models.swift", "NotificationRouting.swift", "MobileAPI.swift", "MobileBootstrap.swift", "DeviceRegistration.swift", "MobileDeadlineSync.swift", "VehicleClaim.swift", "ReferralWalletClaim.swift", "AuthoritativeInventory.swift", "VehicleRegistrationRules.swift"]
         ),
         .testTarget(
             name: "CheckupAutoReminderTests",
             dependencies: ["CheckupAutoReminder"],
             path: "Tests",
             exclude: ["ReminderPlanSmoke.swift", "MobileBootstrapSmoke.swift", "MobileDeadlineSyncSmoke.swift"],
-            sources: ["ReminderPlanTests.swift", "NotificationRoutingTests.swift", "MobileAPITests.swift", "MobileBootstrapTests.swift", "DeviceRegistrationTests.swift", "MobileDeadlineSyncTests.swift", "VehicleClaimTests.swift", "ReferralWalletClaimTests.swift", "AuthoritativeInventoryTests.swift"]
+            sources: ["ReminderPlanTests.swift", "NotificationRoutingTests.swift", "MobileAPITests.swift", "MobileBootstrapTests.swift", "DeviceRegistrationTests.swift", "MobileDeadlineSyncTests.swift", "VehicleClaimTests.swift", "ReferralWalletClaimTests.swift", "AuthoritativeInventoryTests.swift", "VehicleRegistrationRulesTests.swift"]
         )
     ]
 )
