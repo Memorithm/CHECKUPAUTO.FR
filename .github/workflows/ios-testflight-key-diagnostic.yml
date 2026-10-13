@@ -1,0 +1,59 @@
+name: TestFlight Mac mini SSH identity diagnostic
+
+# Manual main-only diagnostic: never execute PR-provided code on a protected runner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    # This protected runner may only execute a manually dispatched main ref.
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'CHECKUPAUTO'
+    runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci]
+    timeout-minutes: 5
+    steps:
+      - name: Compare readable local identities against Mac authorized key fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          # Public fingerprint observed on the Mac (never the key itself).
+          expected='SHA256:WnwnA3c/H+ilJalZSKJf796CCqidG7PhgNvEyAT7fIs'
+          echo "RUNNER_NAME=$RUNNER_NAME"
+          echo "HOST=$(hostname)"
+          echo "RUNNER_ACCOUNT=$(id -un)"
+          echo "HOME_DIRECTORY=$HOME"
+          found=0
+          scanned=0
+          # Only inspect directories readable by the unprivileged runner.
+          for dir in "$HOME/.ssh" /srv/checkupauto-ci/home/.ssh \
+                     /srv/checkupauto-ci/keys /opt/actions-runner/.ssh; do
+            [ -d "$dir" ] && [ -r "$dir" ] || continue
+            for candidate in "$dir"/*; do
+              [ -f "$candidate" ] && [ -r "$candidate" ] && [ ! -L "$candidate" ] || continue
+              # -P '' prevents interactive passphrase prompts; output is
+              # a public key piped directly into a fingerprint tool.
+              fingerprint=$(ssh-keygen -y -P '' -f "$candidate" 2>/dev/null |
+                ssh-keygen -l -E sha256 -f - 2>/dev/null |
+                awk '{print $2}') || continue
+              [ -n "$fingerprint" ] || continue
+              scanned=$((scanned + 1))
+              if [ "$fingerprint" = "$expected" ]; then
+                echo "MAC_AUTHORIZED_KEY_MATCH=true"
+                echo "MATCHING_KEY_PATH=$candidate"
+                found=1
+              fi
+            done
+          done
+          echo "READABLE_UNENCRYPTED_IDENTITIES_SCANNED=$scanned"
+          if [ "$found" -eq 0 ]; then
+            echo "MAC_AUTHORIZED_KEY_MATCH=false"
+            echo "::notice::No matching private key readable by the TestFlight runner. Configure CHECKUPAUTO_MAC_SSH_KEY securely or provision a dedicated runner identity."
+          fi
+          echo "No private key or secret contents are printed or transferred."
