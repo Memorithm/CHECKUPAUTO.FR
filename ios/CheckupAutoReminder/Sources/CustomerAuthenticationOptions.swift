@@ -32,6 +32,13 @@ struct CustomerAuthenticationOptions: View {
             }
             .accessibilityIdentifier("premium-auth-google")
 
+            Text("Google utilise une fenêtre sécurisée iOS. La confirmation du domaine affichée par Apple est normale : après validation, vous revenez automatiquement dans Checkup Auto.")
+                .font(.caption2)
+                .foregroundStyle(CheckupTheme.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("premium-auth-google-system-explanation")
+
             Button {
                 emailMode = .signIn
             } label: {
