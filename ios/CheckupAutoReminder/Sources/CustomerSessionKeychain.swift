@@ -36,6 +36,13 @@ enum CustomerSessionKeychain {
         return String(data: data, encoding: .utf8)
     }
 
+    /// A delayed 401 from an older request must not erase a newly issued
+    /// session belonging to another authentication attempt.
+    static func clear(ifMatching expectedToken: String) {
+        guard !expectedToken.isEmpty, load() == expectedToken else { return }
+        clear()
+    }
+
     static func clear() {
         SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,

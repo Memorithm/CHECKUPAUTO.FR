@@ -31,7 +31,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var deletingAllData = false
     @Published private(set) var customerSignedIn = false
     @Published private(set) var authenticationResolving = true
+    @Published private(set) var sessionRecoveryRequired = false
     @Published private(set) var accountVehicles: [CustomerAccountVehicle] = []
+    @Published private(set) var accountProfile: CustomerAccountProfile?
+    private var restoringCustomerSession = false
     private var appleSignInNonce: String?
     private var prefetchedAppleSignInNonce: (value: String, fetchedAt: Date)?
     @Published private(set) var installationRegistrationSuppressed =
@@ -94,9 +97,10 @@ final class AppModel: ObservableObject {
                 let payload = try AppleSignInCredentialMapper.payload(from: credential, nonce: nonce)
                 _ = try await AppleSignInClient.authenticate(payload)
                 customerSignedIn = true
+                sessionRecoveryRequired = false
                 authenticationResolving = false
                 errorMessage = nil
-                await refreshAccountVehicles()
+                await refreshNativeAccount()
             } catch {
                 customerSignedIn = false
                 errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
@@ -119,9 +123,10 @@ final class AppModel: ObservableObject {
                 try await googleCustomerSignIn.start()
                 customerSignedIn = CustomerSessionKeychain.load() != nil
                 guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+                sessionRecoveryRequired = false
                 authenticationResolving = false
                 errorMessage = nil
-                await refreshAccountVehicles()
+                await refreshNativeAccount()
             } catch {
                 errorMessage = "La connexion avec Google n’a pas pu être finalisée."
             }
@@ -132,43 +137,89 @@ final class AppModel: ObservableObject {
         try await EmailCustomerAuthClient.signIn(email: email, password: password)
         customerSignedIn = CustomerSessionKeychain.load() != nil
         guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+        sessionRecoveryRequired = false
         authenticationResolving = false
         errorMessage = nil
-        await refreshAccountVehicles()
+        await refreshNativeAccount()
     }
 
+    /// A foreground resume must not sign out an already authenticated client
+    /// because of a timeout, a 503, or temporary radio/network unavailability.
+    /// Only an authoritative 401 (or explicit logout) invalidates the session.
     private func restoreCustomerSession() async {
-        authenticationResolving = true
-        do {
-            customerSignedIn = try await CustomerAccountAPI.validateStoredSession()
-            if customerSignedIn {
-                await refreshAccountVehicles()
-            } else {
-                accountVehicles = []
-            }
-        } catch {
-            // A transient outage must not convert an unverified token into a
-            // supposedly authenticated account. Keep it for a future retry.
-            customerSignedIn = false
-            accountVehicles = []
-            errorMessage = "Connexion indisponible. Vérifiez votre réseau puis réessayez."
+        guard !restoringCustomerSession else { return }
+        restoringCustomerSession = true
+        let previouslySignedIn = customerSignedIn
+        if !previouslySignedIn { authenticationResolving = true }
+        defer {
+            restoringCustomerSession = false
+            authenticationResolving = false
         }
-        authenticationResolving = false
-    }
-
-    private func refreshAccountVehicles() async {
-        guard customerSignedIn else {
+        guard let requestedToken = CustomerSessionKeychain.load() else {
             accountVehicles = []
+            accountProfile = nil
+            customerSignedIn = false
+            sessionRecoveryRequired = false
             return
         }
         do {
-            accountVehicles = try await CustomerAccountAPI.fetchOwnedVehicles()
-        } catch CustomerAccountAPIError.sessionExpired {
-            signOutCustomer()
+            let accepted = try await CustomerAccountAPI.validateStoredSession()
+            // A login may have replaced the token while the HTTP call was in
+            // flight. The stale result must not change the new account state.
+            guard CustomerSessionKeychain.load() == requestedToken else { return }
+            if accepted {
+                customerSignedIn = true
+                sessionRecoveryRequired = false
+                errorMessage = nil
+                await refreshNativeAccount()
+            } else {
+                signOutCustomer()
+            }
         } catch {
-            // A failed refresh must not erase the existing device-bound
-            // reminder inventory or leak another account's profile.
-            accountVehicles = []
+            guard CustomerSessionKeychain.load() == requestedToken else { return }
+            if !previouslySignedIn {
+                customerSignedIn = false
+                sessionRecoveryRequired = true
+            }
+            // Retain the verified foreground session and its profile/vehicles.
+            errorMessage = "Connexion temporairement indisponible. Votre session a été conservée."
+        }
+    }
+
+    func retryCustomerSession() {
+        Task { await restoreCustomerSession() }
+    }
+
+    func refreshNativeAccount() async {
+        guard customerSignedIn else { return }
+        await refreshAccountProfile()
+        await refreshAccountVehicles()
+    }
+
+    private func refreshAccountProfile() async {
+        guard customerSignedIn, let originalToken = CustomerSessionKeychain.load() else { return }
+        do {
+            let profile = try await CustomerAccountAPI.fetchProfile()
+            guard CustomerSessionKeychain.load() == originalToken else { return }
+            accountProfile = profile
+        } catch CustomerAccountAPIError.sessionExpired {
+            if CustomerSessionKeychain.load() == originalToken { signOutCustomer() }
+        } catch {
+            // A network outage must not erase an already retrieved profile.
+            errorMessage = "Informations de compte momentanément indisponibles."
+        }
+    }
+
+    private func refreshAccountVehicles() async {
+        guard customerSignedIn, let originalToken = CustomerSessionKeychain.load() else { return }
+        do {
+            let vehicles = try await CustomerAccountAPI.fetchOwnedVehicles()
+            guard CustomerSessionKeychain.load() == originalToken else { return }
+            accountVehicles = vehicles
+        } catch CustomerAccountAPIError.sessionExpired {
+            if CustomerSessionKeychain.load() == originalToken { signOutCustomer() }
+        } catch {
+            // Keep the last verified vehicle list on temporary network errors.
             errorMessage = "Vos véhicules sont temporairement indisponibles."
         }
     }
@@ -176,7 +227,9 @@ final class AppModel: ObservableObject {
     func signOutCustomer() {
         CustomerSessionKeychain.clear()
         accountVehicles = []
+        accountProfile = nil
         customerSignedIn = false
+        sessionRecoveryRequired = false
         authenticationResolving = false
     }
 

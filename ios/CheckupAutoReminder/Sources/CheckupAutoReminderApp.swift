@@ -143,6 +143,9 @@ private struct OperationalRootView: View {
             } else if model.customerSignedIn {
                 ContentView()
                     .transition(.opacity)
+            } else if model.sessionRecoveryRequired {
+                NativeSessionRecoveryView()
+                    .transition(.opacity)
             } else {
                 PremiumWelcomeView()
                     .transition(.opacity)
@@ -156,5 +159,46 @@ private struct OperationalRootView: View {
                 model.refreshAfterForeground()
             }
         }
+    }
+}
+
+private struct NativeSessionRecoveryView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Spacer()
+            Image(systemName: "lock.shield")
+                .font(.system(size: 52, weight: .light))
+                .foregroundStyle(CheckupTheme.accent)
+            Text("Votre session est conservée.")
+                .font(.system(size: 32, weight: .regular, design: .serif))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(CheckupTheme.ink)
+            Text("Le service est momentanément indisponible. Nous n'avons pas pu vérifier votre session enregistrée. Aucun nouvel identifiant n'est nécessaire.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(CheckupTheme.muted)
+            Button {
+                model.retryCustomerSession()
+            } label: {
+                Label("Réessayer la connexion", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CheckupTheme.accent)
+            .accessibilityIdentifier("native-session-retry")
+            Button("Changer de compte") {
+                model.signOutCustomer()
+            }
+            .font(.subheadline)
+            .accessibilityIdentifier("native-session-explicit-logout")
+            Spacer()
+        }
+        .frame(maxWidth: 400)
+        .padding(26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckupTheme.paper.ignoresSafeArea())
+        .accessibilityIdentifier("native-session-recovery")
     }
 }

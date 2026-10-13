@@ -5,6 +5,16 @@ enum CustomerAccountAPIError: Error {
     case invalidResponse
 }
 
+/// Scoped to the authenticated native customer session. No browser cookie.
+struct CustomerAccountProfile: Decodable, Equatable {
+    let ok: Bool
+    let accountId: String
+    let displayName: String
+    let email: String
+    let kind: String
+    let phone: String
+}
+
 struct CustomerAccountVehicle: Decodable, Identifiable, Hashable {
     let vehicleId: String
     let registration: String
@@ -39,9 +49,22 @@ enum CustomerAccountAPI {
             let result = try JSONDecoder().decode(AccountSessionResponse.self, from: data)
             return result.ok && !result.accountId.isEmpty
         } catch CustomerAccountAPIError.sessionExpired {
-            CustomerSessionKeychain.clear()
+            CustomerSessionKeychain.clear(ifMatching: token)
             return false
         }
+    }
+
+    static func fetchProfile(session: URLSession = .shared) async throws -> CustomerAccountProfile {
+        guard let token = CustomerSessionKeychain.load() else {
+            throw CustomerAccountAPIError.sessionExpired
+        }
+        let data = try await request("/api/mobile/account/profile", token: token, session: session)
+        let profile = try JSONDecoder().decode(CustomerAccountProfile.self, from: data)
+        guard profile.ok, !profile.accountId.isEmpty,
+              !profile.displayName.isEmpty, !profile.email.isEmpty else {
+            throw CustomerAccountAPIError.invalidResponse
+        }
+        return profile
     }
 
     static func fetchOwnedVehicles(session: URLSession = .shared) async throws -> [CustomerAccountVehicle] {
