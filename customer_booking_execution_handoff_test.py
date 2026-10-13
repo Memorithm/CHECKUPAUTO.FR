@@ -8,7 +8,7 @@ class Tests(unittest.TestCase):
                       "vehicleId":"v1","requestKey":"booking-handoff-key-00001"}
         self.account={"accountId":"a1","vehicles":[{"vehicleId":"v1"}]}
         self.context=dict(metadata={},observed_metadata={},service_label="CT",
-                          payment_policy={},payment_evidence={},slot_evidence={"observed":True})
+                          payment_policy={"service":"technical","providerVerified":True,"paymentRequired":True,"paymentMode":"online"},payment_evidence={"providerVerified":True,"paid":True},slot_evidence={"observed":True})
         self.ready={"bookingEnabled":True}
 
     def test_default_does_not_execute(self):
