@@ -1,9 +1,7 @@
 name: TestFlight Mac mini SSH identity diagnostic
 
+# Manual main-only diagnostic: never execute PR-provided code on a protected runner.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/ios-testflight-key-diagnostic.yml'
   workflow_dispatch:
 
 permissions:
@@ -11,12 +9,12 @@ permissions:
 
 jobs:
   inspect:
-    # Never run untrusted forked PR code on the internal machine.
+    # This protected runner may only execute a manually dispatched main ref.
     if: >-
       github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
-      github.actor == 'CHECKUPAUTO' &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'CHECKUPAUTO'
     runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci]
     timeout-minutes: 5
     steps:
