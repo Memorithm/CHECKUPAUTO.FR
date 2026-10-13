@@ -3,6 +3,8 @@ import SwiftUI
 /// First screen for customers without a native session.
 /// Uses the same lavis vehicle illustration as the public website.
 struct PremiumWelcomeView: View {
+    @EnvironmentObject private var model: AppModel
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -91,6 +93,14 @@ struct PremiumWelcomeView: View {
                     .foregroundStyle(CheckupTheme.muted)
 
                 CustomerAuthenticationOptions()
+
+                if let message = model.errorMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
 
                 Text("Connexion sécurisée. Vos données restent associées à votre compte.")
                     .font(.caption2)
