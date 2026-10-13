@@ -29,7 +29,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var mobileConfig = MobileBootstrap.fallback
     @Published private(set) var remotePushRegistered = DeviceRegistrationState.isRegistered()
     @Published private(set) var deletingAllData = false
-    @Published private(set) var customerSignedIn = CustomerSessionKeychain.load() != nil
+    @Published private(set) var customerSignedIn = false
+    @Published private(set) var authenticationResolving = true
+    @Published private(set) var accountVehicles: [CustomerAccountVehicle] = []
     private var appleSignInNonce: String?
     private var prefetchedAppleSignInNonce: (value: String, fetchedAt: Date)?
     @Published private(set) var installationRegistrationSuppressed =
@@ -52,6 +54,7 @@ final class AppModel: ObservableObject {
             referralWallets = snapshot.wallets
         }
         Task {
+            await restoreCustomerSession()
             await prefetchAppleSignInNonce()
             await refreshNotificationState()
             await rescheduleAll()
@@ -91,8 +94,9 @@ final class AppModel: ObservableObject {
                 let payload = try AppleSignInCredentialMapper.payload(from: credential, nonce: nonce)
                 _ = try await AppleSignInClient.authenticate(payload)
                 customerSignedIn = true
+                authenticationResolving = false
                 errorMessage = nil
-                await refreshAuthoritativeInventory()
+                await refreshAccountVehicles()
             } catch {
                 customerSignedIn = false
                 errorMessage = "La connexion avec Apple n’a pas pu être finalisée."
@@ -115,8 +119,9 @@ final class AppModel: ObservableObject {
                 try await googleCustomerSignIn.start()
                 customerSignedIn = CustomerSessionKeychain.load() != nil
                 guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+                authenticationResolving = false
                 errorMessage = nil
-                await refreshAuthoritativeInventory()
+                await refreshAccountVehicles()
             } catch {
                 errorMessage = "La connexion avec Google n’a pas pu être finalisée."
             }
@@ -127,13 +132,52 @@ final class AppModel: ObservableObject {
         try await EmailCustomerAuthClient.signIn(email: email, password: password)
         customerSignedIn = CustomerSessionKeychain.load() != nil
         guard customerSignedIn else { throw URLError(.userAuthenticationRequired) }
+        authenticationResolving = false
         errorMessage = nil
-        await refreshAuthoritativeInventory()
+        await refreshAccountVehicles()
+    }
+
+    private func restoreCustomerSession() async {
+        authenticationResolving = true
+        do {
+            customerSignedIn = try await CustomerAccountAPI.validateStoredSession()
+            if customerSignedIn {
+                await refreshAccountVehicles()
+            } else {
+                accountVehicles = []
+            }
+        } catch {
+            // A transient outage must not convert an unverified token into a
+            // supposedly authenticated account. Keep it for a future retry.
+            customerSignedIn = false
+            accountVehicles = []
+            errorMessage = "Connexion indisponible. Vérifiez votre réseau puis réessayez."
+        }
+        authenticationResolving = false
+    }
+
+    private func refreshAccountVehicles() async {
+        guard customerSignedIn else {
+            accountVehicles = []
+            return
+        }
+        do {
+            accountVehicles = try await CustomerAccountAPI.fetchOwnedVehicles()
+        } catch CustomerAccountAPIError.sessionExpired {
+            signOutCustomer()
+        } catch {
+            // A failed refresh must not erase the existing device-bound
+            // reminder inventory or leak another account's profile.
+            accountVehicles = []
+            errorMessage = "Vos véhicules sont temporairement indisponibles."
+        }
     }
 
     func signOutCustomer() {
         CustomerSessionKeychain.clear()
+        accountVehicles = []
         customerSignedIn = false
+        authenticationResolving = false
     }
 
     func requestNotifications() {
@@ -344,6 +388,11 @@ final class AppModel: ObservableObject {
     }
 
     func refreshAfterForeground() {
+        if customerSignedIn {
+            Task { await restoreCustomerSession() }
+        } else if CustomerSessionKeychain.load() != nil {
+            Task { await restoreCustomerSession() }
+        }
         #if canImport(ActivityKit)
         if #available(iOS 17.0, *) {
             Task {
