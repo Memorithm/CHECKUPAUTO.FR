@@ -118,6 +118,22 @@ final class MobileAPITests: XCTestCase {
         XCTAssertNil(MobileAPI.directMercureBookingURL.password)
     }
 
+    func testCarteGriseGuidePhotographsMatchWebsiteAssetsInBothEnvironments() {
+        for (base, origin) in [
+            (MobileAPI.productionBaseURL, "https://www.checkupauto.fr"),
+            (MobileAPI.preproductionBaseURL, "https://test.checkupauto.fr"),
+        ] {
+            XCTAssertEqual(
+                MobileAPI.vehicleFormulaGuideURL(baseURL: base).absoluteString,
+                origin + "/assets/guides/carte-grise-formule-photo.webp"
+            )
+            XCTAssertEqual(
+                MobileAPI.vehicleCardDateGuideURL(baseURL: base).absoluteString,
+                origin + "/assets/guides/carte-grise-date-photo.webp"
+            )
+        }
+    }
+
     func testEndpointComposition() {
         let base = URL(string: "https://preview.example.test")!
         XCTAssertEqual(
