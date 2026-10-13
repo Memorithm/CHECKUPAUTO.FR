@@ -3,6 +3,14 @@ import Foundation
 enum MobileAPI {
     static let productionBaseURL = URL(string: "https://www.checkupauto.fr")!
     static let preproductionBaseURL = URL(string: "https://test.checkupauto.fr")!
+
+    // Direct public Mercure reservation entry point, unchanged in preproduction.
+    static let directMercureBookingURL = URL(string: "https://rdv.checkupauto.fr")!
+
+    // Exact still illustration used by the test.checkupauto.fr landing page.
+    static func premiumVehicleArtworkURL(baseURL: URL = currentBaseURL) -> URL {
+        endpoint("/assets/illustrations/checkupauto-lavis-option2-1020.webp", baseURL: baseURL)
+    }
     static let environmentInfoKey = "CheckupAutoEnvironment"
 
     static func packagedBaseURL(environment: String?) -> URL {
