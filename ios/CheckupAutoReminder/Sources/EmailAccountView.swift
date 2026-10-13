@@ -69,6 +69,12 @@ struct EmailAccountView: View {
                             Text("Au moins 12 caractères. Un lien de confirmation sera envoyé par e-mail.")
                                 .font(.caption)
                                 .foregroundStyle(CheckupTheme.muted)
+                            Text("En créant un compte, vous acceptez le traitement des données nécessaires à sa gestion.")
+                                .font(.caption)
+                                .foregroundStyle(CheckupTheme.muted)
+                            Link("Consulter la politique de confidentialité",
+                                 destination: MobileAPI.endpoint("/confidentialite"))
+                                .font(.caption.weight(.medium))
                         }
                     }
                     .padding(20)
