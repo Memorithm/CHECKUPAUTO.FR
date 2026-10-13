@@ -154,7 +154,8 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
             } else {
                 CustomerAuthenticationOptions()
-            }        }
+            }
+        }
         .padding(20)
         .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
