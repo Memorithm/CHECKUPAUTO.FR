@@ -129,12 +129,22 @@ private struct OperationalRootView: View {
     @StateObject private var model = AppModel()
 
     var body: some View {
-        ContentView()
-            .environmentObject(model)
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .active {
-                    model.refreshAfterForeground()
-                }
+        Group {
+            if model.customerSignedIn {
+                ContentView()
+                    .transition(.opacity)
+            } else {
+                PremiumWelcomeView()
+                    .transition(.opacity)
             }
+        }
+        .environmentObject(model)
+        .preferredColorScheme(.light)
+        .animation(.easeInOut(duration: 0.22), value: model.customerSignedIn)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                model.refreshAfterForeground()
+            }
+        }
     }
 }
