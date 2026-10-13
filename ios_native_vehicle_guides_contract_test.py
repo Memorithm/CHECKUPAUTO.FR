@@ -17,7 +17,7 @@ class NativeVehicleGuideContracts(unittest.TestCase):
         self.assertIn(vehicle_rules.FORMULA_PATTERN, rules)
         self.assertIn("2009", rules)
         self.assertIn("Aß", (IOS_TESTS / "VehicleRegistrationRulesTests.swift").read_text())
-        self.assertIn("document", rules)
+        self.assertIn("static func validDocument(", rules)
         self.assertIn("server", rules)
 
     def test_card_grise_photographs_are_original_website_assets(self):
