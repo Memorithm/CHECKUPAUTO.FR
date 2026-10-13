@@ -23,7 +23,9 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64, internal]
     timeout-minutes: 45
     env:
-      CHECKUPAUTO_MAC_HOST: Mac-mini-de-tarek.local
+      CHECKUPAUTO_MAC_HOST: ${{ vars.CHECKUPAUTO_MAC_HOST || 'Mac-mini-de-tarek.local' }}
+      CHECKUPAUTO_MAC_FALLBACK_IPV4: ${{ vars.CHECKUPAUTO_MAC_FALLBACK_IPV4 || '192.168.0.27' }}
+      CHECKUPAUTO_MAC_SECONDARY_IPV4: ${{ vars.CHECKUPAUTO_MAC_SECONDARY_IPV4 || '192.168.0.17' }}
       CHECKUPAUTO_MAC_USER: tarek
 
     steps:
@@ -42,6 +44,33 @@ jobs:
           git checkout -B main "$GITHUB_SHA"
           git update-ref refs/remotes/origin/main "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
+
+      - name: Resolve reachable Mac mini SSH endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "TestFlight runner: $(hostname) / $(id -un)"
+          original="$CHECKUPAUTO_MAC_HOST"
+          selected=""
+          for host in "$CHECKUPAUTO_MAC_HOST" "$CHECKUPAUTO_MAC_FALLBACK_IPV4" "$CHECKUPAUTO_MAC_SECONDARY_IPV4"; do
+            [ -n "$host" ] || continue
+            if [[ ! "$host" =~ ^[a-zA-Z0-9.-]{1,253}$ ]]; then
+              echo "::error::Invalid Mac mini endpoint configuration"
+              exit 2
+            fi
+            if timeout 5 bash -c 'exec 3<>/dev/tcp/"$1"/22' _ "$host" 2>/dev/null; then
+              selected="$host"
+              break
+            fi
+          done
+          if [ -z "$selected" ]; then
+            echo "::error::Mac mini SSH port 22 unreachable from this runner"
+            exit 2
+          fi
+          if [ "$selected" != "$original" ]; then
+            echo "::notice::Configured Mac mini hostname unreachable; using reachable LAN IPv4"
+          fi
+          printf 'CHECKUPAUTO_MAC_HOST=%s\n' "$selected" >> "$GITHUB_ENV"
 
       - name: Resolve authorized Mac SSH identity
         env:
@@ -85,7 +114,7 @@ jobs:
           fi
 
           [ -s "$auth" ] || {
-            echo "::error::No authorized Mac mini SSH identity is available"
+            echo "::error::Mac SSH port reachable, but no authorized noninteractive SSH identity for this runner. Verify CHECKUPAUTO_MAC_SSH_KEY and the Mac authorized_keys."
             exit 2
           }
           printf '%s\n' "$auth" > "$RUNNER_TEMP/checkupauto-testflight-auth-path"
