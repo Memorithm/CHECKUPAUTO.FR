@@ -8,7 +8,9 @@ def test_ios_federated_auth_contract():
     project=(IOS/"project.yml").read_text()
     apple=(IOS/"Sources"/"AppleSignIn.swift").read_text()
     google=(IOS/"Sources"/"GoogleCustomerSignIn.swift").read_text()
-    view=(IOS/"Sources"/"ContentView.swift").read_text()
+    # The entry page and account card now share one authentication component.
+    view=(IOS/"Sources"/"CustomerAuthenticationOptions.swift").read_text()
+    welcome=(IOS/"Sources"/"PremiumWelcomeView.swift").read_text()
     model=(IOS/"Sources"/"AppModel.swift").read_text()
 
     assert "com.apple.developer.applesignin" in ent
@@ -20,5 +22,7 @@ def test_ios_federated_auth_contract():
     assert 'callbackURLScheme: "checkupauto"' in google
     assert "SignInWithAppleButton" in view
     assert "Continuer avec Google" in view
+    assert "CustomerAuthenticationOptions()" in welcome
+    assert "Se connecter par e-mail" in view
     assert "CustomerSessionKeychain" in apple
     assert "CustomerSessionKeychain" in google
