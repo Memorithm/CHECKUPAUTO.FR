@@ -3,6 +3,7 @@ import Foundation
 enum CustomerAccountAPIError: Error {
     case sessionExpired
     case invalidResponse
+    case vehicleRejected(String)
 }
 
 /// Scoped to the authenticated native customer session. No browser cookie.
@@ -27,6 +28,41 @@ struct CustomerAccountVehicle: Decodable, Identifiable, Hashable {
     var displayName: String {
         [brand, model].filter { !$0.isEmpty }.joined(separator: " ")
     }
+}
+
+struct CustomerVehicleReferenceOption: Decodable, Hashable, Identifiable {
+    let id: String
+    let label: String
+}
+
+struct CustomerVehicleReferencesResponse: Decodable {
+    let ok: Bool
+    let brands: [CustomerVehicleReferenceOption]
+    let energies: [CustomerVehicleReferenceOption]
+    let models: [CustomerVehicleReferenceOption]?
+}
+
+struct CustomerVehicleCharacteristics: Encodable {
+    let brand: String
+    let model: String
+    let energy: String
+}
+
+struct CustomerVehicleRegistrationDraft: Encodable {
+    let registrationSystem: String
+    let registration: String
+    let formulaNumber: String
+    let cardIssueDate: String
+    let characteristics: CustomerVehicleCharacteristics
+}
+
+private struct SavedCustomerVehicleResponse: Decodable {
+    let ok: Bool
+    let vehicle: CustomerAccountVehicle
+}
+
+private struct CustomerVehicleErrorResponse: Decodable {
+    let error: String?
 }
 
 private struct AccountSessionResponse: Decodable {
@@ -67,6 +103,61 @@ enum CustomerAccountAPI {
         return profile
     }
 
+    static func fetchVehicleReferences(
+        brandId: String? = nil, session: URLSession = .shared
+    ) async throws -> CustomerVehicleReferencesResponse {
+        guard let token = CustomerSessionKeychain.load() else {
+            throw CustomerAccountAPIError.sessionExpired
+        }
+        let query = brandId.map { [URLQueryItem(name: "brandId", value: $0)] } ?? []
+        let data = try await request(
+            "/api/mobile/account/vehicle-references", token: token,
+            session: session, queryItems: query
+        )
+        let refs = try JSONDecoder().decode(CustomerVehicleReferencesResponse.self, from: data)
+        guard refs.ok, refs.brands.count <= 2000, refs.energies.count <= 100,
+              (refs.models?.count ?? 0) <= 2000,
+              refs.brands.allSatisfy({ !$0.id.isEmpty && !$0.label.isEmpty }),
+              refs.energies.allSatisfy({ !$0.id.isEmpty && !$0.label.isEmpty }),
+              (refs.models ?? []).allSatisfy({ !$0.id.isEmpty && !$0.label.isEmpty }) else {
+            throw CustomerAccountAPIError.invalidResponse
+        }
+        return refs
+    }
+
+    static func saveVehicle(
+        _ payload: CustomerVehicleRegistrationDraft,
+        session: URLSession = .shared
+    ) async throws -> CustomerAccountVehicle {
+        guard let token = CustomerSessionKeychain.load(),
+              token.range(of: #"^[A-Za-z0-9_-]{32,128}$"#, options: .regularExpression) != nil else {
+            throw CustomerAccountAPIError.sessionExpired
+        }
+        var request = URLRequest(url: MobileAPI.endpoint("/api/mobile/account/vehicles/save"))
+        request.httpMethod = "POST"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 18
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONEncoder().encode(payload)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CustomerAccountAPIError.invalidResponse
+        }
+        if http.statusCode == 401 { throw CustomerAccountAPIError.sessionExpired }
+        if http.statusCode == 422 {
+            let code = (try? JSONDecoder().decode(CustomerVehicleErrorResponse.self, from: data))?.error ?? ""
+            throw CustomerAccountAPIError.vehicleRejected(code)
+        }
+        guard http.statusCode == 201,
+              let saved = try? JSONDecoder().decode(SavedCustomerVehicleResponse.self, from: data),
+              saved.ok, !saved.vehicle.vehicleId.isEmpty else {
+            throw CustomerAccountAPIError.invalidResponse
+        }
+        return saved.vehicle
+    }
+
     static func fetchOwnedVehicles(session: URLSession = .shared) async throws -> [CustomerAccountVehicle] {
         guard let token = CustomerSessionKeychain.load() else {
             throw CustomerAccountAPIError.sessionExpired
@@ -80,14 +171,26 @@ enum CustomerAccountAPI {
     }
 
     private static func request(
-        _ path: String, token: String, session: URLSession
+        _ path: String, token: String, session: URLSession,
+        queryItems: [URLQueryItem] = []
     ) async throws -> Data {
         guard token.range(
             of: #"^[A-Za-z0-9_-]{32,128}$"#, options: .regularExpression
         ) != nil else {
             throw CustomerAccountAPIError.sessionExpired
         }
-        var request = URLRequest(url: MobileAPI.endpoint(path))
+        var url = MobileAPI.endpoint(path)
+        if !queryItems.isEmpty {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw CustomerAccountAPIError.invalidResponse
+            }
+            components.queryItems = queryItems
+            guard let resolved = components.url else {
+                throw CustomerAccountAPIError.invalidResponse
+            }
+            url = resolved
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 12

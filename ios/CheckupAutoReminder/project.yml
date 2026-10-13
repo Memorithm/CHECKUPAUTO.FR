@@ -90,6 +90,7 @@ targets:
       - Tests/VehicleClaimTests.swift
       - Tests/ReferralWalletClaimTests.swift
       - Tests/AuthoritativeInventoryTests.swift
+      - Tests/VehicleRegistrationRulesTests.swift
       - Tests/CheckupControlActivityPolicyTests.swift
     dependencies:
       - target: CheckupAutoReminder

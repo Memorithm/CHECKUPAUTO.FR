@@ -62,6 +62,8 @@ MOBILE_EMAIL_SIGNIN_ROUTE="/api/mobile/auth/email/login"
 MOBILE_EMAIL_REGISTER_ROUTE="/api/mobile/auth/email/register"
 MOBILE_AUTH_SESSION_ROUTE="/api/mobile/auth/session"
 MOBILE_ACCOUNT_VEHICLES_ROUTE="/api/mobile/account/vehicles"
+MOBILE_ACCOUNT_VEHICLE_REFERENCES_ROUTE="/api/mobile/account/vehicle-references"
+MOBILE_ACCOUNT_VEHICLE_SAVE_ROUTE="/api/mobile/account/vehicles/save"
 MOBILE_ACCOUNT_PROFILE_ROUTE="/api/mobile/account/profile"
 PASSWORD_LOGIN_ROUTE="/compte/connexion"
 PASSWORD_REGISTER_ROUTE="/compte/inscription"
@@ -1282,6 +1284,82 @@ def handle(handler) -> bool:
         except Exception:
             headers={"Set-Cookie":_flow_cookie(provider,state,clear=True)} if re.fullmatch(r"[A-Za-z0-9_-]{32,128}",state) else {}
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
+        return True
+
+    if path==MOBILE_ACCOUNT_VEHICLE_REFERENCES_ROUTE:
+        if command!="GET":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        try:
+            if any(k in handler.headers for k in ("Cookie",)) and not handler.headers.get("Authorization"):
+                raise PermissionError("mobile_customer_auth_required")
+            _mobile_bearer_account(handler)
+        except (PermissionError, customer_accounts.CustomerAccountError):
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            query=parse_qs(parsed.query,keep_blank_values=True,max_num_fields=2)
+            if set(query)-{"brandId"}:
+                raise ValueError("vehicle_reference_query_invalid")
+            refs=mercure_brand_energy_reference.fetch_references()
+            result={"ok":True,"brands":refs["marque"],"energies":refs["energie"]}
+            if "brandId" in query:
+                brand_id=query["brandId"]
+                if len(brand_id)!=1 or not any(item["id"]==brand_id[0] for item in refs["marque"]):
+                    raise ValueError("vehicle_reference_brand_invalid")
+                result["models"]=mercure_vehicle_reference.models(centre_type="1",brand_id=brand_id[0])
+            handler.send_json(result,200)
+        except ValueError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except Exception:
+            handler.send_json({"ok":False,"error":"vehicle_reference_unavailable"},503)
+        return True
+
+    if path==MOBILE_ACCOUNT_VEHICLE_SAVE_ROUTE:
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if parsed.query or handler.headers.get("Sec-Fetch-Site")=="cross-site" or (
+            handler.headers.get("Origin") and not _same_origin(handler)
+        ):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        try:
+            account_id=_mobile_bearer_account(handler)
+        except (PermissionError, customer_accounts.CustomerAccountError):
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            payload=_json_body(handler)
+            expected={"registrationSystem","registration","formulaNumber","cardIssueDate","characteristics"}
+            if set(payload)!=expected or not isinstance(payload.get("characteristics"),dict):
+                raise ValueError("customer_vehicle_payload_invalid")
+            if set(payload["characteristics"])!={"brand","model","energy"}:
+                raise ValueError("customer_vehicle_payload_invalid")
+            vehicle=customer_accounts.save_vehicle(
+                account_id,
+                registration_system=payload["registrationSystem"],
+                registration=payload["registration"],
+                formula_number=payload["formulaNumber"],
+                card_issue_date=payload["cardIssueDate"],
+                characteristics=payload["characteristics"],
+            )
+            characteristics=vehicle.get("characteristics") or {}
+            handler.send_json({"ok":True,"vehicle":{
+                "vehicleId":vehicle["vehicleId"],
+                "registration":vehicle["registration"],
+                "registrationSystem":vehicle["registrationSystem"],
+                "brand":str(characteristics.get("brand") or ""),
+                "model":str(characteristics.get("model") or ""),
+                "energy":str(characteristics.get("energy") or ""),
+                "formulaNumberPresent":bool(vehicle.get("formulaNumberPresent")),
+            }},201)
+        except customer_accounts.CustomerAccountError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except ValueError as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_vehicle_save_unavailable"},503)
         return True
 
     if path in {MOBILE_AUTH_SESSION_ROUTE, MOBILE_ACCOUNT_VEHICLES_ROUTE, MOBILE_ACCOUNT_PROFILE_ROUTE}:
