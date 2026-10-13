@@ -62,6 +62,7 @@ MOBILE_EMAIL_SIGNIN_ROUTE="/api/mobile/auth/email/login"
 MOBILE_EMAIL_REGISTER_ROUTE="/api/mobile/auth/email/register"
 MOBILE_AUTH_SESSION_ROUTE="/api/mobile/auth/session"
 MOBILE_ACCOUNT_VEHICLES_ROUTE="/api/mobile/account/vehicles"
+MOBILE_ACCOUNT_PROFILE_ROUTE="/api/mobile/account/profile"
 PASSWORD_LOGIN_ROUTE="/compte/connexion"
 PASSWORD_REGISTER_ROUTE="/compte/inscription"
 PASSWORD_VERIFY_ROUTE="/compte/verifier-email"
@@ -1283,7 +1284,7 @@ def handle(handler) -> bool:
             handler.send_bytes(_login_page("La connexion n’a pas pu être finalisée. Réessayez avec le fournisseur utilisé lors de votre inscription."),"text/html; charset=utf-8",400,"no-store",headers)
         return True
 
-    if path in {MOBILE_AUTH_SESSION_ROUTE, MOBILE_ACCOUNT_VEHICLES_ROUTE}:
+    if path in {MOBILE_AUTH_SESSION_ROUTE, MOBILE_ACCOUNT_VEHICLES_ROUTE, MOBILE_ACCOUNT_PROFILE_ROUTE}:
         if command!="GET":
             handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
             return True
@@ -1293,6 +1294,19 @@ def handle(handler) -> bool:
             account_id=_mobile_bearer_account(handler)
             if path==MOBILE_AUTH_SESSION_ROUTE:
                 handler.send_json({"ok":True,"accountId":account_id},200)
+            elif path==MOBILE_ACCOUNT_PROFILE_ROUTE:
+                # Native account screen must never need a web session cookie.
+                # Only return explicitly permitted profile attributes; omit
+                # document identifiers, referral balance and all auth secrets.
+                profile=customer_accounts.profile(account_id)
+                handler.send_json({
+                    "ok":True,
+                    "accountId":account_id,
+                    "displayName":str(profile.get("displayName") or ""),
+                    "email":str(profile.get("email") or ""),
+                    "kind":str(profile.get("kind") or ""),
+                    "phone":str(profile.get("phone") or ""),
+                },200)
             else:
                 vehicles=customer_accounts.list_vehicles(account_id)
                 # Only the minimum needed to show owned vehicles. Do not
