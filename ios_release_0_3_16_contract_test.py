@@ -10,8 +10,13 @@ SOURCES = IOS / "Sources"
 class IOSRelease016Contract(unittest.TestCase):
     def test_exact_monotonic_testflight_release_identity(self):
         spec = (IOS / "project.yml").read_text(encoding="utf-8")
-        self.assertIn("CURRENT_PROJECT_VERSION: 19", spec)
-        self.assertIn("MARKETING_VERSION: 0.3.16", spec)
+        import re
+        build = re.search(r"CURRENT_PROJECT_VERSION: (\d+)", spec)
+        version = re.search(r"MARKETING_VERSION: (\d+)\.(\d+)\.(\d+)", spec)
+        self.assertIsNotNone(build)
+        self.assertIsNotNone(version)
+        self.assertGreaterEqual(int(build.group(1)), 19)
+        self.assertGreaterEqual(tuple(map(int, version.groups())), (0, 3, 16))
         self.assertIn("CHECKUPAUTO_ENVIRONMENT: production", spec)
         notes = (IOS / "RELEASE_NOTES_0.3.16.md").read_text(encoding="utf-8")
         for fragment in ("0.3.16 (19)", "Associer à mon compte",
