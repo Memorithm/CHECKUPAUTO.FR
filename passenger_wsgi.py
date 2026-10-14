@@ -196,11 +196,22 @@ def _ensure_backend() -> tuple[str, int]:
             _BACKEND_THREAD = None
             _BACKEND_PID = None
 
-        import admin_server
+        # admin_server imports security_guard, which runs security_guard.init_db()
+        # at module import time. Previously the process-wide SQLite writes
+        # happened *before* the cross-process startup lock. Multiple cold
+        # Passenger workers could therefore race on security.sqlite3.
+        # Resolve the configured data directory before importing admin_server;
+        # relative paths are rooted exactly as they will be after os.chdir(ROOT).
+        data_dir = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
+        if not data_dir.is_absolute():
+            data_dir = _ROOT / data_dir
+        with _runtime_initialization_lock(data_dir):
+            import admin_server
 
-        os.chdir(admin_server.ROOT)
-        admin_server.configure_internal_proxy(_PROXY_TOKEN)
-        with _runtime_initialization_lock(admin_server.analytics.DB.parent):
+            os.chdir(admin_server.ROOT)
+            admin_server.configure_internal_proxy(_PROXY_TOKEN)
+            # The same lock guards module-import writes AND schema/seed writes.
+            # Do not acquire it a second time using a different file descriptor.
             release_sha = _runtime_release_marker_sha()
             marker = _runtime_ready_marker(admin_server.analytics.DB.parent)
             identities = _runtime_database_identities(admin_server)

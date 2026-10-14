@@ -83,6 +83,68 @@ class PassengerWSGITest(unittest.TestCase):
                 new_thread.start.assert_called_once()
                 self.assertEqual(wsgi._BACKEND_PID, 9999)
 
+    def test_startup_lock_also_covers_admin_import_and_eager_security_db(self):
+        import builtins
+        import admin_server
+
+        original_import = builtins.__import__
+        active = []
+        imported = []
+        lock_dirs = []
+        server = mock.Mock()
+        server.server_address = ("127.0.0.1", 4456)
+        thread = mock.Mock()
+
+        @contextlib.contextmanager
+        def monitored_lock(directory):
+            self.assertFalse(active)
+            lock_dirs.append(Path(directory))
+            active.append(True)
+            try:
+                yield
+            finally:
+                active.pop()
+
+        def verify_import(name, *args, **kwargs):
+            if name == "admin_server":
+                imported.append(name)
+                self.assertTrue(active, "admin_server imported before SQLite lock")
+            return original_import(name, *args, **kwargs)
+
+        def verify_initialize(*, background):
+            self.assertFalse(background)
+            self.assertTrue(active, "schema initializers outside SQLite lock")
+            return {"coreReady": False}
+
+        def verify_bind(*args, **kwargs):
+            self.assertFalse(active, "lock held during loopback bind")
+            return server
+
+        with mock.patch.multiple(
+            wsgi, _BACKEND_SERVER=None, _BACKEND_THREAD=None, _BACKEND_PID=None,
+        ), mock.patch.dict(wsgi.os.environ, {"CYBERCHECK_DATA_DIR": "relative-runtime"}), \
+             mock.patch("passenger_wsgi.os.getpid", return_value=9001), \
+             mock.patch("passenger_wsgi.os.chdir"), \
+             mock.patch("passenger_wsgi._runtime_initialization_lock",
+                        side_effect=monitored_lock), \
+             mock.patch("passenger_wsgi._runtime_release_marker_sha",
+                        return_value="a" * 40), \
+             mock.patch("passenger_wsgi._runtime_database_identities",
+                        return_value={}), \
+             mock.patch("passenger_wsgi.ThreadingHTTPServer",
+                        side_effect=verify_bind), \
+             mock.patch("passenger_wsgi.threading.Thread", return_value=thread), \
+             mock.patch.object(admin_server, "configure_internal_proxy"), \
+             mock.patch.object(admin_server, "initialize_runtime",
+                               side_effect=verify_initialize):
+            with mock.patch("builtins.__import__", side_effect=verify_import):
+                self.assertEqual(wsgi._ensure_backend(), ("127.0.0.1", 4456))
+
+        self.assertEqual(imported, ["admin_server"])
+        self.assertEqual(lock_dirs, [wsgi._ROOT / "relative-runtime"])
+        self.assertEqual(active, [])
+        thread.start.assert_called_once()
+
     def test_live_loopback_is_reused_without_initializing_database(self):
         server = mock.Mock()
         server.server_address = ("127.0.0.1", 4455)
