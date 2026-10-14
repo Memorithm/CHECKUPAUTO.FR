@@ -222,6 +222,43 @@ def _public_provenance_response(environ: dict, start_response):
     return [b"" if method == "HEAD" else payload]
 
 
+def _mobile_bootstrap_response(environ: dict, start_response):
+    """Serve the public, read-only bootstrap without booting the admin backend.
+
+    Passenger may recycle workers between requests. Starting admin_server and
+    its background services on a cold GET caused intermittent 8-12s latency
+    and blocked the iOS release gate. Keep the payload generated from the
+    same validated runtime configuration and mobile_bootstrap.status().
+    """
+    method = str(environ.get("REQUEST_METHOD") or "GET").upper()
+    path = str(environ.get("PATH_INFO") or "/")
+    if path != "/api/mobile/bootstrap" or method not in {"GET", "HEAD"}:
+        return None
+    try:
+        import mobile_bootstrap
+        import site_config_store
+
+        payload = mobile_bootstrap.status(site_config_store.load())
+        body = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        status = "200 OK"
+    except Exception:
+        body = b'{"ok":false,"error":"mobile_bootstrap_unavailable"}'
+        status = "503 Service Unavailable"
+    start_response(
+        status,
+        [
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Content-Length", str(len(body))),
+            ("Cache-Control", "no-store"),
+            ("X-Content-Type-Options", "nosniff"),
+        ],
+    )
+    return [b"" if method == "HEAD" else body]
+
+
 def _write_freeze_response(environ: dict, start_response):
     method = str(environ.get("REQUEST_METHOD") or "GET").upper()
     path = str(environ.get("PATH_INFO") or "/")
@@ -271,6 +308,9 @@ def application(environ, start_response):
         frozen = _write_freeze_response(environ, start_response)
         if frozen is not None:
             return frozen
+        bootstrap = _mobile_bootstrap_response(environ, start_response)
+        if bootstrap is not None:
+            return bootstrap
 
         host, port = _ensure_backend()
         method = str(environ.get("REQUEST_METHOD") or "GET").upper()

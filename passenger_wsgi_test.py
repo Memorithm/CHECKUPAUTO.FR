@@ -188,6 +188,75 @@ class PassengerWSGITest(unittest.TestCase):
         self.assertEqual(captured["status"],"503 Service Unavailable")
         self.assertIn(b"migration_write_frozen",b"".join(result))
 
+    def test_bootstrap_fast_path_matches_canonical_payload_without_backend(self):
+        import json
+        import mobile_bootstrap
+        import site_config_store
+
+        expected = mobile_bootstrap.status(site_config_store.load())
+        for method in ("GET", "HEAD"):
+            with self.subTest(method=method):
+                response = {}
+                def start(status, headers):
+                    response["status"] = status
+                    response["headers"] = dict(headers)
+                with mock.patch(
+                    "passenger_wsgi.migration_write_freeze.status",
+                    return_value={"active": False},
+                ), mock.patch("passenger_wsgi._ensure_backend") as backend:
+                    result = wsgi.application({
+                        "REQUEST_METHOD": method,
+                        "PATH_INFO": "/api/mobile/bootstrap",
+                        "REMOTE_ADDR": "203.0.113.5",
+                    }, start)
+                backend.assert_not_called()
+                self.assertEqual(response["status"], "200 OK")
+                self.assertEqual(response["headers"]["Cache-Control"], "no-store")
+                self.assertEqual(response["headers"]["X-Content-Type-Options"], "nosniff")
+                body = b"".join(result)
+                if method == "GET":
+                    self.assertEqual(json.loads(body), expected)
+                else:
+                    self.assertEqual(body, b"")
+
+    def test_bootstrap_freeze_precedence_and_post_fallback(self):
+        for method in ("GET", "POST"):
+            with self.subTest(method=method):
+                response = {}
+                def start(status, headers):
+                    response["status"] = status
+                with mock.patch(
+                    "passenger_wsgi.migration_write_freeze.status",
+                    return_value={"active": True, "valid": True},
+                ), mock.patch("passenger_wsgi.migration_write_freeze.request_allowed",
+                              return_value=False), mock.patch("passenger_wsgi._ensure_backend") as backend:
+                    body = b"".join(wsgi.application({
+                        "REQUEST_METHOD": method,
+                        "PATH_INFO": "/api/mobile/bootstrap",
+                    }, start))
+                self.assertEqual(response["status"], "503 Service Unavailable")
+                self.assertIn(b"migration_write_frozen", body)
+                backend.assert_not_called()
+
+    def test_bootstrap_invalid_config_fails_closed_without_backend(self):
+        captured = {}
+        def start(status, headers):
+            captured["status"] = status
+            captured["headers"] = dict(headers)
+        with mock.patch("passenger_wsgi.migration_write_freeze.status",
+                        return_value={"active": False}), mock.patch(
+                            "site_config_store.load", side_effect=ValueError("invalid")
+                        ), mock.patch("passenger_wsgi._ensure_backend") as backend:
+            body = b"".join(wsgi.application({
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": "/api/mobile/bootstrap",
+            }, start))
+        backend.assert_not_called()
+        self.assertEqual(captured["status"], "503 Service Unavailable")
+        self.assertEqual(captured["headers"]["Cache-Control"], "no-store")
+        self.assertNotIn(b"invalid", body)
+        self.assertIn(b"mobile_bootstrap_unavailable", body)
+
     def test_invalid_wsgi_request_returns_sanitized_400(self):
         captured = {}
 
