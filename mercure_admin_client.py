@@ -1,5 +1,5 @@
 from pathlib import Path
-import datetime, json, os, requests, unicodedata
+import datetime, json, os, requests, threading, time, unicodedata
 from collections import Counter, defaultdict
 from zoneinfo import ZoneInfo
 
@@ -53,18 +53,68 @@ def _session_error_state(exc):
     return 'unexpected_error'
 
 
-def session_status():
+USERNAME_ENV = 'CHECKUPAUTO_MERCURE_ADMIN_USERNAME'
+PASSWORD_ENV = 'CHECKUPAUTO_MERCURE_ADMIN_PASSWORD'
+RENEW_MIN_INTERVAL_SECONDS = 300.0
+_RENEW_LOCK = threading.Lock()
+_RENEW_LAST_ATTEMPT = None
+
+
+def renewal_configured(environ=None):
+    env = os.environ if environ is None else environ
+    return bool(str(env.get(USERNAME_ENV) or '').strip() and str(env.get(PASSWORD_ENV) or ''))
+
+
+def renew_session_from_environment(environ=None, *, now=None, login_fn=None):
+    """Open a new Mercure admin session with the dedicated account from the
+    environment. Credentials are only read from the process environment and are
+    never logged, returned or written; only the resulting cookies are stored in
+    SESSION_FILE (by ``login``). At most one attempt per
+    RENEW_MIN_INTERVAL_SECONDS so a wrong password cannot lock the account."""
+    global _RENEW_LAST_ATTEMPT
+    env = os.environ if environ is None else environ
+    if not renewal_configured(env):
+        return {'renewed': False, 'state': 'renewal_not_configured'}
+    current = time.monotonic() if now is None else now
+    with _RENEW_LOCK:
+        if _RENEW_LAST_ATTEMPT is not None and current - _RENEW_LAST_ATTEMPT < RENEW_MIN_INTERVAL_SECONDS:
+            return {'renewed': False, 'state': 'renewal_throttled'}
+        _RENEW_LAST_ATTEMPT = current
+        try:
+            (login_fn or login)(env.get(USERNAME_ENV), env.get(PASSWORD_ENV))
+        except PermissionError:
+            return {'renewed': False, 'state': 'renewal_refused'}
+        except Exception as exc:
+            return {'renewed': False, 'state': _session_error_state(exc)}
+    return {'renewed': True, 'state': 'renewed'}
+
+
+def _check_session():
+    s = _session()
+    r = _check_auth(s.get(BASE + '/admin/calendrier', timeout=20, allow_redirects=False))
+    connected = r.status_code == 200
+    return {'connected': connected, 'status': r.status_code, 'state': 'ready' if connected else 'http_error'}
+
+
+def session_status(*, renew=True):
     try:
-        s = _session()
-        r = _check_auth(s.get(BASE + '/admin/calendrier', timeout=20, allow_redirects=False))
-        connected = r.status_code == 200
-        return {'connected': connected, 'status': r.status_code, 'state': 'ready' if connected else 'http_error'}
+        return _check_session()
     except Exception as exc:
-        return {
-            'connected': False,
-            'state': _session_error_state(exc),
-            'error': 'Session Mercure indisponible',
-        }
+        state = _session_error_state(exc)
+    if renew and state == 'session_unavailable':
+        renewal = renew_session_from_environment()
+        if renewal['renewed']:
+            try:
+                return {**_check_session(), 'renewed': True}
+            except Exception as exc:
+                state = _session_error_state(exc)
+        elif renewal['state'] != 'renewal_not_configured':
+            state = renewal['state']
+    return {
+        'connected': False,
+        'state': state,
+        'error': 'Session Mercure indisponible',
+    }
 
 def _price(value):
     if value is None:

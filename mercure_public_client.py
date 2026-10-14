@@ -192,3 +192,56 @@ def availability(service_key: str, start_date: str) -> dict[str, Any]:
         with _CACHE_LOCK:
             _CACHE[cache_key] = (time.monotonic(), result)
         return result
+
+
+PAYMENT_OPTIONS_TTL = 300.0
+_PAYMENT_OPTIONS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def _provider_payment_options(service_id: str) -> dict[str, Any]:
+    _breaker_before()
+    try:
+        with _PROVIDER_SEMAPHORE:
+            _breaker_before()
+            s = _provider_session()
+            try:
+                # Same read the public Mercure booking page performs once a
+                # service is chosen; it does not create anything.
+                r = s.post(BASE + '/get_energie_prestation', data={
+                    'prestation': service_id, 'type_centre': '1', 'iframe': 'false', 'id': '',
+                }, timeout=20, allow_redirects=False)
+                r.raise_for_status()
+                data = r.json()
+                if (r.status_code != 200 or not isinstance(data, dict)
+                        or type(data.get('paiementWeb')) is not bool
+                        or type(data.get('paiementCentre')) is not bool):
+                    raise RuntimeError('Options de paiement Mercure invalides')
+            finally:
+                s.close()
+    except Exception:
+        _breaker_failure()
+        raise
+    _breaker_success()
+    return data
+
+
+def payment_options(service_key: str) -> dict[str, Any]:
+    """Payment modes Mercure offers for a service: ``online`` means Mercure's own
+    web payment (Payline on rdv.checkupauto.fr) is switched on for it. This is a
+    configuration read, never proof that a booking was paid."""
+    meta = service(service_key)
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        hit = _PAYMENT_OPTIONS_CACHE.get(service_key)
+        if hit and now - hit[0] < PAYMENT_OPTIONS_TTL:
+            return hit[1]
+    raw = _provider_payment_options(meta['id'])
+    result = {
+        'service': service_key,
+        'online': raw['paiementWeb'],
+        'centre': raw['paiementCentre'],
+        'checkedAt': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+    }
+    with _CACHE_LOCK:
+        _PAYMENT_OPTIONS_CACHE[service_key] = (time.monotonic(), result)
+    return result

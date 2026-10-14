@@ -315,7 +315,7 @@ class Handler(SimpleHTTPRequestHandler):
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
    self.send_response(200); self.send_header('Cache-Control','no-store'); self.end_headers(); return
   dynamic={'/','/index.html','/app','/demo','/compte','/payment/test','/payment/payline/checkout','/robots.txt','/sitemap.xml','/llms.txt','/zone-tarifs','/.well-known/security.txt','/api/site-config','/api/app/status','/api/mobile/bootstrap','/api/booking/services','/api/geo/coverage','/api/geo/quote','/api/compliance/cookies','/go/booking'}
-  if path in dynamic or path=='/api/booking/availability':
+  if path in dynamic or path in ('/api/booking/availability','/api/booking/payment-options'):
    self.send_response(200); self.send_header('Cache-Control','no-cache'); self.end_headers(); return
   if path=='/go/app':
    c=load_config(); q=parse_qs(urlparse(self.path).query); source=app_download.normalize_source((q.get('src') or ['direct'])[0]); app=app_download.status(c)
@@ -555,6 +555,12 @@ class Handler(SimpleHTTPRequestHandler):
     q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]
     return self.send_json(booking_promo_preview.build(service,incentive_config(load_config())),headers={'X-Robots-Tag':'noindex, nofollow'})
    except ValueError: return self.send_json({'ok':False,'error':'invalid_promo_preview_request'},400)
+  if path=='/api/booking/payment-options':
+   try:
+    service=(parse_qs(parsed.query).get('service') or ['technical'])[0]
+    return self.send_json(mercure_public.payment_options(service))
+   except ValueError: return self.send_json({'ok':False,'error':'booking_payment_options_invalid'},400)
+   except Exception: return self.send_json({'ok':False,'error':'booking_payment_options_unavailable'},502)
   if path=='/api/booking/availability':
    try:
     today=mercure_admin.business_today(); q=parse_qs(parsed.query); service=(q.get('service') or ['technical'])[0]; date=(q.get('date') or [today.isoformat()])[0]; c=load_config(); policy=incentive_config(c)
