@@ -303,7 +303,7 @@ final class AppModel: ObservableObject {
                     }
                     try await scheduler.rescheduleCustom(vehicle)
                     if let date = reminderAt {
-                        localReminderNotice = "Rappel programmé le " + date.formatted(date: .abbreviated, time: .shortened)
+                        localReminderNotice = "Rappel programmé le " + frenchDateTime(date)
                     }
                 } catch {
                     errorMessage = "Le véhicule est enregistré, mais les rappels n’ont pas pu être programmés."
@@ -331,7 +331,7 @@ final class AppModel: ObservableObject {
                 }
                 try await scheduler.scheduleTest(at: date)
                 errorMessage = nil
-                localReminderNotice = "Test programmé le " + date.formatted(date: .abbreviated, time: .shortened)
+                localReminderNotice = "Test programmé le " + frenchDateTime(date)
             } catch {
                 errorMessage = "Test non programmé : " + error.localizedDescription
             }
@@ -628,6 +628,14 @@ final class AppModel: ObservableObject {
     var reportScanURL: URL {
         MobileAPI.websiteURL(URL(string: mobileConfig.account?.reportScanUrl ?? MobileBootstrap.fallback.account?.reportScanUrl ?? "https://www.checkupauto.fr/compte#ct-report")
             ?? URL(string: "https://www.checkupauto.fr/compte#ct-report")!)
+    }
+
+    private func frenchDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "dd/MM/yyyy 'à' HH:mm"
+        return formatter.string(from: date)
     }
 
     var nextControlDueDate: Date? {
