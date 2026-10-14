@@ -221,8 +221,9 @@ class PassengerWSGITest(unittest.TestCase):
             wsgi._write_runtime_marker(marker, "a" * 40, first)
             self.assertTrue(wsgi._runtime_marker_matches(marker, "a" * 40, first))
             old = modules[0].DB
-            old.unlink()
-            old.write_bytes(b"new")
+            replacement = Path(root) / "replacement.sqlite3"
+            replacement.write_bytes(b"new")
+            replacement.replace(old)
             second = wsgi._runtime_database_identities(runtime)
             self.assertFalse(wsgi._runtime_marker_matches(marker, "a" * 40, second))
 
