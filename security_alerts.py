@@ -8,25 +8,24 @@ import ipaddress
 import json
 import os
 import socket
-from contextlib import contextmanager
 import sqlite3
 import threading
 from urllib.parse import urlparse
 
 import requests
 
+import security_sqlite
+
 STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
 
-@contextmanager
 def _db():
-    """One transaction on a connection that is always closed (audit Q-03)."""
-    connection = sqlite3.connect(DB)
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
+    """One transaction on a connection that is always closed (audit Q-03).
+
+    WAL and a bounded busy timeout are shared by the Sentinel modules
+    (security_sqlite.py, issues #733/#735).
+    """
+    return security_sqlite.transaction(DB)
 
 _LOCK = threading.RLock()
 _STOP = threading.Event()
