@@ -52,7 +52,7 @@ def probe(origin, repeat=2, timeout=15):
                     args, capture_output=True, text=True, timeout=timeout + 3,
                     check=False,
                 )
-                code, seconds, redirect = result.stdout.strip().split(" ", 2)
+                code, seconds, redirect = result.stdout.rstrip("\n").split(" ", 2)
                 status = int(code)
                 duration = float(seconds)
                 host = urlsplit(redirect).hostname
