@@ -28,6 +28,7 @@ struct AddVehicleView: View {
 
     @State private var scheduleReminder = false
     @State private var dueDate = Date()
+    @State private var controlDateConfirmed = false
     @State private var customReminderEnabled = false
     @State private var reminderAt = LocalReminderPlan.testDate()
     @State private var didPrefillLocalVehicle = false
@@ -70,8 +71,16 @@ struct AddVehicleView: View {
         energies.first { $0.id == energyId }
     }
 
+    private var frenchDueDate: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter.string(from: dueDate)
+    }
+
     private var canSave: Bool {
-        normalizedPlate != nil && documentValid &&
+        controlDateConfirmed && normalizedPlate != nil && documentValid &&
         selectedBrand != nil && selectedModel != nil && selectedEnergy != nil &&
         !referencesLoading && !modelsLoading && !saving &&
         (!scheduleReminder || (!customReminderEnabled || reminderAt > Date()))
@@ -218,30 +227,53 @@ struct AddVehicleView: View {
                         }
                     }
 
+                    fieldCard {
+                        Label("Date du prochain contrôle technique · obligatoire",
+                              systemImage: "calendar")
+                            .font(.headline)
+                            .foregroundStyle(CheckupTheme.ink)
+                        Text("Indiquez la date exacte du prochain contrôle en JJ/MM/AAAA. Elle sera enregistrée dans votre compte et synchronisée entre le site et l’application.")
+                            .font(.caption)
+                            .foregroundStyle(CheckupTheme.muted)
+                        DatePicker(
+                            "Prochain contrôle technique",
+                            selection: $dueDate,
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.compact)
+                        .environment(\.locale, Locale(identifier: "fr_FR"))
+                        .onChange(of: dueDate) { _, _ in controlDateConfirmed = false }
+                        .accessibilityIdentifier("vehicle-next-control-date")
+                        Button {
+                            controlDateConfirmed = true
+                        } label: {
+                            Label(
+                                controlDateConfirmed
+                                    ? "Date confirmée : " + frenchDueDate
+                                    : "Confirmer la date : " + frenchDueDate,
+                                systemImage: controlDateConfirmed ? "checkmark.circle.fill" : "calendar.badge.checkmark"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("vehicle-confirm-next-control-date")
+                    }
+
                     if localVehicleToLink == nil {
                     fieldCard {
-                        Toggle("Programmer une échéance CT sur cet iPhone", isOn: $scheduleReminder)
+                        Toggle("Programmer aussi un rappel sur cet iPhone", isOn: $scheduleReminder)
                             .tint(CheckupTheme.accent)
                             .font(.subheadline.weight(.semibold))
 
                         if scheduleReminder {
                             TextField("Nom facultatif — ex. Ma Peugeot", text: $label)
                                 .textFieldStyle(.roundedBorder)
-                            DatePicker(
-                                "Prochain contrôle technique",
-                                selection: $dueDate,
-                                in: Date()...,
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.graphical)
-                            .tint(CheckupTheme.accent)
                             Toggle("Rappel à une date et heure précises", isOn: $customReminderEnabled)
                                 .tint(CheckupTheme.accent)
                             if customReminderEnabled {
                                 DatePicker("Me rappeler le", selection: $reminderAt,
                                            in: Date()..., displayedComponents: [.date, .hourAndMinute])
                             }
-                            Text("L’échéance CT est différente de la date d’établissement de la carte grise. Les rappels restent stockés sur cet iPhone.")
+                            Text("La date du contrôle est enregistrée dans le compte. Les notifications locales restent propres à cet iPhone.")
                                 .font(.caption)
                                 .foregroundStyle(CheckupTheme.muted)
                         }
@@ -295,6 +327,7 @@ struct AddVehicleView: View {
                     plate = localVehicleToLink.registration
                     label = localVehicleToLink.displayName
                     dueDate = localVehicleToLink.controlDueDate
+                    controlDateConfirmed = true
                     registrationSystem = VehicleRegistrationRules.normalizedRegistration(
                         localVehicleToLink.registration, system: .siv
                     ) != nil ? .siv : .fni
@@ -407,11 +440,19 @@ struct AddVehicleView: View {
         let components = Calendar.current.dateComponents([.year, .month, .day], from: cardIssueDate)
         let issueDate = String(format: "%04d-%02d-%02d", components.year ?? 0,
                                components.month ?? 0, components.day ?? 0)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        let nextComponents = gregorian.dateComponents([.year, .month, .day], from: dueDate)
+        let nextControlDate = String(
+            format: "%04d-%02d-%02d",
+            nextComponents.year ?? 0, nextComponents.month ?? 0, nextComponents.day ?? 0
+        )
         let payload = CustomerVehicleRegistrationDraft(
             registrationSystem: registrationSystem.rawValue,
             registration: plate,
             formulaNumber: registrationSystem == .siv ? VehicleRegistrationRules.compact(formulaNumber) : "",
             cardIssueDate: registrationSystem == .fni ? issueDate : "",
+            nextControlDate: nextControlDate,
             characteristics: CustomerVehicleCharacteristics(
                 brand: brand.label, model: vehicleModel.label, energy: energy.label
             )
@@ -441,6 +482,8 @@ struct AddVehicleView: View {
                 message = "Vérifiez le numéro de formule sur votre certificat."
             case "customer_vehicle_card_issue_date_invalid":
                 message = "Vérifiez la date d’établissement du certificat."
+            case "customer_vehicle_next_control_date_invalid":
+                message = "Vérifiez la date du prochain contrôle (JJ/MM/AAAA)."
             case "customer_vehicle_registration_invalid":
                 message = "Vérifiez le format de l’immatriculation."
             default:
