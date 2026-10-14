@@ -66,10 +66,11 @@ class CustomerVehicleCrossPlatformParityTests(unittest.TestCase):
 
     def test_next_control_month_is_always_french(self):
         home = self.read_ios("ContentView.swift")
-        self.assertIn(
-            'Text(date, format: .dateTime.day().month(.wide).year().locale(Locale(identifier: "fr_FR")))',
-            home,
-        )
+        # The stronger numerical format is locale-independent even on an
+        # iPhone configured in English; the original verbal month is removed.
+        self.assertIn('Text(frenchDate(date))', home)
+        self.assertIn('Locale(identifier: "fr_FR")', home)
+        self.assertIn('formatter.dateFormat = withTime ? "dd/MM/yyyy', home)
         self.assertIn("model.nextControlDueDate", home)
 
 
