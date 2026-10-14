@@ -19,6 +19,7 @@ struct NativeCustomerAccountView: View {
     @State private var cookieValidUntil: Date = .distantPast
     @State private var showGPSPicker = false
     @State private var showBlockedExternalNavigation = false
+    @State private var reportToShare: CustomerReportFile?
 
     var body: some View {
         NavigationStack {
@@ -40,6 +41,9 @@ struct NativeCustomerAccountView: View {
                         },
                         onNavigationBlocked: {
                             showBlockedExternalNavigation = true
+                        },
+                        onReportDownload: { url in
+                            reportToShare = CustomerReportFile(url: url)
                         }
                     )
                     .id(browserIdentity)
@@ -112,6 +116,12 @@ struct NativeCustomerAccountView: View {
                 Text("Votre compte reste dans Checkup Auto. Seuls le planning Mercure et l’application GPS que vous choisissez s’ouvrent séparément.")
             }
             .centreGPSChoice(isPresented: $showGPSPicker)
+            .sheet(item: $reportToShare) { item in
+                CustomerReportShareSheet(url: item.url)
+                    .onDisappear {
+                        try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent())
+                    }
+            }
             .task { await openAccountWebsite() }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active, Date() >= cookieValidUntil.addingTimeInterval(-90) else { return }
@@ -148,3 +158,32 @@ struct NativeCustomerAccountView: View {
         #endif
     }
 }
+
+private struct CustomerReportFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+#if canImport(UIKit)
+private struct CustomerReportShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: [url], applicationActivities: nil
+        )
+        controller.popoverPresentationController?.sourceView = controller.view
+        return controller
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
+}
+#else
+private struct CustomerReportShareSheet: View {
+    let url: URL
+    var body: some View { EmptyView() }
+}
+#endif
