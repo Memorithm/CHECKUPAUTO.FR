@@ -10,8 +10,8 @@ class IOSRelease014Contract(unittest.TestCase):
     def test_new_testflight_build_number_is_monotonic(self):
         spec=(IOS/"project.yml").read_text()
         import re
-        version = re.search(r"CURRENT_PROJECT_VERSION: (\\d+)", spec)
-        marketing = re.search(r"MARKETING_VERSION: (\\d+)\\.(\\d+)\\.(\\d+)", spec)
+        version = re.search(r"CURRENT_PROJECT_VERSION: (\d+)", spec)
+        marketing = re.search(r"MARKETING_VERSION: (\d+)\.(\d+)\.(\d+)", spec)
         self.assertIsNotNone(version)
         self.assertIsNotNone(marketing)
         self.assertGreaterEqual(int(version.group(1)), 17)
