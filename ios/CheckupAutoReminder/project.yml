@@ -36,6 +36,9 @@ targets:
       properties:
         CheckupAutoEnvironment: "$(CHECKUPAUTO_ENVIRONMENT)"
         CFBundleDisplayName: Checkup Auto
+        LSApplicationQueriesSchemes:
+          - waze
+          - comgooglemaps
         NSSupportsLiveActivities: true
         CFBundleURLTypes:
           - CFBundleURLName: fr.checkupauto.reminder.auth
