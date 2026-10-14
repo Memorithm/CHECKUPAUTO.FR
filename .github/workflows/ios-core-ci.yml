@@ -43,7 +43,8 @@ jobs:
           dig +short AAAA "$host" || true
           for family in default ipv4 ipv6; do
             for attempt in 1 2 3; do
-              args=()
+              # macOS ships Bash 3.2: an empty array with set -u is unbound.
+              args=(--silent)
               case "$family" in
                 ipv4) args=(-4) ;;
                 ipv6) args=(-6) ;;
