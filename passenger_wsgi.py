@@ -365,10 +365,20 @@ def application(environ, start_response):
     except Exception as exc:
         # Diagnostic without request paths, query strings, cookies, credentials
         # or exception messages. OAuth state and PKCE must never enter logs.
+        # sqlite_errorname is a finite SQLite constant (e.g. SQLITE_BUSY).
+        # Never log sqlite exception messages: they can include file paths.
+        raw_code = getattr(exc, "sqlite_errorname", None)
+        sqlite_code = (
+            raw_code if isinstance(raw_code, str)
+            and raw_code.startswith("SQLITE_")
+            and raw_code.replace("_", "").isalnum()
+            and len(raw_code) <= 48 else "unknown"
+        )
         print(
             "CHECKUPAUTO_PASSENGER_BRIDGE_FAILURE"
             f" stage={locals().get('stage', 'preflight')}"
-            f" class={type(exc).__name__}",
+            f" class={type(exc).__name__}"
+            f" sqlite={sqlite_code}",
             file=sys.stderr, flush=True,
         )
         payload = b'{"ok":false,"error":"passenger_bridge_failed"}'
