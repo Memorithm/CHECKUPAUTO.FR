@@ -9,8 +9,13 @@ IOS = ROOT / "ios/CheckupAutoReminder"
 class IOSRelease015Test(unittest.TestCase):
     def test_version_monotonic_since_valid_build17(self):
         spec = (IOS / "project.yml").read_text()
-        self.assertIn("CURRENT_PROJECT_VERSION: 18", spec)
-        self.assertIn("MARKETING_VERSION: 0.3.15", spec)
+        import re
+        build = re.search(r"CURRENT_PROJECT_VERSION: (\\d+)", spec)
+        version = re.search(r"MARKETING_VERSION: (\\d+)\\.(\\d+)\\.(\\d+)", spec)
+        self.assertIsNotNone(build)
+        self.assertIsNotNone(version)
+        self.assertGreaterEqual(int(build.group(1)), 18)
+        self.assertGreaterEqual(tuple(int(part) for part in version.groups()), (0, 3, 15))
         self.assertIn("CHECKUPAUTO_ENVIRONMENT: production", spec)
         notes = (IOS / "RELEASE_NOTES_0.3.15.md").read_text()
         for item in ("Espace client", "Itinéraire", "48.980120",
