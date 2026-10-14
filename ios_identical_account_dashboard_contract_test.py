@@ -30,7 +30,7 @@ class IOSPixelIdenticalDashboardTests(unittest.TestCase):
         self.assertIn("Modifier", html)
         self.assertIn("Supprimer", html)
         self.assertIn("vehicle-card", html)
-        self.assertIn("CHECKUPAUTO", html)
+        self.assertIn("MES VÉHICULES", html)
 
     def test_bearer_credential_never_enters_webkit_or_url(self):
         bridge = self.read(SOURCES / "NativeDashboardBridge.swift")
