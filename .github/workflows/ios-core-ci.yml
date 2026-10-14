@@ -24,6 +24,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bootstrap-network-diagnostics:
+    # Independent of Swift compilation: gather evidence from the exact macOS
+    # runner network that repeatedly times out on the staging bootstrap API.
+    runs-on: macos-15
+    timeout-minutes: 6
+    steps:
+      - name: Diagnose DNS and HTTPS without exposing customer data
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=test.checkupauto.fr
+          endpoint="https://$host/api/mobile/bootstrap"
+          echo "BOOTSTRAP_DIAGNOSTIC_RUNNER=$(uname -s)-$(uname -m)"
+          echo "BOOTSTRAP_DNS_IPV4"
+          dig +short A "$host" || true
+          echo "BOOTSTRAP_DNS_IPV6"
+          dig +short AAAA "$host" || true
+          for family in default ipv4 ipv6; do
+            for attempt in 1 2 3; do
+              args=()
+              case "$family" in
+                ipv4) args=(-4) ;;
+                ipv6) args=(-6) ;;
+              esac
+              echo "BOOTSTRAP_PROBE family=$family attempt=$attempt"
+              # Diagnostic-only probe; Swift's real staging test below remains
+              # fail-closed. Never print the response body, cookies or tokens.
+              curl "${args[@]}" -sS -o /dev/null --connect-timeout 5 \
+                --max-time 12 \
+                -w 'BOOTSTRAP_HTTP=%{http_code} DNS=%{time_namelookup} TCP=%{time_connect} TLS=%{time_appconnect} TTFB=%{time_starttransfer} TOTAL=%{time_total} REMOTE_IP=%{remote_ip}\n' \
+                "$endpoint" || echo "BOOTSTRAP_PROBE_FAILED family=$family attempt=$attempt"
+              sleep 1
+            done
+          done
+
   swift:
     if: >-
       github.event_name != 'pull_request' ||
