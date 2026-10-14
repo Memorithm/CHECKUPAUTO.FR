@@ -1,0 +1,28 @@
+name: Customer account connectivity staging
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - passenger_wsgi.py
+      - scripts/check-customer-connectivity.py
+      - .github/workflows/customer-connectivity-ci.yml
+permissions:
+  contents: read
+jobs:
+  public-account-paths:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check public and unauthorized customer connections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check-customer-connectivity.py --repeat 2
