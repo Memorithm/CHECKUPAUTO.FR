@@ -36,6 +36,8 @@ targets:
       properties:
         CheckupAutoEnvironment: "$(CHECKUPAUTO_ENVIRONMENT)"
         CFBundleDisplayName: Checkup Auto
+        NSCameraUsageDescription: "Photographier votre procès-verbal de contrôle technique pour l’analyser dans votre espace client."
+        NSPhotoLibraryUsageDescription: "Importer une image de votre procès-verbal dans votre espace client."
         LSApplicationQueriesSchemes:
           - waze
           - comgooglemaps
