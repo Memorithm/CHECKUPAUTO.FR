@@ -37,7 +37,6 @@ enum CheckupAutoCentre {
 /// No tracking, location reading or automatic GPS launch.
 struct CentreGPSChoiceModifier: ViewModifier {
     @Binding var isPresented: Bool
-    @State private var unavailable: String?
     @State private var showsShare = false
 
     func body(content: Content) -> some View {
@@ -81,16 +80,16 @@ extension View {
 
 #if canImport(UIKit)
 private struct CentreItineraryShareView: UIViewControllerRepresentable {
-    @Environment(\.dismiss) private var dismiss
-
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(
+        let controller = UIActivityViewController(
             activityItems: [
                 "Checkup Auto · " + CheckupAutoCentre.address,
                 CheckupAutoCentre.sharingURL
             ],
             applicationActivities: nil
         )
+        controller.popoverPresentationController?.sourceView = controller.view
+        return controller
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
