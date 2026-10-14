@@ -1,3 +1,5 @@
+import io
+import sqlite3
 import os
 from pathlib import Path
 import runpy
@@ -153,6 +155,35 @@ class AdminServerRuntimeTest(unittest.TestCase):
         self.assertEqual(modules["security_alerts"].start.call_count, 1)
         self.assertEqual(modules["retention_enforcement"].start.call_count, 1)
 
+
+    def test_startup_error_reports_only_module_and_sqlite_code(self):
+        tmp, ns = self.load_server()
+        self.addCleanup(tmp.cleanup)
+        names = (
+            "analytics","referrals","notifications","mobile_devices","reminder_dispatch",
+            "booking","booking_test","reviews","withdrawals","retention_enforcement",
+            "security","security_alerts","competitive",
+        )
+        modules = {name: mock.Mock(name=name) for name in names}
+        ns.update(modules)
+        ns["_RUNTIME_CORE_READY"] = False
+        ns["_RUNTIME_BACKGROUND_READY"] = False
+        fn = ns["initialize_runtime"]
+        fn.__globals__.update(ns)
+        error = sqlite3.OperationalError("secret file /private/customer.sqlite")
+        error.sqlite_errorname = "SQLITE_BUSY"
+        modules["analytics"].init_db.side_effect = error
+        with mock.patch.object(ns["migration_write_freeze"], "status",
+                               return_value={"active":False}), \
+             mock.patch.object(ns["os"], "chdir"), \
+             mock.patch.object(ns["sys"], "stderr", new_callable=io.StringIO) as log:
+            with self.assertRaises(sqlite3.OperationalError):
+                fn(background=False)
+        self.assertIn("step=analytics sqlite=SQLITE_BUSY class=OperationalError", log.getvalue())
+        self.assertNotIn("/private/", log.getvalue())
+        self.assertNotIn("customer.sqlite", log.getvalue())
+        modules["referrals"].init_db.assert_not_called()
+        self.assertFalse(ns["_RUNTIME_CORE_READY"])
 
     def test_frozen_runtime_skips_core_and_background_initialization(self):
         tmp, ns = self.load_server()
