@@ -16,6 +16,7 @@ from customer_vehicle_inputs import VEHICLE_INPUT_CSS, vehicle_inputs_script
 import in_site_booking_readiness as booking_readiness
 import customer_booking_vehicle_mapping
 import customer_booking_api
+import mercure_hosted_checkout
 import customer_booking_create_api
 import customer_booking_http_trusted_context
 import customer_booking_server_config_source
@@ -49,6 +50,8 @@ PROFILE_ROUTE="/api/customer/profile"
 VEHICLES_ROUTE="/api/customer/vehicles"
 VEHICLE_REFERENCES_ROUTE="/api/customer/vehicle-references"
 BOOKING_VEHICLE_MAPPING_ROUTE="/api/customer/booking/vehicle-mapping"
+MERCURE_CHECKOUT_ROUTE="/api/customer/booking/mercure-checkout"
+MERCURE_CHECKOUT_STATUS_ROUTE="/api/customer/booking/mercure-checkout/status"
 VEHICLE_DELETE_ROUTE="/api/customer/vehicles/delete"
 LOGOUT_ROUTE="/api/customer/logout"
 LOGOUT_FORM_ROUTE="/compte/deconnexion"
@@ -970,6 +973,37 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":"vehicle_mapping_request_invalid"},400)
         except Exception:
             handler.send_json({"ok":False,"error":"vehicle_reference_unavailable"},503)
+        return True
+
+    if path in (MERCURE_CHECKOUT_ROUTE,MERCURE_CHECKOUT_STATUS_ROUTE):
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        if not _same_origin(handler):
+            handler.send_json({"ok":False,"error":"customer_origin_not_allowed"},403)
+            return True
+        if not customer_accounts.verify_csrf(token,handler.headers.get("X-CheckupAuto-Customer-CSRF")):
+            handler.send_json({"ok":False,"error":"customer_csrf_invalid"},403)
+            return True
+        try:
+            if path==MERCURE_CHECKOUT_ROUTE:
+                verified_account={**account,"vehicles":customer_accounts.list_vehicles(account["accountId"])}
+                result=mercure_hosted_checkout.start(_json_body(handler),account=verified_account)
+            else:
+                result=mercure_hosted_checkout.reconcile(_json_body(handler),account=account)
+            handler.send_json(result,200)
+        except mercure_hosted_checkout.HostedCheckoutInvalid as exc:
+            handler.send_json({"ok":False,"error":str(exc)},422)
+        except mercure_hosted_checkout.HostedCheckoutError as exc:
+            code=str(exc)
+            handler.send_json({"ok":False,"error":code},409 if code in {
+                "booking_reconciliation_required","mercure_checkout_refused"} else 503)
+        except Exception:
+            handler.send_json({"ok":False,"error":"mercure_checkout_unavailable"},503)
         return True
 
     if path=="/api/customer/booking/preflight":

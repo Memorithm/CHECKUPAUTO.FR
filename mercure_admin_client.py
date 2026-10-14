@@ -646,3 +646,32 @@ def review_followup_rows(days=2):
           'clientId':str(item.get('clientId') or ''),
         })
     return out
+
+
+def find_online_booking(*, date, time, email, service_id, session=None):
+    """Locate one appointment in the admin planning by slot, service and
+    customer e-mail, and report whether Mercure recorded an online payment.
+    The Payline token is only tested for presence and never returned."""
+    day=datetime.date.fromisoformat(str(date))
+    datetime.time.fromisoformat(str(time))
+    email=str(email or '').strip().lower(); service_id=str(service_id or '').strip()
+    if not email or not service_id: raise ValueError('Recherche rendez-vous incomplète')
+    s=session or _session()
+    events=_calendar_events(s,day.isoformat(),(day+datetime.timedelta(days=1)).isoformat())
+    start=f'{day.isoformat()}T{str(time)[:5]}'
+    matches=[]
+    for ev in events:
+        if not isinstance(ev,dict): continue
+        ext=ev.get('extendedProps') or {}
+        if ext.get('rdvDispo') is True: continue
+        if not str(ev.get('start') or '').startswith(start): continue
+        if str(ext.get('prestationId') or '').strip()!=service_id: continue
+        if str(ext.get('email') or '').strip().lower()!=email: continue
+        matches.append(ev)
+    if not matches: return {'found':False}
+    if len(matches)!=1: raise RuntimeError('Plusieurs rendez-vous Mercure correspondent')
+    ext=matches[0].get('extendedProps') or {}
+    rid=str(ext.get('rendezVousId') or matches[0].get('id') or '').strip()
+    if not rid: raise RuntimeError('Rendez-vous Mercure sans identifiant')
+    paid=bool(str(ext.get('tokenPayline') or '').strip()) and bool(ext.get('rendezVousFacturation'))
+    return {'found':True,'appointmentId':rid,'paidOnline':paid,'amountPaid':_price(ext.get('tarifTotal')) if paid else 0.0}

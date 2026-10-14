@@ -14,6 +14,8 @@ Ce document décrit l'API qui relie checkupauto.fr (dont test.checkupauto.fr) au
 | `GET /api/customer/booking/status?cle=` | État de la demande (préparée, à rapprocher, confirmée) | client connecté | actif |
 | `POST /api/customer/booking/payment/start` | Démarre le paiement Payline d'un rendez-vous confirmé | client connecté + CSRF | derrière interrupteur |
 | `GET /api/customer/booking/payment-status?cle=` | État du paiement relu côté serveur | client connecté | actif |
+| `POST /api/customer/booking/mercure-checkout` | Réserve et lance le paiement **Payline de Mercure** ; renvoie l'URL de paiement vers laquelle rediriger le client | client connecté + CSRF | **nouveau**, derrière `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED` |
+| `POST /api/customer/booking/mercure-checkout/status` | Au retour du client : confirme la réservation seulement si le planning admin Mercure montre un paiement en ligne | client connecté + CSRF | **nouveau** |
 | `GET /api/customer/booking/readiness` | Prérequis du parcours sur site | client connecté | actif |
 | `GET /api/admin/mercure/session-status` | Validité de la session admin Mercure (renouvelée automatiquement, voir plus bas) | admin | actif |
 | `GET /api/admin/mercure/booking-health` | Santé du parcours : session, échecs d'écriture, alertes | admin | actif |
@@ -31,7 +33,7 @@ Le parcours de bout en bout et ses interrupteurs sont décrits dans `reservation
 | `GET /admin/calendrier`, `GET /admin/rendez-vous/json`, `POST /admin/rdv_by_client` | lecture admin | santé, relecture après écriture, rapprochement |
 | `POST /admin/rendez_vous_add` | **écriture** | création de rendez-vous (désactivée par défaut) |
 | `POST /admin/rendez_vous_remove` | **suppression** | rendez-vous de test synthétiques uniquement |
-| `POST /add_rendezvous_client_libre` | **écriture** publique | jamais appelé par le site |
+| `POST /add_rendezvous_client_libre` (`p_centre=1`) | **écriture** publique + paiement Payline Mercure | `mercure-checkout`, uniquement si l'interrupteur est actif |
 
 ## Session admin Mercure renouvelée automatiquement
 
@@ -43,16 +45,29 @@ Quand la session admin expire, les réservations sur le site basculent vers le p
 - L'identifiant et le mot de passe ne sont jamais renvoyés, journalisés ni écrits ; seuls les cookies de session sont stockés, comme lors d'une connexion manuelle depuis l'admin.
 - Sans ces variables, le comportement est inchangé.
 
-## Paiement : Payline du site ou Payline de Mercure
+## Paiement : Payline de Mercure
 
-Deux chemins existent :
+Relevé en direct du 14 octobre 2026 (`/mnt/project-files/mercure/analyse-admin.md` dans le projet) : les prestations 1763, 1771 et 1759 sont en **paiement en ligne obligatoire** dans Mercure (`paiementWeb=true`, `paiementCentre=false`). Mercure ne lance son paiement Payline que depuis l'appel public `POST /add_rendezvous_client_libre` avec `p_centre=1` (nommage inversé : 1 = en ligne). La réponse est l'URL vers laquelle le navigateur doit aller, ou `error`.
 
-1. **Payline du site** (en place, PR #705) : le site écrit le rendez-vous dans Mercure, puis encaisse via sa propre intégration Payline / Monext. Mercure ne voit pas ce paiement.
-2. **Payline de Mercure** : le paiement en ligne configuré dans Mercure (`paiementWeb`). Le 9 octobre 2026, Mercure répondait `paiementWeb=false` pour la prestation 1763. `GET /api/booking/payment-options` indique en direct si ce paiement est désormais actif.
+Parcours `mercure-checkout` :
 
-Le raccordement du chemin 2 dans le site demande d'observer, en lecture seule, ce que fait la page publique Mercure après le choix du créneau quand `paiementWeb` est vrai (appel de création, redirection Payline, retour). Cette observation n'a pas encore pu être faite : l'environnement de développement n'a pas accès à rdv.checkupauto.fr.
+1. Contrôle du créneau, du prix et du véhicule (même préflight que le parcours sur site), puis vérification que Mercure propose bien le paiement en ligne pour la prestation.
+2. La clé d'idempotence est réservée **avant** l'appel : une même clé n'est jamais renvoyée à Mercure, puisque l'appel crée un vrai rendez-vous.
+3. L'appel est fait par le serveur. L'URL renvoyée n'est acceptée que si elle est en https sur rdv.checkupauto.fr ou un domaine Payline / Monext ; toute autre réponse est traitée comme incertaine, sans nouvel essai.
+4. Le client paie sur la page Payline de Mercure.
+5. À son retour, `mercure-checkout/status` cherche le rendez-vous dans le planning admin (créneau, prestation, e-mail du compte) et ne le confirme que si Mercure y a enregistré le paiement en ligne (`tokenPayline` et lignes de facturation). Le token Payline n'est jamais renvoyé.
+
+Le Payline propre au site (PR #705) reste en place pour le parcours sur site existant ; Mercure ne voit pas ces paiements-là.
+
+**À confirmer par un vrai rendez-vous payé, avec accord explicite** (l'utilisateur a choisi de ne pas le faire pour l'instant) :
+
+- l'URL exacte renvoyée par Mercure et l'URL de retour après paiement (où renvoyer le client vers `/compte/reservation`) ;
+- le sort du rendez-vous si le paiement échoue ou est abandonné (supprimé, ou laissé impayé) ;
+- les formats attendus par l'appel public : `date_rdv` / `heure_rdv` (envoyés en `AAAA-MM-JJ` et `HH:MM`), `energie` (envoyée en identifiant Mercure), `civilite` (vide), `iframe` / `id`.
+
+Tant que ces points ne sont pas confirmés, `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED` doit rester absent.
 
 ## À faire
 
-- Relever le parcours de paiement web de Mercure (lecture seule) et décider du chemin de paiement.
-- Gestion des rendez-vous côté client (liste, annulation, report) : non exposée. La suppression Mercure existe (`/admin/rendez_vous_remove`) mais l'annulation d'un rendez-vous payé implique un remboursement Payline et une règle métier à fixer.
+- Lever les points à confirmer ci-dessus, puis brancher le bouton « Payer » de `/go/booking` sur `mercure-checkout`.
+- Annulation et report côté client : Mercure les permet depuis l'admin (`rendez_vous_remove*`, `rendez_vous_drag_and_drop`) et rembourse via `rendez_vous_remboursement` (token Payline + montant). Il reste à fixer la règle de remboursement.
