@@ -6,24 +6,23 @@ import datetime
 import hashlib
 import math
 import os
-from contextlib import contextmanager
 import sqlite3
 import statistics
 import threading
 import time
 
+import security_sqlite
+
 STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
 DB = STATE_DIR / 'security.sqlite3'
 
-@contextmanager
 def _db():
-    """One transaction on a connection that is always closed (audit Q-03)."""
-    connection = sqlite3.connect(DB)
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
+    """One transaction on a connection that is always closed (audit Q-03).
+
+    WAL and a bounded busy timeout are shared by the Sentinel modules
+    (security_sqlite.py, issues #733/#735).
+    """
+    return security_sqlite.transaction(DB)
 
 _LOCK = threading.RLock()
 _SESSIONS = defaultdict(lambda: {
@@ -38,6 +37,9 @@ def _now_iso():
 
 def _day():
     return datetime.date.today().isoformat()
+
+_SCHEMA_READY = set()
+
 
 def init_db():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,6 +59,7 @@ def init_db():
         )''')
         db.execute('CREATE INDEX IF NOT EXISTS idx_behavior_risk ON behavior_profiles(day,max_risk DESC)')
     DB.chmod(0o600)
+    _SCHEMA_READY.add(str(DB))
 
 
 def fingerprint(client_hash: str, headers) -> str:
@@ -142,10 +145,14 @@ def _metrics(state: dict, headers, now: float) -> tuple[float, list[str], dict]:
 
 
 def _persist(fp: str, client: str, state: dict, risk: float, force=False):
-    init_db()
     now = time.monotonic()
     if not force and now - state.get('last_persist', 0.0) < 10 and risk < 35:
         return
+    # Schema once per process and database, not on every request: the
+    # per-request CREATE/chmod doubled the connections Passenger workers
+    # opened on security.sqlite3 (#733/#735).
+    if str(DB) not in _SCHEMA_READY:
+        init_db()
     state['last_persist'] = now
     responses = list(state['responses'])
     errors = sum(1 for _, status in responses if status >= 400)

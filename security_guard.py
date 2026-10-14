@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from contextlib import contextmanager
 from pathlib import Path
 import datetime
 import hashlib
@@ -16,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 import ipaddress
 
 import security_behavior as behavior
+import security_sqlite
 import security_alerts as alerts
 
 STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
@@ -69,19 +69,13 @@ def _ensure_secret():
         SECRET_FILE.write_text(secrets.token_urlsafe(48) + '\n')
         SECRET_FILE.chmod(0o600)
     return SECRET_FILE.read_text().strip()
-@contextmanager
 def _db():
     """One transaction on a connection that is always closed (audit Q-03).
 
-    ``with sqlite3.connect(...)`` only commits; the handle stayed open until
-    garbage collection, leaking descriptors in the long-running server.
+    WAL and a bounded busy timeout are shared by the Sentinel modules
+    (security_sqlite.py, issues #733/#735).
     """
-    connection = sqlite3.connect(DB)
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
+    return security_sqlite.transaction(DB)
 
 
 def init_db():
