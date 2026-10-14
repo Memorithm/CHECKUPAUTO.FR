@@ -13,6 +13,7 @@ struct AuthenticatedCustomerDashboardWebView: UIViewRepresentable {
     let onSignOut: () -> Void
     let onClaim: (URL) -> Void
     let onSessionExpired: () -> Void
+    let onDashboardReady: () -> Void
     let onNavigationBlocked: () -> Void
     let onReportDownload: (URL) -> Void
 
@@ -234,7 +235,10 @@ struct AuthenticatedCustomerDashboardWebView: UIViewRepresentable {
             webView.evaluateJavaScript(
                 "Boolean(document.getElementById('vehicleList') && document.getElementById('vehicleEditor'))"
             ) { value, error in
-                if error == nil, value as? Bool == false {
+                if error == nil, value as? Bool == true {
+                    self.parent.onDashboardReady()
+                } else {
+                    // Never reveal the site's login form even for one frame.
                     self.parent.onSessionExpired()
                 }
             }
