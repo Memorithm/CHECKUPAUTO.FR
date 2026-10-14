@@ -12,14 +12,8 @@ import base64
 import hashlib
 import os
 import time
-from urllib.error import HTTPError, URLError
+import subprocess
 from urllib.parse import urlsplit
-from urllib.request import Request, build_opener, HTTPRedirectHandler
-
-
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
 
 
 def cases():
@@ -37,41 +31,47 @@ def cases():
 
 
 def probe(origin, repeat=2, timeout=15):
-    opener = build_opener(NoRedirect())
+    # curl is the supported HTTP client for the staging edge. macOS and Linux
+    # curl receive 200/302 while Python urllib receives a uniform 403, likely
+    # from edge client filtering. Never follow or print OAuth redirect URLs.
     failed = []
     for iteration in range(1, repeat + 1):
         for name, path, method, body, expected in cases():
-            request = Request(
-                origin + path, data=body, method=method,
-                headers={"Accept": "application/json, text/html",
-                         "Content-Type": "application/json"},
-            )
-            started = time.monotonic()
+            args = [
+                "curl", "--silent", "--show-error", "--output", "/dev/null",
+                "--max-time", str(timeout), "--connect-timeout", "5",
+                "--request", method,
+                "--write-out", "%{http_code} %{time_total} %{redirect_url}",
+            ]
+            if body is not None:
+                args += ["--header", "Content-Type: application/json",
+                         "--data-binary", body.decode("ascii")]
+            args.append(origin + path)
             try:
-                try:
-                    response = opener.open(request, timeout=timeout)
-                except HTTPError as exc:
-                    response = exc
-                with response:
-                    status = response.status
-                    location = response.headers.get("Location", "")
-                    if status == 302 and name.startswith("google"):
-                        valid_redirect = urlsplit(location).hostname == "accounts.google.com"
-                    elif status == 302 and name == "apple-web":
-                        valid_redirect = urlsplit(location).hostname == "appleid.apple.com"
-                    else:
-                        valid_redirect = True
-                good = status in expected and valid_redirect
-                duration = time.monotonic() - started
-                print(f"ACCOUNT_CONNECTIVITY case={name} iteration={iteration} http={status} "
-                      f"elapsed={duration:.3f}s valid={good}", flush=True)
+                result = subprocess.run(
+                    args, capture_output=True, text=True, timeout=timeout + 3,
+                    check=False,
+                )
+                code, seconds, redirect = result.stdout.strip().split(" ", 2)
+                status = int(code)
+                duration = float(seconds)
+                host = urlsplit(redirect).hostname
+                if status == 302 and name.startswith("google"):
+                    valid_redirect = host == "accounts.google.com"
+                elif status == 302 and name == "apple-web":
+                    valid_redirect = host == "appleid.apple.com"
+                else:
+                    valid_redirect = True
+                # 8s is a guardrail, not a claim about real iPhone latency.
+                good = result.returncode == 0 and status in expected and valid_redirect and duration <= 8
+                print(f"ACCOUNT_CONNECTIVITY case={name} iteration={iteration} "
+                      f"http={status} elapsed={duration:.3f}s valid={good}",
+                      flush=True)
                 if not good:
                     failed.append((name, iteration, status))
-            except (URLError, TimeoutError, OSError) as exc:
-                duration = time.monotonic() - started
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
                 print(f"ACCOUNT_CONNECTIVITY case={name} iteration={iteration} "
-                      f"error_class={type(exc).__name__} elapsed={duration:.3f}s valid=False",
-                      flush=True)
+                      f"error_class={type(exc).__name__} valid=False", flush=True)
                 failed.append((name, iteration, "network"))
     print(f"ACCOUNT_CONNECTIVITY_SUMMARY checks={repeat * len(cases())} failures={len(failed)}",
           flush=True)
