@@ -2,7 +2,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode
-import base64, datetime, hashlib, hmac, html, ipaddress, json, os, re, secrets, threading
+import base64, datetime, hashlib, hmac, html, ipaddress, json, os, re, secrets, threading, sys
 import gsc_client as gsc
 import analytics_store as analytics
 import app_download as app_download
@@ -1481,10 +1481,31 @@ def initialize_runtime(*,background=True):
  with _RUNTIME_LOCK:
   if not _RUNTIME_CORE_READY:
    os.chdir(ROOT)
-   analytics.init_db(); referrals.init_db(); notifications.init_db(); mobile_devices.init_db()
-   reminder_dispatch.init_db(); booking.init_db(); booking_test.init_db(); reviews.init_db()
-   withdrawals.init_db(); retention_enforcement.init_db(); security.init_db(); security_alerts.init_db()
-   competitive.seed_public_baseline(); competitive.seed_review_baseline()
+   # Labels are compile-time constants; no SQL text, file path or customer
+   # values are ever emitted in the diagnostics.
+   core_steps=(
+    ('analytics',analytics.init_db),
+    ('referrals',referrals.init_db),
+    ('notifications',notifications.init_db),
+    ('mobile_devices',mobile_devices.init_db),
+    ('reminder_dispatch',reminder_dispatch.init_db),
+    ('booking',booking.init_db),
+    ('booking_test',booking_test.init_db),
+    ('reviews',reviews.init_db),
+    ('withdrawals',withdrawals.init_db),
+    ('retention_enforcement',retention_enforcement.init_db),
+    ('security',security.init_db),
+    ('security_alerts',security_alerts.init_db),
+    ('competitive_public',competitive.seed_public_baseline),
+    ('competitive_review',competitive.seed_review_baseline),
+   )
+   for step,operation in core_steps:
+    try: operation()
+    except Exception as exc:
+     code=getattr(exc,'sqlite_errorname',None)
+     code=code if isinstance(code,str) and re.fullmatch(r'SQLITE_[A-Z0-9_]{1,40}',code) else 'unknown'
+     print(f'CHECKUPAUTO_RUNTIME_INIT_FAILURE step={step} sqlite={code} class={type(exc).__name__}',file=sys.stderr,flush=True)
+     raise
    _RUNTIME_CORE_READY=True
   if background and not _RUNTIME_BACKGROUND_READY:
    booking_test.start(300); reviews.start(); reminder_dispatch.start()
