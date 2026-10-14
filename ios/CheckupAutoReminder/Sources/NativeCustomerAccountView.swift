@@ -141,6 +141,10 @@ struct NativeCustomerAccountView: View {
                     }
             }
             .task { await openAccountWebsite() }
+            .onDisappear {
+                // Website edits and deletions must also update the native home list.
+                Task { await model.refreshNativeAccount() }
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active, Date() >= cookieValidUntil.addingTimeInterval(-90) else { return }
                 Task { await openAccountWebsite() }

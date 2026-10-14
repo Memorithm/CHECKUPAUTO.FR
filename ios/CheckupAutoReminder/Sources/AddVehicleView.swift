@@ -30,9 +30,23 @@ struct AddVehicleView: View {
     @State private var dueDate = Date()
     @State private var customReminderEnabled = false
     @State private var reminderAt = LocalReminderPlan.testDate()
+    @State private var didPrefillLocalVehicle = false
 
+    /// An older iPhone-only reminder may be linked after the customer confirms
+    /// the certificate and vehicle characteristics. Never migrate credentials.
+    let localVehicleToLink: VehicleDeadline?
     /// Called only when an optional device-local CT reminder is requested.
     let onSave: (String, String, Date, Date?) -> Void
+
+    init(
+        isPresented: Binding<Bool>,
+        localVehicleToLink: VehicleDeadline? = nil,
+        onSave: @escaping (String, String, Date, Date?) -> Void
+    ) {
+        self._isPresented = isPresented
+        self.localVehicleToLink = localVehicleToLink
+        self.onSave = onSave
+    }
 
     private var normalizedPlate: String? {
         VehicleRegistrationRules.normalizedRegistration(plate, system: registrationSystem)
@@ -72,10 +86,12 @@ struct AddVehicleView: View {
                             .font(.caption2.monospaced().weight(.semibold))
                             .tracking(1.1)
                             .foregroundStyle(CheckupTheme.accent)
-                        Text("Ajoutez votre véhicule.")
+                        Text(localVehicleToLink == nil ? "Ajoutez votre véhicule." : "Associez votre véhicule.")
                             .font(.system(size: 35, weight: .regular, design: .serif))
                             .foregroundStyle(CheckupTheme.ink)
-                        Text("Le véhicule sera enregistré dans votre compte Checkup Auto. Les indications du certificat d’immatriculation sont nécessaires pour identifier votre véhicule.")
+                        Text(localVehicleToLink == nil
+                             ? "Le véhicule sera enregistré dans votre compte Checkup Auto. Les indications du certificat d’immatriculation sont nécessaires pour identifier votre véhicule."
+                             : "Ce véhicule est actuellement enregistré sur cet iPhone uniquement. Complétez les informations de carte grise pour le retrouver sur le site et dans l’application. Les rappels locaux existants seront conservés.")
                             .font(.subheadline)
                             .foregroundStyle(CheckupTheme.muted)
                     }
@@ -202,6 +218,7 @@ struct AddVehicleView: View {
                         }
                     }
 
+                    if localVehicleToLink == nil {
                     fieldCard {
                         Toggle("Programmer une échéance CT sur cet iPhone", isOn: $scheduleReminder)
                             .tint(CheckupTheme.accent)
@@ -228,6 +245,11 @@ struct AddVehicleView: View {
                                 .font(.caption)
                                 .foregroundStyle(CheckupTheme.muted)
                         }
+                    }
+                    } else {
+                        Label("Vos échéances et rappels déjà programmés sur cet iPhone ne seront pas modifiés.", systemImage: "bell.badge")
+                            .font(.caption)
+                            .foregroundStyle(CheckupTheme.muted)
                     }
 
                     if let message {
@@ -260,14 +282,25 @@ struct AddVehicleView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(CheckupTheme.paper.ignoresSafeArea())
-            .navigationTitle("Ajouter un véhicule")
+            .navigationTitle(localVehicleToLink == nil ? "Ajouter un véhicule" : "Associer un véhicule")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuler") { isPresented = false }
                 }
             }
-            .task { await loadReferences() }
+            .task {
+                if let localVehicleToLink, !didPrefillLocalVehicle {
+                    didPrefillLocalVehicle = true
+                    plate = localVehicleToLink.registration
+                    label = localVehicleToLink.displayName
+                    dueDate = localVehicleToLink.controlDueDate
+                    registrationSystem = VehicleRegistrationRules.normalizedRegistration(
+                        localVehicleToLink.registration, system: .siv
+                    ) != nil ? .siv : .fni
+                }
+                await loadReferences()
+            }
             .onChange(of: brandId) { _, value in
                 modelId = ""
                 models = []
@@ -388,7 +421,7 @@ struct AddVehicleView: View {
             // The certificate identifier is only submitted to the server, never
             // copied into on-device reminder storage or logs.
             formulaNumber = ""
-            if scheduleReminder {
+            if scheduleReminder && localVehicleToLink == nil {
                 let displayName = label.isEmpty ? brand.label + " " + vehicleModel.label : label
                 onSave(saved.registration, displayName, dueDate,
                        customReminderEnabled ? reminderAt : nil)
