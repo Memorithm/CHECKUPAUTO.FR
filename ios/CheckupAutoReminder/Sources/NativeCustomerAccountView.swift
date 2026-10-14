@@ -39,6 +39,8 @@ struct NativeCustomerAccountView: View {
                             dismiss()
                         },
                         onSessionExpired: {
+                            NativeDashboardBridge.invalidate()
+                            cookieValidUntil = .distantPast
                             websiteReady = false
                             connectError = "La page du compte n’est plus accessible. Actualisez votre session sans vous reconnecter."
                         },
