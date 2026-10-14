@@ -53,16 +53,18 @@ Parcours `mercure-checkout` :
 
 1. Contrôle du créneau, du prix et du véhicule (même préflight que le parcours sur site), puis vérification que Mercure propose bien le paiement en ligne pour la prestation.
 2. La clé d'idempotence est réservée **avant** l'appel : une même clé n'est jamais renvoyée à Mercure, puisque l'appel crée un vrai rendez-vous.
-3. L'appel est fait par le serveur. L'URL renvoyée n'est acceptée que si elle est en https sur rdv.checkupauto.fr ou un domaine Payline / Monext ; toute autre réponse est traitée comme incertaine, sans nouvel essai.
+3. L'appel est fait par le serveur. Mercure **crée le rendez-vous et bloque le créneau dès cet appel**, avant tout paiement, et renvoie directement la page Payline de production (`https://webpayment.payline.com/v2/?token=…`). L'URL n'est acceptée que sur `webpayment.payline.com` ou `rdv.checkupauto.fr` ; toute autre réponse est traitée comme incertaine, sans nouvel essai.
 4. Le client paie sur la page Payline de Mercure.
-5. À son retour, `mercure-checkout/status` cherche le rendez-vous dans le planning admin (créneau, prestation, e-mail du compte) et ne le confirme que si Mercure y a enregistré le paiement en ligne (`tokenPayline` et lignes de facturation). Le token Payline n'est jamais renvoyé.
+5. À son retour, `mercure-checkout/status` cherche le rendez-vous dans le planning admin (créneau, prestation, e-mail du compte) et ne le confirme que si Mercure y a enregistré une ligne de facturation (par exemple « CARTE BLEUE, 80,00 € »). Le `tokenPayline` est posé dès la création, avant paiement : il ne prouve rien et n'est jamais renvoyé.
 
 Le Payline propre au site (PR #705) reste en place pour le parcours sur site existant ; Mercure ne voit pas ces paiements-là.
 
-**À confirmer par un vrai rendez-vous payé, avec accord explicite** (l'utilisateur a choisi de ne pas le faire pour l'instant) :
+**Test réel du 14 octobre 2026** (rendez-vous test payé 80 €, puis remboursé et annulé) : création avant paiement, page Payline de production, paiement visible comme ligne de facturation. Le remboursement (`/admin/rendez_vous_remboursement`) **n'annule pas** le rendez-vous : il reste au planning sans montant ni token, et il faut ensuite l'annuler (`/admin/rendez_vous_remove`) pour libérer le créneau.
 
-- l'URL exacte renvoyée par Mercure et l'URL de retour après paiement (où renvoyer le client vers `/compte/reservation`) ;
-- le sort du rendez-vous si le paiement échoue ou est abandonné (supprimé, ou laissé impayé) ;
+**Encore à confirmer** :
+
+- la page vers laquelle Payline renvoie le client après paiement, pour le ramener sur `/compte/reservation` ;
+- le sort d'un rendez-vous jamais payé : il bloque le créneau tant qu'il n'est pas annulé, et il faudra décider qui l'annule et au bout de combien de temps ;
 - les formats attendus par l'appel public : `date_rdv` / `heure_rdv` (envoyés en `AAAA-MM-JJ` et `HH:MM`), `energie` (envoyée en identifiant Mercure), `civilite` (vide), `iframe` / `id`.
 
 Tant que ces points ne sont pas confirmés, `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED` doit rester absent.
@@ -70,4 +72,4 @@ Tant que ces points ne sont pas confirmés, `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_
 ## À faire
 
 - Lever les points à confirmer ci-dessus, puis brancher le bouton « Payer » de `/go/booking` sur `mercure-checkout`.
-- Annulation et report côté client : Mercure les permet depuis l'admin (`rendez_vous_remove*`, `rendez_vous_drag_and_drop`) et rembourse via `rendez_vous_remboursement` (token Payline + montant). Il reste à fixer la règle de remboursement.
+- Annulation et report côté client : Mercure les permet depuis l'admin (`rendez_vous_remove*`, `rendez_vous_drag_and_drop`) et rembourse via `rendez_vous_remboursement` (token Payline + montant). Une annulation payée doit enchaîner remboursement puis suppression. Il reste à fixer la règle de remboursement.

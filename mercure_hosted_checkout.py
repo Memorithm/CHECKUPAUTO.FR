@@ -10,10 +10,12 @@ Confirmation never comes from the browser. After the customer returns, the
 appointment is looked up in the admin planning and is only confirmed when
 Mercure shows an online payment for it. The Payline token is never returned.
 
-Still to confirm on a real authorized booking (see docs/api-mercure.md): the
-exact checkout URL, the return URL after payment, the fate of the appointment
-when payment fails, and the date/time and energy formats the public call
-expects.
+A real paid test on 2026-10-14 showed that Mercure creates the appointment
+and blocks the slot before payment, answers with the Payline production page
+(webpayment.payline.com), and records the payment as a billing line. Still to
+confirm (see docs/api-mercure.md): the page Payline returns the customer to,
+what happens to an appointment that is never paid, and the date/time and
+energy formats the public call expects.
 """
 from __future__ import annotations
 
@@ -29,8 +31,8 @@ import mercure_public_client as public
 from mercure_booking_write_contract import BookingWriteRequest
 
 ENABLE_ENV = "CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED"
-CHECKOUT_HOSTS = ("rdv.checkupauto.fr",)
-CHECKOUT_HOST_SUFFIXES = (".payline.com", ".monext.fr", ".monext.net")
+# Live test 2026-10-14: Mercure answers with the Payline hosted page directly.
+CHECKOUT_HOSTS = ("webpayment.payline.com", "rdv.checkupauto.fr")
 
 
 class HostedCheckoutError(RuntimeError):
@@ -75,7 +77,7 @@ def build_form(*, appointment: dict, service_id: str, date: str, time: str) -> d
 
 
 def checkout_url(raw: object) -> str:
-    """Accept only an https URL on Mercure or Payline; anything else is refused."""
+    """Accept only an https URL on Payline's hosted page or Mercure."""
     value = str(raw or "").strip()
     if value.lower() == "error":
         raise HostedCheckoutError("mercure_checkout_refused")
@@ -89,7 +91,7 @@ def checkout_url(raw: object) -> str:
         raise HostedCheckoutError("mercure_checkout_response_uncertain") from None
     if (parsed.scheme != "https" or parsed.username or parsed.password
             or port not in (None, 443) or len(value) > 2048
-            or not (host in CHECKOUT_HOSTS or host.endswith(CHECKOUT_HOST_SUFFIXES))):
+            or host not in CHECKOUT_HOSTS):
         raise HostedCheckoutError("mercure_checkout_response_uncertain")
     return value
 

@@ -651,7 +651,7 @@ def review_followup_rows(days=2):
 def find_online_booking(*, date, time, email, service_id, session=None):
     """Locate one appointment in the admin planning by slot, service and
     customer e-mail, and report whether Mercure recorded an online payment.
-    The Payline token is only tested for presence and never returned."""
+    The Payline token is never read into the result."""
     day=datetime.date.fromisoformat(str(date))
     datetime.time.fromisoformat(str(time))
     email=str(email or '').strip().lower(); service_id=str(service_id or '').strip()
@@ -673,5 +673,7 @@ def find_online_booking(*, date, time, email, service_id, session=None):
     ext=matches[0].get('extendedProps') or {}
     rid=str(ext.get('rendezVousId') or matches[0].get('id') or '').strip()
     if not rid: raise RuntimeError('Rendez-vous Mercure sans identifiant')
-    paid=bool(str(ext.get('tokenPayline') or '').strip()) and bool(ext.get('rendezVousFacturation'))
+    # Live test 2026-10-14: Mercure sets tokenPayline as soon as the booking is
+    # created, before payment; only a billing line proves the payment.
+    paid=bool(ext.get('rendezVousFacturation'))
     return {'found':True,'appointmentId':rid,'paidOnline':paid,'amountPaid':_price(ext.get('tarifTotal')) if paid else 0.0}

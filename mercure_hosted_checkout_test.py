@@ -19,7 +19,7 @@ PREFLIGHT = {"ok": True, "service": "technical", "date": "2026-10-20", "time": "
              "vehicleId": "veh-1", "priceCents": 8000}
 
 
-def _session(text="https://rdv.checkupauto.fr/paiement/abc", status=200):
+def _session(text="https://webpayment.payline.com/v2/?token=abc", status=200):
     session = Mock()
     session.post.return_value = Mock(status_code=status, text=text)
     return session
@@ -66,7 +66,7 @@ class HostedCheckoutTest(unittest.TestCase):
         self.assertEqual(form["prestation_vl"], "1763")
         self.assertEqual(form["telephone"], "0612345678")
         self.assertEqual((form["date_rdv"], form["heure_rdv"]), ("2026-10-20", "09:00"))
-        self.assertEqual(result["redirectUrl"], "https://rdv.checkupauto.fr/paiement/abc")
+        self.assertEqual(result["redirectUrl"], "https://webpayment.payline.com/v2/?token=abc")
         self.assertEqual(result["state"], "payment_pending")
         session.close.assert_called_once_with()
 
@@ -117,7 +117,8 @@ class HostedCheckoutTest(unittest.TestCase):
         self.assertEqual(checkout.checkout_url("/paiement/1"), "https://rdv.checkupauto.fr/paiement/1")
         self.assertTrue(checkout.checkout_url("https://webpayment.payline.com/v2/?token=x"))
         for bad in ("http://rdv.checkupauto.fr/x", "https://user:pw@rdv.checkupauto.fr/",
-                    "https://rdv.checkupauto.fr.evil.test/", "javascript:alert(1)"):
+                    "https://rdv.checkupauto.fr.evil.test/", "javascript:alert(1)",
+                    "https://homologation.payline.com.evil.test/"):
             with self.subTest(bad=bad), self.assertRaises(checkout.HostedCheckoutError):
                 checkout.checkout_url(bad)
 
