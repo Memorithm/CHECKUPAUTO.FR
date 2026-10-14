@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from http.server import ThreadingHTTPServer
+from contextlib import contextmanager
+import errno
+import fcntl
+import stat
 from pathlib import Path
 import http.client
 import ipaddress
@@ -48,6 +52,43 @@ _INTERNAL_HEADERS = {
 }
 
 
+@contextmanager
+def _runtime_initialization_lock(data_dir):
+    """Serialize schema/seed writes across Passenger worker processes.
+
+    All cold workers previously ran the same SQLite CREATE/seed sequence at
+    once, producing SQLITE_BUSY and downstream 503 responses. The lock lives
+    beside the runtime database, never in the immutable release directory.
+    """
+    directory = Path(data_dir)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = directory / ".passenger-runtime-init.lock"
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+            raise PermissionError("runtime initialization lock invalid")
+        deadline = time.monotonic() + 12.0
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("runtime initialization lock timeout") from None
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 def _ensure_backend() -> tuple[str, int]:
     global _BACKEND_SERVER, _BACKEND_THREAD, _BACKEND_PID
     with _BACKEND_LOCK:
@@ -71,7 +112,8 @@ def _ensure_backend() -> tuple[str, int]:
 
         os.chdir(admin_server.ROOT)
         admin_server.configure_internal_proxy(_PROXY_TOKEN)
-        admin_server.initialize_runtime(background=False)
+        with _runtime_initialization_lock(admin_server.analytics.DB.parent):
+            admin_server.initialize_runtime(background=False)
         server = ThreadingHTTPServer(("127.0.0.1", 0), admin_server.Handler)
         thread = threading.Thread(
             target=server.serve_forever,
