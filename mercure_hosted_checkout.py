@@ -15,7 +15,8 @@ and blocks the slot before payment, answers with the Payline production page
 (webpayment.payline.com), records the payment as a billing line, and that
 Payline then returns the customer to Mercure's /confirmation_rdv/<hash> page,
 not to this site. A payment cancelled on Payline makes Mercure delete the
-unpaid appointment itself. Still to confirm (see docs/api-mercure.md): the
+unpaid appointment itself within a minute; a Payline tab simply closed keeps
+the slot about 15 minutes before the same deletion. Still to confirm (see docs/api-mercure.md): the
 date/time and energy formats the public call expects.
 """
 from __future__ import annotations
@@ -175,7 +176,10 @@ def start(payload: object, *, account: dict, environ=None, session_factory=None,
     # open the checkout separately and poll the status route until confirmed.
     return {"ok": True, "state": "payment_pending", "requestKey": payload["requestKey"],
             "redirectUrl": url, "priceCents": checked["priceCents"],
-            "openInNewTab": True, "statusPollSeconds": 5}
+            "openInNewTab": True, "statusPollSeconds": 5,
+            # Tab closed without cancelling: Mercure keeps the unpaid slot for
+            # about 15 minutes before deleting it, so keep polling past that.
+            "statusPollMaxSeconds": 1200}
 
 
 def reconcile(payload: object, *, account: dict, finder=None) -> dict:

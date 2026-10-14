@@ -61,11 +61,10 @@ Le Payline propre au site (PR #705) reste en place pour le parcours sur site exi
 
 **Test réel du 14 octobre 2026** (rendez-vous test payé 80 €, puis remboursé et annulé) : création avant paiement, page Payline de production, paiement visible comme ligne de facturation. Le remboursement (`/admin/rendez_vous_remboursement`) **n'annule pas** le rendez-vous : il reste au planning sans montant ni token, et il faut ensuite l'annuler (`/admin/rendez_vous_remove`) pour libérer le créneau.
 
-**Test d'annulation du 14 octobre 2026** : quand le client clique « Annuler » sur Payline (ou abandonne le lien), il est renvoyé sur `rdv.checkupauto.fr/erreur` puis sur l'accueil Mercure, et **Mercure supprime lui-même le rendez-vous impayé en moins d'une minute**. Le créneau redevient libre sans action du site. `mercure-checkout/status` répond donc `payment_cancelled` quand le rendez-vous a disparu du planning ; le client peut recommencer avec une nouvelle clé.
+**Test d'annulation du 14 octobre 2026** : quand le client clique « Annuler » sur Payline (ou abandonne le lien), il est renvoyé sur `rdv.checkupauto.fr/erreur` puis sur l'accueil Mercure, et **Mercure supprime lui-même le rendez-vous impayé en moins d'une minute**. Le créneau redevient libre sans action du site. Si le client ferme simplement l'onglet Payline, Mercure garde le créneau **environ 15 minutes** avant la même suppression : pendant ce délai le statut reste `payment_pending` et le créneau indisponible. L'onglet du site interroge donc le statut jusqu'à 20 minutes (`statusPollMaxSeconds`). `mercure-checkout/status` répond `payment_cancelled` quand le rendez-vous a disparu du planning ; le client peut recommencer avec une nouvelle clé.
 
 **Encore à confirmer** :
 
-- le cas d'un onglet Payline simplement fermé, sans clic sur « Annuler » (non testé) ;
 - les formats attendus par l'appel public : `date_rdv` / `heure_rdv` (envoyés en `AAAA-MM-JJ` et `HH:MM`), `energie` (envoyée en identifiant Mercure), `civilite` (vide), `iframe` / `id`.
 
 Tant que ces points ne sont pas confirmés, `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED` doit rester absent.
