@@ -567,7 +567,7 @@ struct ContentView: View {
                     .foregroundStyle(CheckupTheme.accent)
                 }
                 if let reminderAt {
-                    Label("Rappel : " + reminderAt.formatted(date: .abbreviated, time: .shortened),
+                    Label("Rappel : " + frenchDate(reminderAt, withTime: true),
                           systemImage: "bell.badge")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(CheckupTheme.accent)
