@@ -362,6 +362,7 @@ struct AddVehicleView: View {
                 if value != compact { formulaNumber = compact }
             }
         }
+        .environment(\.locale, Locale(identifier: "fr_FR"))
         .tint(CheckupTheme.accent)
     }
 
