@@ -1,114 +1,150 @@
 import SwiftUI
+import WebKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
-/// Authenticated customer account. Do not open /compte: the website's cookie
-/// and the native Keychain bearer session are intentionally different.
+/// The customer's actual site dashboard, not a lower-fidelity SwiftUI clone.
+/// Authentication is native once; the website receives a distinct short-lived
+/// HttpOnly cookie without presenting another login form to the customer.
 struct NativeCustomerAccountView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var browserCookie: HTTPCookie?
+    @State private var browserIdentity = UUID()
+    @State private var loading = false
+    @State private var connectError: String?
+    @State private var cookieValidUntil: Date = .distantPast
+    @State private var showGPSPicker = false
+    @State private var showBlockedExternalNavigation = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("ESPACE CLIENT CHECKUP AUTO", systemImage: "checkmark.shield.fill")
-                            .font(.caption.monospaced().weight(.semibold))
-                            .foregroundStyle(CheckupTheme.accent)
-
-                        Text(model.accountProfile?.displayName ?? "Votre compte")
-                            .font(.system(size: 36, weight: .regular, design: .serif))
-                            .foregroundStyle(CheckupTheme.ink)
-
-                        if let account = model.accountProfile {
-                            Label(account.email, systemImage: "envelope")
+            Group {
+                if let browserCookie, connectError == nil {
+                    AuthenticatedCustomerDashboardWebView(
+                        cookie: browserCookie,
+                        onBooking: openBooking,
+                        onSignOut: {
+                            model.signOutCustomer()
+                            dismiss()
+                        },
+                        onClaim: { url in
+                            model.consumeMobileClaim(url: url)
+                            dismiss()
+                        },
+                        onSessionExpired: {
+                            connectError = "La page du compte n’est plus accessible. Actualisez votre session sans vous reconnecter."
+                        },
+                        onNavigationBlocked: {
+                            showBlockedExternalNavigation = true
+                        }
+                    )
+                    .id(browserIdentity)
+                    .accessibilityIdentifier("native-customer-website-dashboard")
+                } else {
+                    VStack(spacing: 20) {
+                        Spacer()
+                        if loading {
+                            ProgressView()
+                                .controlSize(.large)
+                            Text("Ouverture de votre espace client…")
                                 .font(.subheadline)
                                 .foregroundStyle(CheckupTheme.muted)
-                                .textSelection(.enabled)
-                            if !account.phone.isEmpty {
-                                Label(account.phone, systemImage: "phone")
-                                    .font(.subheadline)
-                                    .foregroundStyle(CheckupTheme.muted)
-                            }
-                            Text(account.kind == "professional" ? "COMPTE PROFESSIONNEL" : "COMPTE PARTICULIER")
-                                .font(.caption2.monospaced().weight(.semibold))
-                                .foregroundStyle(CheckupTheme.accent)
                         } else {
-                            Text("Session native connectée. Informations en cours de chargement.")
+                            Image(systemName: "person.crop.rectangle.stack")
+                                .font(.system(size: 46, weight: .light))
+                                .foregroundStyle(CheckupTheme.accent)
+                            Text("Votre espace client")
+                                .font(.system(size: 34, weight: .regular, design: .serif))
+                                .foregroundStyle(CheckupTheme.ink)
+                            Text(connectError ?? "Préparation de votre session sécurisée…")
+                                .multilineTextAlignment(.center)
                                 .font(.subheadline)
                                 .foregroundStyle(CheckupTheme.muted)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(24)
-                    .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 24))
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        Label("Mes véhicules", systemImage: "car.side.fill")
-                            .font(.headline)
-                            .foregroundStyle(CheckupTheme.ink)
-                        Text("\(model.accountVehicles.count) véhicule(s) associé(s) à ce compte")
-                            .font(.caption)
-                            .foregroundStyle(CheckupTheme.muted)
-
-                        if model.accountVehicles.isEmpty {
-                            Text("Aucun véhicule enregistré sur votre compte. Utilisez Ajouter un véhicule dans le tableau de bord.")
-                                .font(.subheadline)
-                                .foregroundStyle(CheckupTheme.muted)
-                        }
-                        ForEach(model.accountVehicles) { vehicle in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(vehicle.displayName.isEmpty ? "Mon véhicule" : vehicle.displayName)
-                                        .font(.subheadline.weight(.semibold))
-                                    Text(vehicle.registration).font(.caption.monospaced())
-                                }
-                                Spacer()
-                                Image(systemName: "checkmark.shield")
-                                    .foregroundStyle(CheckupTheme.accent)
+                            Button {
+                                Task { await openAccountWebsite() }
+                            } label: {
+                                Label("Rouvrir mon compte", systemImage: "arrow.clockwise")
+                                    .frame(maxWidth: .infinity, minHeight: 48)
                             }
-                            .foregroundStyle(CheckupTheme.ink)
-                            .padding(12)
-                            .background(CheckupTheme.soft, in: RoundedRectangle(cornerRadius: 14))
+                            .buttonStyle(.borderedProminent)
+                            .tint(CheckupTheme.accent)
+                            .accessibilityIdentifier("native-account-cookie-retry")
                         }
+                        Spacer()
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(22)
-                    .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 24))
-
-                    Button {
-                        Task { await model.refreshNativeAccount() }
-                    } label: {
-                        Label("Actualiser mon compte", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("native-account-refresh")
-
-                    Button(role: .destructive) {
-                        model.signOutCustomer()
-                        dismiss()
-                    } label: {
-                        Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("native-account-signout")
+                    .frame(maxWidth: 430)
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(CheckupTheme.paper)
                 }
-                .frame(maxWidth: 560)
-                .padding(20)
-                .frame(maxWidth: .infinity)
             }
             .background(CheckupTheme.paper.ignoresSafeArea())
-            .navigationTitle("Mon compte")
+            .navigationTitle("Mon espace client")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showGPSPicker = true
+                    } label: {
+                        Label("Itinéraire", systemImage: "location.north.line")
+                    }
+                    .accessibilityIdentifier("native-account-gps")
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        Task { await openAccountWebsite() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(loading)
+                    .accessibilityLabel("Actualiser mon espace client")
+                    .accessibilityIdentifier("native-account-refresh")
                     Button("Fermer") { dismiss() }
                 }
             }
-            .task { await model.refreshNativeAccount() }
+            .alert("Lien non ouvert", isPresented: $showBlockedExternalNavigation) {
+                Button("Compris", role: .cancel) {}
+            } message: {
+                Text("Votre compte reste dans Checkup Auto. Seuls le planning Mercure et l’application GPS que vous choisissez s’ouvrent séparément.")
+            }
+            .centreGPSChoice(isPresented: $showGPSPicker)
+            .task { await openAccountWebsite() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active, Date() >= cookieValidUntil.addingTimeInterval(-90) else { return }
+                Task { await openAccountWebsite() }
+            }
         }
         .tint(CheckupTheme.accent)
         .accessibilityIdentifier("native-customer-account")
+    }
+
+    @MainActor
+    private func openAccountWebsite() async {
+        guard !loading, model.customerSignedIn else { return }
+        loading = true
+        connectError = nil
+        defer { loading = false }
+        do {
+            let fresh = try await NativeDashboardBridge.createBrowserCookie()
+            browserCookie = fresh
+            browserIdentity = UUID()
+            cookieValidUntil = fresh.expiresDate ?? Date().addingTimeInterval(3300)
+        } catch NativeDashboardBridgeError.expiredNativeSession {
+            model.signOutCustomer()
+            dismiss()
+        } catch {
+            browserCookie = nil
+            connectError = "La connexion au site est momentanément indisponible. Votre compte iOS reste connecté ; réessayez."
+        }
+    }
+
+    private func openBooking() {
+        #if canImport(UIKit)
+        UIApplication.shared.open(MobileAPI.directMercureBookingURL)
+        #endif
     }
 }
