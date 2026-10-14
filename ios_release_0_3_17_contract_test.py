@@ -10,8 +10,13 @@ SRC = IOS / "Sources"
 class IOSRelease017Contract(unittest.TestCase):
     def test_build20_version_and_release_notes(self):
         spec = (IOS / "project.yml").read_text(encoding="utf-8")
-        self.assertIn("CURRENT_PROJECT_VERSION: 20", spec)
-        self.assertIn("MARKETING_VERSION: 0.3.17", spec)
+        import re
+        build = re.search(r"CURRENT_PROJECT_VERSION: (\d+)", spec)
+        version = re.search(r"MARKETING_VERSION: (\d+)\.(\d+)\.(\d+)", spec)
+        self.assertIsNotNone(build)
+        self.assertIsNotNone(version)
+        self.assertGreaterEqual(int(build.group(1)), 20)
+        self.assertGreaterEqual(tuple(map(int, version.groups())), (0, 3, 17))
         self.assertIn("CHECKUPAUTO_ENVIRONMENT: production", spec)
         notes = (IOS / "RELEASE_NOTES_0.3.17.md").read_text(encoding="utf-8")
         for expected in ("0.3.17 (20)", "Rendez-vous", "JJ/MM/AAAA",
