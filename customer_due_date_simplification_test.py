@@ -89,6 +89,15 @@ class DueDateAndDashboardTests(unittest.TestCase):
                                          if key != "nextControlDate"}, token=self.token)
         http.handle(missing)
         self.assertEqual(missing.response["status"], 422)
+        for invalid in (None, "", 20271014, "2027-02-29"):
+            with self.subTest(mobile_due_date=invalid):
+                bad = MobileHandler(
+                    http.MOBILE_ACCOUNT_VEHICLE_SAVE_ROUTE,
+                    payload=self.payload() | {"nextControlDate": invalid},
+                    token=self.token,
+                )
+                http.handle(bad)
+                self.assertEqual(bad.response["status"], 422)
         self.assertEqual(accounts.list_vehicles(self.account_id), [])
         posted = MobileHandler(http.MOBILE_ACCOUNT_VEHICLE_SAVE_ROUTE,
                                payload=payload, token=self.token)
@@ -111,6 +120,15 @@ class DueDateAndDashboardTests(unittest.TestCase):
             }, headers={"X-CheckupAuto-Customer-CSRF": "c" * 64})
             http.handle(missing)
             self.assertEqual(missing.response["status"], 400)
+            for invalid in (None, "", 20271014, "2027-02-29"):
+                with self.subTest(web_due_date=invalid):
+                    bad = WebsiteHandler(
+                        http.VEHICLES_ROUTE, "POST",
+                        payload | {"nextControlDate": invalid},
+                        headers={"X-CheckupAuto-Customer-CSRF": "c" * 64},
+                    )
+                    http.handle(bad)
+                    self.assertEqual(bad.response["status"], 400)
             self.assertEqual(accounts.list_vehicles(self.account_id), [])
             valid = WebsiteHandler(http.VEHICLES_ROUTE, "POST", payload,
                                    headers={"X-CheckupAuto-Customer-CSRF": "c" * 64})
