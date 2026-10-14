@@ -46,8 +46,21 @@ class RoutingTest(unittest.TestCase):
             with patch.object(booking_health, "session_status", side_effect=RuntimeError):
                 self.assertEqual(decide(ON)["reason"], "routing_error")
             with patch.object(booking_health, "session_status", return_value={"connected": True}):
-                self.assertEqual(decide(ON), {"mode": "in_site", "reason": "", "service": "technical"})
+                self.assertEqual(decide(ON), {"mode": "in_site", "reason": "", "service": "technical",
+                                              "checkout": "site"})
         self.assertEqual(booking_health.snapshot()["routes"]["in_site"], 1)
+
+    def test_mercure_hosted_checkout_skips_site_writer_readiness_but_not_session(self):
+        hosted = {**ON, "CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED": "true"}
+        with patch.object(routing.in_site_booking_readiness, "public_status", side_effect=AssertionError):
+            with patch.object(booking_health, "session_status", return_value={"connected": True}):
+                self.assertEqual(decide(hosted), {"mode": "in_site", "reason": "", "service": "technical",
+                                                  "checkout": "mercure-hosted"})
+            with patch.object(booking_health, "session_status", return_value={"connected": False}):
+                self.assertEqual(decide(hosted)["reason"], "mercure_session_invalid")
+        # The hosted flag alone never opens the on-site journey.
+        self.assertEqual(decide({"CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED": "true"})["reason"],
+                         "in_site_flag_off")
 
     def test_service_key_matches_exact_labels_only(self):
         self.assertEqual(routing.service_key(SERVICE.upper()), "technical")

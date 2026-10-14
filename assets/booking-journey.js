@@ -24,6 +24,8 @@
     paymentStart: '/api/customer/booking/payment/start',
     paymentStatus: '/api/customer/booking/payment-status',
     mapping: '/api/customer/booking/vehicle-mapping',
+    hostedCheckout: '/api/customer/booking/mercure-checkout',
+    hostedStatus: '/api/customer/booking/mercure-checkout/status',
     references: '/api/customer/vehicle-references'
   };
   const SLOT_ERRORS = new Set([
@@ -199,6 +201,73 @@
     return (cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 }) + ' € TTC';
   }
 
+  /* ---------- Paiement Payline du centre (Mercure) ----------
+   * Mercure crée le rendez-vous et renvoie sa page Payline ; après paiement,
+   * le client arrive sur une page Mercure, jamais sur ce site. Le paiement
+   * s'ouvre donc dans un autre onglet et cette page interroge le serveur, qui
+   * relit le planning Mercure. */
+  const HOSTED_SAFE_FALLBACK = new Set([
+    'mercure_hosted_payment_disabled', 'mercure_online_payment_unavailable', 'mercure_checkout_refused'
+  ]);
+
+  function classifyHostedStart(status, body) {
+    const code = errorCode(body);
+    if (status === 200 && body && body.ok === true && typeof body.redirectUrl === 'string'
+        && /^https:\/\//.test(body.redirectUrl)) {
+      return {
+        state: 'redirect', url: body.redirectUrl, priceCents: body.priceCents,
+        pollMs: Math.max(2000, (Number(body.statusPollSeconds) || 5) * 1000),
+        maxMs: Math.max(60000, (Number(body.statusPollMaxSeconds) || 1200) * 1000)
+      };
+    }
+    if (status === 401) return { state: 'auth', reason: code || 'customer_auth_required' };
+    if (status === 409 && code === 'booking_reconciliation_required') return { state: 'verify', reason: code };
+    if (status === 422 && SLOT_ERRORS.has(code)) return { state: 'slot_lost', reason: code };
+    if (status === 422 && (VEHICLE_ERRORS.has(code) || code === 'booking_vehicle_energy_not_offered')) {
+      return { state: 'vehicle', reason: code };
+    }
+    if (status === 422 || status === 403 || status === 400 || HOSTED_SAFE_FALLBACK.has(code)) {
+      return { state: 'fallback', reason: code || 'http_' + status };
+    }
+    // Réseau coupé, 5xx, réponse incertaine : le rendez-vous a pu être créé.
+    return { state: 'verify', reason: code || (status === 0 ? 'network' : 'http_' + status) };
+  }
+
+  function classifyHostedStatus(status, body) {
+    if (status === 200 && body && body.ok === true) {
+      if (body.confirmed === true && body.paid === true) return { state: 'confirmed' };
+      if (body.state === 'payment_cancelled') return { state: 'cancelled' };
+      return { state: 'pending' };
+    }
+    if (status === 401) return { state: 'auth' };
+    return { state: 'unknown' };
+  }
+
+  async function startHostedCheckout({ fetchImpl, data, requestKey, immediate }) {
+    if (!(await recordConsent({ fetchImpl, data, immediate }))) {
+      return { state: 'consent_error', consentRecorded: false };
+    }
+    const res = await fetchJson(fetchImpl, ROUTES.hostedCheckout, jsonPost(data.csrf)({
+      service: data.service, date: data.date, time: data.time, vehicleId: data.vehicleId, requestKey
+    }));
+    return Object.assign({ consentRecorded: true }, classifyHostedStart(res.status, res.body));
+  }
+
+  async function waitHostedPayment({ fetchImpl, data, requestKey, pollMs, maxMs, sleep, onTick }) {
+    const wait = sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    const body = { service: data.service, date: data.date, time: data.time, vehicleId: data.vehicleId, requestKey };
+    let elapsed = 0;
+    for (;;) {
+      const res = await fetchJson(fetchImpl, ROUTES.hostedStatus, jsonPost(data.csrf)(body));
+      const outcome = classifyHostedStatus(res.status, res.body);
+      if (outcome.state === 'confirmed' || outcome.state === 'cancelled' || outcome.state === 'auth') return outcome;
+      if (typeof onTick === 'function') onTick(outcome);
+      if (elapsed >= maxMs) return { state: 'timeout' };
+      await wait(pollMs);
+      elapsed += pollMs;
+    }
+  }
+
   /* ---------- Interface ---------- */
   function boot(doc, win) {
     let data;
@@ -331,9 +400,55 @@
       create: 'Création du rendez-vous… ne fermez pas cette page.',
       verify: 'Vérification de l’état de votre demande…'
     };
+    async function submitHosted() {
+      // Onglet ouvert pendant le clic : sinon le navigateur bloque la fenêtre.
+      let tab = null;
+      try { tab = win.open('', '_blank'); } catch (_e) { tab = null; }
+      status.textContent = 'Réservation du créneau auprès du centre… ne fermez pas cette page.';
+      const result = await startHostedCheckout({ fetchImpl, data, requestKey, immediate: immediate && immediate.checked });
+      state.consentRecorded = state.consentRecorded || result.consentRecorded === true;
+      const link = $('bjHostedLink'), text = $('bjHostedText');
+      if (result.state === 'redirect' || result.state === 'verify') {
+        if (result.state === 'redirect') {
+          if (tab) { try { tab.opener = null; tab.location.href = result.url; } catch (_e) { tab = null; } }
+          if (link) { link.href = result.url; show(link, !tab); }
+        } else if (tab) { try { tab.close(); } catch (_e) { /* rien */ } }
+        status.textContent = '';
+        focusPanel($('bjHostedWait'));
+        const outcome = await waitHostedPayment({
+          fetchImpl, data, requestKey, pollMs: result.pollMs || 5000, maxMs: result.maxMs || 1200000
+        });
+        hidePanels(); show($('bjHostedWait'), false);
+        if (outcome.state === 'confirmed') { focusPanel($('bjHostedDone')); return; }
+        if (outcome.state === 'cancelled') {
+          try { storage.removeItem('checkupauto.booking.key.' + data.ccid); } catch (_e) { /* rien */ }
+          focusPanel($('bjHostedCancelled')); return;
+        }
+        if (outcome.state === 'auth') { focusPanel(panels.auth); return; }
+        if (text) text.textContent = 'Nous n’avons pas encore reçu la confirmation du paiement. '
+          + 'Consultez votre e-mail de confirmation ou appelez le centre.';
+        show($('bjHostedWait'), true);
+        return;
+      }
+      if (tab) { try { tab.close(); } catch (_e) { /* rien */ } }
+      state.busy = false;
+      status.textContent = '';
+      if (result.state === 'slot_lost') focusPanel(panels.slot);
+      else if (result.state === 'auth') focusPanel(panels.auth);
+      else if (result.state === 'vehicle') { state.vehicleVerified = false; await openPicker(); }
+      else if (result.state === 'consent_error') status.textContent = 'Impossible d’enregistrer votre acceptation. Réessayez.';
+      else showFailure(result.reason);
+      sync();
+    }
+
     doc.getElementById('bjForm').addEventListener('submit', async event => {
       event.preventDefault();
       if (confirm.disabled) return;
+      if (data.checkoutMode === 'mercure-hosted') {
+        state.busy = true; sync(); hidePanels();
+        await submitHosted();
+        return;
+      }
       state.busy = true; sync(); hidePanels();
       const result = await submitBooking({
         fetchImpl, data, requestKey, immediate: immediate && immediate.checked,
@@ -453,6 +568,7 @@
   return {
     ROUTES, fold, isGenericModel, filterModels, newRequestKey, requestKeyFor,
     classifyPreflight, classifyCreate, classifyStatus, fetchJson, submitBooking, startPayment,
-    recordConsent, formatDate, formatPrice, boot
+    recordConsent, formatDate, formatPrice, boot,
+    classifyHostedStart, classifyHostedStatus, startHostedCheckout, waitHostedPayment
   };
 });

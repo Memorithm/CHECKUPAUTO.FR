@@ -14,7 +14,7 @@ import re
 import booking_bridge as booking
 import mercure_public_client
 
-ASSET_VERSION = "20261012-1"
+ASSET_VERSION = "20261014-1"
 CONFIRMATION_ROUTE = "/compte/reservation"
 
 
@@ -48,7 +48,11 @@ def _tel(phone: str) -> str:
 
 
 def render_summary(*, token: str, service_label: str, service_key: str, nonce: str,
-                   vehicle: dict, account: dict, csrf: str, business: dict) -> bytes:
+                   vehicle: dict, account: dict, csrf: str, business: dict,
+                   checkout_mode: str = "site") -> bytes:
+    if checkout_mode not in ("site", "mercure-hosted"):
+        raise ValueError("booking_checkout_mode_invalid")
+    hosted = checkout_mode == "mercure-hosted"
     prestation = booking.mercure_prestation(service_label)
     if not prestation or service_key not in mercure_public_client.SERVICES:
         raise ValueError("booking_service_invalid")
@@ -72,7 +76,7 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
         "service": service_key, "serviceLabel": service_label, "date": date, "time": time,
         "vehicleId": str(vehicle.get("vehicleId") or ""), "vehicleLabel": vehicle_label,
         "quoteCents": quote_cents, "csrf": csrf, "billingComplete": billing_complete,
-        "confirmationUrl": CONFIRMATION_ROUTE,
+        "confirmationUrl": CONFIRMATION_ROUTE, "checkoutMode": checkout_mode,
     }
     esc = html.escape
     immediate_markup = (
@@ -87,16 +91,43 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
         '<a href="/compte">Compléter mes informations</a> puis revenez à cette page, '
         'ou poursuivez sur la plateforme Mercure ci-dessous.</p>')
     price_text = "Tarif confirmé lors de la vérification du créneau"
+    if hosted:
+        intro = ("Le rendez-vous est réservé auprès du centre depuis cette page, puis réglé en ligne "
+                 "par carte bancaire sur la page de paiement sécurisée Payline du centre. "
+                 "Sans paiement, le centre libère le créneau.")
+        payment_text = ("En ligne par carte bancaire, sur la page Payline du centre ouverte dans un nouvel "
+                        "onglet. Gardez cette page ouverte : elle affiche la confirmation dès le paiement reçu.")
+    else:
+        intro = ("Le rendez-vous est réservé directement auprès du centre depuis cette page, puis réglé "
+                 "en ligne par carte bancaire. Le créneau n’est bloqué qu’après confirmation.")
+        payment_text = ("En ligne par carte bancaire, sur la page de paiement sécurisée, juste après la "
+                        "confirmation du rendez-vous.")
+    hosted_markup = (
+        '<section id="bjHostedWait" class="bj-panel" hidden aria-labelledby="bjHostedWaitTitle">'
+        '<h2 id="bjHostedWaitTitle">Paiement en cours sur la page sécurisée du centre</h2>'
+        '<p id="bjHostedText" role="status" aria-live="polite">Finalisez le paiement dans l’onglet Payline. '
+        'Cette page se met à jour automatiquement.</p>'
+        '<p><a id="bjHostedLink" class="action-button action-button--primary" href="#" target="_blank" '
+        'rel="noopener" hidden>Ouvrir la page de paiement</a></p></section>'
+        '<section id="bjHostedDone" class="bj-panel" hidden aria-labelledby="bjHostedDoneTitle">'
+        '<h2 id="bjHostedDoneTitle">Rendez-vous confirmé et payé.</h2>'
+        '<p>Le centre vous envoie la confirmation par e-mail.</p>'
+        '<p><a class="action-button action-button--primary" href="/compte">Mon espace client</a></p></section>'
+        '<section id="bjHostedCancelled" class="bj-panel bj-panel--warn" hidden aria-labelledby="bjHostedCancelledTitle">'
+        '<h2 id="bjHostedCancelledTitle">Paiement non effectué.</h2>'
+        '<p>Le centre a libéré le créneau et aucun montant n’a été prélevé.</p>'
+        '<p><a class="action-button action-button--primary" href="/#reservation">Choisir un créneau</a></p></section>'
+    ) if hosted else ""
     page = f'''{_head("Confirmer votre rendez-vous")}<body class="bj"><main><section class="bj-card" aria-labelledby="bjTitle">
 <div class="bj-eyebrow">Réservation · récapitulatif</div>
 <h1 id="bjTitle">Vérifiez et confirmez votre rendez-vous.</h1>
-<p>Le rendez-vous est réservé directement auprès du centre depuis cette page, puis réglé en ligne par carte bancaire. Le créneau n’est bloqué qu’après confirmation.</p>
+<p>{intro}</p>
 <div class="bj-highlight"><strong>{esc(service_label)}</strong><span id="bjSlot">{esc(date)} · {esc(time)}</span></div>
 <dl class="bj-summary">
 <dt>Prestation</dt><dd>{esc(service_label)}</dd>
 <dt>Créneau</dt><dd>{esc(date)} à {esc(time)}</dd>
 <dt>Tarif</dt><dd id="bjPrice">{esc(price_text)}</dd>
-<dt>Paiement</dt><dd>En ligne par carte bancaire, sur la page de paiement sécurisée, juste après la confirmation du rendez-vous.</dd>
+<dt>Paiement</dt><dd>{payment_text}</dd>
 </dl>
 <section class="bj-section" aria-labelledby="bjCustomerTitle"><div class="bj-eyebrow">1 / Coordonnées</div>
 <h2 id="bjCustomerTitle">Vos informations</h2>
@@ -132,6 +163,7 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
 <div class="bj-actions"><button id="bjFallback" class="primary" type="button">Continuer sur la plateforme de réservation</button>
 <a class="action-button" href="tel:{esc(_tel(phone), quote=True)}">Appeler le centre · {esc(phone)}</a></div>
 <p id="bjFallbackError" class="bj-error" role="alert"></p></section>
+{hosted_markup}
 <form id="bjFallbackForm" method="post" action="{esc(action, quote=True)}"><input type="hidden" name="id" value="240"><input type="hidden" name="prestation" value="{esc(prestation, quote=True)}"></form>
 <noscript><p class="bj-warning">JavaScript est nécessaire pour réserver sur ce site et enregistrer l’acceptation des CGV. Appelez le centre au {esc(phone)}.</p></noscript>
 </section></main>{_json_block(data, nonce)}<script src="/assets/booking-journey.js?v={ASSET_VERSION}"></script></body></html>'''

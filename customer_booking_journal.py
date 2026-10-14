@@ -142,6 +142,19 @@ def confirm_verified(*, account_id: str, key: object, provider_reference: object
     return {"state": "confirmed", "confirmed": True, "providerReference": reference}
 
 
+def matches_request(*, account_id: str, key: object, request: dict) -> bool:
+    """True when this account bound this key to exactly this request. Read only."""
+    token = _key(key)
+    if not account_id or not isinstance(request, dict):
+        return False
+    with _connect() as db:
+        _initialize(db)
+        row = db.execute("SELECT account_hash, request_hash FROM booking_request WHERE request_key=?",
+                         (token,)).fetchone()
+    return (row is not None and row["account_hash"] == _digest(account_id)
+            and row["request_hash"] == _digest(request))
+
+
 def status(*, account_id: str, key: object) -> dict:
     """Read only the requesting account's booking state, never another account's."""
     token = _key(key)
