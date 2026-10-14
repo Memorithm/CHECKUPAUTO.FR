@@ -4,7 +4,9 @@ from http.server import ThreadingHTTPServer
 from contextlib import contextmanager
 import errno
 import fcntl
+import hashlib
 import stat
+import tempfile
 from pathlib import Path
 import http.client
 import ipaddress
@@ -89,6 +91,92 @@ def _runtime_initialization_lock(data_dir):
         os.close(fd)
 
 
+def _runtime_database_identities(admin_server):
+    """Capture database identities, never names or contents, for cache validity."""
+    modules = (
+        admin_server.analytics, admin_server.referrals, admin_server.notifications,
+        admin_server.mobile_devices, admin_server.reminder_dispatch,
+        admin_server.booking, admin_server.booking_test, admin_server.reviews,
+        admin_server.withdrawals, admin_server.retention_enforcement,
+        admin_server.security, admin_server.security_alerts,
+    )
+    identities = {}
+    for module in modules:
+        for name in ("DB", "DB_PATH"):
+            value = getattr(module, name, None)
+            if not isinstance(value, (str, Path)):
+                continue
+            path = Path(value)
+            try:
+                info = path.stat()
+                if not stat.S_ISREG(info.st_mode) or path.is_symlink():
+                    return {}
+                key = hashlib.sha256(os.fsencode(path)).hexdigest()
+                identities[key] = [info.st_dev, info.st_ino]
+            except OSError:
+                return {}
+    # Fail closed: the fast path must not be used without evidence of the
+    # known runtime SQLite stores.
+    return identities if len(identities) >= 5 else {}
+
+
+def _runtime_ready_marker(directory):
+    return Path(directory) / ".passenger-runtime-ready.json"
+
+
+def _runtime_marker_matches(path, release_sha, identities):
+    if not release_sha or not identities:
+        return False
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    or info.st_size > 4096 or info.st_size == 0):
+                return False
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read(4097)
+        finally:
+            os.close(fd)
+        record = json.loads(raw)
+        return record == {"sha": release_sha, "databases": identities}
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _write_runtime_marker(path, release_sha, identities):
+    if not release_sha or not identities:
+        return
+    payload = json.dumps(
+        {"sha": release_sha, "databases": identities},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    if len(payload) > 4096:
+        return
+    name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=".passenger-ready-", dir=path.parent,
+            delete=False,
+        ) as stream:
+            name = stream.name
+            os.chmod(name, 0o600)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    except OSError:
+        # A marker is an optional optimization; never block authentication
+        # if its atomic write fails after successful database initialization.
+        pass
+    finally:
+        if name:
+            try:
+                os.unlink(name)
+            except FileNotFoundError:
+                pass
+
+
 def _ensure_backend() -> tuple[str, int]:
     global _BACKEND_SERVER, _BACKEND_THREAD, _BACKEND_PID
     with _BACKEND_LOCK:
@@ -113,7 +201,19 @@ def _ensure_backend() -> tuple[str, int]:
         os.chdir(admin_server.ROOT)
         admin_server.configure_internal_proxy(_PROXY_TOKEN)
         with _runtime_initialization_lock(admin_server.analytics.DB.parent):
-            admin_server.initialize_runtime(background=False)
+            release_sha = _runtime_release_marker_sha()
+            marker = _runtime_ready_marker(admin_server.analytics.DB.parent)
+            identities = _runtime_database_identities(admin_server)
+            if _runtime_marker_matches(marker, release_sha, identities):
+                # All schema/seed operations completed for this exact release
+                # and the same SQLite files in a previous Passenger worker.
+                admin_server._RUNTIME_CORE_READY = True
+            else:
+                result = admin_server.initialize_runtime(background=False)
+                if result.get("coreReady"):
+                    _write_runtime_marker(
+                        marker, release_sha, _runtime_database_identities(admin_server),
+                    )
         server = ThreadingHTTPServer(("127.0.0.1", 0), admin_server.Handler)
         thread = threading.Thread(
             target=server.serve_forever,

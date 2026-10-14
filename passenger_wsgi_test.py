@@ -174,6 +174,59 @@ class PassengerWSGITest(unittest.TestCase):
             self.assertEqual(len(attempts), 1)
             sleep.assert_called_once_with(0.05)
 
+    def test_ready_marker_matches_exact_release_and_database_identity(self):
+        with tempfile.TemporaryDirectory() as root:
+            marker = wsgi._runtime_ready_marker(root)
+            first = {"database-digest": [1, 100]}
+            wsgi._write_runtime_marker(marker, "a" * 40, first)
+            self.assertTrue(wsgi._runtime_marker_matches(marker, "a" * 40, first))
+            self.assertFalse(wsgi._runtime_marker_matches(marker, "b" * 40, first))
+            self.assertFalse(wsgi._runtime_marker_matches(
+                marker, "a" * 40, {"database-digest": [1, 101]},
+            ))
+            self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+
+    def test_ready_marker_symlink_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as root:
+            marker = wsgi._runtime_ready_marker(root)
+            target = Path(root) / "other"
+            target.write_text('{"sha":"a"}')
+            marker.symlink_to(target)
+            self.assertFalse(wsgi._runtime_marker_matches(
+                marker, "a" * 40, {"database-digest": [1, 100]},
+            ))
+            self.assertTrue(target.exists())
+
+    def test_database_identity_invalidates_marker_after_database_replacement(self):
+        import types
+        with tempfile.TemporaryDirectory() as root:
+            modules = []
+            for index in range(6):
+                db = Path(root) / f"db{index}.sqlite3"
+                db.write_bytes(b"test")
+                modules.append(types.SimpleNamespace(DB=db))
+            runtime = types.SimpleNamespace(
+                analytics=modules[0], referrals=modules[1],
+                notifications=modules[2], mobile_devices=modules[3],
+                reminder_dispatch=modules[4], booking=modules[5],
+                booking_test=types.SimpleNamespace(), reviews=types.SimpleNamespace(),
+                withdrawals=types.SimpleNamespace(),
+                retention_enforcement=types.SimpleNamespace(),
+                security=types.SimpleNamespace(),
+                security_alerts=types.SimpleNamespace(),
+            )
+            first = wsgi._runtime_database_identities(runtime)
+            self.assertEqual(len(first), 6)
+            marker = wsgi._runtime_ready_marker(root)
+            wsgi._write_runtime_marker(marker, "a" * 40, first)
+            self.assertTrue(wsgi._runtime_marker_matches(marker, "a" * 40, first))
+            old = modules[0].DB
+            replacement = Path(root) / "replacement.sqlite3"
+            replacement.write_bytes(b"new")
+            replacement.replace(old)
+            second = wsgi._runtime_database_identities(runtime)
+            self.assertFalse(wsgi._runtime_marker_matches(marker, "a" * 40, second))
+
     def test_internal_headers_cannot_be_spoofed_by_request(self):
         headers = wsgi._request_headers({
             "REMOTE_ADDR": "203.0.113.42",
