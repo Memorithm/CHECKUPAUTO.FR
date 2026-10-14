@@ -22,8 +22,29 @@ struct CustomerAccountVehicle: Decodable, Identifiable, Hashable {
     let registrationSystem: String
     let brand: String
     let model: String
+    // ISO date-only value from the same account inventory as the website.
+    // Older server-side vehicle records may not contain a deadline yet.
+    let nextControlDate: String?
 
     var id: String { vehicleId }
+
+    var nextControlDueDate: Date? {
+        guard let raw = nextControlDate,
+              raw.range(of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        let parts = raw.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        guard let date = calendar.date(from: DateComponents(
+            year: parts[0], month: parts[1], day: parts[2], hour: 12
+        )) else { return nil }
+        let parsed = calendar.dateComponents([.year, .month, .day], from: date)
+        guard parsed.year == parts[0], parsed.month == parts[1],
+              parsed.day == parts[2] else { return nil }
+        return date
+    }
 
     var displayName: String {
         [brand, model].filter { !$0.isEmpty }.joined(separator: " ")
@@ -53,6 +74,7 @@ struct CustomerVehicleRegistrationDraft: Encodable {
     let registration: String
     let formulaNumber: String
     let cardIssueDate: String
+    let nextControlDate: String
     let characteristics: CustomerVehicleCharacteristics
 }
 
