@@ -65,6 +65,7 @@ MOBILE_ACCOUNT_VEHICLES_ROUTE="/api/mobile/account/vehicles"
 MOBILE_ACCOUNT_VEHICLE_REFERENCES_ROUTE="/api/mobile/account/vehicle-references"
 MOBILE_ACCOUNT_VEHICLE_SAVE_ROUTE="/api/mobile/account/vehicles/save"
 MOBILE_ACCOUNT_PROFILE_ROUTE="/api/mobile/account/profile"
+MOBILE_WEB_SESSION_BRIDGE_ROUTE="/api/mobile/auth/web-session"
 PASSWORD_LOGIN_ROUTE="/compte/connexion"
 PASSWORD_REGISTER_ROUTE="/compte/inscription"
 PASSWORD_VERIFY_ROUTE="/compte/verifier-email"
@@ -1360,6 +1361,48 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":str(exc)},422)
         except Exception:
             handler.send_json({"ok":False,"error":"customer_vehicle_save_unavailable"},503)
+        return True
+
+    if path==MOBILE_WEB_SESSION_BRIDGE_ROUTE:
+        # iOS requests this with its Keychain bearer through native URLSession.
+        # Return an independent, short-lived, HttpOnly cookie so WKWebView can
+        # render the EXISTING /compte dashboard without a second OAuth login.
+        # The native token itself is never placed in a cookie, URL or HTML.
+        if command!="POST":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        if (parsed.query or handler.headers.get("Cookie")
+                or handler.headers.get("Sec-Fetch-Site")=="cross-site"
+                or (handler.headers.get("Origin") and not _same_origin(handler))):
+            handler.send_json({"ok":False,"error":"mobile_web_session_request_invalid"},403)
+            return True
+        try:
+            account_id=_mobile_bearer_account(handler)
+        except (PermissionError, customer_accounts.CustomerAccountError):
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            if _json_body(handler)!={}:
+                raise ValueError("mobile_web_session_payload_invalid")
+            browser_session=customer_accounts.issue_session(account_id,lifetime_seconds=3600)
+            session_cookie=(
+                f"{COOKIE_NAME}={browser_session['token']}; Path=/; "
+                f"Max-Age={browser_session['maxAge']}; "
+                "HttpOnly; Secure; SameSite=Lax"
+            )
+            handler.send_json(
+                {"ok":True,"expiresIn":browser_session["maxAge"]},200,
+                headers={
+                    "Set-Cookie":session_cookie,
+                    "Pragma":"no-cache",
+                    "Vary":"Authorization",
+                    "X-Content-Type-Options":"nosniff",
+                },
+            )
+        except ValueError:
+            handler.send_json({"ok":False,"error":"mobile_web_session_payload_invalid"},422)
+        except Exception:
+            handler.send_json({"ok":False,"error":"mobile_web_session_unavailable"},503)
         return True
 
     if path in {MOBILE_AUTH_SESSION_ROUTE, MOBILE_ACCOUNT_VEHICLES_ROUTE, MOBILE_ACCOUNT_PROFILE_ROUTE}:
