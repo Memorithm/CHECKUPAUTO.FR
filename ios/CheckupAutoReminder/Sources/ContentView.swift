@@ -328,7 +328,7 @@ struct ContentView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 8) {
                     if let date = model.nextControlDueDate {
-                        Text(date, format: .dateTime.day().month(.wide).year().locale(Locale(identifier: "fr_FR")))
+                        Text(frenchDate(date))
                             .font(.system(size: 28, weight: .regular, design: .serif))
                             .foregroundStyle(CheckupTheme.ink)
                         Text(daysLabel(until: date))
@@ -407,12 +407,19 @@ struct ContentView: View {
                         Text(vehicle.registration)
                             .font(.caption.monospaced())
                             .foregroundStyle(CheckupTheme.muted)
-                        if let local = model.vehicles.first(where: { $0.registration == vehicle.registration }) {
-                            Text("Prochain CT : " + local.controlDueDate.formatted(date: .abbreviated, time: .omitted))
+                        if let due = vehicle.nextControlDueDate
+                            ?? model.vehicles.first(where: { $0.registration == vehicle.registration })?.controlDueDate {
+                            Text("Prochain CT : " + frenchDate(due))
                                 .font(.caption)
                                 .foregroundStyle(CheckupTheme.muted)
+                        } else {
+                            Text("Date du prochain contrôle à compléter")
+                                .font(.caption)
+                                .foregroundStyle(CheckupTheme.muted)
+                        }
+                        if let local = model.vehicles.first(where: { $0.registration == vehicle.registration }) {
                             if let reminder = local.localReminderAt {
-                                Label("Rappel : " + reminder.formatted(date: .abbreviated, time: .shortened),
+                                Label("Rappel : " + frenchDate(reminder, withTime: true),
                                       systemImage: "bell")
                                     .font(.caption)
                                     .foregroundStyle(CheckupTheme.accent)
@@ -553,7 +560,7 @@ struct ContentView: View {
                 }
                 if let appointmentAt {
                     Label(
-                        "Rendez-vous : " + appointmentAt.formatted(date: .abbreviated, time: .shortened),
+                        "Rendez-vous : " + frenchDate(appointmentAt, withTime: true),
                         systemImage: "calendar.badge.clock"
                     )
                     .font(.caption.weight(.semibold))
@@ -566,7 +573,7 @@ struct ContentView: View {
                         .foregroundStyle(CheckupTheme.accent)
                 }
                 if let dueDate {
-                    Text("Contrôle : \(dueDate.formatted(date: .abbreviated, time: .omitted))")
+                    Text("Contrôle : " + frenchDate(dueDate))
                         .font(.caption)
                         .foregroundStyle(CheckupTheme.muted)
                 } else {
@@ -599,6 +606,14 @@ struct ContentView: View {
         .padding(16)
         .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(CheckupTheme.line))
+    }
+
+    private func frenchDate(_ date: Date, withTime: Bool = false) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = withTime ? "dd/MM/yyyy 'à' HH:mm" : "dd/MM/yyyy"
+        return formatter.string(from: date)
     }
 
     private func statusCard(title: String, systemImage: String, tint: Color) -> some View {
