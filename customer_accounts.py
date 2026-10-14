@@ -1207,13 +1207,18 @@ def profile(account_id: object) -> dict:
     }
 
 
-def issue_session(account_id: object) -> dict:
+def issue_session(account_id: object, *, lifetime_seconds: int | None = None) -> dict:
     account_id = _account_id(account_id)
+    if lifetime_seconds is None:
+        lifetime_seconds = SESSION_TTL_HOURS * 3600
+    if (type(lifetime_seconds) is not int
+            or not 60 <= lifetime_seconds <= SESSION_TTL_HOURS * 3600):
+        raise CustomerAccountError("customer_session_lifetime_invalid")
     profile(account_id)
     token = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     now = _now()
-    expires = now + dt.timedelta(hours=SESSION_TTL_HOURS)
+    expires = now + dt.timedelta(seconds=lifetime_seconds)
     init_db()
     with _connect() as db:
         db.execute(
@@ -1232,7 +1237,7 @@ def issue_session(account_id: object) -> dict:
         "token": token,
         "accountId": account_id,
         "expiresAt": expires.isoformat(timespec="seconds"),
-        "maxAge": SESSION_TTL_HOURS * 3600,
+        "maxAge": lifetime_seconds,
     }
 
 
