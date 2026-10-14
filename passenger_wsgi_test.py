@@ -1,4 +1,8 @@
 import io
+import contextlib
+import errno
+import tempfile
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -70,8 +74,11 @@ class PassengerWSGITest(unittest.TestCase):
                  mock.patch.object(admin_server, "initialize_runtime"), \
                  mock.patch("passenger_wsgi.ThreadingHTTPServer", return_value=new_server), \
                  mock.patch("passenger_wsgi.threading.Thread", return_value=new_thread), \
-                 mock.patch("passenger_wsgi.os.chdir"):
+                 mock.patch("passenger_wsgi.os.chdir"), \
+                 mock.patch("passenger_wsgi._runtime_initialization_lock",
+                            return_value=contextlib.nullcontext()) as startup_lock:
                 self.assertEqual(wsgi._ensure_backend(), ("127.0.0.1", 5678))
+                startup_lock.assert_called_once()
                 old_server.server_close.assert_called_once()
                 new_thread.start.assert_called_once()
                 self.assertEqual(wsgi._BACKEND_PID, 9999)
@@ -132,6 +139,40 @@ class PassengerWSGITest(unittest.TestCase):
         self.assertIn("sqlite=SQLITE_BUSY", log.getvalue())
         self.assertNotIn("/private/", log.getvalue())
         self.assertNotIn("customer.sqlite", log.getvalue())
+
+    def test_runtime_init_lock_creates_private_regular_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            with wsgi._runtime_initialization_lock(root):
+                lock = Path(root) / ".passenger-runtime-init.lock"
+                self.assertTrue(lock.is_file())
+                self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+            with wsgi._runtime_initialization_lock(root):
+                pass
+
+    def test_runtime_init_lock_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / ".passenger-runtime-init.lock"
+            path.symlink_to(Path(root) / "target")
+            with self.assertRaises(OSError):
+                with wsgi._runtime_initialization_lock(root):
+                    pass
+            self.assertFalse((Path(root) / "target").exists())
+
+    def test_runtime_init_lock_retries_sqlite_contention(self):
+        with tempfile.TemporaryDirectory() as root:
+            real_flock = wsgi.fcntl.flock
+            attempts = []
+            def temporary_busy(fd, operation):
+                if operation & wsgi.fcntl.LOCK_NB and not attempts:
+                    attempts.append(1)
+                    raise BlockingIOError(errno.EAGAIN, "temporarily busy")
+                return real_flock(fd, operation)
+            with mock.patch("passenger_wsgi.fcntl.flock", side_effect=temporary_busy), \
+                 mock.patch("passenger_wsgi.time.sleep") as sleep:
+                with wsgi._runtime_initialization_lock(root):
+                    pass
+            self.assertEqual(len(attempts), 1)
+            sleep.assert_called_once_with(0.05)
 
     def test_internal_headers_cannot_be_spoofed_by_request(self):
         headers = wsgi._request_headers({
