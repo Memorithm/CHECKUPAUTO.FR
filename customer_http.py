@@ -1328,7 +1328,7 @@ def handle(handler) -> bool:
             return True
         try:
             payload=_json_body(handler)
-            expected={"registrationSystem","registration","formulaNumber","cardIssueDate","characteristics"}
+            expected={"registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate","characteristics"}
             if set(payload)!=expected or not isinstance(payload.get("characteristics"),dict):
                 raise ValueError("customer_vehicle_payload_invalid")
             if set(payload["characteristics"])!={"brand","model","energy"}:
@@ -1339,6 +1339,7 @@ def handle(handler) -> bool:
                 registration=payload["registration"],
                 formula_number=payload["formulaNumber"],
                 card_issue_date=payload["cardIssueDate"],
+                next_control_date=payload["nextControlDate"],
                 characteristics=payload["characteristics"],
             )
             characteristics=vehicle.get("characteristics") or {}
@@ -1350,6 +1351,7 @@ def handle(handler) -> bool:
                 "model":str(characteristics.get("model") or ""),
                 "energy":str(characteristics.get("energy") or ""),
                 "formulaNumberPresent":bool(vehicle.get("formulaNumberPresent")),
+                "nextControlDate":str(vehicle.get("nextControlDate") or ""),
             }},201)
         except customer_accounts.CustomerAccountError as exc:
             handler.send_json({"ok":False,"error":str(exc)},422)
@@ -1437,6 +1439,7 @@ def handle(handler) -> bool:
                         "registrationSystem":vehicle["registrationSystem"],
                         "brand":str(characteristics.get("brand") or ""),
                         "model":str(characteristics.get("model") or ""),
+                        "nextControlDate":str(vehicle.get("nextControlDate") or ""),
                     })
                 handler.send_json({"ok":True,"vehicles":summaries},200)
         except (PermissionError, customer_accounts.CustomerAccountError, ValueError):
@@ -1560,7 +1563,7 @@ def handle(handler) -> bool:
                 removed=customer_accounts.delete_vehicle(account_id,payload.get("vehicleId"))
                 handler.send_json({"ok":True,"removed":removed,"vehicles":customer_accounts.list_vehicles(account_id)})
             else:
-                if not {"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate"} <= set(payload) or set(payload)-{"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","characteristics"}:
+                if not {"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate"} <= set(payload) or set(payload)-{"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate","characteristics"}:
                     raise ValueError
                 vehicle=customer_accounts.save_vehicle(
                     account_id,
@@ -1569,6 +1572,7 @@ def handle(handler) -> bool:
                     registration=payload.get("registration"),
                     formula_number=payload.get("formulaNumber"),
                     card_issue_date=payload.get("cardIssueDate"),
+                    next_control_date=payload["nextControlDate"],
                     **({"characteristics":payload["characteristics"]} if "characteristics" in payload else {}),
                 )
                 handler.send_json({"ok":True,"vehicle":vehicle,"vehicles":customer_accounts.list_vehicles(account_id)},201)
