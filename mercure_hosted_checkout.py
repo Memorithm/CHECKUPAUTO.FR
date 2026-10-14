@@ -14,9 +14,9 @@ A real paid test on 2026-10-14 showed that Mercure creates the appointment
 and blocks the slot before payment, answers with the Payline production page
 (webpayment.payline.com), records the payment as a billing line, and that
 Payline then returns the customer to Mercure's /confirmation_rdv/<hash> page,
-not to this site. Still to confirm (see docs/api-mercure.md): what happens to
-an appointment that is never paid, and the date/time and energy formats the
-public call expects.
+not to this site. A payment cancelled on Payline makes Mercure delete the
+unpaid appointment itself. Still to confirm (see docs/api-mercure.md): the
+date/time and energy formats the public call expects.
 """
 from __future__ import annotations
 
@@ -202,7 +202,11 @@ def reconcile(payload: object, *, account: dict, finder=None) -> dict:
         date=payload["date"], time=payload["time"], email=str(account.get("email") or ""),
         service_id=service_id)
     if not found.get("found"):
-        return {"ok": True, "state": "reconciliation_required", "confirmed": False, "paid": False}
+        # Live test 2026-10-14: when the customer cancels on Payline, Mercure
+        # deletes the unpaid appointment itself within a minute and frees the
+        # slot. The appointment exists as soon as the checkout URL is returned,
+        # so a missing one means the payment was cancelled or abandoned.
+        return {"ok": True, "state": "payment_cancelled", "confirmed": False, "paid": False}
     if found.get("paidOnline") is not True:
         return {"ok": True, "state": "payment_pending", "confirmed": False, "paid": False}
     confirmed = journal.confirm_verified(

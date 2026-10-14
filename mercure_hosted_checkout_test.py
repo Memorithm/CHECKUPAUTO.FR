@@ -135,6 +135,11 @@ class HostedCheckoutTest(unittest.TestCase):
         again = checkout.reconcile(dict(PAYLOAD), account=ACCOUNT, finder=Mock(side_effect=AssertionError))
         self.assertTrue(again["confirmed"])
 
+    def test_appointment_deleted_by_mercure_means_payment_cancelled(self):
+        self._start(_session())
+        result = checkout.reconcile(dict(PAYLOAD), account=ACCOUNT, finder=lambda **_: {"found": False})
+        self.assertEqual((result["state"], result["confirmed"]), ("payment_cancelled", False))
+
     def test_reconcile_refuses_a_slot_other_than_the_one_started(self):
         self._start(_session())
         other = {**PAYLOAD, "time": "10:00"}
