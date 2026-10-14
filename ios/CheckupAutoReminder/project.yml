@@ -9,8 +9,8 @@ configs:
 settings:
   base:
     SWIFT_VERSION: 5.10
-    CURRENT_PROJECT_VERSION: 16
-    MARKETING_VERSION: 0.3.13
+    CURRENT_PROJECT_VERSION: 17
+    MARKETING_VERSION: 0.3.14
     CHECKUPAUTO_ENVIRONMENT: production
   configs:
     Debug:
