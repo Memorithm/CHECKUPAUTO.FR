@@ -29,7 +29,8 @@ GOLDEN_LOGGED_IN_SHA256 = "77d05b935ba3cb3bf34c145600397432909637292dc6247b408f2
 ACCOUNT = {"accountId": "00000000-0000-4000-8000-000000000001", "surname": "Martin", "givenName": "Jeanne",
            "email": "jeanne@example.test", "phone": "+33 6 12 34 56 78"}
 ON_SITE_ENV = ("CHECKUPAUTO_IN_SITE_BOOKING_ENABLED", "CHECKUPAUTO_MERCURE_CUSTOMER_WRITE_ENABLED",
-               "CHECKUPAUTO_MERCURE_VL_LINE_ID", "CHECKUPAUTO_MERCURE_VL_OPERATOR_ID")
+               "CHECKUPAUTO_MERCURE_VL_LINE_ID", "CHECKUPAUTO_MERCURE_VL_OPERATOR_ID",
+               "CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED")
 
 
 class DelegatedGoBookingRegressionTest(unittest.TestCase):
@@ -212,6 +213,26 @@ class DelegatedGoBookingRegressionTest(unittest.TestCase):
         self.assertEqual(data["vehicleId"], VEHICLE["vehicleId"])
         self.assertEqual(data["csrf"], "c" * 64)
         self.assertIn("nonce-000000000000000001", csp)
+
+    def test_mercure_hosted_checkout_renders_without_site_writer_readiness(self):
+        account = {"accountId": "00000000-0000-4000-8000-000000000001", "givenName": "Jeanne",
+                   "surname": "Martin", "email": "jeanne@example.test", "phone": "0612345678",
+                   "billingContactComplete": True}
+        env = {"CHECKUPAUTO_IN_SITE_BOOKING_ENABLED": "true", "CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED": "true"}
+        with self.server(env) as (app, address):
+            with patch.object(app.in_site_booking_routing.in_site_booking_readiness, "public_status",
+                              side_effect=AssertionError), \
+                    patch.object(app.booking_health, "session_status",
+                                 return_value={"connected": True, "state": "ready"}), \
+                    patch.object(app.customer_http, "_account", return_value=("t" * 43, account)), \
+                    patch.object(app.customer_http.customer_accounts, "csrf_token", return_value="c" * 64):
+                status, _, body = self.fetch(address)
+        self.assertEqual(status, 200)
+        text = body.decode()
+        data = json.loads(text.split('type="application/json" nonce="nonce-000000000000000001">', 1)[1].split("</script>", 1)[0])
+        self.assertEqual(data["checkoutMode"], "mercure-hosted")
+        self.assertIn('id="bjHostedWait"', text)
+        self.assertIn("page Payline du centre", text)
 
     def test_confirmation_page_requires_login_and_valid_key(self):
         with self.server() as (app, address):

@@ -14,6 +14,7 @@ import unicodedata
 
 import booking_health
 import in_site_booking_readiness
+import mercure_hosted_checkout
 import mercure_public_client
 
 
@@ -48,6 +49,9 @@ def decide(*, service_label: object, preferred_date: object, preferred_time: obj
     if not in_site_booking_readiness.in_site_flag_enabled(environ):
         return _delegated("in_site_flag_off")
     try:
+        # Mercure's own Payline checkout does not use the site's admin writer,
+        # so its readiness (write config, signed sign-off) does not apply.
+        hosted = mercure_hosted_checkout.enabled(environ)
         key = service_key(service_label)
         if not key:
             result = _delegated("service_not_supported")
@@ -55,12 +59,16 @@ def decide(*, service_label: object, preferred_date: object, preferred_time: obj
             result = _delegated("slot_missing")
         elif not isinstance(vehicle, dict) or not str(vehicle.get("vehicleId") or "").strip():
             result = _delegated("vehicle_missing")
-        elif in_site_booking_readiness.public_status(environ=environ).get("bookingEnabled") is not True:
+        elif (not hosted and in_site_booking_readiness.public_status(environ=environ)
+                .get("bookingEnabled") is not True):
             result = _delegated("readiness_closed")
         elif booking_health.session_status(checker=session_checker).get("connected") is not True:
+            # Also required by the Mercure-hosted checkout: the payment is
+            # confirmed from the admin planning.
             result = _delegated("mercure_session_invalid")
         else:
-            result = {"mode": "in_site", "reason": "", "service": key}
+            result = {"mode": "in_site", "reason": "", "service": key,
+                      "checkout": "mercure-hosted" if hosted else "site"}
     except Exception:
         result = _delegated("routing_error")
     booking_health.record_route(result["mode"], result["reason"])

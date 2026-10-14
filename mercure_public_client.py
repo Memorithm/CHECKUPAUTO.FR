@@ -236,10 +236,18 @@ def payment_options(service_key: str) -> dict[str, Any]:
         if hit and now - hit[0] < PAYMENT_OPTIONS_TTL:
             return hit[1]
     raw = _provider_payment_options(meta['id'])
+    energies = []
+    for item in raw.get('energies') or []:
+        value = item.get('id') if isinstance(item, dict) else None
+        if value is not None and str(value).strip().isdigit():
+            energies.append(str(value).strip())
     result = {
         'service': service_key,
         'online': raw['paiementWeb'],
         'centre': raw['paiementCentre'],
+        # Mercure energy ids accepted for this service (1763: 1 Diesel,
+        # 2 Essence, 3 Hybride, 4 Electrique on 2026-10-14).
+        'energyIds': energies,
         'checkedAt': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
     }
     with _CACHE_LOCK:

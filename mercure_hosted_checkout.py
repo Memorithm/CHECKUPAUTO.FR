@@ -51,7 +51,11 @@ def enabled(environ=None) -> bool:
 
 
 def build_form(*, appointment: dict, service_id: str, date: str, time: str) -> dict:
-    """Fields of the public Mercure booking call, online payment selected."""
+    """Fields of the public Mercure booking call, online payment selected.
+
+    Mirrors what Mercure's own page sends for centre 240 (format observed and
+    accepted on 2026-10-14): ids for brand, model and energy, ISO date, HH:MM,
+    empty strings for the options absent from the page, no prestation_pl."""
     required = ("nom", "prenom", "email", "telephone", "marque", "modele",
                 "energie", "immatriculation")
     if not isinstance(appointment, dict) or not all(
@@ -65,16 +69,17 @@ def build_form(*, appointment: dict, service_id: str, date: str, time: str) -> d
     if len(phone) < 10:
         raise HostedCheckoutInvalid("mercure_checkout_phone_invalid")
     return {
-        "prestation_vl": str(service_id), "prestation_pl[]": "",
+        "prestation_vl": str(service_id),
         "date_rdv": date, "heure_rdv": time,
         "nom": appointment["nom"].strip(), "prenom": appointment["prenom"].strip(),
-        "telephone": phone, "civilite": "", "email": appointment["email"].strip(),
+        # Mercure's page always sends a civility; "Mr" is its default choice.
+        "telephone": phone, "civilite": "Mr", "email": appointment["email"].strip(),
         "marque": appointment["marque"], "modele": appointment["modele"],
         "energie": appointment["energie"], "immatriculation": appointment["immatriculation"],
-        "code_promo": "", "pay2x": "0", "payassucv": "0", "paymodif": "0",
+        "code_promo": "", "pay2x": "", "payassucv": "", "paymodif": "",
         # Mercure's naming is inverted: p_centre=1 is the online (Payline) button.
         "p_centre": "1",
-        "iframe": "false", "id": "", "smsrappel": "0", "smsconfirm": "0",
+        "iframe": "false", "id": "", "smsrappel": "", "smsconfirm": "",
     }
 
 
@@ -137,6 +142,10 @@ def start(payload: object, *, account: dict, environ=None, session_factory=None,
             request=request, account=account, vehicle=_vehicle(account, checked["vehicleId"]))
     except ValueError as exc:
         raise HostedCheckoutInvalid(str(exc)) from None
+    if str(assembled["appointment"].get("energie") or "") not in (options.get("energyIds") or []):
+        # The energy id comes from the admin lists; refuse rather than book a
+        # vehicle with an energy Mercure does not offer for this service.
+        raise HostedCheckoutInvalid("booking_vehicle_energy_not_offered")
     form = build_form(appointment=assembled["appointment"],
                       service_id=public.service(checked["service"])["id"],
                       date=checked["date"], time=checked["time"])

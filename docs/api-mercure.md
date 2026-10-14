@@ -63,14 +63,32 @@ Le Payline propre au site (PR #705) reste en place pour le parcours sur site exi
 
 **Test d'annulation du 14 octobre 2026** : quand le client clique « Annuler » sur Payline (ou abandonne le lien), il est renvoyé sur `rdv.checkupauto.fr/erreur` puis sur l'accueil Mercure, et **Mercure supprime lui-même le rendez-vous impayé en moins d'une minute**. Le créneau redevient libre sans action du site. Si le client ferme simplement l'onglet Payline, Mercure garde le créneau **environ 15 minutes** avant la même suppression : pendant ce délai le statut reste `payment_pending` et le créneau indisponible. L'onglet du site interroge donc le statut jusqu'à 20 minutes (`statusPollMaxSeconds`). `mercure-checkout/status` répond `payment_cancelled` quand le rendez-vous a disparu du planning ; le client peut recommencer avec une nouvelle clé.
 
-**Encore à confirmer** :
+**Format de l'appel** (relevé le 14 octobre 2026 sur trois rendez-vous test acceptés) : `date_rdv` en `AAAA-MM-JJ`, `heure_rdv` en `HH:MM`, `marque` / `modele` / `energie` en identifiants Mercure, `civilite=Mr` (le choix par défaut de la page Mercure), `iframe=false`, `id` vide, `prestation_pl` absent, et `code_promo`, `pay2x`, `payassucv`, `paymodif`, `smsrappel`, `smsconfirm` vides, comme le navigateur. Avant l'appel, le site vérifie que l'énergie du véhicule figure dans la liste que Mercure renvoie pour la prestation (`get_energie_prestation`, champ `id` de chaque énergie) ; sinon le client est invité à corriger son véhicule.
 
-- les formats attendus par l'appel public : `date_rdv` / `heure_rdv` (envoyés en `AAAA-MM-JJ` et `HH:MM`), `energie` (envoyée en identifiant Mercure), `civilite` (vide), `iframe` / `id`.
+## Page « Confirmer et payer »
 
-Tant que ces points ne sont pas confirmés, `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED` doit rester absent.
+Avec les deux interrupteurs `CHECKUPAUTO_IN_SITE_BOOKING_ENABLED=true` et `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED=true`, `/go/booking` affiche le récapitulatif sur le site en mode « Payline du centre ». Ce mode ne dépend pas de la configuration d'écriture admin ni de la preuve de validation signée du parcours sur site (`reservation-sur-site.md`) : seule une session admin Mercure valide est exigée, pour relire le paiement. Au clic sur « Confirmer et payer » :
+
+1. un onglet est ouvert pendant le clic (sinon le navigateur le bloquerait) ;
+2. acceptation des CGV, puis `POST /api/customer/booking/mercure-checkout` ;
+3. l'onglet part sur la page Payline ; la page du site affiche « Paiement en cours » et interroge le statut toutes les 5 secondes, jusqu'à 20 minutes ;
+4. issue : « Rendez-vous confirmé et payé », ou « Paiement non effectué » (créneau libéré par Mercure, nouvel essai possible), ou un message d'attente si rien n'est arrivé après 20 minutes.
+
+Une réponse incertaine (réseau, 5xx) n'entraîne jamais de bascule vers la plateforme Mercure : la page vérifie le statut, pour éviter un doublon.
+
+## Activation sur test.checkupauto.fr
+
+Dans l'environnement du serveur (jamais dans le dépôt) :
+
+1. `CHECKUPAUTO_MERCURE_ADMIN_USERNAME` et `CHECKUPAUTO_MERCURE_ADMIN_PASSWORD` (compte Mercure dédié) ;
+2. `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED=true` ;
+3. `CHECKUPAUTO_IN_SITE_BOOKING_ENABLED=true`.
+
+Vérifier ensuite `/api/admin/mercure/session-status` (`connected: true`) et `/api/booking/payment-options?service=technical` (`online: true`). **Retour arrière** : retirer `CHECKUPAUTO_MERCURE_HOSTED_PAYMENT_ENABLED` ou `CHECKUPAUTO_IN_SITE_BOOKING_ENABLED`.
+
+Attention : Mercure n'a qu'un environnement, de production. Chaque réservation faite depuis le site de test crée un vrai rendez-vous et un vrai paiement.
 
 ## À faire
 
-- Lever les points à confirmer ci-dessus, puis brancher le bouton « Payer » de `/go/booking` sur `mercure-checkout` (ouverture de Payline dans un nouvel onglet, attente avec interrogation du statut).
 - Option : demander à AutoBilan-Systems un lien de retour vers le site sur `/confirmation_rdv`, ou que cette page appelle `/api/integrations/mercure/browser-confirmed` (déjà prévu côté site pour l'origine rdv.checkupauto.fr).
 - Annulation et report côté client : Mercure les permet depuis l'admin (`rendez_vous_remove*`, `rendez_vous_drag_and_drop`) et rembourse via `rendez_vous_remboursement` (token Payline + montant). Une annulation payée doit enchaîner remboursement puis suppression. Il reste à fixer la règle de remboursement.

@@ -22,7 +22,8 @@ class MercurePaymentOptionsTest(unittest.TestCase):
         mercure._breaker_success()
 
     def test_reads_mercure_web_and_centre_flags_for_the_service(self):
-        browser = _session({"paiementWeb": True, "paiementCentre": False, "energies": []})
+        browser = _session({"paiementWeb": True, "paiementCentre": False,
+                            "energies": [{"id": 1, "libelle": "Diesel"}, {"id": "2", "libelle": "Essence"}, "x"]})
         with patch.object(mercure, "_provider_session", return_value=browser):
             result = mercure.payment_options("technical")
         url, = browser.post.call_args.args
@@ -30,6 +31,7 @@ class MercurePaymentOptionsTest(unittest.TestCase):
         self.assertEqual(browser.post.call_args.kwargs["data"]["prestation"], "1763")
         self.assertEqual((result["service"], result["online"], result["centre"]),
                          ("technical", True, False))
+        self.assertEqual(result["energyIds"], ["1", "2"])
         browser.close.assert_called_once_with()
 
     def test_result_is_cached(self):

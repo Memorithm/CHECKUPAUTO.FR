@@ -340,7 +340,7 @@ class Handler(SimpleHTTPRequestHandler):
    if route.get('mode')!='in_site': return None
    session_token,account=customer_http._account(self)
    if not session_token or not account: return None
-   return in_site_booking_page.render_summary(token=token,service_label=service,service_key=route['service'],nonce=nonce,vehicle=vehicle,account=account,csrf=customer_http.customer_accounts.csrf_token(session_token),business=c.get('business') or {})
+   return in_site_booking_page.render_summary(token=token,service_label=service,service_key=route['service'],checkout_mode=route.get('checkout','site'),nonce=nonce,vehicle=vehicle,account=account,csrf=customer_http.customer_accounts.csrf_token(session_token),business=c.get('business') or {})
   except Exception:
    return None
  def render_index(self,c):

@@ -47,7 +47,7 @@ class HostedCheckoutTest(unittest.TestCase):
     def _start(self, session, online=True, environ=ENV):
         return checkout.start(dict(PAYLOAD), account=ACCOUNT, environ=environ,
                               session_factory=lambda: session,
-                              payment_options=lambda service: {"online": online})
+                              payment_options=lambda service: {"online": online, "energyIds": ["1", "2", "3", "4"]})
 
     def test_disabled_by_default_and_never_calls_mercure(self):
         session = _session()
@@ -66,6 +66,9 @@ class HostedCheckoutTest(unittest.TestCase):
         self.assertEqual(form["prestation_vl"], "1763")
         self.assertEqual(form["telephone"], "0612345678")
         self.assertEqual((form["date_rdv"], form["heure_rdv"]), ("2026-10-20", "09:00"))
+        self.assertEqual(form["civilite"], "Mr")
+        self.assertNotIn("prestation_pl[]", form)
+        self.assertEqual((form["smsrappel"], form["pay2x"], form["iframe"]), ("", "", "false"))
         self.assertEqual(result["redirectUrl"], "https://webpayment.payline.com/v2/?token=abc")
         self.assertEqual(result["state"], "payment_pending")
         self.assertTrue(result["openInNewTab"])
@@ -84,6 +87,14 @@ class HostedCheckoutTest(unittest.TestCase):
         with self.assertRaises(checkout.HostedCheckoutError) as caught:
             self._start(session, online=False)
         self.assertEqual(str(caught.exception), "mercure_online_payment_unavailable")
+        session.post.assert_not_called()
+
+    def test_energy_not_offered_by_mercure_is_refused_before_sending(self):
+        session = _session()
+        with self.assertRaises(checkout.HostedCheckoutInvalid) as caught:
+            checkout.start(dict(PAYLOAD), account=ACCOUNT, environ=ENV, session_factory=lambda: session,
+                           payment_options=lambda service: {"online": True, "energyIds": ["1"]})
+        self.assertEqual(str(caught.exception), "booking_vehicle_energy_not_offered")
         session.post.assert_not_called()
 
     def test_mercure_error_and_unexpected_answers(self):
@@ -109,7 +120,7 @@ class HostedCheckoutTest(unittest.TestCase):
             raise ConnectionError("down")
         with self.assertRaises(ConnectionError):
             checkout.start(dict(PAYLOAD), account=ACCOUNT, environ=ENV, session_factory=broken,
-                           payment_options=lambda service: {"online": True})
+                           payment_options=lambda service: {"online": True, "energyIds": ["2"]})
         session = _session()
         self.assertEqual(self._start(session)["state"], "payment_pending")
         session.post.assert_called_once()
