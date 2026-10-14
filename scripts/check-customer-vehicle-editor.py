@@ -49,9 +49,27 @@ async def run(browser_name):
             assert await page.locator('#vehicleModel option').count()==2, 'generic model leaked'
             await page.locator('#vehicleRegistration').fill('ab123cd');await page.locator('#vehicleFormulaNumber').fill('2020AB12345')
             assert await page.locator('#vehicleSave').is_disabled(), 'CT date must be mandatory'
-            await page.locator('#vehicleNextControlDate').fill('31/02/2027')
+            due=page.locator('#vehicleNextControlDate')
+            assert await due.get_attribute('inputmode')=='numeric'
+            await due.fill('31022027')
+            assert await due.input_value()=='31/02/2027', 'slashes must be inserted automatically'
             assert await page.locator('#vehicleSave').is_disabled(), 'impossible CT date accepted'
-            await page.locator('#vehicleNextControlDate').fill('14/10/2027')
+            await due.fill('14102027')
+            assert await due.input_value()=='14/10/2027', 'eight numeric digits must format as JJ/MM/AAAA'
+            # Editing immediately after a slash deletes a digit rather than
+            # trapping the user at an automatically reinserted separator.
+            await due.evaluate("""field=>{
+                field.focus();field.setSelectionRange(3,3);
+                field.dispatchEvent(new InputEvent('beforeinput',{
+                    bubbles:true,cancelable:true,inputType:'deleteContentBackward'
+                }));
+            }""")
+            assert await due.input_value()=='11/02/027'
+            assert await page.locator('#vehicleSave').is_disabled()
+            await due.fill('14102027')
+            assert await due.input_value()=='14/10/2027'
+            await due.fill('14/10/2027')
+            assert await due.input_value()=='14/10/2027', 'existing formatted dates must remain supported'
             await page.locator('.vehicle-optional > summary').click();await page.locator('#vehicleType').fill('VL')
             await page.locator('#vehicleSave').click();await page.wait_for_function("document.querySelector('#vehicleStatus').textContent==='Véhicule enregistré.'")
             assert len(requests)==1 and requests[0]['characteristics']['vehicleType']=='VL',requests
@@ -73,7 +91,8 @@ async def run(browser_name):
             # FNI uses the issue date, not a retained formula number.
             await page.locator('#vehicleRegistrationSystem').select_option('fni')
             await page.locator('#vehicleRegistration').fill('1234ab78');await page.locator('#vehicleCardIssueDate').fill('2005-01-01')
-            await page.locator('#vehicleNextControlDate').fill('29/02/2028')
+            await page.locator('#vehicleNextControlDate').fill('29022028')
+            assert await page.locator('#vehicleNextControlDate').input_value()=='29/02/2028'
             await page.locator('#vehicleSave').click();await page.wait_for_function("document.querySelector('#vehicleStatus').textContent==='Véhicule enregistré.'")
             assert len(requests)==2 and requests[1]['formulaNumber']=='' and requests[1]['cardIssueDate']=='2005-01-01',requests
             assert requests[1]['nextControlDate']=='2028-02-29',requests
