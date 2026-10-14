@@ -14,6 +14,7 @@ struct NativeCustomerAccountView: View {
 
     @State private var browserCookie: HTTPCookie?
     @State private var browserIdentity = UUID()
+    @State private var websiteReady = false
     @State private var loading = false
     @State private var connectError: String?
     @State private var cookieValidUntil: Date = .distantPast
@@ -25,6 +26,7 @@ struct NativeCustomerAccountView: View {
         NavigationStack {
             Group {
                 if let browserCookie, connectError == nil {
+                    ZStack {
                     AuthenticatedCustomerDashboardWebView(
                         cookie: browserCookie,
                         onBooking: openBooking,
@@ -37,7 +39,11 @@ struct NativeCustomerAccountView: View {
                             dismiss()
                         },
                         onSessionExpired: {
+                            websiteReady = false
                             connectError = "La page du compte n’est plus accessible. Actualisez votre session sans vous reconnecter."
+                        },
+                        onDashboardReady: {
+                            websiteReady = true
                         },
                         onNavigationBlocked: {
                             showBlockedExternalNavigation = true
@@ -47,7 +53,19 @@ struct NativeCustomerAccountView: View {
                         }
                     )
                     .id(browserIdentity)
+                    .opacity(websiteReady ? 1 : 0)
+                    .accessibilityHidden(!websiteReady)
                     .accessibilityIdentifier("native-customer-website-dashboard")
+                    if !websiteReady {
+                        VStack(spacing: 14) {
+                            ProgressView()
+                            Text("Chargement de votre espace client…")
+                                .font(.subheadline)
+                                .foregroundStyle(CheckupTheme.muted)
+                        }
+                        .accessibilityIdentifier("native-account-website-loading")
+                    }
+                    }
                 } else {
                     VStack(spacing: 20) {
                         Spacer()
@@ -136,6 +154,7 @@ struct NativeCustomerAccountView: View {
     private func openAccountWebsite() async {
         guard !loading, model.customerSignedIn else { return }
         loading = true
+        websiteReady = false
         connectError = nil
         defer { loading = false }
         do {
