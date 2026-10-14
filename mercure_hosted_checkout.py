@@ -12,10 +12,11 @@ Mercure shows an online payment for it. The Payline token is never returned.
 
 A real paid test on 2026-10-14 showed that Mercure creates the appointment
 and blocks the slot before payment, answers with the Payline production page
-(webpayment.payline.com), and records the payment as a billing line. Still to
-confirm (see docs/api-mercure.md): the page Payline returns the customer to,
-what happens to an appointment that is never paid, and the date/time and
-energy formats the public call expects.
+(webpayment.payline.com), records the payment as a billing line, and that
+Payline then returns the customer to Mercure's /confirmation_rdv/<hash> page,
+not to this site. Still to confirm (see docs/api-mercure.md): what happens to
+an appointment that is never paid, and the date/time and energy formats the
+public call expects.
 """
 from __future__ import annotations
 
@@ -169,8 +170,12 @@ def start(payload: object, *, account: dict, environ=None, session_factory=None,
             session.close()
         except Exception:
             pass
+    # After payment Payline sends the customer to Mercure's own
+    # /confirmation_rdv/<hash> page, never back to this site: the site tab must
+    # open the checkout separately and poll the status route until confirmed.
     return {"ok": True, "state": "payment_pending", "requestKey": payload["requestKey"],
-            "redirectUrl": url, "priceCents": checked["priceCents"]}
+            "redirectUrl": url, "priceCents": checked["priceCents"],
+            "openInNewTab": True, "statusPollSeconds": 5}
 
 
 def reconcile(payload: object, *, account: dict, finder=None) -> dict:

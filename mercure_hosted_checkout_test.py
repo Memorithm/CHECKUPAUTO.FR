@@ -68,6 +68,7 @@ class HostedCheckoutTest(unittest.TestCase):
         self.assertEqual((form["date_rdv"], form["heure_rdv"]), ("2026-10-20", "09:00"))
         self.assertEqual(result["redirectUrl"], "https://webpayment.payline.com/v2/?token=abc")
         self.assertEqual(result["state"], "payment_pending")
+        self.assertTrue(result["openInNewTab"])
         session.close.assert_called_once_with()
 
     def test_same_key_is_never_sent_twice(self):
