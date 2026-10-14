@@ -39,7 +39,7 @@ class NativeWebSessionBridgeTests(unittest.TestCase):
                 h = Handler(ROUTE, "POST", {}, headers=headers)
                 with patch.object(customer_http.customer_accounts, "issue_session") as create:
                     customer_http.handle(h)
-                    self.assertEqual(h.response["status"], 401)
+                    self.assertEqual(h.response["status"], 403 if "Cookie" in headers else 401)
                     create.assert_not_called()
 
     def test_browser_origin_csrf_cookie_and_payload_injection_rejected(self):
