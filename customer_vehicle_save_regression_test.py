@@ -47,7 +47,8 @@ class CustomerVehicleSaveRegressionTest(unittest.TestCase):
     def test_dashboard_payload_is_saved_through_http_route(self):
         payload = {
             "vehicleId": "", "registrationSystem": "siv", "registration": "aa 123 aa",
-            "formulaNumber": "2020AB12345", "cardIssueDate": "", "characteristics": dict(CHARACTERISTICS),
+            "formulaNumber": "2020AB12345", "cardIssueDate": "",
+            "nextControlDate": "2027-10-14", "characteristics": dict(CHARACTERISTICS),
         }
         h = Handler("/api/customer/vehicles", "POST", payload, headers={"X-CheckupAuto-Customer-CSRF": "c" * 64})
         with patch.object(http, "_account", return_value=("token", self.account)), \
@@ -56,6 +57,7 @@ class CustomerVehicleSaveRegressionTest(unittest.TestCase):
         self.assertEqual(h.response["status"], 201, h.response)
         self.assertTrue(h.response["json"]["ok"])
         self.assertEqual(h.response["json"]["vehicles"][0]["characteristics"]["model"], "208")
+        self.assertEqual(h.response["json"]["vehicles"][0]["nextControlDate"], "2027-10-14")
 
 
 if __name__ == "__main__":

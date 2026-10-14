@@ -48,14 +48,20 @@ async def run(browser_name):
             await page.locator('#vehicleModel').select_option(label='208');await page.locator('#vehicleEnergy').select_option(label='Essence')
             assert await page.locator('#vehicleModel option').count()==2, 'generic model leaked'
             await page.locator('#vehicleRegistration').fill('ab123cd');await page.locator('#vehicleFormulaNumber').fill('2020AB12345')
+            assert await page.locator('#vehicleSave').is_disabled(), 'CT date must be mandatory'
+            await page.locator('#vehicleNextControlDate').fill('31/02/2027')
+            assert await page.locator('#vehicleSave').is_disabled(), 'impossible CT date accepted'
+            await page.locator('#vehicleNextControlDate').fill('14/10/2027')
             await page.locator('.vehicle-optional > summary').click();await page.locator('#vehicleType').fill('VL')
             await page.locator('#vehicleSave').click();await page.wait_for_function("document.querySelector('#vehicleStatus').textContent==='Véhicule enregistré.'")
             assert len(requests)==1 and requests[0]['characteristics']['vehicleType']=='VL',requests
             assert requests[0]['characteristics']['model']=='208',requests
+            assert requests[0]['nextControlDate']=='2027-10-14',requests
             await page.get_by_role('button',name='Modifier',exact=True).click()
             await page.wait_for_function("document.querySelector('#vehicleId').value!==''")
             assert await page.locator('#vehicleModel').input_value()=='208'
             assert await page.locator('#vehicleType').input_value()=='VL'
+            assert await page.locator('#vehicleNextControlDate').input_value()=='14/10/2027'
             # An obsolete failing request must not destroy the later brand's model list.
             slow_failure=True
             await page.locator('#vehicleBrand').select_option(label='PEUGEOT')
@@ -67,8 +73,10 @@ async def run(browser_name):
             # FNI uses the issue date, not a retained formula number.
             await page.locator('#vehicleRegistrationSystem').select_option('fni')
             await page.locator('#vehicleRegistration').fill('1234ab78');await page.locator('#vehicleCardIssueDate').fill('2005-01-01')
+            await page.locator('#vehicleNextControlDate').fill('29/02/2028')
             await page.locator('#vehicleSave').click();await page.wait_for_function("document.querySelector('#vehicleStatus').textContent==='Véhicule enregistré.'")
             assert len(requests)==2 and requests[1]['formulaNumber']=='' and requests[1]['cardIssueDate']=='2005-01-01',requests
+            assert requests[1]['nextControlDate']=='2028-02-29',requests
             outage=True;await page.locator('#vehicleReferencesRetry').click()
             await page.wait_for_function("document.querySelector('#vehicleBrand').disabled")
             assert await page.locator('#vehicleSave').is_disabled()

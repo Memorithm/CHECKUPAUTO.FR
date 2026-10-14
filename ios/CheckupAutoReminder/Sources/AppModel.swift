@@ -216,6 +216,28 @@ final class AppModel: ObservableObject {
             let vehicles = try await CustomerAccountAPI.fetchOwnedVehicles()
             guard CustomerSessionKeychain.load() == originalToken else { return }
             accountVehicles = vehicles
+            // The account's date is authoritative for an already-linked car;
+            // keep device-only reminders but realign their CT-based schedule.
+            let accountDueDates = Dictionary(
+                uniqueKeysWithValues: vehicles.compactMap { vehicle -> (String, Date)? in
+                    guard let due = vehicle.nextControlDueDate else { return nil }
+                    return (vehicle.registration, due)
+                }
+            )
+            var changed = false
+            for index in self.vehicles.indices {
+                let registration = self.vehicles[index].registration
+                if let due = accountDueDates[registration],
+                   !Calendar.current.isDate(self.vehicles[index].controlDueDate, inSameDayAs: due) {
+                    self.vehicles[index].controlDueDate = due
+                    changed = true
+                }
+            }
+            if changed {
+                self.vehicles.sort { $0.controlDueDate < $1.controlDueDate }
+                persist()
+                await rescheduleAll()
+            }
         } catch CustomerAccountAPIError.sessionExpired {
             if CustomerSessionKeychain.load() == originalToken { signOutCustomer() }
         } catch {
@@ -281,7 +303,7 @@ final class AppModel: ObservableObject {
                     }
                     try await scheduler.rescheduleCustom(vehicle)
                     if let date = reminderAt {
-                        localReminderNotice = "Rappel programmé le " + date.formatted(date: .abbreviated, time: .shortened)
+                        localReminderNotice = "Rappel programmé le " + frenchDateTime(date)
                     }
                 } catch {
                     errorMessage = "Le véhicule est enregistré, mais les rappels n’ont pas pu être programmés."
@@ -309,7 +331,7 @@ final class AppModel: ObservableObject {
                 }
                 try await scheduler.scheduleTest(at: date)
                 errorMessage = nil
-                localReminderNotice = "Test programmé le " + date.formatted(date: .abbreviated, time: .shortened)
+                localReminderNotice = "Test programmé le " + frenchDateTime(date)
             } catch {
                 errorMessage = "Test non programmé : " + error.localizedDescription
             }
@@ -608,10 +630,24 @@ final class AppModel: ObservableObject {
             ?? URL(string: "https://www.checkupauto.fr/compte#ct-report")!)
     }
 
+    private func frenchDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "dd/MM/yyyy 'à' HH:mm"
+        return formatter.string(from: date)
+    }
+
     var nextControlDueDate: Date? {
-        let local = vehicles.map(\.controlDueDate)
+        let account = accountVehicles.compactMap(\.nextControlDueDate)
+        let accountPlatesWithDueDate = Set(
+            accountVehicles.filter { $0.nextControlDueDate != nil }.map(\.registration)
+        )
+        let local = vehicles
+            .filter { !accountPlatesWithDueDate.contains($0.registration) }
+            .map(\.controlDueDate)
         let authoritative = authoritativeVehicles.compactMap(\.dueDateValue)
-        return (local + authoritative).min()
+        return (account + local + authoritative).min()
     }
 
     var totalReferralBalanceCents: Int {

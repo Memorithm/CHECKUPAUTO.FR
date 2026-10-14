@@ -239,6 +239,24 @@ def _card_issue_date(value: object) -> str:
     return parsed.isoformat()
 
 
+def _next_control_date(value: object) -> str:
+    """Validate a date-only due date in canonical ISO form, not a timestamp.
+
+    An overdue inspection is still a valid due date and must not disappear.
+    Frontends display this value in the French JJ/MM/AAAA format.
+    """
+    raw = str(value or "").strip()
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", raw):
+        raise CustomerAccountError("customer_vehicle_next_control_date_invalid")
+    try:
+        parsed = dt.date.fromisoformat(raw)
+    except ValueError as exc:
+        raise CustomerAccountError("customer_vehicle_next_control_date_invalid") from exc
+    if parsed < dt.date(1900, 1, 1):
+        raise CustomerAccountError("customer_vehicle_next_control_date_invalid")
+    return parsed.isoformat()
+
+
 def _vehicle_id(value: object) -> str:
     raw=str(value or "").strip().lower()
     try:
@@ -271,6 +289,7 @@ def _vehicle_summary(item: dict) -> dict:
         "registration":str(item.get("registration") or ""),
         "formulaNumberPresent":bool(item.get("formulaNumber")),
         "cardIssueDate":str(item.get("cardIssueDate") or ""),
+        "nextControlDate":str(item.get("nextControlDate") or ""),
         "updatedAt":str(item.get("updatedAt") or ""),
         "characteristics":dict(item.get("characteristics") or {}),
     }
@@ -677,6 +696,7 @@ def save_vehicle(
     card_issue_date: object = "",
     vehicle_id: object = "",
     characteristics: object = None,
+    next_control_date: object = None,
 ) -> dict:
     account_id=_account_id(account_id)
     try:
@@ -686,6 +706,9 @@ def save_vehicle(
     system=_registration_system(registration_system)
     normalized_registration=_registration(registration,system)
     wanted_vehicle_id=_vehicle_id(vehicle_id) if str(vehicle_id or "").strip() else ""
+    # Legacy booking enrollment has no CT date. Authenticated account forms
+    # require this field; None here keeps older booking flows operational.
+    due_date = _next_control_date(next_control_date) if next_control_date is not None else None
     if system=="siv":
         formula=_formula_number(formula_number)
         issued=""
@@ -755,6 +778,8 @@ def save_vehicle(
             "cardIssueDate":issued,
             "updatedAt":now,
         })
+        if due_date is not None:
+            existing["nextControlDate"]=due_date
         if normalized_characteristics is not None:
             existing["characteristics"]=normalized_characteristics
         current["vehicles"]=vehicles

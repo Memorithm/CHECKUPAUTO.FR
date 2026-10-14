@@ -205,10 +205,14 @@ class CustomerHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h))
         body=h.response["data"].decode()
         self.assertIn("TABLEAU DE BORD CLIENT",body)
-        self.assertIn("5.00 €",body)
-        self.assertIn("Code TEST-1234",body)
-        self.assertIn("Rattacher à l’app iOS",body)
-        self.assertIn('id="ct-report"',body)
+        self.assertIn("<h2>Rendez-vous</h2>",body)
+        self.assertNotIn("5.00 €",body)
+        self.assertNotIn("Code TEST-1234",body)
+        self.assertNotIn("Rattacher à l’app iOS",body)
+        self.assertNotIn('id="ct-report"',body)
+        self.assertNotIn("PARRAINAGE",body)
+        self.assertNotIn("FIDÉLITÉ",body)
+        self.assertNotIn("Rapport de contrôle technique</strong>",body)
         self.assertIn('href="/#reservation">Réserver un contrôle',body)
         self.assertRegex(body,r'href="#mes-vehicules">.*?Mes véhicules</a>')
         self.assertRegex(body,r'href="/contact">.*?Nous contacter</a>')
@@ -222,7 +226,7 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Adresse",body)
         self.assertIn("Code postal",body)
         self.assertIn("Ville",body)
-        self.assertIn('Consulter mes rendez-vous Mercure',body)
+        self.assertNotIn('Consulter mes rendez-vous Mercure',body)
         self.assertNotIn('Réserver ou consulter mes rendez-vous sur le planning actuel',body)
         self.assertIn('nonce="',body)
         self.assertTrue(h._csp_nonce)
@@ -243,6 +247,8 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Vos véhicules enregistrés",body)
         self.assertIn('id="vehicleList"',body)
         self.assertIn('id="vehicleForm"',body)
+        self.assertIn('id="vehicleNextControlDate"',body)
+        self.assertIn("JJ/MM/AAAA",body)
         self.assertIn("AA-123-AA",body)
         self.assertIn("Numéro de formule",body)
         self.assertIn("Réserver un contrôle",body)
@@ -264,6 +270,7 @@ class CustomerHttpTest(unittest.TestCase):
         payload={
             "vehicleId":"","registrationSystem":"siv","registration":"aa 123 aa",
             "formulaNumber":"2020AB12345","cardIssueDate":"",
+            "nextControlDate":"2027-10-14",
         }
         saving=Handler("/api/customer/vehicles","POST",payload,headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
         with patch.object(http,"_account",return_value=("token",self.account())), \
@@ -276,6 +283,7 @@ class CustomerHttpTest(unittest.TestCase):
         save.assert_called_once_with(
             self.account()["accountId"],vehicle_id="",registration_system="siv",
             registration="aa 123 aa",formula_number="2020AB12345",card_issue_date="",
+            next_control_date="2027-10-14",
         )
 
         deleting=Handler("/api/customer/vehicles/delete","POST",{"vehicleId":vehicle["vehicleId"]},headers={"X-CheckupAuto-Customer-CSRF":"c"*64})
