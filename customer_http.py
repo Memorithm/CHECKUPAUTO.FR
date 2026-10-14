@@ -1329,7 +1329,8 @@ def handle(handler) -> bool:
         try:
             payload=_json_body(handler)
             expected={"registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate","characteristics"}
-            if set(payload)!=expected or not isinstance(payload.get("characteristics"),dict):
+            if (set(payload)!=expected or not isinstance(payload.get("characteristics"),dict)
+                    or not isinstance(payload.get("nextControlDate"),str)):
                 raise ValueError("customer_vehicle_payload_invalid")
             if set(payload["characteristics"])!={"brand","model","energy"}:
                 raise ValueError("customer_vehicle_payload_invalid")
@@ -1563,7 +1564,9 @@ def handle(handler) -> bool:
                 removed=customer_accounts.delete_vehicle(account_id,payload.get("vehicleId"))
                 handler.send_json({"ok":True,"removed":removed,"vehicles":customer_accounts.list_vehicles(account_id)})
             else:
-                if not {"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate"} <= set(payload) or set(payload)-{"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate","characteristics"}:
+                if (not {"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate"} <= set(payload)
+                        or set(payload)-{"vehicleId","registrationSystem","registration","formulaNumber","cardIssueDate","nextControlDate","characteristics"}
+                        or not isinstance(payload.get("nextControlDate"),str)):
                     raise ValueError
                 vehicle=customer_accounts.save_vehicle(
                     account_id,
