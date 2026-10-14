@@ -799,6 +799,25 @@ def record_checkout_acceptance(
     return _checkout_acceptance_row(row)
 
 
+
+def checkout_acceptance_for_token(
+    booking_token: str, db_path: Path | str | None = None
+) -> dict | None:
+    """Read the unfinalized explicit terms evidence, never create acceptance.
+
+    A pre-Mercure payment must not infer consent from a browser flag or a
+    subsequent provider confirmation. The caller still verifies the current
+    published terms and that the booking intent matches the account/slot.
+    """
+    digest = _checkout_token_hash(booking_token)
+    with connect(db_path) as db:
+        row = db.execute(
+            "SELECT * FROM checkout_acceptance_intents WHERE booking_token_hash=?",
+            (digest,),
+        ).fetchone()
+    return _checkout_acceptance_row(row) if row else None
+
+
 CONTRACT_ACCEPTANCE_SOURCES = {
     "mercure_contract_confirmation",
     "staging_synthetic_mercure_contract_confirmation",
