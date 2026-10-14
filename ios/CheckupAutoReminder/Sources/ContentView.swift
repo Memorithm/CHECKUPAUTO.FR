@@ -19,6 +19,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
     @State private var showingNativeAccount = false
+    @State private var showingCentreGPS = false
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
     @State private var browserDestination: BrowserDestination?
@@ -133,6 +134,7 @@ struct ContentView: View {
                 NativeCustomerAccountView()
                     .environmentObject(model)
             }
+            .centreGPSChoice(isPresented: $showingCentreGPS)
             .sheet(isPresented: $showingAddVehicle) {
                 AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate, reminderAt in
                     model.add(registration: registration, name: name, dueDate: dueDate, reminderAt: reminderAt)
@@ -255,6 +257,37 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("premium-direct-booking")
+
+            Button {
+                showingCentreGPS = true
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "location.north.circle")
+                        .font(.title2)
+                        .foregroundStyle(CheckupTheme.accent)
+                        .frame(width: 42, height: 42)
+                        .background(CheckupTheme.soft, in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Itinéraire vers le centre")
+                            .font(.headline)
+                            .foregroundStyle(CheckupTheme.ink)
+                        Text("1E rue Niépce · 78130 Les Mureaux")
+                            .font(.caption)
+                            .foregroundStyle(CheckupTheme.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .foregroundStyle(CheckupTheme.accent)
+                }
+                .padding(16)
+                .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(CheckupTheme.line)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-journey-gps-choice")
 
             Button {
                 showingNativeAccount = true

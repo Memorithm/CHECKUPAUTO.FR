@@ -9,8 +9,8 @@ configs:
 settings:
   base:
     SWIFT_VERSION: 5.10
-    CURRENT_PROJECT_VERSION: 17
-    MARKETING_VERSION: 0.3.14
+    CURRENT_PROJECT_VERSION: 18
+    MARKETING_VERSION: 0.3.15
     CHECKUPAUTO_ENVIRONMENT: production
   configs:
     Debug:
@@ -36,6 +36,11 @@ targets:
       properties:
         CheckupAutoEnvironment: "$(CHECKUPAUTO_ENVIRONMENT)"
         CFBundleDisplayName: Checkup Auto
+        NSCameraUsageDescription: "Photographier votre procès-verbal de contrôle technique pour l’analyser dans votre espace client."
+        NSPhotoLibraryUsageDescription: "Importer une image de votre procès-verbal dans votre espace client."
+        LSApplicationQueriesSchemes:
+          - waze
+          - comgooglemaps
         NSSupportsLiveActivities: true
         CFBundleURLTypes:
           - CFBundleURLName: fr.checkupauto.reminder.auth

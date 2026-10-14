@@ -14,6 +14,8 @@ let package = Package(
             exclude: [
                 "AddVehicleView.swift", "AppModel.swift", "CheckupAutoReminderApp.swift",
                 "ContentView.swift", "PremiumWelcomeView.swift", "NativeCustomerAccountView.swift",
+                "NativeDashboardBridge.swift", "AuthenticatedCustomerDashboardWebView.swift",
+                "CentreGPSChoice.swift",
                 "CustomerAuthenticationOptions.swift", "EmailAccountView.swift",
                 "EmailCustomerAuth.swift", "InAppBrowserView.swift",
                 "ReminderScheduler.swift", "PrivacyInfo.xcprivacy"

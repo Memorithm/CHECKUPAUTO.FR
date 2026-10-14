@@ -96,7 +96,9 @@ class NativeIOSSessionContracts(unittest.TestCase):
         self.assertNotIn("openInApp(model.accountURL)", content)
         self.assertIn("showingNativeAccount = true", content)
         self.assertIn("NativeCustomerAccountView()", content)
-        self.assertIn("model.accountProfile", native)
+        self.assertIn("AuthenticatedCustomerDashboardWebView(", native)
+        self.assertIn("NativeDashboardBridge.createBrowserCookie()", native)
+        # The website now owns the precise account/profile presentation.
         self.assertNotIn("SFSafariViewController", native)
         self.assertNotIn('"/compte"', native)
         self.assertIn('MobileAPI.directMercureBookingURL', content)
