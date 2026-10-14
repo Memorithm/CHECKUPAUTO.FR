@@ -116,4 +116,50 @@ jobs:
           set -euo pipefail
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
           xcodegen generate
-          xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16 Pro' CODE_SIGNING_ALLOWED=NO
+          # GitHub-hosted macOS images may contain the iOS SDK without an
+          # installed simulator runtime (or without an iPhone 16 Pro device).
+          # Never mark Xcode CI green by replacing simulator tests with a build.
+          find_iphone() {
+            xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          groups = json.load(sys.stdin).get("devices", {})
+          for _, devices in sorted(groups.items(), reverse=True):
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      sys.exit(0)
+          '
+          }
+          simulator_id="$(find_iphone)"
+          if [[ -z "$simulator_id" ]]; then
+            echo "::notice::No installed iPhone simulator. Downloading the iOS simulator runtime."
+            xcodebuild -downloadPlatform iOS
+            simulator_id="$(find_iphone)"
+          fi
+          if [[ -z "$simulator_id" ]]; then
+            runtime_id="$(xcrun simctl list runtimes --json | python3 -c '
+          import json, sys
+          runtimes = [
+              entry for entry in json.load(sys.stdin).get("runtimes", [])
+              if entry.get("isAvailable") and ".iOS-" in entry.get("identifier", "")
+          ]
+          runtimes.sort(key=lambda entry: tuple(int(x) for x in entry.get("version", "0").split(".")), reverse=True)
+          if runtimes:
+              print(runtimes[0]["identifier"])
+          ')"
+            device_type="$(xcrun simctl list devicetypes --json | python3 -c '
+          import json, sys
+          types = [
+              entry for entry in json.load(sys.stdin).get("devicetypes", [])
+              if entry.get("name", "").startswith("iPhone")
+          ]
+          if types:
+              print(types[-1]["identifier"])
+          ')"
+            test -n "$runtime_id"
+            test -n "$device_type"
+            simulator_id="$(xcrun simctl create "CheckupAuto-CI-iPhone" "$device_type" "$runtime_id")"
+          fi
+          test -n "$simulator_id"
+          echo "CHECKUPAUTO_SIMULATOR_ID=$simulator_id"
+          xcodebuild test -project CheckupAutoReminder.xcodeproj -scheme CheckupAutoReminder -configuration Debug -destination "platform=iOS Simulator,id=$simulator_id" CODE_SIGNING_ALLOWED=NO
