@@ -14,6 +14,7 @@ struct AuthenticatedCustomerDashboardWebView: UIViewRepresentable {
     let onClaim: (URL) -> Void
     let onSessionExpired: () -> Void
     let onNavigationBlocked: () -> Void
+    let onReportDownload: (URL) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -57,8 +58,9 @@ struct AuthenticatedCustomerDashboardWebView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         private let parent: AuthenticatedCustomerDashboardWebView
+        private var reportFiles: [ObjectIdentifier: URL] = [:]
 
         init(parent: AuthenticatedCustomerDashboardWebView) {
             self.parent = parent
@@ -135,6 +137,93 @@ struct AuthenticatedCustomerDashboardWebView: UIViewRepresentable {
                 webView.load(navigationAction.request)
             }
             return nil
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        ) {
+            guard let http = navigationResponse.response as? HTTPURLResponse,
+                  let url = http.url, isFirstParty(url) else {
+                decisionHandler(.cancel)
+                return
+            }
+            let attachment = http.value(forHTTPHeaderField: "Content-Disposition")?
+                .lowercased().contains("attachment") == true
+            if attachment, url.path.hasPrefix("/api/customer/reports/"),
+               URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.contains(where: { $0.name == "format" && $0.value == "md" }) == true {
+                decisionHandler(.download)
+            } else {
+                decisionHandler(.allow)
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            navigationResponse: WKNavigationResponse,
+            didBecome download: WKDownload
+        ) {
+            download.delegate = self
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            navigationAction: WKNavigationAction,
+            didBecome download: WKDownload
+        ) {
+            download.delegate = self
+        }
+
+        func download(
+            _ download: WKDownload,
+            decideDestinationUsing response: URLResponse,
+            suggestedFilename: String,
+            completionHandler: @escaping (URL?) -> Void
+        ) {
+            guard let source = response.url, isFirstParty(source),
+                  source.path.hasPrefix("/api/customer/reports/"),
+                  suggestedFilename.range(
+                    of: #"^rapport-[0-9a-f-]{36}\.md$"#,
+                    options: .regularExpression
+                  ) != nil else {
+                completionHandler(nil)
+                parent.onNavigationBlocked()
+                return
+            }
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("checkupauto-report-" + UUID().uuidString, isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(
+                    at: folder, withIntermediateDirectories: false,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                let destination = folder.appendingPathComponent(suggestedFilename)
+                reportFiles[ObjectIdentifier(download)] = destination
+                completionHandler(destination)
+            } catch {
+                completionHandler(nil)
+                parent.onNavigationBlocked()
+            }
+        }
+
+        func downloadDidFinish(_ download: WKDownload) {
+            guard let url = reportFiles.removeValue(forKey: ObjectIdentifier(download)) else {
+                return
+            }
+            parent.onReportDownload(url)
+        }
+
+        func download(
+            _ download: WKDownload,
+            didFailWithError error: Error,
+            resumeData: Data?
+        ) {
+            if let url = reportFiles.removeValue(forKey: ObjectIdentifier(download)) {
+                try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            }
+            parent.onNavigationBlocked()
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
