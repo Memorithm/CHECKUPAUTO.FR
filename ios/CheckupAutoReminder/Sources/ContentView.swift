@@ -18,6 +18,7 @@ private struct BrowserDestination: Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingAddVehicle = false
+    @State private var localVehicleToLink: VehicleDeadline?
     @State private var showingNativeAccount = false
     @State private var showingCentreGPS = false
     @State private var showingDeleteConfirmation = false
@@ -136,10 +137,11 @@ struct ContentView: View {
             }
             .centreGPSChoice(isPresented: $showingCentreGPS)
             .sheet(isPresented: $showingAddVehicle) {
-                AddVehicleView(isPresented: $showingAddVehicle) { registration, name, dueDate, reminderAt in
+                AddVehicleView(isPresented: $showingAddVehicle, localVehicleToLink: localVehicleToLink) { registration, name, dueDate, reminderAt in
                     model.add(registration: registration, name: name, dueDate: dueDate, reminderAt: reminderAt)
                 }
                 .environmentObject(model)
+                .onDisappear { localVehicleToLink = nil }
             }
             .fullScreenCover(item: $browserDestination) { destination in
                 InAppBrowserView(url: destination.url)
@@ -326,7 +328,7 @@ struct ContentView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 8) {
                     if let date = model.nextControlDueDate {
-                        Text(date, format: .dateTime.day().month(.wide).year())
+                        Text(date, format: .dateTime.day().month(.wide).year().locale(Locale(identifier: "fr_FR")))
                             .font(.system(size: 28, weight: .regular, design: .serif))
                             .foregroundStyle(CheckupTheme.ink)
                         Text(daysLabel(until: date))
@@ -418,8 +420,20 @@ struct ContentView: View {
                         }
                     }
                     Spacer()
-                    Image(systemName: "checkmark.shield")
-                        .foregroundStyle(CheckupTheme.accent)
+                    Menu {
+                        Button("Modifier dans l’espace client", systemImage: "pencil") {
+                            showingNativeAccount = true
+                        }
+                        Button("Supprimer dans l’espace client", systemImage: "trash") {
+                            showingNativeAccount = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.title3)
+                            .foregroundStyle(CheckupTheme.muted)
+                    }
+                    .accessibilityLabel("Actions pour " + vehicle.registration)
+                    .accessibilityIdentifier("account-vehicle-actions")
                 }
                 .padding(16)
                 .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 20))
@@ -448,6 +462,10 @@ struct ContentView: View {
                     appointmentAt: nil,
                     reminderAt: vehicle.localReminderAt,
                     verified: false,
+                    linkToAccount: model.customerSignedIn ? {
+                        localVehicleToLink = vehicle
+                        showingAddVehicle = true
+                    } : nil,
                     remove: { vehiclePendingDeletion = vehicle }
                 )
             }
@@ -511,6 +529,7 @@ struct ContentView: View {
         appointmentAt: Date?,
         reminderAt: Date?,
         verified: Bool,
+        linkToAccount: (() -> Void)? = nil,
         remove: (() -> Void)?
     ) -> some View {
         HStack(spacing: 14) {
@@ -527,6 +546,11 @@ struct ContentView: View {
                 Text(registration)
                     .font(.caption.monospaced())
                     .foregroundStyle(CheckupTheme.muted)
+                if !verified {
+                    Text("Sur cet iPhone uniquement · non synchronisé")
+                        .font(.caption2)
+                        .foregroundStyle(CheckupTheme.muted)
+                }
                 if let appointmentAt {
                     Label(
                         "Rendez-vous : " + appointmentAt.formatted(date: .abbreviated, time: .shortened),
@@ -554,14 +578,22 @@ struct ContentView: View {
 
             Spacer()
 
-            if let remove {
+            if remove != nil || linkToAccount != nil {
                 Menu {
-                    Button("Supprimer de l’iPhone", role: .destructive, action: remove)
+                    if let linkToAccount {
+                        Button("Associer à mon compte", systemImage: "arrow.triangle.2.circlepath") {
+                            linkToAccount()
+                        }
+                    }
+                    if let remove {
+                        Button("Supprimer de l’iPhone", role: .destructive, action: remove)
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)
                         .foregroundStyle(CheckupTheme.muted)
                 }
+                .accessibilityLabel("Actions pour " + registration)
             }
         }
         .padding(16)
