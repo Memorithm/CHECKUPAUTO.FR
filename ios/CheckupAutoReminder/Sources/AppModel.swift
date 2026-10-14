@@ -247,6 +247,7 @@ final class AppModel: ObservableObject {
     }
 
     func signOutCustomer() {
+        NativeDashboardBridge.invalidate()
         CustomerSessionKeychain.clear()
         accountVehicles = []
         accountProfile = nil
