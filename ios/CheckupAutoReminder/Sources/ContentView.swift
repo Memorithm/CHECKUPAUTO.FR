@@ -148,6 +148,13 @@ struct ContentView: View {
                     .ignoresSafeArea()
             }
         }
+        .task(id: model.customerSignedIn) {
+            if model.customerSignedIn {
+                // Prepare the scoped HttpOnly WebKit session while the user is
+                // already on the home screen; account opening then skips POST.
+                await NativeDashboardBridge.prewarm()
+            }
+        }
         .tint(CheckupTheme.accent)
     }
 
