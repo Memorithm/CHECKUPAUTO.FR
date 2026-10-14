@@ -419,7 +419,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <label>Immatriculation<input id="vehicleRegistration" maxlength="32" autocomplete="off" placeholder="AA-123-AA" aria-describedby="vehicleRegistrationFeedback" required><span id="vehicleRegistrationFeedback" class="vehicle-input-feedback" aria-live="polite"></span></label>
 <label id="vehicleFormulaLabel">Numéro de formule<input id="vehicleFormulaNumber" maxlength="11" autocomplete="off" placeholder="2020AB12345" aria-describedby="vehicleFormulaFeedback vehicleFormulaGuideSummary"><span id="vehicleFormulaFeedback" class="vehicle-input-feedback" aria-live="polite"></span><span class="hint">Champ obligatoire pour une carte grise SIV. Le numéro complet n’est jamais réaffiché.</span></label>
 <label id="vehicleCardIssueLabel" hidden>Date d’établissement de la carte grise<input id="vehicleCardIssueDate" aria-describedby="vehicleDateGuideSummary" type="date" lang="fr-FR"></label>
-<label>Date du prochain contrôle technique (obligatoire · JJ/MM/AAAA)<input id="vehicleNextControlDate" type="text" inputmode="numeric" maxlength="10" autocomplete="off" placeholder="JJ/MM/AAAA" pattern="[0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}" aria-describedby="vehicleNextControlHelp" required><span class="hint" id="vehicleNextControlHelp">Cette date est enregistrée dans votre compte et synchronisée avec l’application.</span></label>
+<label>Date du prochain contrôle technique (obligatoire · JJ/MM/AAAA)<input id="vehicleNextControlDate" type="text" inputmode="numeric" maxlength="10" autocomplete="off" placeholder="JJ/MM/AAAA" pattern="[0-9]{{2}}/[0-9]{{2}}/[0-9]{{4}}" aria-describedby="vehicleNextControlHelp" required><span class="hint" id="vehicleNextControlHelp">Tapez uniquement les 8 chiffres du jour, du mois et de l’année : les / s’ajoutent automatiquement. Cette date est synchronisée avec l’application.</span></label>
 <fieldset class="vehicle-essentials"><legend>Caractéristiques du véhicule</legend>
 <label>Marque<select id="vehicleBrand" required><option value="">Chargement des marques…</option></select></label>
 <label>Modèle<select id="vehicleModel" required disabled><option value="">Sélectionnez une marque</option></select></label>
@@ -492,7 +492,32 @@ const selectedBrandId=()=>{{const match=mercureBrands.filter(item=>item.label===
 const vehicleSelectorsValid=()=>!modelLoading && !!selectedBrandId() && loadedModelBrand===selectedBrandId() && mercureModels.filter(item=>item.label===vehicleModelSelect.value).length===1 && mercureEnergies.filter(item=>item.label===vehicleEnergySelect.value).length===1;
 const parseFrenchControlDate=value=>{{const match=/^([0-9]{{2}})\/([0-9]{{2}})\/([0-9]{{4}})$/.exec(value.trim());if(!match)return '';const iso=match[3]+'-'+match[2]+'-'+match[1];const parsed=new Date(iso+'T00:00:00Z');return Number(match[3])>=1900&&!Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===iso?iso:'';}};
 const syncVehicleSave=()=>{{vehicleSave.disabled=vehicleSaving||!vehicleSelectorsValid()||!parseFrenchControlDate(vehicleNextControlDate.value);}};
-vehicleNextControlDate.addEventListener('input',syncVehicleSave);
+const formatFrenchControlDate=value=>{{const digits=String(value||'').replace(/[^0-9]/g,'').slice(0,8);return digits.slice(0,2)+(digits.length>2?'/'+digits.slice(2,4):'')+(digits.length>4?'/'+digits.slice(4):'');}};
+const controlDateCaret=(formatted,digitsBefore)=>{{let position=0,seen=0;while(position<formatted.length&&seen<digitsBefore){{if(/[0-9]/.test(formatted[position]))++seen;++position;}}if(formatted[position]==='/')++position;return position;}};
+vehicleNextControlDate.addEventListener('beforeinput',event=>{{
+ if(!['deleteContentBackward','deleteContentForward'].includes(event.inputType)||!event.cancelable)return;
+ const field=vehicleNextControlDate,start=field.selectionStart,end=field.selectionEnd;
+ if(start===null||start!==end)return;
+ const backwards=event.inputType==='deleteContentBackward',slashIndex=backwards?start-1:start;
+ if(field.value[slashIndex]!=='/')return;
+ event.preventDefault();
+ const digits=field.value.replace(/[^0-9]/g,'');
+ const digitIndex=field.value.slice(0,slashIndex).replace(/[^0-9]/g,'').length-(backwards?1:0);
+ if(digitIndex<0||digitIndex>=digits.length)return;
+ const next=formatFrenchControlDate(digits.slice(0,digitIndex)+digits.slice(digitIndex+1));
+ field.value=next;
+ const caret=controlDateCaret(next,digitIndex);
+ field.setSelectionRange(caret,caret);
+ syncVehicleSave();
+}});
+vehicleNextControlDate.addEventListener('input',()=>{{
+ const field=vehicleNextControlDate,caret=field.selectionStart??field.value.length;
+ const digitsBefore=field.value.slice(0,caret).replace(/[^0-9]/g,'').length;
+ const formatted=formatFrenchControlDate(field.value);
+ field.value=formatted;
+ if(document.activeElement===field){{const position=controlDateCaret(formatted,digitsBefore);field.setSelectionRange(position,position);}}
+ syncVehicleSave();
+}});
 const loadVehicleModels=async (preferred='')=>{{
  const generation=++modelGeneration,brandId=selectedBrandId();
  loadedModelBrand='';mercureModels=[];modelLoading=!!brandId;
