@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import secrets
+import sys
 import subprocess
 import threading
 import time
@@ -18,6 +19,7 @@ import migration_write_freeze
 _BACKEND_LOCK = threading.RLock()
 _BACKEND_SERVER = None
 _BACKEND_THREAD = None
+_BACKEND_PID = None
 _PROXY_TOKEN = secrets.token_urlsafe(32)
 _PROVENANCE_LOCK = threading.RLock()
 _PROVENANCE_CACHE = (0.0, b"")
@@ -47,11 +49,23 @@ _INTERNAL_HEADERS = {
 
 
 def _ensure_backend() -> tuple[str, int]:
-    global _BACKEND_SERVER, _BACKEND_THREAD
+    global _BACKEND_SERVER, _BACKEND_THREAD, _BACKEND_PID
     with _BACKEND_LOCK:
+        pid = os.getpid()
         if _BACKEND_SERVER is not None:
-            host, port = _BACKEND_SERVER.server_address[:2]
-            return str(host), int(port)
+            if (_BACKEND_PID == pid and _BACKEND_THREAD is not None
+                    and _BACKEND_THREAD.is_alive()):
+                host, port = _BACKEND_SERVER.server_address[:2]
+                return str(host), int(port)
+            # Passenger may fork/recycle a worker after module import, or the
+            # loopback serving thread may have exited. Never reuse a stale port.
+            try:
+                _BACKEND_SERVER.server_close()
+            except OSError:
+                pass
+            _BACKEND_SERVER = None
+            _BACKEND_THREAD = None
+            _BACKEND_PID = None
 
         import admin_server
 
@@ -64,9 +78,14 @@ def _ensure_backend() -> tuple[str, int]:
             daemon=True,
             name="CheckupAutoPassengerBridge",
         )
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            server.server_close()
+            raise
         _BACKEND_SERVER = server
         _BACKEND_THREAD = thread
+        _BACKEND_PID = pid
         host, port = server.server_address[:2]
         return str(host), int(port)
 
@@ -312,13 +331,15 @@ def application(environ, start_response):
         if bootstrap is not None:
             return bootstrap
 
+        stage = "backend_start"
         host, port = _ensure_backend()
+        stage = "loopback_proxy"
         method = str(environ.get("REQUEST_METHOD") or "GET").upper()
         target = _request_target(environ)
         body = _request_body(environ)
         headers = _request_headers(environ)
 
-        connection = http.client.HTTPConnection(host, port, timeout=60)
+        connection = http.client.HTTPConnection(host, port, timeout=20)
         connection.request(method, target, body=body, headers=headers)
         response = connection.getresponse()
 
@@ -341,7 +362,15 @@ def application(environ, start_response):
             ],
         )
         return [payload]
-    except Exception:
+    except Exception as exc:
+        # Diagnostic without request paths, query strings, cookies, credentials
+        # or exception messages. OAuth state and PKCE must never enter logs.
+        print(
+            "CHECKUPAUTO_PASSENGER_BRIDGE_FAILURE"
+            f" stage={locals().get('stage', 'preflight')}"
+            f" class={type(exc).__name__}",
+            file=sys.stderr, flush=True,
+        )
         payload = b'{"ok":false,"error":"passenger_bridge_failed"}'
         start_response(
             "503 Service Unavailable",
