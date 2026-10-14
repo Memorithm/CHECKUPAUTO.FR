@@ -49,6 +49,69 @@ class PassengerWSGITest(unittest.TestCase):
     def setUp(self):
         FakeConnection.instances.clear()
 
+    def test_stale_loopback_thread_is_replaced_before_oauth_request(self):
+        old_server = mock.Mock()
+        old_server.server_address = ("127.0.0.1", 1234)
+        dead_thread = mock.Mock()
+        dead_thread.is_alive.return_value = False
+        new_server = mock.Mock()
+        new_server.server_address = ("127.0.0.1", 5678)
+        new_thread = mock.Mock()
+        new_thread.is_alive.return_value = True
+        with mock.patch.multiple(
+            wsgi, _BACKEND_SERVER=old_server, _BACKEND_THREAD=dead_thread,
+            _BACKEND_PID=9999,
+        ), mock.patch("passenger_wsgi.os.getpid", return_value=9999), \
+             mock.patch("passenger_wsgi.admin_server", create=True) as ignored:
+            # admin_server is imported inside _ensure_backend; patch the real
+            # module's setup functions to avoid touching customer databases.
+            import admin_server
+            with mock.patch.object(admin_server, "configure_internal_proxy"), \
+                 mock.patch.object(admin_server, "initialize_runtime"), \
+                 mock.patch("passenger_wsgi.ThreadingHTTPServer", return_value=new_server), \
+                 mock.patch("passenger_wsgi.threading.Thread", return_value=new_thread), \
+                 mock.patch("passenger_wsgi.os.chdir"):
+                self.assertEqual(wsgi._ensure_backend(), ("127.0.0.1", 5678))
+                old_server.server_close.assert_called_once()
+                new_thread.start.assert_called_once()
+                self.assertEqual(wsgi._BACKEND_PID, 9999)
+
+    def test_live_loopback_is_reused_without_initializing_database(self):
+        server = mock.Mock()
+        server.server_address = ("127.0.0.1", 4455)
+        thread = mock.Mock()
+        thread.is_alive.return_value = True
+        with mock.patch.multiple(
+            wsgi, _BACKEND_SERVER=server, _BACKEND_THREAD=thread,
+            _BACKEND_PID=42,
+        ), mock.patch("passenger_wsgi.os.getpid", return_value=42), \
+             mock.patch("passenger_wsgi.ThreadingHTTPServer") as constructor:
+            self.assertEqual(wsgi._ensure_backend(), ("127.0.0.1", 4455))
+            constructor.assert_not_called()
+            server.server_close.assert_not_called()
+
+    def test_passenger_error_logs_no_sensitive_query_parameters(self):
+        captured = {}
+        def start(status, headers):
+            captured["status"] = status
+        with mock.patch("passenger_wsgi.migration_write_freeze.status",
+                        return_value={"active": False}), \
+             mock.patch("passenger_wsgi._ensure_backend",
+                        side_effect=RuntimeError("private Google state secret")), \
+             mock.patch("passenger_wsgi.sys.stderr", new_callable=io.StringIO) as log:
+            result = wsgi.application({
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": "/auth/customer/google",
+                "QUERY_STRING": "mobile=1&code_challenge=private-PKCE",
+            }, start)
+        self.assertEqual(captured["status"], "503 Service Unavailable")
+        self.assertEqual(b"".join(result),
+                         b'{"ok":false,"error":"passenger_bridge_failed"}')
+        self.assertIn("stage=backend_start", log.getvalue())
+        self.assertIn("class=RuntimeError", log.getvalue())
+        self.assertNotIn("private", log.getvalue())
+        self.assertNotIn("code_challenge", log.getvalue())
+
     def test_internal_headers_cannot_be_spoofed_by_request(self):
         headers = wsgi._request_headers({
             "REMOTE_ADDR": "203.0.113.42",
