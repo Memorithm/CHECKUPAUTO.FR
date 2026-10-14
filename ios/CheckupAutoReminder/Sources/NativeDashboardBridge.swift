@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import CryptoKit
 
 enum NativeDashboardBridgeError: Error {
     case noNativeSession
@@ -20,10 +21,73 @@ enum NativeDashboardBridge {
         let expiresIn: Int
     }
 
+    // In-memory only, bound to the current Keychain session. Avoid issuing a
+    // fresh server-side web session on every opening of the account sheet.
+    private static var cachedCookie: HTTPCookie?
+    private static var cachedFingerprint: Data?
+    private static var pendingCookie: Task<HTTPCookie, Error>?
+    private static var pendingFingerprint: Data?
+
+    static func invalidate() {
+        pendingCookie?.cancel()
+        pendingCookie = nil
+        pendingFingerprint = nil
+        cachedCookie = nil
+        cachedFingerprint = nil
+    }
+
+    static func prewarm() async {
+        // Best effort: authentication failures remain visible when the customer
+        // actually opens the account. No bearer or cookie is written to disk.
+        _ = try? await createBrowserCookie()
+    }
+
     static func createBrowserCookie() async throws -> HTTPCookie {
         guard let nativeToken = CustomerSessionKeychain.load(), !nativeToken.isEmpty else {
+            invalidate()
             throw NativeDashboardBridgeError.noNativeSession
         }
+        let fingerprint = Data(SHA256.hash(data: Data(nativeToken.utf8)))
+        if let cachedCookie, cachedFingerprint == fingerprint,
+           let expiry = cachedCookie.expiresDate,
+           expiry > Date().addingTimeInterval(120) {
+            return cachedCookie
+        }
+        if pendingFingerprint != fingerprint {
+            pendingCookie?.cancel()
+            pendingCookie = nil
+            pendingFingerprint = nil
+        }
+        if pendingCookie == nil {
+            pendingFingerprint = fingerprint
+            pendingCookie = Task {
+                try await issueBrowserCookie(nativeToken: nativeToken)
+            }
+        }
+        guard let pendingCookie else {
+            throw NativeDashboardBridgeError.invalidServerResponse
+        }
+        do {
+            let cookie = try await pendingCookie.value
+            guard CustomerSessionKeychain.load() == nativeToken else {
+                invalidate()
+                throw NativeDashboardBridgeError.expiredNativeSession
+            }
+            cachedCookie = cookie
+            cachedFingerprint = fingerprint
+            self.pendingCookie = nil
+            pendingFingerprint = nil
+            return cookie
+        } catch {
+            if pendingFingerprint == fingerprint {
+                self.pendingCookie = nil
+                pendingFingerprint = nil
+            }
+            throw error
+        }
+    }
+
+    private static func issueBrowserCookie(nativeToken: String) async throws -> HTTPCookie {
         let endpoint = MobileAPI.endpoint("/api/mobile/auth/web-session")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
