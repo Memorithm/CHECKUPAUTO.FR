@@ -6,6 +6,8 @@ on:
       - 'payment_*.py'
       - 'booking_bridge.py'
       - 'compliance_store.py'
+      - 'customer_booking_prepayment_quote.py'
+      - 'customer_booking_prepayment_quote_test.py'
       - 'mercure_admin_client.py'
       - 'admin/payments.*'
       - '.github/workflows/payment-ci.yml'
@@ -15,6 +17,8 @@ on:
       - 'payment_*.py'
       - 'booking_bridge.py'
       - 'compliance_store.py'
+      - 'customer_booking_prepayment_quote.py'
+      - 'customer_booking_prepayment_quote_test.py'
       - 'mercure_admin_client.py'
       - 'admin/payments.*'
       - '.github/workflows/payment-ci.yml'
@@ -70,6 +74,11 @@ jobs:
         run: |
           set -euo pipefail
           .payment-ci-venv/bin/python -m unittest -v             payment_checkout_test.py             payment_connectors_test.py             payment_payline_config_test.py             payment_payline_private_test.py             payment_payline_test.py             payment_payline_http_test.py             payment_payline_production_test.py             payment_state_machine_regression_test.py             payment_test_lab_test.py             payment_test_http_test.py             payment_contract_test.py             payment_contract_routes_test.py             payment_contract_csrf_test.py             payment_contract_frontend_test.py
+      - name: Verify pre-Mercure payment quote and consent guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          .payment-ci-venv/bin/python -m unittest -v customer_booking_prepayment_quote_test.py
       - name: Check payment JavaScript syntax
         shell: bash
         run: node --check admin/payments.js
