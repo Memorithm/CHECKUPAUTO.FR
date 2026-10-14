@@ -34,6 +34,7 @@ class NativeVehicleHttpTests(unittest.TestCase):
         return {
             "registrationSystem": "siv", "registration": plate,
             "formulaNumber": formula, "cardIssueDate": "",
+            "nextControlDate": "2027-10-14",
             "characteristics": {"brand": "Peugeot", "model": "208", "energy": "Essence"},
         }
 
@@ -81,12 +82,14 @@ class NativeVehicleHttpTests(unittest.TestCase):
         write.assert_called_once_with(
             "owned", registration_system="siv", registration="AA-123-AA",
             formula_number="2020AB12345", card_issue_date="",
+            next_control_date="2027-10-14",
             characteristics={"brand": "Peugeot", "model": "208", "energy": "Essence"},
         )
         self.assertEqual(handler.response["status"], 201)
         self.assertNotIn("formulaNumber", handler.response["json"]["vehicle"])
         self.assertNotIn("vin", str(handler.response["json"]["vehicle"]))
         self.assertNotIn("cardIssueDate", handler.response["json"]["vehicle"])
+        self.assertEqual(handler.response["json"]["vehicle"]["nextControlDate"], "")
 
     def test_references_require_session_and_cannot_fetch_unlisted_brand(self):
         unauthenticated = Handler(http.MOBILE_ACCOUNT_VEHICLE_REFERENCES_ROUTE, method="GET")
@@ -157,6 +160,7 @@ class NativeVehiclePersistenceTests(unittest.TestCase):
         self.assertEqual(site[0]["registration"], "AA-123-AA")
         self.assertEqual(site[0]["characteristics"]["model"], "208")
         self.assertTrue(site[0]["formulaNumberPresent"])
+        self.assertEqual(site[0]["nextControlDate"], "2027-10-14")
         self.assertNotIn("formulaNumber", handler.response["json"]["vehicle"])
         self.assertNotIn("2020AB12345", str(handler.response["json"]))
 
