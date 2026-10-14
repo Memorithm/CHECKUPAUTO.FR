@@ -61,15 +61,15 @@ class PassengerWSGITest(unittest.TestCase):
         with mock.patch.multiple(
             wsgi, _BACKEND_SERVER=old_server, _BACKEND_THREAD=dead_thread,
             _BACKEND_PID=9999,
-        ), mock.patch("passenger_wsgi.os.getpid", return_value=9999), \\
+        ), mock.patch("passenger_wsgi.os.getpid", return_value=9999), \
              mock.patch("passenger_wsgi.admin_server", create=True) as ignored:
             # admin_server is imported inside _ensure_backend; patch the real
             # module's setup functions to avoid touching customer databases.
             import admin_server
-            with mock.patch.object(admin_server, "configure_internal_proxy"), \\
-                 mock.patch.object(admin_server, "initialize_runtime"), \\
-                 mock.patch("passenger_wsgi.ThreadingHTTPServer", return_value=new_server), \\
-                 mock.patch("passenger_wsgi.threading.Thread", return_value=new_thread), \\
+            with mock.patch.object(admin_server, "configure_internal_proxy"), \
+                 mock.patch.object(admin_server, "initialize_runtime"), \
+                 mock.patch("passenger_wsgi.ThreadingHTTPServer", return_value=new_server), \
+                 mock.patch("passenger_wsgi.threading.Thread", return_value=new_thread), \
                  mock.patch("passenger_wsgi.os.chdir"):
                 self.assertEqual(wsgi._ensure_backend(), ("127.0.0.1", 5678))
                 old_server.server_close.assert_called_once()
@@ -84,7 +84,7 @@ class PassengerWSGITest(unittest.TestCase):
         with mock.patch.multiple(
             wsgi, _BACKEND_SERVER=server, _BACKEND_THREAD=thread,
             _BACKEND_PID=42,
-        ), mock.patch("passenger_wsgi.os.getpid", return_value=42), \\
+        ), mock.patch("passenger_wsgi.os.getpid", return_value=42), \
              mock.patch("passenger_wsgi.ThreadingHTTPServer") as constructor:
             self.assertEqual(wsgi._ensure_backend(), ("127.0.0.1", 4455))
             constructor.assert_not_called()
@@ -95,9 +95,9 @@ class PassengerWSGITest(unittest.TestCase):
         def start(status, headers):
             captured["status"] = status
         with mock.patch("passenger_wsgi.migration_write_freeze.status",
-                        return_value={"active": False}), \\
+                        return_value={"active": False}), \
              mock.patch("passenger_wsgi._ensure_backend",
-                        side_effect=RuntimeError("private Google state secret")), \\
+                        side_effect=RuntimeError("private Google state secret")), \
              mock.patch("passenger_wsgi.sys.stderr", new_callable=io.StringIO) as log:
             result = wsgi.application({
                 "REQUEST_METHOD": "GET",
