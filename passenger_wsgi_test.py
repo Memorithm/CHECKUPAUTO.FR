@@ -112,6 +112,27 @@ class PassengerWSGITest(unittest.TestCase):
         self.assertNotIn("private", log.getvalue())
         self.assertNotIn("code_challenge", log.getvalue())
 
+    def test_sqlite_failure_code_is_logged_without_private_error_message(self):
+        import sqlite3
+        captured = {}
+        def start(status, headers):
+            captured["status"] = status
+        error = sqlite3.OperationalError("database path /private/customer.sqlite is locked")
+        error.sqlite_errorname = "SQLITE_BUSY"
+        with mock.patch("passenger_wsgi.migration_write_freeze.status",
+                        return_value={"active": False}), \
+             mock.patch("passenger_wsgi._ensure_backend", side_effect=error), \
+             mock.patch("passenger_wsgi.sys.stderr", new_callable=io.StringIO) as log:
+            body = b"".join(wsgi.application({
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": "/auth/customer/google",
+            }, start))
+        self.assertEqual(captured["status"], "503 Service Unavailable")
+        self.assertIn(b"passenger_bridge_failed", body)
+        self.assertIn("sqlite=SQLITE_BUSY", log.getvalue())
+        self.assertNotIn("/private/", log.getvalue())
+        self.assertNotIn("customer.sqlite", log.getvalue())
+
     def test_internal_headers_cannot_be_spoofed_by_request(self):
         headers = wsgi._request_headers({
             "REMOTE_ADDR": "203.0.113.42",
