@@ -30,7 +30,7 @@ def cases():
         ("google-web", "/auth/customer/google", "GET", None, {302}),
         ("google-mobile", "/auth/customer/google?mobile=1&code_challenge=" + challenge, "GET", None, {302}),
         ("apple-web", "/auth/customer/apple", "GET", None, {302}),
-        ("providers", "/api/customer/auth/providers", "GET", None, {200}),
+        ("providers", "/api/customer/providers", "GET", None, {200}),
         ("bootstrap", "/api/mobile/bootstrap", "GET", None, {200}),
         ("web-session-no-bearer", "/api/mobile/auth/web-session", "POST", b"{}", {401}),
     ]
