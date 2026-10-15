@@ -7,9 +7,10 @@
 <title>CyberCheck — Checkup Auto</title>
 <meta name="description" content="Expérience immersive Checkup Auto — contrôle technique aux Mureaux.">
 <link rel="preload" as="image" href="/assets/illustrations/checkupauto-lavis-option2-1020.webp" imagesrcset="/assets/illustrations/checkupauto-lavis-option2-765.webp 765w, /assets/illustrations/checkupauto-lavis-option2-1020.webp 1020w, /assets/illustrations/checkupauto-lavis-option2-1530.webp 1530w" imagesizes="(max-width: 980px) 92vw, (min-width: 1600px) 900px, 56vw" fetchpriority="high">
-<link rel="stylesheet" href="/style.css?v=premium-lavis-20261008-1">
+<link rel="stylesheet" href="/style.css?v=premium-lavis-20261015-week1">
 <link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1">
-<link rel="stylesheet" href="/assets/booking-date-reference.css?v=20261008-1754"></head>
+<link rel="stylesheet" href="/assets/booking-date-reference.css?v=20261008-1754">
+<link rel="stylesheet" href="/assets/booking-week-desktop.css?v=20261015-1"></head>
 <body class="site-home premium-home">
 <div class="topline"><span>CHECKUP AUTO · LES MUREAUX</span><span><a id="phoneLink" href="tel:+33186046864">01 86 04 68 64</a></span><span>LA PRÉCISION EST UNE ATTENTION.</span></div>
 <header class="header">
@@ -47,9 +48,10 @@
 <button type="button" class="control-type-option" data-service="fitted" aria-pressed="false"><span><small>VÉHICULE AMÉNAGÉ / VASP</small><strong>Véhicule aménagé <b>90 €</b></strong><em>Ambulance · camping-car · food-truck…</em></span></button>
 </div>
 <select id="service" class="service-native" aria-label="Prestation sélectionnée"><option value="technical" data-service="technical">Contrôle technique</option><option value="fitted" data-service="fitted">Véhicule aménagé</option></select>
-<div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><span class="standard-price-value"><strong><span id="price">80</span> €</strong></span></div><div class="booking-date-field"><span class="booking-date-label">À PARTIR DU</span><div class="booking-date-control"><label for="bookingStartDate" class="booking-date-trigger"><svg class="booking-date-icon" aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M7 14h.01M12 14h.01M17 14h.01M7 18h.01M12 18h.01"/></svg><span class="booking-date-copy"><strong>Date de départ</strong><span class="booking-date-text">Choisir une date</span></span><svg class="booking-date-arrow" aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></label><input id="bookingStartDate" type="date" aria-label="Choisir la date de départ du planning"></div></div></div>
+<div class="booking-controls vehicle-booking-controls"><div class="price"><small>TARIF STANDARD</small><span class="standard-price-value"><strong><span id="price">80</span> €</strong></span></div><div class="booking-date-field"><span class="booking-date-label">À PARTIR DU</span><div class="booking-date-control"><button type="button" id="bookingDateTrigger" class="booking-date-trigger" aria-controls="bookingStartDate" aria-label="Ouvrir le calendrier pour choisir la date de départ"><svg class="booking-date-icon" aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M7 14h.01M12 14h.01M17 14h.01M7 18h.01M12 18h.01"/></svg><span class="booking-date-copy"><strong>Date de départ</strong><span class="booking-date-text">Choisir une date</span></span><svg class="booking-date-arrow" aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button><input id="bookingStartDate" type="date" tabindex="-1" aria-label="Choisir la date de départ du planning"></div></div></div>
 <div class="booking-step-title booking-slot-step"><span>2</span><div><small>CRÉNEAU DISPONIBLE</small><strong>Choisissez la date et l’heure.</strong></div></div><div class="booking-live-head"><div><strong>Disponibilités</strong><span id="bookingLiveStatus">Connexion à Mercure…</span></div><button type="button" id="bookingRefresh" class="planner-refresh">Actualiser</button></div>
 <p class="booking-scroll-hint">Faites défiler les jours horizontalement pour voir les autres créneaux.</p>
+<p id="bookingWeekCaption" class="booking-week-caption" aria-live="polite"></p>
 <div id="bookingDays" class="booking-days" aria-live="polite"><p class="booking-loading">Chargement des créneaux…</p></div>
 <div id="bookingSelection" class="booking-selection booking-awaiting"><div><small id="bookingSelectionKicker">3 / RÉSERVER</small><strong id="bookingSelectionLabel">Sélectionnez un créneau ci-dessus</strong><span id="bookingSelectionPrice">Le bouton Réserver s’active automatiquement après votre choix.</span></div><a id="bookingContinue" class="primary disabled" href="#bookingDays" aria-disabled="true">Choisissez un créneau pour réserver</a></div>
 <div class="booking-call-only"><div><small>AUTRES PRESTATIONS</small><strong>Vous ne trouvez pas votre prestation dans le planning&nbsp;?</strong><span>Les contrôles à 80 € et 90 € se réservent directement ci-dessus. Pour une visite pollution ou une prestation qui n’apparaît pas dans le planning, appelez le centre.</span></div><a id="bookingPhone" href="tel:+33186046864">Autre prestation ? Appeler →</a></div>
@@ -78,7 +80,7 @@
 
 <footer><span>© 2026 CHECKUP AUTO · CYBERCHECK</span><span><a href="/compte">Mon compte</a> · <a href="/contact">Contact</a> · <a href="/mentions-legales">Mentions légales</a> · <a href="/confidentialite">Confidentialité</a> · <a href="/cookies">Cookies</a> · <a href="/cgv">CGV</a> · <a href="/retractation">Renoncer au contrat ici</a></span></footer>
 <script src="/consent.js"></script>
-<script src="/app.js?v=lavis-static-20261015-1"></script>
+<script src="/app.js?v=desktop-week-picker-20261015-1"></script>
 <!-- Illustration lavis approuvée : image locale, aucune bibliothèque 3D. -->
 </body>
 </html>
