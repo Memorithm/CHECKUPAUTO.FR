@@ -44,6 +44,23 @@ import site_config_store
 
 ACCOUNT_ROUTE="/compte"
 ANNOUNCEMENTS_ROUTE="/api/customer/announcements"
+
+# A shared style for the customer login and required-details pages, which do
+# not use the full account-dashboard stylesheet. Editorial text stays escaped.
+CUSTOMER_NEWS_CSS = """
+.customer-announcements{display:flex;align-items:stretch;min-width:0;min-height:68px;margin:16px 0;background:#184735;border:1px solid #184735;border-radius:12px;overflow:hidden;color:#fff;box-shadow:0 12px 30px rgba(19,63,45,.12)}
+.customer-announcements[hidden]{display:none!important}
+.announcement-label{z-index:1;position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:122px;padding:10px 17px;background:#ccac70;color:#183a2c;font:800 11px/1.4 Arial,sans-serif;letter-spacing:.13em}
+.announcement-window{min-width:0;flex:1;display:flex;align-items:center;overflow:hidden;outline-offset:-3px}
+.announcement-window:focus-visible{outline:3px solid #f3dba7}
+.announcement-track{display:flex;align-items:center;width:max-content;min-width:max-content;animation:customer-news-left 38s linear infinite;will-change:transform}
+.announcement-copy{display:inline-block;white-space:nowrap;flex:none;padding:14px clamp(36px,5vw,90px);font:650 clamp(14px,1.5vw,17px)/1.6 Arial,sans-serif;letter-spacing:.005em;color:#fff}
+@keyframes customer-news-left{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.customer-announcements:hover .announcement-track,.customer-announcements:focus-within .announcement-track{animation-play-state:paused}
+@media(max-width:700px){.customer-announcements{min-height:62px}.announcement-label{min-width:87px;padding-inline:10px;font-size:10px}.announcement-copy{font-size:14px;padding-inline:38px}}
+@media(prefers-reduced-motion:reduce){.announcement-window{overflow-x:auto}.announcement-track{animation:none;min-width:0;width:auto}.announcement-copy{white-space:normal;min-width:0;padding:12px 16px}.announcement-copy[aria-hidden="true"]{display:none}}
+"""
+
 CONTACT_ROUTE="/contact"
 CONTACT_COMPLETION_ROUTE="/compte/completer-coordonnees"
 PASSAGE_ROUTE="/compte/reserver"
@@ -217,6 +234,7 @@ def _providers_html(return_to: str="") -> str:
 
 
 def _login_page(message: str="", info: str="", return_to: str="") -> bytes:
+    announcement_html=_announcement_html()
     note=f'<p class="error" role="alert">{html.escape(message)}</p>' if message else ""
     info_note=f'<p class="info" role="status">{html.escape(info)}</p>' if info else ""
     providers=_providers_html(return_to)
@@ -243,7 +261,9 @@ form{{display:grid;gap:12px}}label{{display:grid;gap:6px;font-size:12px;font-wei
 details{{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}}summary{{cursor:pointer;font-weight:700;color:var(--green)}}details form{{margin-top:15px}}.fine{{font-size:11px;color:var(--muted);line-height:1.55}}.trust{{margin-top:26px;padding-top:20px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}}.error{{color:#8c3a31}}.info{{padding:14px 16px;border-left:3px solid var(--green);background:var(--soft);color:var(--ink)}}
 @media(max-width:760px){{.auth-grid{{grid-template-columns:1fr}}.top{{align-items:flex-start;gap:12px;flex-direction:column}}}}@media(max-width:520px){{main{{width:min(100% - 24px,980px);padding:24px 0 44px}}.card,.auth-panel{{padding:20px}}h1{{font-size:clamp(38px,13vw,52px)}}}}
 {FORM_RESPONSIVE_CSS}
+{CUSTOMER_NEWS_CSS}
 </style><link rel="stylesheet" href="/assets/action-controls.css?v=20261008-1"></head><body><main><div class="top"><a class="brand" href="/">✓ CHECKUP AUTO</a><a class="action-button" href="/">Retour au site</a></div>
+{announcement_html}
 <section class="card"><div class="eyebrow">ESPACE CLIENT</div><h1>{html.escape(heading)}</h1><p>{html.escape(intro)}</p>
 {info_note}{note}<div class="auth-grid">
 <section class="auth-panel"><div class="eyebrow">E-MAIL</div><h2>Se connecter</h2>
@@ -352,6 +372,7 @@ def _vehicle_document_guides() -> str:
 
 def _contact_completion_page(token: str, account: dict, message: str = "") -> bytes:
     csrf = customer_accounts.csrf_token(token)
+    announcement_html=_announcement_html()
     def esc(value: object) -> str:
         return html.escape(str(value or ""), quote=True)
     def field(name: str, title: str, autocomplete: str, *, required: bool = True,
@@ -383,7 +404,9 @@ input,select{{width:100%;min-width:0;background:#fbfcfa;border:1px solid var(--l
 .actions{{grid-column:1/-1;display:grid;gap:10px;margin-top:8px}}
 button{{min-height:50px;background:var(--green);color:#fff;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:15px}}
 .small{{font-size:12px}}@media(max-width:620px){{form{{grid-template-columns:1fr}}}}
+{CUSTOMER_NEWS_CSS}
 </style></head><body><main><a class="brand" href="/">✓ CHECKUP AUTO</a>
+{announcement_html}
 <section class="card"><small>BIENVENUE DANS VOTRE ESPACE CLIENT</small>
 <h1>Complétez vos coordonnées.</h1>
 <p>Pour accéder à votre espace client et nous contacter sans erreur, renseignez vos coordonnées.
@@ -588,7 +611,9 @@ async function refreshCustomerAnnouncements(){{
     }}
   }}catch(_error){{/* Keep the last verified announcement if offline. */}}
 }}
+refreshCustomerAnnouncements();
 window.addEventListener('focus',refreshCustomerAnnouncements);
+document.addEventListener('visibilitychange',()=>{{if(!document.hidden)refreshCustomerAnnouncements();}});
 window.setInterval(()=>{{if(!document.hidden)refreshCustomerAnnouncements();}},60000);
 let vehicleRows={vehicles_json};
 const vehicleList=document.getElementById('vehicleList'),vehicleEditor=document.getElementById('vehicleEditor'),vehicleEditorSummary=document.getElementById('vehicleEditorSummary'),vehicleForm=document.getElementById('vehicleForm'),vehicleId=document.getElementById('vehicleId'),vehicleSystem=document.getElementById('vehicleRegistrationSystem'),vehicleRegistration=document.getElementById('vehicleRegistration'),vehicleFormula=document.getElementById('vehicleFormulaNumber'),vehicleFormulaLabel=document.getElementById('vehicleFormulaLabel'),vehicleCardIssueDate=document.getElementById('vehicleCardIssueDate'),vehicleCardIssueLabel=document.getElementById('vehicleCardIssueLabel'),vehicleNextControlDate=document.getElementById('vehicleNextControlDate'),vehicleSave=document.getElementById('vehicleSave'),vehicleCancel=document.getElementById('vehicleCancel'),vehicleStatus=document.getElementById('vehicleStatus');
