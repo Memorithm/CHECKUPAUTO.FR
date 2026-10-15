@@ -583,7 +583,7 @@ renderVehicles();syncVehicleFields();syncVehicleSave();loadVehicleReferences();
 }})();
 (()=>{{'use strict';const box=document.getElementById('nextAppointment');if(!box)return;
 const el=(tag,cls,text)=>{{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}};
-const when=v=>{{const d=new Date(v);return isNaN(d)?'':d.toLocaleDateString('fr-FR',{{weekday:'long',day:'numeric',month:'long',year:'numeric'}})+' à '+d.toLocaleTimeString('fr-FR',{{hour:'2-digit',minute:'2-digit'}});}};
+const when=v=>{{const d=new Date(v);return isNaN(d)?'':d.toLocaleDateString('fr-FR',{{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'Europe/Paris'}})+' à '+d.toLocaleTimeString('fr-FR',{{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Paris'}});}};
 const line=a=>[a.service,a.vehicle].filter(Boolean).join(' · ');
 const pay=a=>a.paidOnline?('Payé en ligne'+(a.amount!=null?' · '+Number(a.amount).toLocaleString('fr-FR',{{style:'currency',currency:'EUR'}}):'')):'Paiement au centre';
 fetch('{APPOINTMENTS_ROUTE}',{{credentials:'same-origin',cache:'no-store'}}).then(r=>r.json()).then(d=>{{box.replaceChildren();

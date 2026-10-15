@@ -24,8 +24,13 @@ import mercure_public_client as public
 
 WINDOW_DAYS = 120
 SNAPSHOT_TTL_SECONDS = 90
+# After a failed read, waiters are not queued behind new slow calls: for this
+# long they get the last good snapshot (if recent) or an immediate failure.
+FAILURE_BACKOFF_SECONDS = 30
+STALE_SNAPSHOT_SECONDS = 600
+WAIT_FOR_READ_SECONDS = 30
 _LOCK = threading.Lock()
-_SNAPSHOT: dict = {"at": 0.0, "day": "", "events": None}
+_SNAPSHOT: dict = {"at": 0.0, "day": "", "events": None, "failedAt": None, "inflight": None}
 
 
 def _labels() -> dict:
@@ -48,20 +53,53 @@ def _start(value) -> datetime.datetime | None:
     return parsed
 
 
-def _planning(now: float, fetch=None) -> list:
-    today = mercure.business_today(datetime.datetime.fromtimestamp(now, datetime.timezone.utc))
+def _planning(now: float, fetch=None, *, wait: bool = True) -> list:
+    """One Mercure read at a time, shared by every caller (single flight).
+
+    The lock is only held to look at or update the snapshot, never during the
+    Mercure call, so a slow or failing Mercure cannot pile up page requests.
+    """
+    today = mercure.business_today(datetime.datetime.fromtimestamp(now, datetime.timezone.utc)).isoformat()
     with _LOCK:
-        cached = _SNAPSHOT["events"]
-        if cached is not None and _SNAPSHOT["day"] == today.isoformat() \
-                and now - _SNAPSHOT["at"] < SNAPSHOT_TTL_SECONDS:
-            return cached
-        end = today + datetime.timedelta(days=WINDOW_DAYS)
-        if fetch is None:
-            events = mercure._calendar_events(mercure._session(), today.isoformat(), end.isoformat())
+        events, same_day = _SNAPSHOT["events"], _SNAPSHOT["day"] == today
+        age = now - _SNAPSHOT["at"]
+        if events is not None and same_day and age < SNAPSHOT_TTL_SECONDS:
+            return events
+        stale = events if events is not None and same_day and age < STALE_SNAPSHOT_SECONDS else None
+        failed_at = _SNAPSHOT["failedAt"]
+        if failed_at is not None and 0 <= now - failed_at < FAILURE_BACKOFF_SECONDS:
+            if stale is not None:
+                return stale
+            raise RuntimeError("Mercure planning recently unavailable")
+        inflight = _SNAPSHOT["inflight"]
+        if inflight is None:
+            inflight = _SNAPSHOT["inflight"] = threading.Event()
+            reader = True
         else:
-            events = fetch(today.isoformat(), end.isoformat())
-        _SNAPSHOT.update(at=now, day=today.isoformat(), events=events)
-        return events
+            reader = False
+    if not reader:
+        if stale is not None:
+            return stale
+        if not wait or not inflight.wait(WAIT_FOR_READ_SECONDS):
+            raise RuntimeError("Mercure planning read still running")
+        return _planning(now, fetch, wait=False)
+    end = (datetime.date.fromisoformat(today) + datetime.timedelta(days=WINDOW_DAYS)).isoformat()
+    try:
+        if fetch is None:
+            events = mercure._calendar_events(mercure._session(), today, end)
+        else:
+            events = fetch(today, end)
+    except Exception:
+        with _LOCK:
+            _SNAPSHOT.update(failedAt=now, inflight=None)
+        inflight.set()
+        if stale is not None:
+            return stale
+        raise
+    with _LOCK:
+        _SNAPSHOT.update(at=now, day=today, events=events, failedAt=None, inflight=None)
+    inflight.set()
+    return events
 
 
 def _view(event: dict, labels: dict) -> dict:
