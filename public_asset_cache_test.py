@@ -42,7 +42,7 @@ class PublicAssetCacheContractTest(unittest.TestCase):
         self.assertNotIn('<canvas', html)
         self.assertRegex(html, r'src="/assets/checkupauto-centre-map-osm.webp"[^>]*loading="lazy"')
         self.assertRegex(html, r'src="/assets/app/qr-site.svg"[^>]*loading="lazy"')
-        self.assertIn('/app.js?v=desktop-week-picker-20261015-1', html)
+        self.assertIn('/app.js?v=desktop-week-picker-20261015-2', html)
         self.assertNotIn('lavis-reveal', (ROOT / "style.css").read_text())
 
     def test_sensitive_responses_remain_uncached(self):
