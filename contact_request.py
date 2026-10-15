@@ -337,6 +337,21 @@ button{{border:0;background:var(--green);color:#fff;padding:15px 20px;font-weigh
 </form></section></main></body></html>""".encode("utf-8")
 
 
+def render_unavailable(message: str = "Le formulaire de contact est momentanément indisponible. Veuillez réessayer.") -> bytes:
+    note = html.escape(message, quote=True)
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Contact | Checkup Auto</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#f6f7f2;color:#213b30;font:16px Arial,sans-serif}}
+main{{width:min(720px,calc(100% - 28px));margin:32px auto;padding:clamp(24px,6vw,48px);background:white;border:1px solid #d9dfd3;border-radius:14px}}
+h1{{font:400 clamp(30px,7vw,50px) Georgia,serif}}p{{line-height:1.6}}
+a{{display:inline-flex;padding:14px 18px;background:#1f5443;color:white;border-radius:9px;text-decoration:none;min-height:44px;align-items:center}}
+</style></head><body><main><h1>Nous contacter</h1>
+<p role="alert">{note}</p><a href="/compte">Revenir à mon espace client →</a>
+</main></body></html>""".encode("utf-8")
+
+
 def render_confirmation(result: dict) -> bytes:
     request_id = html.escape(str(result.get("requestId") or ""))
     suggestion=str(result.get("intent") or "")=="suggestion"
