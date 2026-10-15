@@ -17,6 +17,7 @@ import in_site_booking_readiness as booking_readiness
 import booking_test as booking_test
 import mercure_admin_client as mercure_admin
 import mercure_public_client as mercure_public
+import mercure_refund_http
 import mercure_provider_coverage as mercure_provider_coverage
 import mobile_bootstrap as mobile_bootstrap
 import mobile_devices as mobile_devices
@@ -371,6 +372,7 @@ class Handler(SimpleHTTPRequestHandler):
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=(admin_password.current(path=PRIVATE_DIR/'admin-password') if urlparse(self.path).path.startswith('/api/admin/payments/') else PASSWORD)): return
+  if mercure_refund_http.handle(self): return
   parsed=urlparse(self.path); path=parsed.path
   if path=='/api/integrations/google/oauth/callback':
    try:
@@ -743,6 +745,7 @@ class Handler(SimpleHTTPRequestHandler):
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
   if payment_contract_http.handle(self,secret=(admin_password.current(path=PRIVATE_DIR/'admin-password') if urlparse(self.path).path.startswith('/api/admin/payments/') else PASSWORD)): return
+  if mercure_refund_http.handle(self): return
   path=urlparse(self.path).path
   if path=='/contact':
    token,account=customer_http._account(self)
