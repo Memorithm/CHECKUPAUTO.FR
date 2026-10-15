@@ -25,6 +25,7 @@ import referral_engine
 import mercure_invoice_contact_contract as invoice_contact
 from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, require_booking_essentials, VehicleCharacteristicsError
 from sqlite_closing import ClosingConnection
+from customer_schema_once import SchemaOnce
 
 PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
@@ -418,6 +419,13 @@ def init_db() -> None:
         pass
 
 
+_SCHEMA_ONCE = SchemaOnce()
+
+
+def _ensure_schema() -> None:
+    _SCHEMA_ONCE.ensure(data_path(), init_db)
+
+
 def _encrypt_profile(account_id: str, profile: dict) -> bytes:
     raw = json.dumps(profile, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(raw) > 8192:
@@ -462,7 +470,7 @@ def create_from_verified_identity(
     display_name = _display_name(display_name)
     subject_hash = _hmac("oidc:" + provider, subject)
     email_hash = _hmac("email", email)
-    init_db()
+    _ensure_schema()
     now = _now_iso()
 
     with _connect() as db:
@@ -517,7 +525,7 @@ def create_from_verified_identity(
 
 def _ensure_wallet(account_id: str) -> str:
     account_id = _account_id(account_id)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         row = db.execute(
             "SELECT wallet_code FROM customer_account WHERE account_id=?",
@@ -573,7 +581,7 @@ def update_profile(
         if not all(isinstance(v,str) and v.strip() and len(v)<=120 and not any(ord(c)<32 for c in v) for v in (surname,given_name)):
             raise CustomerAccountError("customer_billing_name_invalid")
         billing_names={"surname":" ".join(surname.split()),"givenName":" ".join(given_name.split())}
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
@@ -617,7 +625,7 @@ def update_contact_details(
     address_line2=_address_line(address_line2,optional=True)
     postal_code=_postal_code(postal_code)
     city=_city(city)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row=db.execute(
@@ -718,7 +726,7 @@ def save_vehicle(
         formula=""
         issued=_card_issue_date(card_issue_date)
     now=_now_iso()
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row=db.execute(
@@ -801,7 +809,7 @@ def update_vehicle_characteristics(account_id: object, vehicle_id: object, updat
     if not isinstance(updates,dict) or set(updates)!={"brand","model","energy"}:
         raise CustomerAccountError("customer_vehicle_characteristics_invalid")
     now=_now_iso()
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row=db.execute(
@@ -838,7 +846,7 @@ def delete_vehicle(account_id: object, vehicle_id: object) -> dict:
     wanted=_vehicle_id(vehicle_id)
     now=_now()
     stamp=now.isoformat(timespec="seconds")
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row=db.execute(
@@ -879,7 +887,7 @@ def delete_vehicle(account_id: object, vehicle_id: object) -> dict:
 
 def list_vehicles(account_id: object) -> list[dict]:
     account_id=_account_id(account_id)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         row=db.execute(
             "SELECT profile_blob FROM customer_account WHERE account_id=?",
@@ -892,7 +900,7 @@ def list_vehicles(account_id: object) -> list[dict]:
 
 def vehicle_summary(account_id: object, vehicle_id: object) -> dict:
     account_id=_account_id(account_id)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         row=db.execute(
             "SELECT profile_blob FROM customer_account WHERE account_id=?",
@@ -921,7 +929,7 @@ def begin_passage_confirmation(account_id: object, booking_target: object = "") 
     passage_hash=hashlib.sha256(token.encode("ascii")).hexdigest()
     now=_now()
     expires=now+dt.timedelta(minutes=PASSAGE_CONFIRMATION_TTL_MINUTES)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
@@ -952,7 +960,7 @@ def _passage_row(account_id: str, passage_token: object):
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}",raw):
         raise PermissionError("customer_passage_invalid")
     digest=hashlib.sha256(raw.encode("ascii")).hexdigest()
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         row=db.execute(
             """SELECT passage_hash,account_id,state,action,contact_hash,
@@ -988,7 +996,7 @@ def confirm_passage_contact(
     now=_now()
     stamp=now.isoformat(timespec="seconds")
     booking_hash=_booking_hash(account_id,booking_target)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         # Hold the write lock while reading both the contact profile and passage
         # row so another request cannot change the profile between validation and
@@ -1110,7 +1118,7 @@ def consume_latest_passage_confirmation(account_id: object, booking_target: obje
     now=_now()
     stamp=now.isoformat(timespec="seconds")
     booking_hash=_booking_hash(account_id,booking_target)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         # One write transaction makes the contact snapshot and one-time consume
         # indivisible with respect to profile edits from another request.
@@ -1175,7 +1183,7 @@ def consume_latest_passage_confirmation(account_id: object, booking_target: obje
 
 def profile(account_id: object) -> dict:
     account_id = _account_id(account_id)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         row = db.execute(
             """SELECT account_id,kind,profile_blob,wallet_code,created_at,updated_at
@@ -1244,7 +1252,7 @@ def issue_session(account_id: object, *, lifetime_seconds: int | None = None) ->
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     now = _now()
     expires = now + dt.timedelta(seconds=lifetime_seconds)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute(
             """INSERT INTO customer_session(
@@ -1271,7 +1279,7 @@ def authenticate_session(token: object) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw):
         raise PermissionError("customer_session_invalid")
     token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    init_db()
+    _ensure_schema()
     now = _now()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -1313,7 +1321,7 @@ def close_session(token: object) -> None:
     if not raw:
         return
     token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("DELETE FROM customer_session WHERE session_hash=?", (token_hash,))
 
@@ -1322,7 +1330,7 @@ def purge_expired_sessions(*, dry_run: bool = False) -> int:
     """Remove expired customer sessions (retention job, not only on next use)."""
     if not data_path().is_file():
         return 0
-    init_db()
+    _ensure_schema()
     now = _now_iso()
     from contextlib import closing
     with closing(_connect()) as db:
@@ -1337,7 +1345,7 @@ def inactive_account_ids(cutoff_iso: str) -> list[str]:
     """Accounts with no profile update, login or session since ``cutoff_iso``."""
     if not data_path().is_file():
         return []
-    init_db()
+    _ensure_schema()
     from contextlib import closing
     with closing(_connect()) as db:
         rows = db.execute(
