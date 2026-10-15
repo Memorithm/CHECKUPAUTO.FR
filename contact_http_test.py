@@ -41,6 +41,7 @@ class ContactHttpTest(unittest.TestCase):
             "displayName": "Client Test",
             "email": "client@example.test",
             "phone": "0612345678",
+            "contactDetailsComplete": True,
         }
 
     def test_anonymous_contact_get_and_post_redirect_to_customer_login(self):

@@ -54,6 +54,7 @@ import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
 import contact_request as contact_request
 import customer_http
+import customer_announcements
 import customer_oidc_admin_http
 import payment_contract_http
 import payment_payline_http
@@ -405,6 +406,9 @@ class Handler(SimpleHTTPRequestHandler):
      {'Cache-Control':'no-store'})
    except Exception:
     return self.send_json({'ok':False,'error':'admin_password_csrf_unavailable'},503)
+  if path=='/api/admin/customer-announcements':
+   try: return self.send_json({'ok':True,'items':customer_announcements.list_all()},headers={'Cache-Control':'no-store'})
+   except Exception: return self.send_json({'ok':False,'error':'announcement_store_unavailable'},503)
   if path=='/api/admin/compliance':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(compliance_admin.snapshot())
@@ -676,10 +680,15 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/contact':
    token,account=customer_http._account(self)
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
-   csrf=customer_http.customer_accounts.csrf_token(token)
-   query=parse_qs(parsed.query,keep_blank_values=True)
-   intent=(query.get('intent') or ['contact'])[0]
-   return self.send_bytes(contact_request.render_form(account,csrf,intent),'text/html; charset=utf-8',cache='no-store')
+   if not account.get('contactDetailsComplete'):
+    return self.send_redirect(customer_http.CONTACT_COMPLETION_ROUTE,303)
+   try:
+    csrf=customer_http.customer_accounts.csrf_token(token)
+    query=parse_qs(parsed.query,keep_blank_values=True)
+    intent=(query.get('intent') or ['contact'])[0]
+    return self.send_bytes(contact_request.render_form(account,csrf,intent),'text/html; charset=utf-8',cache='no-store')
+   except Exception:
+    return self.send_bytes(contact_request.render_unavailable(),'text/html; charset=utf-8',503,'no-store')
   if path=='/api/compliance/cookies':
    try: return self.send_json(compliance.cookie_policy())
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
@@ -752,18 +761,21 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/contact':
    token,account=customer_http._account(self)
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
+   if not account.get('contactDetailsComplete'):
+    return self.send_redirect(customer_http.CONTACT_COMPLETION_ROUTE,303)
    try:
-    if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
+    if not self._admin_origin_ok():
+     return self.send_bytes(contact_request.render_unavailable('Origine de la demande refusée.'),'text/html; charset=utf-8',403,'no-store')
     payload=self._read_form()
     csrf=payload.pop('csrf','')
     if not customer_http.customer_accounts.verify_csrf(token,csrf):
-     return self.send_bytes(b'Jeton de securite invalide','text/plain; charset=utf-8',403,'no-store')
+     return self.send_bytes(contact_request.render_unavailable('Le formulaire a expiré. Rechargez la page et réessayez.'),'text/html; charset=utf-8',403,'no-store')
     result=contact_request.submit(payload,customer=account)
     return self.send_bytes(contact_request.render_confirmation(result),'text/html; charset=utf-8',201,'no-store')
    except ValueError:
-    return self.send_bytes(b'Demande de contact invalide','text/plain; charset=utf-8',400,'no-store')
+    return self.send_bytes(contact_request.render_unavailable('Vérifiez le contenu de votre message et réessayez.'),'text/html; charset=utf-8',400,'no-store')
    except Exception:
-    return self.send_bytes(b'Service de contact temporairement indisponible','text/plain; charset=utf-8',503,'no-store')
+    return self.send_bytes(contact_request.render_unavailable(),'text/html; charset=utf-8',503,'no-store')
   if path=='/retractation':
    try:
     if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
@@ -907,6 +919,13 @@ class Handler(SimpleHTTPRequestHandler):
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
    mfa_exempt={'/api/admin/auth/2fa/setup','/api/admin/auth/2fa/confirm','/api/admin/auth/2fa/verify','/api/admin/auth/2fa/logout'}
    if path not in mfa_exempt and (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
+  if path=='/api/admin/customer-announcements':
+   try:
+    return self.send_json({'ok':True,'items':customer_announcements.change(self._read_json())},
+                          headers={'Cache-Control':'no-store'})
+   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except LookupError: return self.send_json({'ok':False,'error':'announcement_not_found'},404)
+   except Exception: return self.send_json({'ok':False,'error':'announcement_store_unavailable'},503)
   if path=='/api/admin/auth/password/change':
    try:
     if self.headers.get('Sec-Fetch-Site','')=='cross-site':

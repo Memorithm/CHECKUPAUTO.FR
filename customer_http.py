@@ -28,6 +28,7 @@ import customer_booking_payment_start
 import payment_mode
 import site_config_store
 import customer_accounts
+import customer_announcements
 import booking_health
 import mercure_brand_energy_reference
 import mercure_vehicle_reference
@@ -42,7 +43,9 @@ import mobile_auth_ticket
 import site_config_store
 
 ACCOUNT_ROUTE="/compte"
+ANNOUNCEMENTS_ROUTE="/api/customer/announcements"
 CONTACT_ROUTE="/contact"
+CONTACT_COMPLETION_ROUTE="/compte/completer-coordonnees"
 PASSAGE_ROUTE="/compte/reserver"
 PASSAGE_CONFIRM_ROUTE="/api/customer/passage/confirm"
 PROVIDERS_ROUTE="/api/customer/providers"
@@ -347,8 +350,87 @@ def _vehicle_document_guides() -> str:
 </div>"""
 
 
+def _contact_completion_page(token: str, account: dict, message: str = "") -> bytes:
+    csrf = customer_accounts.csrf_token(token)
+    def esc(value: object) -> str:
+        return html.escape(str(value or ""), quote=True)
+    def field(name: str, title: str, autocomplete: str, *, required: bool = True,
+              maxlength: int = 180, mode: str = "text") -> str:
+        requirement = " required" if required else ""
+        return (
+            f'<label>{html.escape(title)}<input name="{name}" type="{mode}" '
+            f'value="{esc(account.get(name))}" autocomplete="{autocomplete}" '
+            f'maxlength="{maxlength}"{requirement}></label>'
+        )
+    kind = str(account.get("kind") or "individual")
+    note = f'<p class="error" role="alert">{esc(message)}</p>' if message else ""
+    company_required = ' required' if kind == "professional" else ""
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Compléter mes coordonnées | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--line:#d9dfd3;--green:#1f5443;--ink:#213b30}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);font-family:Arial,sans-serif;color:var(--ink)}}
+main{{width:min(800px,calc(100% - 24px));margin:auto;padding:28px 0 62px}}
+a{{color:var(--green)}}.brand{{font-weight:750;text-decoration:none}}
+.card{{margin-top:20px;background:white;border:1px solid var(--line);border-radius:16px;padding:clamp(22px,5vw,44px)}}
+h1{{font:400 clamp(32px,7vw,54px)/1.12 Georgia,serif;letter-spacing:-.035em;margin:12px 0}}
+p{{line-height:1.65;color:#526b5d}}.error{{background:#fff0ee;padding:12px 14px;color:#9b2e27}}
+form{{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:24px}}
+label{{display:grid;gap:7px;font-size:13px;font-weight:700}}
+input,select{{width:100%;min-width:0;background:#fbfcfa;border:1px solid var(--line);padding:13px;font:16px Arial,sans-serif;border-radius:7px}}
+.actions{{grid-column:1/-1;display:grid;gap:10px;margin-top:8px}}
+button{{min-height:50px;background:var(--green);color:#fff;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:15px}}
+.small{{font-size:12px}}@media(max-width:620px){{form{{grid-template-columns:1fr}}}}
+</style></head><body><main><a class="brand" href="/">✓ CHECKUP AUTO</a>
+<section class="card"><small>BIENVENUE DANS VOTRE ESPACE CLIENT</small>
+<h1>Complétez vos coordonnées.</h1>
+<p>Pour accéder à votre espace client et nous contacter sans erreur, renseignez vos coordonnées.
+Ces informations pourront ensuite être mises à jour à tout moment.</p>
+{note}
+<form action="{CONTACT_COMPLETION_ROUTE}" method="post" autocomplete="on">
+<input type="hidden" name="csrf" value="{esc(csrf)}">
+{field("surname","Nom","family-name",maxlength=120)}
+{field("givenName","Prénom","given-name",maxlength=120)}
+{field("displayName","Nom affiché","nickname",maxlength=120)}
+<label>Type de compte<select name="kind" id="onboardingKind"><option value="individual"{" selected" if kind != "professional" else ""}>Particulier</option><option value="professional"{" selected" if kind == "professional" else ""}>Professionnel</option></select></label>
+<label>Raison sociale (professionnels)<input name="companyName" value="{esc(account.get("companyName"))}" maxlength="160"{company_required}></label>
+<label>SIRET (facultatif)<input name="siret" value="{esc(account.get("siret"))}" maxlength="14" inputmode="numeric"></label>
+{field("phone","Téléphone","tel",maxlength=32,mode="tel")}
+{field("addressLine1","Adresse postale","address-line1")}
+{field("addressLine2","Complément d’adresse (facultatif)","address-line2",required=False)}
+{field("postalCode","Code postal","postal-code",maxlength=16)}
+{field("city","Ville","address-level2",maxlength=120)}
+<div class="actions"><button type="submit">Enregistrer mes coordonnées et accéder à mon espace client →</button>
+<span class="small">Adresse e-mail vérifiée : {esc(account.get("email"))}. Vos informations ne sont pas publiées dans le bandeau d’actualités.</span></div>
+</form></section></main></body></html>""".encode("utf-8")
+
+
+def _announcement_html() -> str:
+    # Fail closed for this optional editorial widget; never block customer access.
+    try:
+        announcements = customer_announcements.list_public()
+    except Exception:
+        announcements = []
+    message = "     ✦     ".join(item["message"] for item in announcements)
+    escaped = html.escape(message, quote=True)
+    hidden = "" if announcements else " hidden"
+    return (
+        '<aside id="customerAnnouncements" class="customer-announcements" '
+        'aria-label="Informations Checkup Auto"' + hidden + '>'
+        '<span class="announcement-label">À LA UNE</span>'
+        '<div class="announcement-window" tabindex="0" aria-label="Actualités de votre centre">'
+        '<div class="announcement-track">'
+        '<span class="announcement-copy">' + escaped + '</span>'
+        '<span class="announcement-copy" aria-hidden="true">' + escaped + '</span>'
+        '</div></div></aside>'
+    )
+
+
 def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
     csrf=customer_accounts.csrf_token(token)
+    announcement_html=_announcement_html()
     kind=str(account["kind"])
     pro=kind=="professional"
     display=html.escape(str(account["displayName"]))
@@ -378,6 +460,18 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
 .brand{{font-weight:750;letter-spacing:-.04em}}.top-actions{{display:flex;gap:16px;align-items:center}}.contact-link{{color:var(--green);font-weight:700}}
 .hero{{background:#fff;border:1px solid var(--line);padding:clamp(28px,5vw,52px);display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end}}
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(42px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.045em;margin:14px 0 8px}}p{{color:var(--muted);line-height:1.6}}
+
+.customer-announcements{{display:flex;align-items:stretch;min-width:0;min-height:68px;margin:0 0 14px;background:#184735;border:1px solid #184735;border-radius:12px;overflow:hidden;color:#fff;box-shadow:0 12px 30px rgba(19,63,45,.12)}}
+.customer-announcements[hidden]{{display:none!important}}
+.announcement-label{{z-index:1;position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:122px;padding:10px 17px;background:#ccac70;color:#183a2c;font:800 11px/1.4 Arial,sans-serif;letter-spacing:.13em}}
+.announcement-window{{min-width:0;flex:1;display:flex;align-items:center;overflow:hidden;outline-offset:-3px}}
+.announcement-window:focus-visible{{outline:3px solid #f3dba7}}
+.announcement-track{{display:flex;align-items:center;width:max-content;min-width:max-content;animation:customer-news-left 38s linear infinite;will-change:transform}}
+.announcement-copy{{display:inline-block;white-space:nowrap;flex:none;padding:14px clamp(36px,5vw,90px);font:650 clamp(14px,1.5vw,17px)/1.6 Arial,sans-serif;letter-spacing:.005em}}
+@keyframes customer-news-left{{from{{transform:translateX(0)}}to{{transform:translateX(-50%)}}}}
+.customer-announcements:hover .announcement-track,.customer-announcements:focus-within .announcement-track{{animation-play-state:paused}}
+@media(max-width:700px){{.customer-announcements{{min-height:62px}}.announcement-label{{min-width:87px;padding-inline:10px;font-size:10px}}.announcement-copy{{font-size:14px;padding-inline:38px}}}}
+@media(prefers-reduced-motion:reduce){{.announcement-window{{overflow-x:auto}}.announcement-track{{animation:none;min-width:0;width:auto}}.announcement-copy{{white-space:normal;min-width:0;padding:12px 16px}}.announcement-copy[aria-hidden="true"]{{display:none}}}}
 .badge{{padding:9px 12px;border:1px solid #a9bcaf;background:var(--soft);font:700 9px Consolas,monospace;letter-spacing:.1em}}
 .appointment-panel{{margin-top:14px;min-height:0}}.next-appointment{{margin:0 0 16px}}.next-appointment-card{{display:grid;gap:8px;justify-items:start;border:1px solid var(--line);background:#fafbf8;padding:18px;margin-bottom:10px}}.next-appointment-card .metric{{font-size:clamp(26px,4vw,38px);text-transform:capitalize}}.next-appointment-card p{{margin:0}}.next-appointment-others{{margin:6px 0 0;padding-left:18px;color:var(--muted)}}.panel{{background:#fff;border:1px solid var(--line);padding:24px;min-height:210px}}
 .panel h2{{font:400 28px Georgia,serif;margin:8px 0 18px}}.metric{{font:400 44px Georgia,serif;letter-spacing:-.04em}}.sub{{font-size:11px;color:var(--muted)}}
@@ -408,6 +502,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <input type="hidden" name="csrf" value="{html.escape(csrf,quote=True)}">
 <button id="logout" class="action-button action-button--logout" type="submit"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4v16h6 M10 12h11 M17 8l4 4-4 4"/></svg>Se déconnecter</button>
 </form></nav></div>
+{announcement_html}
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <section class="panel appointment-panel" aria-label="Mes rendez-vous">
 <div class="eyebrow">MES RENDEZ-VOUS</div><h2>Rendez-vous</h2>
@@ -468,6 +563,33 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 </main><script nonce="{html.escape(nonce,quote=True)}">
 {vehicle_inputs_script()}
 (()=>{{'use strict';const csrf={json.dumps(csrf)},status=document.getElementById('profileStatus'),kind=document.getElementById('kind'),company=document.getElementById('companyName'),siret=document.getElementById('siret'),reviewStars=[...document.querySelectorAll('.review-star')],reviewRatingText=document.getElementById('reviewRatingText');
+
+const newsHost=document.getElementById('customerAnnouncements');
+async function refreshCustomerAnnouncements(){{
+  if(!newsHost)return;
+  try{{
+    const response=await fetch('{ANNOUNCEMENTS_ROUTE}',{{credentials:'same-origin',cache:'no-store'}});
+    if(!response.ok)return;
+    const payload=await response.json();
+    if(!payload.ok||!Array.isArray(payload.items))return;
+    const messages=payload.items.map(item=>item.message).filter(message=>typeof message==='string'&&message.trim());
+    const joined=messages.join('     ✦     ');
+    const track=newsHost.querySelector('.announcement-track');
+    if(!track||newsHost.dataset.message===joined)return;
+    newsHost.dataset.message=joined;
+    newsHost.hidden=!joined;
+    track.replaceChildren();
+    for(let index=0;index<2;index++){{
+      const copy=document.createElement('span');
+      copy.className='announcement-copy';
+      copy.textContent=joined;
+      if(index)copy.setAttribute('aria-hidden','true');
+      track.appendChild(copy);
+    }}
+  }}catch(_error){{/* Keep the last verified announcement if offline. */}}
+}}
+window.addEventListener('focus',refreshCustomerAnnouncements);
+window.setInterval(()=>{{if(!document.hidden)refreshCustomerAnnouncements();}},60000);
 let vehicleRows={vehicles_json};
 const vehicleList=document.getElementById('vehicleList'),vehicleEditor=document.getElementById('vehicleEditor'),vehicleEditorSummary=document.getElementById('vehicleEditorSummary'),vehicleForm=document.getElementById('vehicleForm'),vehicleId=document.getElementById('vehicleId'),vehicleSystem=document.getElementById('vehicleRegistrationSystem'),vehicleRegistration=document.getElementById('vehicleRegistration'),vehicleFormula=document.getElementById('vehicleFormulaNumber'),vehicleFormulaLabel=document.getElementById('vehicleFormulaLabel'),vehicleCardIssueDate=document.getElementById('vehicleCardIssueDate'),vehicleCardIssueLabel=document.getElementById('vehicleCardIssueLabel'),vehicleNextControlDate=document.getElementById('vehicleNextControlDate'),vehicleSave=document.getElementById('vehicleSave'),vehicleCancel=document.getElementById('vehicleCancel'),vehicleStatus=document.getElementById('vehicleStatus');
 const sync=()=>{{const pro=kind.value==='professional';company.disabled=!pro;siret.disabled=!pro;if(!pro){{company.value='';siret.value='';}}}};kind.addEventListener('change',sync);sync();
@@ -866,6 +988,77 @@ def handle(handler) -> bool:
     parsed=urlsplit(handler.path)
     path=parsed.path
     command=getattr(handler,"command","")
+
+    if path==CONTACT_COMPLETION_ROUTE:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_redirect(ACCOUNT_ROUTE,303)
+            return True
+        if command=="GET":
+            if account.get("contactDetailsComplete"):
+                handler.send_redirect(ACCOUNT_ROUTE,303)
+            else:
+                handler.send_bytes(_contact_completion_page(token,account),
+                                   "text/html; charset=utf-8",200,"no-store")
+            return True
+        if command!="POST":
+            handler.send_bytes(b"Method not allowed", "text/plain; charset=utf-8", 405, "no-store")
+            return True
+        if not _same_origin(handler):
+            handler.send_bytes(_contact_completion_page(
+                token,account,"Cette demande provient d’une origine non autorisée."),
+                "text/html; charset=utf-8",403,"no-store")
+            return True
+        try:
+            expected={"csrf","surname","givenName","displayName","kind","companyName",
+                      "siret","phone","addressLine1","addressLine2","postalCode","city"}
+            payload=_customer_form(handler,expected)
+            if not customer_accounts.verify_csrf(token,payload.pop("csrf")):
+                handler.send_bytes(_contact_completion_page(
+                    token,account,"Votre session a expiré. Rechargez le formulaire."),
+                    "text/html; charset=utf-8",403,"no-store")
+                return True
+            required=("surname","givenName","displayName","phone","addressLine1","postalCode","city")
+            if not all(isinstance(payload.get(key),str) and payload[key].strip()
+                       for key in required):
+                raise ValueError("missing_customer_contact_details")
+            updated=customer_accounts.update_profile(
+                account["accountId"],kind=payload["kind"],
+                display_name=payload["displayName"],company_name=payload["companyName"],
+                siret=payload["siret"],phone=payload["phone"],
+                address_line1=payload["addressLine1"],address_line2=payload["addressLine2"],
+                postal_code=payload["postalCode"],city=payload["city"],
+                surname=payload["surname"],given_name=payload["givenName"],
+            )
+            if not updated.get("contactDetailsComplete"):
+                raise ValueError("missing_customer_contact_details")
+            handler.send_redirect(ACCOUNT_ROUTE,303)
+        except (ValueError, customer_accounts.CustomerAccountError):
+            handler.send_bytes(
+                _contact_completion_page(
+                    token,account,"Vérifiez chaque champ obligatoire. Le téléphone, "
+                    "l’adresse et le code postal doivent être valides."),
+                "text/html; charset=utf-8",422,"no-store")
+        except Exception:
+            handler.send_bytes(_contact_completion_page(
+                token,account,"Service temporairement indisponible. Vous pouvez réessayer."),
+                "text/html; charset=utf-8",503,"no-store")
+        return True
+
+    if path==ANNOUNCEMENTS_ROUTE:
+        if command!="GET":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+            return True
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+            return True
+        try:
+            handler.send_json({"ok":True,"items":customer_announcements.list_public()},200,
+                              {"Cache-Control":"no-store"})
+        except Exception:
+            handler.send_json({"ok":False,"error":"customer_announcements_unavailable"},503)
+        return True
 
     if path==VEHICLE_REFERENCES_ROUTE:
         if command!="GET":
@@ -1290,6 +1483,9 @@ def handle(handler) -> bool:
                 if intent=="contact" else ""
             )
             handler.send_bytes(_login_page(info=info,return_to=return_to),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+            return True
+        if not account.get("contactDetailsComplete"):
+            handler.send_redirect(CONTACT_COMPLETION_ROUTE,303)
             return True
         nonce=secrets.token_urlsafe(18)
         handler._csp_nonce=nonce

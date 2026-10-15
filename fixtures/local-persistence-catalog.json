@@ -52,14 +52,6 @@
       "subjectExecutionRequired": true
     },
     {
-      "table": "booking_webhook_replay",
-      "module": "booking_bridge.py",
-      "subjectRelation": "none",
-      "executionState": "not_applicable",
-      "adapter": "",
-      "subjectExecutionRequired": false
-    },
-    {
       "table": "booking_schema_meta",
       "module": "booking_bridge.py",
       "subjectRelation": "none",
@@ -73,6 +65,14 @@
       "subjectRelation": "staging",
       "executionState": "staging_only",
       "adapter": "booking_test",
+      "subjectExecutionRequired": false
+    },
+    {
+      "table": "booking_webhook_replay",
+      "module": "booking_bridge.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
       "subjectExecutionRequired": false
     },
     {
@@ -140,6 +140,14 @@
       "subjectExecutionRequired": true
     },
     {
+      "table": "customer_announcements",
+      "module": "customer_announcements.py",
+      "subjectRelation": "none",
+      "executionState": "not_applicable",
+      "adapter": "",
+      "subjectExecutionRequired": false
+    },
+    {
       "table": "customer_ct_report",
       "module": "customer_ct_reports.py",
       "subjectRelation": "direct",
@@ -156,7 +164,7 @@
       "subjectExecutionRequired": true
     },
     {
-      "table": "customer_oidc_flow",
+      "table": "customer_native_nonce",
       "module": "customer_oidc.py",
       "subjectRelation": "transient",
       "executionState": "ephemeral",
@@ -164,7 +172,7 @@
       "subjectExecutionRequired": false
     },
     {
-      "table": "customer_native_nonce",
+      "table": "customer_oidc_flow",
       "module": "customer_oidc.py",
       "subjectRelation": "transient",
       "executionState": "ephemeral",
