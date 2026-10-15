@@ -349,7 +349,7 @@ class Handler(SimpleHTTPRequestHandler):
  def render_index(self,c):
   nonce=secrets.token_urlsafe(18); self._csp_nonce=nonce
   raw=(ROOT/'index.html').read_text()
-  raw=public_image_cdn.rewrite_homepage_images(raw)
+  raw=public_image_cdn.rewrite_homepage_images(raw,host=(self.headers.get('Host') or ''))
   seo=c['seo']; robots='index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1' if seo['indexingEnabled'] else 'noindex,nofollow'
   raw=re.sub(r'<title>.*?</title>',f'<title>{esc(seo["title"])}</title>',raw,count=1,flags=re.S)
   raw=re.sub(r'<meta name="description" content="[^"]*">',f'<meta name="description" content="{esc(seo["description"])}">',raw,count=1)
