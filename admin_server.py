@@ -54,6 +54,7 @@ import compliance_admin_http as compliance_admin_http
 import compliance_operations as compliance_operations
 import contact_request as contact_request
 import customer_http
+import customer_announcements
 import customer_oidc_admin_http
 import payment_contract_http
 import payment_payline_http
@@ -405,6 +406,9 @@ class Handler(SimpleHTTPRequestHandler):
      {'Cache-Control':'no-store'})
    except Exception:
     return self.send_json({'ok':False,'error':'admin_password_csrf_unavailable'},503)
+  if path=='/api/admin/customer-announcements':
+   try: return self.send_json({'ok':True,'items':customer_announcements.list_all()},headers={'Cache-Control':'no-store'})
+   except Exception: return self.send_json({'ok':False,'error':'announcement_store_unavailable'},503)
   if path=='/api/admin/compliance':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(compliance_admin.snapshot())
@@ -907,6 +911,13 @@ class Handler(SimpleHTTPRequestHandler):
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
    mfa_exempt={'/api/admin/auth/2fa/setup','/api/admin/auth/2fa/confirm','/api/admin/auth/2fa/verify','/api/admin/auth/2fa/logout'}
    if path not in mfa_exempt and (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
+  if path=='/api/admin/customer-announcements':
+   try:
+    return self.send_json({'ok':True,'items':customer_announcements.change(self._read_json())},
+                          headers={'Cache-Control':'no-store'})
+   except ValueError as exc: return self.send_json({'ok':False,'error':str(exc)},400)
+   except LookupError: return self.send_json({'ok':False,'error':'announcement_not_found'},404)
+   except Exception: return self.send_json({'ok':False,'error':'announcement_store_unavailable'},503)
   if path=='/api/admin/auth/password/change':
    try:
     if self.headers.get('Sec-Fetch-Site','')=='cross-site':
