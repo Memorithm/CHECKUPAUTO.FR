@@ -404,6 +404,12 @@ def _rotate_session_key() -> None:
     _atomic_write(_session_key_path(), secrets.token_bytes(32))
 
 
+def invalidate_all_sessions() -> None:
+    """Revoke every previously issued MFA cookie after credential rotation."""
+    with _state_lock():
+        _rotate_session_key()
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
