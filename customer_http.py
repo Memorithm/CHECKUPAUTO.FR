@@ -48,18 +48,31 @@ ANNOUNCEMENTS_ROUTE="/api/customer/announcements"
 # A shared style for the customer login and required-details pages, which do
 # not use the full account-dashboard stylesheet. Editorial text stays escaped.
 CUSTOMER_NEWS_CSS = """
-.customer-announcements{display:flex;align-items:stretch;min-width:0;min-height:68px;margin:16px 0;background:#184735;border:1px solid #184735;border-radius:12px;overflow:hidden;color:#fff;box-shadow:0 12px 30px rgba(19,63,45,.12)}
-.customer-announcements[hidden]{display:none!important}
-.announcement-label{z-index:1;position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:122px;padding:10px 17px;background:#ccac70;color:#183a2c;font:800 11px/1.4 Arial,sans-serif;letter-spacing:.13em}
-.announcement-window{min-width:0;flex:1;display:flex;align-items:center;overflow:hidden;outline-offset:-3px}
-.announcement-window:focus-visible{outline:3px solid #f3dba7}
-.announcement-track{display:flex;align-items:center;width:max-content;min-width:max-content;animation:customer-news-left 38s linear infinite;will-change:transform}
-.announcement-copy{display:inline-block;white-space:nowrap;flex:none;padding:14px clamp(36px,5vw,90px);font:650 clamp(14px,1.5vw,17px)/1.6 Arial,sans-serif;letter-spacing:.005em;color:#fff}
-@keyframes customer-news-left{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-.customer-announcements:hover .announcement-track,.customer-announcements:focus-within .announcement-track{animation-play-state:paused}
-@media(max-width:700px){.customer-announcements{min-height:62px}.announcement-label{min-width:87px;padding-inline:10px;font-size:10px}.announcement-copy{font-size:14px;padding-inline:38px}}
-@media(prefers-reduced-motion:reduce){.announcement-window{overflow-x:auto}.announcement-track{animation:none;min-width:0;width:auto}.announcement-copy{white-space:normal;min-width:0;padding:12px 16px}.announcement-copy[aria-hidden="true"]{display:none}}
+/* Premium editorial carousel: progressive server-side content, animated when JS is available. */
+.customer-announcements{--news-gold:#dfbb7f;display:flex;align-items:stretch;position:relative;isolation:isolate;min-width:0;min-height:88px;margin:16px 0;background:linear-gradient(115deg,#12382e 0%,#174a38 60%,#1c523f 100%);border:1px solid rgba(223,187,127,.42);border-radius:16px;overflow:hidden;color:#fff;box-shadow:0 12px 34px rgba(14,56,41,.17)}
+.customer-announcements[hidden],.announcement-controls [hidden],.announcement-progress[hidden]{display:none!important}
+.customer-announcements::before{content:"";position:absolute;inset:-100% 0 auto 24%;width:46%;height:190%;transform:rotate(27deg);background:linear-gradient(90deg,transparent,rgba(255,255,255,.055),transparent);pointer-events:none}
+.announcement-label{z-index:1;position:relative;display:flex;align-items:center;justify-content:center;gap:9px;flex:0 0 auto;min-width:125px;padding:12px 18px;background:linear-gradient(145deg,#ebd09c,#cba36c);color:#183a2c;font:800 10px/1.35 Arial,sans-serif;letter-spacing:.16em}
+.announcement-label::before{content:"✦";font-size:19px;line-height:1;color:#4e6241}
+.announcement-window{min-width:0;flex:1;display:flex;align-items:center;overflow:hidden}
+.announcement-track{position:relative;display:grid;grid-template-columns:minmax(0,1fr);align-items:center;width:100%;min-height:88px}
+.announcement-copy{grid-area:1/1;display:block;min-width:0;padding:14px clamp(15px,2.8vw,35px);font:650 clamp(14px,1.5vw,17px)/1.46 Arial,sans-serif;letter-spacing:.003em;color:#fff;opacity:0;filter:blur(5px);transform:translate3d(52px,10px,0) scale(.984);transition:opacity .78s ease,filter .85s ease,transform 1.05s cubic-bezier(.16,1,.3,1);pointer-events:none}
+.announcement-copy.is-active{opacity:1;filter:blur(0);transform:translate3d(0,0,0) scale(1);pointer-events:auto}
+.announcement-copy.is-leaving{opacity:0;filter:blur(3px);transform:translate3d(-55px,-7px,0) scale(.986)}
+.customer-announcements[data-direction="back"] .announcement-copy:not(.is-active):not(.is-leaving){transform:translate3d(-52px,10px,0) scale(.984)}
+.customer-announcements[data-direction="back"] .announcement-copy.is-leaving{transform:translate3d(55px,-7px,0) scale(.986)}
+.announcement-controls{z-index:1;display:flex;flex:0 0 auto;align-items:center;gap:4px;padding:0 11px 0 4px}
+.announcement-count{align-self:center;min-width:52px;text-align:center;color:rgba(255,244,218,.82);font:700 10px/1.2 Arial,sans-serif;letter-spacing:.11em;white-space:nowrap}
+.announcement-nav{display:grid;place-items:center;cursor:pointer;width:28px;height:32px;border:1px solid rgba(223,187,127,.30);border-radius:9px;background:rgba(255,255,255,.065);color:#ffe4ae;font:700 20px Arial,sans-serif;transition:background .24s ease,border-color .24s ease,transform .24s ease}
+.announcement-nav:hover{background:rgba(255,255,255,.16);border-color:var(--news-gold);transform:translateY(-2px)}
+.announcement-nav:focus-visible{outline:2px solid #fce4a6;outline-offset:2px}
+.announcement-progress{position:absolute;bottom:0;left:0;width:100%;height:3px;background:linear-gradient(90deg,#c99c5a,#ffeac0,#c99c5a);transform:scaleX(0);transform-origin:left;box-shadow:0 0 14px rgba(255,225,162,.5);pointer-events:none}
+.announcement-progress.is-running{animation:customer-news-progress 9300ms linear both}
+@keyframes customer-news-progress{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(max-width:700px){.customer-announcements{min-height:94px;border-radius:13px}.announcement-label{min-width:78px;padding:9px 7px;flex-direction:column;gap:3px;font-size:9px;letter-spacing:.07em;text-align:center}.announcement-label::before{font-size:17px}.announcement-track{min-height:94px}.announcement-copy{padding:13px 10px 13px 15px;font-size:13px;line-height:1.36}.announcement-controls{gap:3px;padding:0 5px 0 0;flex-direction:column;justify-content:center}.announcement-count{min-width:42px;font-size:9px}.announcement-nav{height:23px;width:29px;font-size:18px}}
+@media(prefers-reduced-motion:reduce){.announcement-copy,.announcement-nav{transition:none!important;filter:none!important;transform:none!important}.announcement-progress{animation:none!important;display:none!important}.announcement-copy:not(.is-active){opacity:0}.announcement-copy.is-active{opacity:1}}
 """
+
 
 CONTACT_ROUTE="/contact"
 CONTACT_COMPLETION_ROUTE="/compte/completer-coordonnees"
@@ -431,23 +444,36 @@ Ces informations pourront ensuite être mises à jour à tout moment.</p>
 
 
 def _announcement_html() -> str:
-    # Fail closed for this optional editorial widget; never block customer access.
+    # Optional editorial surface; never make account login depend on the DB.
     try:
         announcements = customer_announcements.list_public()
     except Exception:
         announcements = []
-    message = "     ✦     ".join(item["message"] for item in announcements)
-    escaped = html.escape(message, quote=True)
-    hidden = "" if announcements else " hidden"
+    messages = [html.escape(str(item["message"]), quote=True) for item in announcements]
+    hidden = "" if messages else " hidden"
+    slides = "".join(
+        '<span class="announcement-copy' + (' is-active' if i == 0 else '')
+        + '"' + (' aria-hidden="true"' if i else '') + '>' + message + '</span>'
+        for i, message in enumerate(messages)
+    )
+    controls_hidden = " hidden" if len(messages) < 2 else ""
     return (
         '<aside id="customerAnnouncements" class="customer-announcements" '
         'aria-label="Informations Checkup Auto"' + hidden + '>'
         '<span class="announcement-label">À LA UNE</span>'
-        '<div class="announcement-window" tabindex="0" aria-label="Actualités de votre centre">'
-        '<div class="announcement-track">'
-        '<span class="announcement-copy">' + escaped + '</span>'
-        '<span class="announcement-copy" aria-hidden="true">' + escaped + '</span>'
-        '</div></div></aside>'
+        '<div class="announcement-window" aria-label="Actualités de votre centre">'
+        '<div class="announcement-track">' + slides + '</div></div>'
+        '<div class="announcement-controls" aria-label="Naviguer entre les actualités">'
+        '<button type="button" class="announcement-nav announcement-previous" '
+        'aria-label="Information précédente"' + controls_hidden + '>‹</button>'
+        '<span class="announcement-count announcement-counter" aria-live="off">'
+        + ("01 / " + str(len(messages)).zfill(2) if messages else "00 / 00")
+        + '</span>'
+        '<button type="button" class="announcement-nav announcement-next" '
+        'aria-label="Information suivante"' + controls_hidden + '>›</button>'
+        '</div><span class="announcement-progress" aria-hidden="true"'
+        + controls_hidden + '></span></aside>'
+        '<script src="/assets/customer-announcements.js?v=20261016-1" defer></script>'
     )
 
 
@@ -484,17 +510,8 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
 .hero{{background:#fff;border:1px solid var(--line);padding:clamp(28px,5vw,52px);display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end}}
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(42px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.045em;margin:14px 0 8px}}p{{color:var(--muted);line-height:1.6}}
 
-.customer-announcements{{display:flex;align-items:stretch;min-width:0;min-height:68px;margin:0 0 14px;background:#184735;border:1px solid #184735;border-radius:12px;overflow:hidden;color:#fff;box-shadow:0 12px 30px rgba(19,63,45,.12)}}
-.customer-announcements[hidden]{{display:none!important}}
-.announcement-label{{z-index:1;position:relative;display:flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:122px;padding:10px 17px;background:#ccac70;color:#183a2c;font:800 11px/1.4 Arial,sans-serif;letter-spacing:.13em}}
-.announcement-window{{min-width:0;flex:1;display:flex;align-items:center;overflow:hidden;outline-offset:-3px}}
-.announcement-window:focus-visible{{outline:3px solid #f3dba7}}
-.announcement-track{{display:flex;align-items:center;width:max-content;min-width:max-content;animation:customer-news-left 38s linear infinite;will-change:transform}}
-.announcement-copy{{display:inline-block;white-space:nowrap;flex:none;padding:14px clamp(36px,5vw,90px);font:650 clamp(14px,1.5vw,17px)/1.6 Arial,sans-serif;letter-spacing:.005em}}
-@keyframes customer-news-left{{from{{transform:translateX(0)}}to{{transform:translateX(-50%)}}}}
-.customer-announcements:hover .announcement-track,.customer-announcements:focus-within .announcement-track{{animation-play-state:paused}}
-@media(max-width:700px){{.customer-announcements{{min-height:62px}}.announcement-label{{min-width:87px;padding-inline:10px;font-size:10px}}.announcement-copy{{font-size:14px;padding-inline:38px}}}}
-@media(prefers-reduced-motion:reduce){{.announcement-window{{overflow-x:auto}}.announcement-track{{animation:none;min-width:0;width:auto}}.announcement-copy{{white-space:normal;min-width:0;padding:12px 16px}}.announcement-copy[aria-hidden="true"]{{display:none}}}}
+{CUSTOMER_NEWS_CSS}
+.customer-announcements{{margin:0 0 14px}}
 .badge{{padding:9px 12px;border:1px solid #a9bcaf;background:var(--soft);font:700 9px Consolas,monospace;letter-spacing:.1em}}
 .appointment-panel{{margin-top:14px;min-height:0}}.next-appointment{{margin:0 0 16px}}.next-appointment-card{{display:grid;gap:8px;justify-items:start;border:1px solid var(--line);background:#fafbf8;padding:18px;margin-bottom:10px}}.next-appointment-card .metric{{font-size:clamp(26px,4vw,38px);text-transform:capitalize}}.next-appointment-card p{{margin:0}}.next-appointment-others{{margin:6px 0 0;padding-left:18px;color:var(--muted)}}.panel{{background:#fff;border:1px solid var(--line);padding:24px;min-height:210px}}
 .panel h2{{font:400 28px Georgia,serif;margin:8px 0 18px}}.metric{{font:400 44px Georgia,serif;letter-spacing:-.04em}}.sub{{font-size:11px;color:var(--muted)}}
@@ -596,19 +613,7 @@ async function refreshCustomerAnnouncements(){{
     const payload=await response.json();
     if(!payload.ok||!Array.isArray(payload.items))return;
     const messages=payload.items.map(item=>item.message).filter(message=>typeof message==='string'&&message.trim());
-    const joined=messages.join('     ✦     ');
-    const track=newsHost.querySelector('.announcement-track');
-    if(!track||newsHost.dataset.message===joined)return;
-    newsHost.dataset.message=joined;
-    newsHost.hidden=!joined;
-    track.replaceChildren();
-    for(let index=0;index<2;index++){{
-      const copy=document.createElement('span');
-      copy.className='announcement-copy';
-      copy.textContent=joined;
-      if(index)copy.setAttribute('aria-hidden','true');
-      track.appendChild(copy);
-    }}
+    newsHost.dispatchEvent(new CustomEvent('checkupauto:announcements',{{detail:{{messages}}}}));
   }}catch(_error){{/* Keep the last verified announcement if offline. */}}
 }}
 refreshCustomerAnnouncements();
