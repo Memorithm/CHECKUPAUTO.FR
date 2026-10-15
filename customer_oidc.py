@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 import customer_accounts
 from sqlite_closing import ClosingConnection
+from customer_schema_once import SchemaOnce
 
 PROVIDERS = {
     "google": {
@@ -191,6 +192,13 @@ def init_db() -> None:
         pass
 
 
+_SCHEMA_ONCE = SchemaOnce()
+
+
+def _ensure_schema() -> None:
+    _SCHEMA_ONCE.ensure(_flow_path(), init_db)
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
@@ -229,7 +237,7 @@ def begin(provider: object, origin: object, *, browser_binding: str, mobile: boo
     redirect_uri = f"{origin}/auth/customer/{provider}/callback"
     now = _now()
     expires = now + dt.timedelta(minutes=FLOW_TTL_MINUTES)
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("DELETE FROM customer_oidc_flow WHERE expires_at<?", (now.isoformat(timespec="seconds"),))
         db.execute(
@@ -273,7 +281,7 @@ def _consume_flow(provider: str, state: object, *, browser_binding: str, origin:
         raise CustomerOIDCError("customer_oidc_state_invalid")
     state_hash = hashlib.sha256(state.encode()).hexdigest()
     now = _now()
-    init_db()
+    _ensure_schema()
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
@@ -493,7 +501,7 @@ def purge_expired_flows(*, dry_run: bool = False) -> int:
     """Remove abandoned OIDC login flows once they can no longer complete."""
     if not _flow_path().is_file():
         return 0
-    init_db()
+    _ensure_schema()
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     from contextlib import closing
     with closing(_connect()) as db:
@@ -523,7 +531,7 @@ def issue_native_nonce() -> dict:
     nonce = secrets.token_urlsafe(32)
     now = _now()
     expires = now + dt.timedelta(minutes=NATIVE_NONCE_TTL_MINUTES)
-    init_db()
+    _ensure_schema()
     from contextlib import closing
     with closing(_connect()) as db, db:
         db.execute(
@@ -545,7 +553,7 @@ def consume_native_nonce(nonce: object) -> None:
         raise CustomerOIDCError("customer_oidc_nonce_invalid")
     digest = hashlib.sha256(raw.encode("ascii")).hexdigest()
     now = _now()
-    init_db()
+    _ensure_schema()
     from contextlib import closing
     with closing(_connect()) as db, db:
         db.execute("BEGIN IMMEDIATE")
