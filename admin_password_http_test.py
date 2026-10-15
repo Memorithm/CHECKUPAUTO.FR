@@ -117,6 +117,7 @@ class AdminPasswordHTTPTests(unittest.TestCase):
         html = (Path(__file__).parent / "admin" / "index.html").read_text(encoding="utf-8")
         js = (Path(__file__).parent / "admin" / "password-change.js").read_text(encoding="utf-8")
         self.assertIn('href="#admin-password"', html)
+        self.assertLess(html.index('id="admin-password"'), html.index('<form id="adminForm">'))
         self.assertIn('id="adminPasswordCurrent"', html)
         self.assertIn('id="adminPasswordNew"', html)
         self.assertIn('id="adminPasswordConfirm"', html)
