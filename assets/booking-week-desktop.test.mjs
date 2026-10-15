@@ -126,8 +126,9 @@ test('responsive CSS keeps adaptive booking columns and native iOS date taps',()
   assert.ok(css.includes('grid-template-columns:repeat(var(--booking-visible-days,6),minmax(204px,1fr))!important'));
   assert.match(css,/@media\(min-width:761px\)/);
   assert.ok(css.includes('grid-template-columns:repeat(4,minmax(0,1fr))'));
-  assert.ok(css.includes('@media(min-width:1100px)'));
-  assert.ok(css.includes('@media(min-width:981px) and (max-width:1099px)'));
+  assert.ok(css.includes('@media(min-width:981px)'));
+  assert.ok(!css.includes('@media(min-width:981px) and (max-width:1099px)'));
+  assert.ok(!css.includes('grid-template-columns:repeat(2,minmax(0,1fr));\\n    gap:16px;'));
   assert.match(css, /@media\(max-width:760px\) and \(pointer:coarse\)/);
   assert.match(css,/pointer-events:auto!important/);
   assert.match(css,/pointer-events:none!important/);
