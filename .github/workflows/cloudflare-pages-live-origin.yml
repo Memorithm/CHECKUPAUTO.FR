@@ -1,0 +1,25 @@
+name: Cloudflare Pages public live origin
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/cloudflare_pages_live_preflight.py
+      - .github/workflows/cloudflare-pages-live-origin.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/cloudflare_pages_live_preflight.py
+      - .github/workflows/cloudflare-pages-live-origin.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-cloudflare-pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+      - name: Verify public CDN media against live Pages manifest and deny private paths
+        run: python3 scripts/cloudflare_pages_live_preflight.py
