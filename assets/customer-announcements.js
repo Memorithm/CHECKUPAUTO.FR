@@ -14,7 +14,8 @@
 
   const DURATION = 9300;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  let messages = [...track.querySelectorAll('.announcement-copy')].map(node => node.textContent.trim()).filter(Boolean);
+  const initialMessages = [...track.querySelectorAll('.announcement-copy')].map(node => node.textContent.trim()).filter(Boolean);
+  let messages = [];
   let active = 0;
   let lastChange = Date.now();
   let timer = null;
@@ -116,6 +117,6 @@
     render(event.detail.messages);
     startTimer();
   });
-  render(messages);
+  render(initialMessages);
   startTimer();
 })();
