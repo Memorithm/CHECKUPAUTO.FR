@@ -45,6 +45,30 @@ class CustomerOIDCAdminHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h,secret=self.secret))
         self.assertEqual(h.response["status"],403);status.assert_not_called()
 
+    def test_unrelated_route_never_reads_private_key(self):
+        h=Handler(path="/compte")
+        with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
+            self.assertFalse(http.handle(h))
+        secret.assert_not_called()
+
+    def test_auth_and_mfa_rejected_before_private_key_access(self):
+        for h, expected_status in ((Handler(authorized=False),401),(Handler(mfa=False),403)):
+            with self.subTest(status=expected_status):
+                with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
+                    self.assertTrue(http.handle(h))
+                self.assertEqual(h.response["status"],expected_status)
+                secret.assert_not_called()
+
+    def test_missing_admin_key_only_disables_admin_oidc_route(self):
+        for method in ("GET","POST"):
+            with self.subTest(method=method):
+                h=Handler(command=method)
+                with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
+                    self.assertTrue(http.handle(h))
+                self.assertEqual(h.response["status"],503)
+                self.assertEqual(h.response["json"]["error"],"customer_oidc_admin_secret_unavailable")
+                secret.assert_called_once_with()
+
     def test_get_is_secret_free_and_returns_csrf(self):
         h=Handler()
         data={"providers":[{"id":"google","label":"Google","configured":False,"callbackUrl":"https://stage.example/auth/customer/google/callback"}],"secretsReadable":False}
