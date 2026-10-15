@@ -636,6 +636,27 @@ def verify_login(
     }
 
 
+def verify_step_up(
+    code: str,
+    *,
+    now: int | None = None,
+) -> bool:
+    """Fresh TOTP for one sensitive action (e.g. a refund).
+
+    Recovery codes are refused and the step is consumed, so the code that
+    opened the session, or one already used, cannot be replayed."""
+    if not configured():
+        return False
+    secret = _read_secret()
+    instant = int(time.time() if now is None else now)
+    with _state_lock():
+        step = matching_step(secret, str(code or "").strip(), now=instant)
+        if step is None or step <= _last_step():
+            return False
+        _record_step(step)
+    return True
+
+
 def status(cookie_header: str = "", *, now: int | None = None) -> dict:
     active = configured()
     token = token_from_cookie(cookie_header)

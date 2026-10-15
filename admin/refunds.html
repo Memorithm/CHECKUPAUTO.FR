@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow,noarchive"><title>Remboursements Mercure — CheckupAuto Administration</title><link rel="stylesheet" href="/admin/admin.css"><link rel="stylesheet" href="/admin/payments.css"></head>
+<body><div class="shell"><aside><div class="logo"><span>✓</span><div>CyberCheck<small>ADMINISTRATION</small></div></div><nav><a href="/admin/">Retour au back-office</a><a class="active" href="/admin/refunds.html" aria-current="page">Remboursements Mercure</a><a href="/admin/#mercure">Mercure RDV</a></nav></aside>
+<main><header><div><p class="eyebrow">PAIEMENTS EN LIGNE MERCURE / PAYLINE</p><h1>Rembourser une réservation</h1><p>Pour les réservations payées en ligne sur Mercure. Le remboursement est exécuté par Mercure sur la carte du client.</p></div></header>
+<div class="panel" role="note"><strong>Opération irréversible, protégée en trois étapes.</strong><p class="hint">1. Recherche du rendez-vous dans le planning Mercure (lecture seule). 2. Vérification du récapitulatif, puis nouvelle saisie du numéro et du montant. 3. Code Google Authenticator à usage unique, puis exécution.</p><p class="hint">Chaque réservation ne peut être remboursée qu’une seule fois depuis ce menu, le montant ne peut pas dépasser ce que Mercure a encaissé, et un plafond quotidien s’applique (<span id="refundCap">—</span>). Le client n’est pas prévenu automatiquement.</p><p id="refundAvailability" class="hint" role="status" aria-live="polite">Vérification de l’accès…</p></div>
+<section class="panel" aria-labelledby="refundLookupTitle"><h2 id="refundLookupTitle">1. Retrouver le rendez-vous</h2><p class="hint">Le numéro et la date figurent dans le planning Mercure (fiche du rendez-vous).</p>
+<form id="mercureRefundLookup" autocomplete="off"><div class="payment-fields">
+<label>Numéro du rendez-vous Mercure<input id="mercureRefundId" name="appointmentId" type="text" inputmode="numeric" pattern="[0-9]{1,12}" maxlength="12" autocomplete="off" required></label>
+<label>Date du rendez-vous<input id="mercureRefundDate" name="date" type="date" required></label>
+<label>Montant à rembourser en euros (vide = totalité)<input id="mercureRefundAmount" name="amount" type="text" inputmode="decimal" maxlength="8" autocomplete="off"></label>
+<label class="checkbox"><input id="mercureRefundCancel" name="cancelAfter" type="checkbox" checked> Annuler aussi le rendez-vous dans Mercure après le remboursement</label>
+</div><div class="button-row"><button id="mercureRefundSearch" type="submit">Vérifier le rendez-vous</button></div></form></section>
+<section id="mercureRefundReview" class="panel" aria-labelledby="refundReviewTitle" hidden><h2 id="refundReviewTitle">2. Vérifier et confirmer</h2>
+<dl id="mercureRefundSummary" class="payment-runtime"></dl>
+<form id="mercureRefundConfirm" autocomplete="off" hidden><p class="hint"><strong id="mercureRefundAsk"></strong></p><div class="payment-fields">
+<label>Retapez le numéro du rendez-vous<input id="mercureRefundRetypeId" type="text" inputmode="numeric" maxlength="12" autocomplete="off" required></label>
+<label>Retapez le montant en euros<input id="mercureRefundRetypeAmount" type="text" inputmode="decimal" maxlength="8" autocomplete="off" required></label>
+<label>Nouveau code Google Authenticator<input id="mercureRefundCode" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+</div><div class="button-row"><button id="mercureRefundExecute" type="submit">Rembourser définitivement</button><button id="mercureRefundAbort" type="button" class="secondary">Annuler</button></div><p class="hint">La confirmation expire après 5 minutes. Attendez le code suivant si vous venez d’utiliser le code affiché pour vous connecter.</p></form></section>
+<p id="mercureRefundMessage" class="hint" role="status" aria-live="polite"></p>
+<section class="panel" aria-labelledby="refundHistoryTitle"><h2 id="refundHistoryTitle">Historique des remboursements</h2><p class="hint">Numéro de rendez-vous, montant et résultat. Aucune donnée client ni donnée de carte n’est conservée.</p><div class="table-scroll"><table><thead><tr><th>Date</th><th>Rendez-vous</th><th>Montant</th><th>État</th><th>Annulé</th><th>Action</th></tr></thead><tbody id="mercureRefundHistory"><tr><td colspan="6">—</td></tr></tbody></table></div></section>
+</main></div><script src="/admin/refunds.js"></script></body></html>
