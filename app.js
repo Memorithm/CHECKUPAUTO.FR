@@ -85,7 +85,7 @@ function clearPlannerSelection(){plannerState.selected=null;document.querySelect
 function renderPlanner(data){
  plannerState.data=data;clearPlannerSelection();const root=document.querySelector('#bookingDays');if(!root)return;root.replaceChildren();
  const sourceDays=Array.isArray(data.days)?data.days:[];
- const validISO=value=>{const m=/^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/.exec(String(value||''));if(!m)return '';const iso=m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');const d=new Date(iso+'T12:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===iso?iso:''};
+ const validISO=value=>{const m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(value||''));if(!m)return '';const iso=m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');const d=new Date(iso+'T12:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===iso?iso:''};
  const start=validISO(data.startDate)||validISO(document.querySelector('#bookingStartDate')?.value)||validISO(sourceDays[0]?.date);
  const availableByDate=new Map(sourceDays.map(d=>[validISO(d.date),d]).filter(([key])=>key));
  const days=start&&!(promoPreviewActive())?Array.from({length:7},(_,i)=>{const iso=addISODays(start,i),live=availableByDate.get(iso);if(live)return {...live,slots:Array.isArray(live.slots)?live.slots:[]};const d=new Date(iso+'T12:00:00Z');return {date:iso,weekday:new Intl.DateTimeFormat('fr-FR',{weekday:'long',timeZone:'UTC'}).format(d),day:String(d.getUTCDate()),month:new Intl.DateTimeFormat('fr-FR',{month:'long',timeZone:'UTC'}).format(d),available:false,slots:[]}}):sourceDays.filter(d=>d.available).slice(0,7);
