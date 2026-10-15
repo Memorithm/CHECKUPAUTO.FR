@@ -101,11 +101,16 @@ def build(root: Path = ROOT, output: Path = OUTPUT) -> dict:
                          "bytes": target.stat().st_size})
     # The static host is not indexed; Pages already sends ETags and Brotli.
     # No service worker or Pages Function ever receives customer requests.
+    header_lines = (
+        "/*",
+        "  X-Robots-Tag: noindex, nofollow",
+        "  X-Content-Type-Options: nosniff",
+        "  Referrer-Policy: strict-origin-when-cross-origin",
+    )
     (output / "_headers").write_text(
-        "/*\\n  X-Robots-Tag: noindex, nofollow\\n"
-        "  X-Content-Type-Options: nosniff\\n"
-        "  Referrer-Policy: strict-origin-when-cross-origin\\n"
-        .replace("\\n", "\n"), encoding="utf-8")
+        "\\n".join(header_lines).replace("\\\\n", "\\n") + "\\n",
+        encoding="utf-8",
+    )
     (output / "public-assets-manifest.json").write_text(
         json.dumps({"schemaVersion": 1, "assets": manifest},
                    sort_keys=True, separators=(",", ":")) + "\n",
