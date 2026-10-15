@@ -55,7 +55,7 @@ body #reservation.booking-planner .booking-date-trigger:disabled{
 @media(min-width:761px){
   #reservation.booking-planner .booking-days{
     display:grid!important;
-    grid-template-columns:repeat(7,minmax(204px,1fr))!important;
+    grid-template-columns:repeat(var(--booking-visible-days,6),minmax(204px,1fr))!important;
     gap:10px;
     align-items:stretch;
     overflow-x:auto;
@@ -173,4 +173,59 @@ body #reservation.booking-planner .booking-date-trigger:disabled{
 }
 @media(prefers-reduced-motion:reduce){
   #reservation.booking-planner .slot-button{transition:none}
+}
+
+/* Services: premium four-card desktop row. A narrow laptop keeps a balanced 2x2. */
+@media(min-width:1100px){
+  body.premium-home #services .cards{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:clamp(12px,1.2vw,20px);
+    align-items:stretch;
+  }
+  body.premium-home #services .cards article{
+    min-width:0;
+    min-height:310px;
+    padding:clamp(19px,1.55vw,27px);
+    border-radius:15px;
+  }
+  body.premium-home #services .cards .featured-service{
+    padding-top:50px;
+  }
+  body.premium-home #services .cards .card-offer{
+    font-size:8px;
+    padding:7px 9px;
+    max-width:90%;
+  }
+  body.premium-home #services .cards h3{
+    font-size:clamp(21px,1.8vw,27px);
+    max-width:none;
+    line-height:1.2;
+    margin-top:23px;
+    overflow-wrap:break-word;
+  }
+  body.premium-home #services .cards strong:not(.retest-card-price){
+    font-size:clamp(36px,3.4vw,50px);
+    margin-top:16px;
+  }
+  body.premium-home #services .cards .retest-service-card{
+    min-height:310px;
+  }
+  body.premium-home #services .cards .retest-service-card .retest-card-price{
+    font-size:clamp(19px,1.9vw,25px);
+    padding-top:12px;
+  }
+  body.premium-home #services .cards article>a{
+    min-height:44px;
+    margin-top:17px;
+    padding-top:12px;
+  }
+}
+@media(min-width:981px) and (max-width:1099px){
+  body.premium-home #services .cards{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:16px;
+  }
+  body.premium-home #services .cards article{
+    min-height:270px;
+  }
 }
