@@ -80,7 +80,7 @@ def _strict_json(raw: bytes) -> dict:
     return value
 
 
-def handle(handler, *, secret: str) -> bool:
+def handle(handler, *, secret: str | None = None) -> bool:
     parsed = urlsplit(handler.path)
     if parsed.path != ROUTE:
         return False
@@ -108,6 +108,15 @@ def handle(handler, *, secret: str) -> bool:
     ):
         return reject("customer_oidc_admin_origin_invalid", 400)
     origin = "https://" + host
+
+    # Only the authenticated OIDC administration route may access its private
+    # CSRF key. Public requests must remain healthy even if the private
+    # directory has not yet been provisioned on the host.
+    if secret is None:
+        try:
+            secret = csrf_secret()
+        except (OSError, RuntimeError):
+            return reject("customer_oidc_admin_secret_unavailable", 503)
 
     if handler.command == "GET":
         try:

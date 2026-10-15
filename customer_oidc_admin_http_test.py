@@ -45,6 +45,45 @@ class CustomerOIDCAdminHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h,secret=self.secret))
         self.assertEqual(h.response["status"],403);status.assert_not_called()
 
+    def test_server_get_and_post_do_not_eagerly_load_oidc_admin_key(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parent/"admin_server.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("if customer_oidc_admin_http.handle(self): return"),2)
+        self.assertNotIn("customer_oidc_admin_http.csrf_secret()",source)
+
+    def test_unrelated_route_never_reads_private_key(self):
+        h=Handler(path="/compte")
+        with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
+            self.assertFalse(http.handle(h))
+        secret.assert_not_called()
+
+    def test_auth_and_mfa_rejected_before_private_key_access(self):
+        for h, expected_status in ((Handler(authorized=False),401),(Handler(mfa=False),403)):
+            with self.subTest(status=expected_status):
+                with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
+                    self.assertTrue(http.handle(h))
+                self.assertEqual(h.response["status"],expected_status)
+                secret.assert_not_called()
+
+    def test_admin_request_loads_private_key_only_after_authentication(self):
+        h=Handler()
+        with patch.object(http,"csrf_secret",return_value=self.secret) as secret:
+            with patch.object(http.customer_oidc_admin,"status",return_value={"providers":[],"secretsReadable":False}):
+                self.assertTrue(http.handle(h))
+        secret.assert_called_once_with()
+        self.assertEqual(h.response["status"],200)
+        self.assertRegex(h.response["json"]["csrfToken"],r"^[0-9a-f]{64}$")
+
+    def test_missing_admin_key_only_disables_admin_oidc_route(self):
+        for method in ("GET","POST"):
+            with self.subTest(method=method):
+                h=Handler(command=method)
+                with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
+                    self.assertTrue(http.handle(h))
+                self.assertEqual(h.response["status"],503)
+                self.assertEqual(h.response["json"]["error"],"customer_oidc_admin_secret_unavailable")
+                secret.assert_called_once_with()
+
     def test_get_is_secret_free_and_returns_csrf(self):
         h=Handler()
         data={"providers":[{"id":"google","label":"Google","configured":False,"callbackUrl":"https://stage.example/auth/customer/google/callback"}],"secretsReadable":False}
