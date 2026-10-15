@@ -198,6 +198,30 @@ class RefundTest(unittest.TestCase):
         self.assertEqual(refund.history()[0]["state"], "refused")
         self.assertIsNotNone(self.lookup()["confirmation"])
 
+    def test_http_error_from_mercure_is_uncertain_not_refused(self):
+        self.mercure.post = lambda url, data=None, **_: Mock(status_code=502, text="", headers={})
+        with self.assertRaises(refund.RefundError) as caught:
+            self.execute(self.lookup()["confirmation"])
+        self.assertEqual(caught.exception.code, "refund_outcome_uncertain")
+        self.assertIsNone(self.lookup()["confirmation"])
+
+    def test_pending_left_by_a_killed_worker_can_be_settled_once_stale(self):
+        root = Path(self.tmp.name) / "mercure-refunds"
+        root.mkdir(mode=0o700, exist_ok=True)
+        now = 1_800_000_000
+        (root / "journal.json").write_text(json.dumps({"6100654": {
+            "state": "pending", "amountCents": 8000, "day": "2026-10-21", "bookingDay": "2026-10-21",
+            "at": now, "cancelled": False}}))
+        self.assertIsNone(self.lookup()["confirmation"])
+        with self.assertRaises(refund.RefundError) as caught:
+            refund.verify_uncertain({"appointmentId": "6100654"}, environ=ENV,
+                                    session_factory=self.mercure.factory, now=now + 30)
+        self.assertEqual(caught.exception.code, "refund_not_uncertain")
+        settled = refund.verify_uncertain({"appointmentId": "6100654"}, environ=ENV,
+                                          session_factory=self.mercure.factory, now=now + 600)
+        self.assertEqual(settled["state"], "refused")
+        self.assertIsNotNone(self.lookup()["confirmation"])
+
     def test_daily_cap(self):
         env = {**ENV, refund.DAILY_CAP_ENV: "100"}
         refund.execute({"confirmation": self.lookup(cancelAfter=False)["confirmation"], "appointmentId": "6100654",

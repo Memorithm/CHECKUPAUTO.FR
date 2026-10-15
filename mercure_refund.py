@@ -42,6 +42,9 @@ ENABLE_ENV = "CHECKUPAUTO_MERCURE_REFUND_ENABLED"
 DAILY_CAP_ENV = "CHECKUPAUTO_MERCURE_REFUND_DAILY_CAP_EUR"
 DEFAULT_DAILY_CAP_CENTS = 30000
 CONFIRMATION_TTL_SECONDS = 300
+# A "pending" entry older than this was left by an interrupted worker (the
+# Mercure call times out after 40 s) and is settled like an uncertain one.
+STALE_PENDING_SECONDS = 120
 _ID_RE = re.compile(r"^[0-9]{1,12}$")
 _AMOUNT_RE = re.compile(r"^[0-9]{1,5}([.,][0-9]{1,2})?$")
 FINAL_STATES = {"pending", "uncertain", "refunded"}
@@ -101,6 +104,12 @@ def _atomic_json(path: Path, value) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        # The rename itself must survive a crash before Mercure is called.
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temporary)
@@ -307,20 +316,27 @@ def lookup(payload: dict, *, headers, environ=None, session_factory=None, now=No
 
 
 def _refund_call(session, token: str, cents: int) -> str:
-    """Return 'refunded', 'refused' or raise for an uncertain outcome."""
+    """Return 'refunded', or 'refused' only on Mercure's explicit JSON answer.
+
+    Anything else (HTTP error, unreadable body) may hide a processed refund
+    and raises, so the caller records the outcome as uncertain."""
     montant = str(cents // 100) if cents % 100 == 0 else _euros(cents)
     response = mercure._check_auth(session.post(
         mercure.BASE + "/admin/rendez_vous_remboursement",
         data={"token": token, "montant": montant}, timeout=40, allow_redirects=False))
     if response.status_code not in (200, 201):
-        return "refused"
+        raise RuntimeError("refund_http_status")
     try:
         data = response.json()
     except ValueError:
         raise RuntimeError("refund_response_unreadable") from None
-    if isinstance(data, dict) and str(data.get("result") or "").upper() == "OK":
+    if not isinstance(data, dict):
+        raise RuntimeError("refund_response_unreadable")
+    if str(data.get("result") or "").upper() == "OK":
         return "refunded"
-    return "refused"
+    if data.get("Msg") or data.get("result"):
+        return "refused"
+    raise RuntimeError("refund_response_unreadable")
 
 
 def _cancel_call(session, rid: str, day: str) -> bool:
@@ -409,7 +425,7 @@ def execute(payload: dict, *, headers, verify_code, environ=None, session_factor
             "cancelRequested": bool(claims.get("cancel")), "cancelled": cancelled}
 
 
-def verify_uncertain(payload: dict, *, environ=None, session_factory=None) -> dict:
+def verify_uncertain(payload: dict, *, environ=None, session_factory=None, now=None) -> dict:
     """Settle an "uncertain" refund from the planning, without calling Payline.
 
     Mercure empties the token and the billing lines once a refund is approved:
@@ -425,7 +441,9 @@ def verify_uncertain(payload: dict, *, environ=None, session_factory=None) -> di
     with _lock():
         journal = _read_json(_journal_path(), {})
         entry = journal.get(rid)
-        if not entry or entry.get("state") != "uncertain":
+        instant = time.time() if now is None else now
+        stale = (entry or {}).get("state") == "pending" and int(entry.get("at") or 0) < instant - STALE_PENDING_SECONDS
+        if not entry or (entry.get("state") != "uncertain" and not stale):
             raise RefundError("refund_not_uncertain", 409)
         try:
             facts = _facts(_find(session, rid, str(entry.get("bookingDay") or "")))

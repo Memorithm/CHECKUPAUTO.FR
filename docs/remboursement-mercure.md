@@ -19,7 +19,7 @@ Menu **Remboursements Mercure** du back-office (`/admin/refunds.html`). Il rembo
    - en relisant le planning, que le rendez-vous est toujours payé et que le montant ne dépasse pas `tarifTotal`.
 
    Il écrit l'entrée du journal (`pending`) **avant** d'appeler Mercure, puis appelle Mercure, puis annule le rendez-vous si l'option est cochée.
-3. **Résultat incertain** (coupure réseau pendant l'appel) : l'état `uncertain` bloque tout nouvel essai. `POST /api/admin/mercure-refunds/verify` relit le planning. Un token et une facturation vidés indiquent `refunded`. S'ils sont toujours présents, l'état passe à `refused` et un nouvel essai est possible. Un rendez-vous disparu reste `uncertain` : vérifiez-le dans Mercure et Payline.
+3. **Résultat incertain** : coupure réseau, erreur HTTP ou réponse illisible pendant l'appel. Seule une réponse JSON explicite de Mercure compte comme un refus. L'état `uncertain` bloque tout nouvel essai, de même qu'une entrée `pending` laissée par un processus interrompu. Celle-ci devient vérifiable après 2 minutes. `POST /api/admin/mercure-refunds/verify` relit le planning. Un token et une facturation vidés indiquent `refunded`. S'ils sont toujours présents, l'état passe à `refused` et un nouvel essai est possible. Un rendez-vous disparu reste `uncertain` : vérifiez-le dans Mercure et Payline.
 
 Toutes les routes exigent la connexion admin et une session 2FA valide, et refusent une URL avec paramètres. Les POST exigent en plus la même origine, du JSON de 4 Ko au plus et un jeton CSRF `X-CheckupAuto-Refund-CSRF`. Un code 2FA faux compte comme un échec d'authentification pour Sentinel.
 

@@ -76,7 +76,7 @@
       if (!data.refunds.length) { body.appendChild(row(['Aucun remboursement', '', '', '', '', ''])); return; }
       data.refunds.forEach(item => {
         let action = '';
-        if (item.state === 'uncertain') {
+        if (item.state === 'uncertain' || (item.state === 'pending' && Date.now() / 1000 - item.at > 120)) {
           action = document.createElement('button');
           action.type = 'button'; action.className = 'secondary'; action.textContent = 'Vérifier';
           action.addEventListener('click', async () => {
