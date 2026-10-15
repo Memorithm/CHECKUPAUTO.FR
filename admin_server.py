@@ -43,6 +43,7 @@ import email_gateway as email_gateway
 import production_readiness as production_readiness
 import deployment_admin as deployment_admin
 import admin_mfa as admin_mfa
+import admin_password
 import site_config_store as site_config_store
 import compliance_store as compliance
 import legacy_legal_baseline
@@ -276,7 +277,7 @@ class Handler(SimpleHTTPRequestHandler):
    userpw=base64.b64decode(raw[6:]).decode('utf-8'); user,pw=userpw.split(':',1)
    # Bytes comparison: str compare_digest raises on non-ASCII input (audit S-10).
    user_ok=hmac.compare_digest(user.encode('utf-8'),str(USER).encode('utf-8'))
-   pw_ok=hmac.compare_digest(pw.encode('utf-8'),str(PASSWORD).encode('utf-8'))
+   pw_ok=admin_password.verify(pw,path=PRIVATE_DIR/'admin-password')
   except Exception: return False
   return user_ok and pw_ok
  def _mfa_session_valid(self):
@@ -369,7 +370,7 @@ class Handler(SimpleHTTPRequestHandler):
   if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
-  if payment_contract_http.handle(self,secret=PASSWORD): return
+  if payment_contract_http.handle(self,secret=(admin_password.current(path=PRIVATE_DIR/'admin-password') if urlparse(self.path).path.startswith('/api/admin/payments/') else PASSWORD)): return
   parsed=urlparse(self.path); path=parsed.path
   if path=='/api/integrations/google/oauth/callback':
    try:
@@ -393,6 +394,13 @@ class Handler(SimpleHTTPRequestHandler):
   if path.startswith('/api/admin/'):
    if not self.authorized(): return self.require_auth()
    if (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
+  if path=='/api/admin/auth/password/csrf':
+   try:
+    return self.send_json({'ok':True,'csrfToken':admin_password.csrf_token(
+     self.headers,path=PRIVATE_DIR/'admin-password')},200,
+     {'Cache-Control':'no-store'})
+   except Exception:
+    return self.send_json({'ok':False,'error':'admin_password_csrf_unavailable'},503)
   if path=='/api/admin/compliance':
    if not self.authorized(): return self.require_auth()
    try: return self.send_json(compliance_admin.snapshot())
@@ -734,7 +742,7 @@ class Handler(SimpleHTTPRequestHandler):
   if customer_http.handle(self): return
   if payment_test_http.handle(self): return
   if payment_payline_http.handle(self): return
-  if payment_contract_http.handle(self,secret=PASSWORD): return
+  if payment_contract_http.handle(self,secret=(admin_password.current(path=PRIVATE_DIR/'admin-password') if urlparse(self.path).path.startswith('/api/admin/payments/') else PASSWORD)): return
   path=urlparse(self.path).path
   if path=='/contact':
    token,account=customer_http._account(self)
@@ -894,6 +902,31 @@ class Handler(SimpleHTTPRequestHandler):
    if ctype!='application/json': return self.send_json({'ok':False,'error':'content_type_not_allowed'},415)
    mfa_exempt={'/api/admin/auth/2fa/setup','/api/admin/auth/2fa/confirm','/api/admin/auth/2fa/verify','/api/admin/auth/2fa/logout'}
    if path not in mfa_exempt and (admin_mfa.configured() or admin_mfa.required()) and not self._mfa_session_valid(): return self.require_mfa()
+  if path=='/api/admin/auth/password/change':
+   try:
+    if self.headers.get('Sec-Fetch-Site','')=='cross-site':
+     return self.send_json({'ok':False,'error':'admin_password_origin_invalid'},403)
+    if self.headers.get('Transfer-Encoding'):
+     return self.send_json({'ok':False,'error':'admin_password_body_invalid'},400)
+    supplied=self.headers.get('X-CheckupAuto-Admin-Password-CSRF','')
+    if not admin_password.verify_csrf(supplied,self.headers,path=PRIVATE_DIR/'admin-password'):
+     return self.send_json({'ok':False,'error':'admin_password_csrf_invalid'},403)
+    body=self._read_json()
+    if not isinstance(body,dict) or set(body)!={'currentPassword','newPassword','confirmPassword'}:
+     return self.send_json({'ok':False,'error':'admin_password_body_invalid'},400)
+    admin_password.change(old=body['currentPassword'],new=body['newPassword'],
+                          confirmation=body['confirmPassword'],path=PRIVATE_DIR/'admin-password')
+    admin_mfa.invalidate_all_sessions()
+    return self.send_json({'ok':True,'reloginRequired':True},200,
+                          {'Set-Cookie':admin_mfa.clear_session_cookie(),
+                           'Cache-Control':'no-store'})
+   except admin_password.AdminPasswordError as exc:
+    if getattr(self,'_security_client','') and str(exc)=='admin_password_current_invalid':
+     try: security.auth_failure(self._security_client,path)
+     except Exception: pass
+    return self.send_json({'ok':False,'error':str(exc)},403)
+   except Exception:
+    return self.send_json({'ok':False,'error':'admin_password_change_unavailable'},503)
   if path=='/api/admin/auth/2fa/setup':
    try:
     result=admin_mfa.begin_enrollment(account=USER,issuer='CheckupAuto')
