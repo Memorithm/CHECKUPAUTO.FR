@@ -1,0 +1,71 @@
+name: Cloudflare Pages Public Bundle
+
+on:
+  pull_request:
+    paths:
+      - "scripts/build_cloudflare_pages_public.py"
+      - "scripts/build_cloudflare_pages_public_test.py"
+      - "public_image_cdn.py"
+      - "public_image_cdn_test.py"
+      - "cloudflare_pages_public_test.py"
+      - "assets/**"
+      - "style.css"
+      - "app.js"
+      - "consent.js"
+      - ".github/workflows/cloudflare-pages-public-bundle.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/build_cloudflare_pages_public.py"
+      - "scripts/build_cloudflare_pages_public_test.py"
+      - "public_image_cdn.py"
+      - "public_image_cdn_test.py"
+      - "cloudflare_pages_public_test.py"
+      - "assets/**"
+      - "style.css"
+      - "app.js"
+      - "consent.js"
+      - ".github/workflows/cloudflare-pages-public-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-public-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.2
+      - name: Verify only public assets are exported
+        run: |
+          python3 -m unittest discover -s scripts -p build_cloudflare_pages_public_test.py -v
+          python3 -m unittest -v public_image_cdn_test
+          python3 scripts/build_cloudflare_pages_public.py
+      - name: Check manifest integrity and absence of runtime routes
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root=Path(".cloudflare-pages-public")
+          manifest=json.loads((root/"public-assets-manifest.json").read_text())
+          entries=manifest["assets"]
+          assert entries and len(entries)<=250
+          listed={e["path"] for e in entries}
+          for item in entries:
+              path=item["path"]
+              assert not path.startswith(("admin/","private/","data/","scripts/","api/","auth/","payment/","compte/"))
+              assert not path.endswith((".py",".sqlite",".sqlite3",".pem",".key",".p8",".blend",".json"))
+              file=root/path
+              assert file.is_file() and not file.is_symlink()
+              assert file.stat().st_size==item["bytes"]
+              assert hashlib.sha256(file.read_bytes()).hexdigest()==item["sha256"]
+          for path in root.rglob("*"):
+              if path.is_file():
+                  relative=path.relative_to(root).as_posix()
+                  assert relative in listed or relative in {"_headers","public-assets-manifest.json"}
+          assert (root/"_headers").read_text().startswith("/*\n")
+          print("CLOUDFLARE_PAGES_PUBLIC_BUNDLE_AUDIT_PASS")
+          PY
