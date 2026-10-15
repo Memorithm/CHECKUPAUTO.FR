@@ -30,6 +30,6 @@ def rewrite_homepage_images(html: str, *, origin: str | None = None) -> str:
     def rewrite_attr(match: re.Match) -> str:
         value = match.group("value")
         changed = _PUBLIC_IMAGE.sub(lambda image: _ALLOWED_ORIGIN + image.group(0), value)
-        return match.group("key") + match.group("quote") + changed + match.group("quote")
+        return match.group("key") + "=" + match.group("quote") + changed + match.group("quote")
 
     return _ATTR.sub(rewrite_attr, html)
