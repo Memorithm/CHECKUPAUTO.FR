@@ -34,6 +34,14 @@
     const confirm = $('adminPasswordConfirm');
     const state = $('adminPasswordMessage');
     if (!button || !old || !next || !confirm || !state) return;
+    [old, next, confirm].forEach(field => {
+      field.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          if (!button.disabled) button.dispatchEvent(new Event('click'));
+        }
+      });
+    });
     button.addEventListener('click', async () => {
       const oldValue = old.value, nextValue = next.value, confirmValue = confirm.value;
       if (nextValue.length < 8 || nextValue.length > 128) {
