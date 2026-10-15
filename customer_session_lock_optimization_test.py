@@ -31,7 +31,6 @@ class SessionReadPathTest(unittest.TestCase):
         self.token = secrets.token_urlsafe(48)
         self.digest = hashlib.sha256(self.token.encode()).hexdigest()
         self.now = dt.datetime(2026, 10, 15, 15, 0, tzinfo=dt.timezone.utc)
-        self.addCleanup(patch.stopall)
         with accounts._connect() as db:
             db.execute(
                 "INSERT INTO customer_account(account_id,kind,email_hash,profile_blob,created_at,updated_at)"
