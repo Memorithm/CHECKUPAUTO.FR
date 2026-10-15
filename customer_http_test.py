@@ -253,6 +253,24 @@ class CustomerHttpTest(unittest.TestCase):
         self.assertIn("Numéro de formule",body)
         self.assertIn("Réserver un contrôle",body)
 
+    def test_appointments_route_requires_login_and_is_account_scoped(self):
+        anonymous=Handler("/api/customer/appointments")
+        with patch.object(http,"_account",return_value=(None,None)), \
+             patch.object(http.customer_next_appointment,"upcoming") as upcoming:
+            self.assertTrue(http.handle(anonymous))
+        self.assertEqual(anonymous.response["status"],401)
+        upcoming.assert_not_called()
+        listing=Handler("/api/customer/appointments")
+        with patch.object(http,"_account",return_value=("token",self.account())), \
+             patch.object(http.customer_next_appointment,"upcoming",return_value={"ok":True,"available":True,"next":None,"others":[]}) as upcoming:
+            self.assertTrue(http.handle(listing))
+        self.assertEqual(listing.response["status"],200)
+        upcoming.assert_called_once_with(self.account())
+        posting=Handler("/api/customer/appointments","POST",{})
+        with patch.object(http,"_account",return_value=("token",self.account())):
+            self.assertTrue(http.handle(posting))
+        self.assertEqual(posting.response["status"],405)
+
     def test_customer_vehicle_api_lists_saves_and_deletes_account_scoped_vehicles(self):
         vehicle={
             "vehicleId":"11111111-1111-4111-8111-111111111111",
