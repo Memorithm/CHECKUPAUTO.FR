@@ -67,6 +67,42 @@ application, les API, l'authentification, les paiements et Mercure ne migrent pa
    Passenger ; aucune migration DNS ou changement de session à annuler.
    Les autres actifs restent servis par LiteSpeed comme auparavant.
 
+## Pilote immédiat via `pages.dev` (15 octobre 2026)
+
+Le déploiement Pages GitHub est effectif à **https://checkupauto-fr.pages.dev**.
+Le manifeste public `/public-assets-manifest.json` est servi et contient
+les fichiers attendus ; un contrôle HTTP indépendant vérifie WebP, CSS,
+JavaScript et GLB (code HTTP, SHA256, absence de `Set-Cookie`) et le refus
+des chemins privés. L'URL racine `/` répond 404 : c'est le comportement
+attendu pour cette distribution de **ressources seulement**, pas une erreur.
+
+Sur l'hôte **strictement exact** `test.checkupauto.fr`, la page d'accueil
+anonyme utilise directement `https://checkupauto-fr.pages.dev` pour ses
+images publiques `/assets/illustrations/`, `/assets/guides/`,
+`/assets/premium/` et médias d'application autorisés. Aucun domaine
+personnalisé ni enregistrement DNS n'est nécessaire pour commencer.
+L'image `src`, ses variantes `srcset` et son `preload` utilisent la
+même origine CDN. CSS et JS demeurent sur le site principal pour éviter
+un changement CSP ou une incompatibilité des URLs relatives.
+
+Les routes de connexion, les comptes, les véhicules, les paiements,
+les API et Mercure **ne passent jamais par Pages**. Le site principal
+`checkupauto.fr` et `www.checkupauto.fr` restent hors pilote.
+
+**Interrupteur de sécurité** : définir
+`CYBERCHECK_PUBLIC_IMAGE_CDN_ORIGIN=off` dans l'environnement Passenger
+puis redémarrer le processus pour revenir aux médias locaux sans rollback
+Git/DNS. Une valeur vide bloque également l'option. Les valeurs explicites
+acceptées sont seulement `https://checkupauto-fr.pages.dev` et
+`https://static.checkupauto.fr`, sans chemin et sans variante HTTP.
+
+Contrôle après déploiement RemoteOps : vérifier que HTML `GET /` du
+staging contient le CDN dans `src`, `srcset`, `imagesrcset`, que
+`GET /compte`, `/auth/customer/google`, `/auth/customer/apple`,
+`/api/customer/*` restent dirigés vers la même origine et que les temps
+de chargement réels ne régressent pas. Pour juger le gain des images,
+comparer LCP et octets CDN côté iPhone, pas le temps de connexion OAuth.
+
 ## Étape 2 : CSS/JS et CDN complet
 
 Après qualification des images, considérer CSS/JS sur Pages sous contrat :
