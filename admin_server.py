@@ -680,10 +680,15 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/contact':
    token,account=customer_http._account(self)
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
-   csrf=customer_http.customer_accounts.csrf_token(token)
-   query=parse_qs(parsed.query,keep_blank_values=True)
-   intent=(query.get('intent') or ['contact'])[0]
-   return self.send_bytes(contact_request.render_form(account,csrf,intent),'text/html; charset=utf-8',cache='no-store')
+   if not account.get('contactDetailsComplete'):
+    return self.send_redirect(customer_http.CONTACT_COMPLETION_ROUTE,303)
+   try:
+    csrf=customer_http.customer_accounts.csrf_token(token)
+    query=parse_qs(parsed.query,keep_blank_values=True)
+    intent=(query.get('intent') or ['contact'])[0]
+    return self.send_bytes(contact_request.render_form(account,csrf,intent),'text/html; charset=utf-8',cache='no-store')
+   except Exception:
+    return self.send_bytes(contact_request.render_unavailable(),'text/html; charset=utf-8',503,'no-store')
   if path=='/api/compliance/cookies':
    try: return self.send_json(compliance.cookie_policy())
    except Exception: return self.send_json({'ok':False,'error':'compliance_cookie_policy_unavailable'},500)
@@ -756,18 +761,21 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/contact':
    token,account=customer_http._account(self)
    if not token or not account: return self.send_redirect('/compte?intent=contact',303)
+   if not account.get('contactDetailsComplete'):
+    return self.send_redirect(customer_http.CONTACT_COMPLETION_ROUTE,303)
    try:
-    if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
+    if not self._admin_origin_ok():
+     return self.send_bytes(contact_request.render_unavailable('Origine de la demande refusée.'),'text/html; charset=utf-8',403,'no-store')
     payload=self._read_form()
     csrf=payload.pop('csrf','')
     if not customer_http.customer_accounts.verify_csrf(token,csrf):
-     return self.send_bytes(b'Jeton de securite invalide','text/plain; charset=utf-8',403,'no-store')
+     return self.send_bytes(contact_request.render_unavailable('Le formulaire a expiré. Rechargez la page et réessayez.'),'text/html; charset=utf-8',403,'no-store')
     result=contact_request.submit(payload,customer=account)
     return self.send_bytes(contact_request.render_confirmation(result),'text/html; charset=utf-8',201,'no-store')
    except ValueError:
-    return self.send_bytes(b'Demande de contact invalide','text/plain; charset=utf-8',400,'no-store')
+    return self.send_bytes(contact_request.render_unavailable('Vérifiez le contenu de votre message et réessayez.'),'text/html; charset=utf-8',400,'no-store')
    except Exception:
-    return self.send_bytes(b'Service de contact temporairement indisponible','text/plain; charset=utf-8',503,'no-store')
+    return self.send_bytes(contact_request.render_unavailable(),'text/html; charset=utf-8',503,'no-store')
   if path=='/retractation':
    try:
     if not self._admin_origin_ok(): return self.send_bytes(b'Origine refusee','text/plain; charset=utf-8',403,'no-store')
