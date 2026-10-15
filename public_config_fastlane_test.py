@@ -1,7 +1,6 @@
 """FastLane public-config tests: conservative cache, no auth/session or stale data."""
 from __future__ import annotations
 
-import io
 import json
 import os
 from pathlib import Path
