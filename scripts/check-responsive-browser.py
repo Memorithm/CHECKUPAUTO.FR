@@ -169,8 +169,8 @@ async def run(args) -> int:
                             await page.goto(ORIGIN+path,wait_until='load')
                             if path=='/':
                                 await page.locator('.booking-day').first.wait_for()
-                                if width >= 1100:
-                                    # Four public service cards must occupy the same desktop row.
+                                if width >= 981:
+                                    # All four prestations share one desktop row, including 1024px laptops.
                                     services = await page.locator('#services .cards > article').all()
                                     assert len(services) == 4, len(services)
                                     service_boxes = [await card.bounding_box() for card in services]
