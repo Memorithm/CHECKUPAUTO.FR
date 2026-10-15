@@ -36,6 +36,12 @@ _BREAKER_LOCK = threading.Lock()
 _BREAKER_FAILURES = 0
 _BREAKER_OPEN_UNTIL = 0.0
 CACHE_TTL = 20.0
+# Planning pages may show a list up to this old while a refresh runs in the
+# background; booking checks always ask for a fresh read (allow_stale=False).
+STALE_TTL = 300.0
+SESSION_REUSE_SECONDS = 600.0
+_SESSION_POOL: list[tuple[float, requests.Session]] = []
+_REFRESHING: set[tuple[str, str]] = set()
 BREAKER_THRESHOLD = 5
 BREAKER_SECONDS = 60.0
 
@@ -108,26 +114,69 @@ def _provider_session() -> requests.Session:
     return s
 
 
+def _pooled_session() -> tuple[requests.Session, bool]:
+    """Reuse a recent Mercure browsing session: it saves the /prendre_rdv page
+    load and a new TLS handshake on every planning read."""
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        while _SESSION_POOL:
+            opened_at, session = _SESSION_POOL.pop()
+            if now - opened_at < SESSION_REUSE_SECONDS:
+                return session, True
+            session.close()
+    session = _provider_session()
+    session._checkupauto_opened_at = now
+    return session, False
+
+
+def _release_session(session: requests.Session) -> None:
+    opened_at = getattr(session, '_checkupauto_opened_at', None)
+    if not isinstance(opened_at, float):
+        session.close()
+        return
+    with _CACHE_LOCK:
+        if len(_SESSION_POOL) < 3:
+            _SESSION_POOL.append((opened_at, session))
+            return
+    session.close()
+
+
+def _search_slots(session: requests.Session, service_id: str, start_date: str) -> dict[str, Any]:
+    r = session.post(BASE + '/rech_dispon_rdv', data={
+        'prestation_vl': service_id,
+        'prestation_pl': '',
+        'date': start_date,
+        'iframe': 'false',
+        'id': '',
+    }, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, dict) or data.get('status') != 200:
+        raise RuntimeError('Disponibilités Mercure invalides')
+    return data
+
+
 def _provider_availability(service_id: str, start_date: str) -> dict[str, Any]:
     _breaker_before()
     try:
         with _PROVIDER_SEMAPHORE:
             _breaker_before()
-            s = _provider_session()
+            s, reused = _pooled_session()
             try:
-                r = s.post(BASE + '/rech_dispon_rdv', data={
-                    'prestation_vl': service_id,
-                    'prestation_pl': '',
-                    'date': start_date,
-                    'iframe': 'false',
-                    'id': '',
-                }, timeout=20)
-                r.raise_for_status()
-                data = r.json()
-                if not isinstance(data, dict) or data.get('status') != 200:
-                    raise RuntimeError('Disponibilités Mercure invalides')
-            finally:
+                data = _search_slots(s, service_id, start_date)
+            except Exception:
                 s.close()
+                if not reused:
+                    raise
+                # A reused session may have expired on Mercure: retry once fresh.
+                s = _provider_session()
+                s._checkupauto_opened_at = time.monotonic()
+                try:
+                    data = _search_slots(s, service_id, start_date)
+                except Exception:
+                    s.close()
+                    raise
+            _release_session(s)
     except Exception:
         _breaker_failure()
         raise
@@ -172,26 +221,59 @@ def _normalize_availability(service_key: str, meta: dict[str, Any], start_date: 
     }
 
 
-def availability(service_key: str, start_date: str) -> dict[str, Any]:
+def _refresh(service_key: str, meta: dict[str, Any], start_date: str) -> dict[str, Any]:
+    raw = _provider_availability(meta['id'], start_date)
+    result = _normalize_availability(service_key, meta, start_date, raw)
+    with _CACHE_LOCK:
+        _CACHE[(service_key, start_date)] = (time.monotonic(), result)
+    return result
+
+
+def _refresh_in_background(service_key: str, meta: dict[str, Any], start_date: str) -> None:
+    key = (service_key, start_date)
+    with _CACHE_LOCK:
+        if key in _REFRESHING:
+            return
+        _REFRESHING.add(key)
+
+    def run():
+        try:
+            with _key_lock(key):
+                with _CACHE_LOCK:
+                    hit = _CACHE.get(key)
+                if hit and time.monotonic() - hit[0] < CACHE_TTL:
+                    return
+                _refresh(service_key, meta, start_date)
+        except Exception:
+            pass  # the stale list stays; the next visit retries
+        finally:
+            with _CACHE_LOCK:
+                _REFRESHING.discard(key)
+
+    threading.Thread(target=run, daemon=True, name='MercureAvailabilityRefresh').start()
+
+
+def availability(service_key: str, start_date: str, *, allow_stale: bool = False) -> dict[str, Any]:
+    """Mercure free slots for one week. ``allow_stale`` is for display only: it
+    answers at once with a list up to STALE_TTL old and refreshes it behind."""
     meta = service(service_key)
     start_date = _date(start_date)
     cache_key = (service_key, start_date)
     now = time.monotonic()
     with _CACHE_LOCK:
         hit = _CACHE.get(cache_key)
-        if hit and now - hit[0] < CACHE_TTL:
-            return hit[1]
+    if hit and now - hit[0] < CACHE_TTL:
+        return hit[1]
+    if allow_stale and hit and now - hit[0] < STALE_TTL:
+        _refresh_in_background(service_key, meta, start_date)
+        return hit[1]
     with _key_lock(cache_key):
         now = time.monotonic()
         with _CACHE_LOCK:
             hit = _CACHE.get(cache_key)
             if hit and now - hit[0] < CACHE_TTL:
                 return hit[1]
-        raw = _provider_availability(meta['id'], start_date)
-        result = _normalize_availability(service_key, meta, start_date, raw)
-        with _CACHE_LOCK:
-            _CACHE[cache_key] = (time.monotonic(), result)
-        return result
+        return _refresh(service_key, meta, start_date)
 
 
 PAYMENT_OPTIONS_TTL = 300.0

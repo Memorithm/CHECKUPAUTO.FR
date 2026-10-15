@@ -577,7 +577,7 @@ class Handler(SimpleHTTPRequestHandler):
     requested=datetime.date.fromisoformat(date); limit=today+datetime.timedelta(days=int(policy['horizonDays']))
     if requested>limit: raise ValueError(f"Date hors horizon de réservation ({policy['horizonDays']} jours)")
     result=booking_demand.decorate_availability(
-     mercure_public.availability(service,date),
+     mercure_public.availability(service,date,allow_stale=True),
      authenticated=bool(customer_http._account(self)[1]), policy=policy,
     )
     result['incentives']=policy; return self.send_json(result)
