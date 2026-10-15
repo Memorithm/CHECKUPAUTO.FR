@@ -54,40 +54,40 @@ function fixture() {
   return {sandbox,nodes,root,date,caption,context};
 }
 
-test('seven actual calendar dates render in one contiguous week with no fabricated slots',()=>{
-  const {sandbox,root,caption}=fixture();
-  const mk=(date,weekday,day,month)=>({date,weekday,day:String(day),month,available:true,
-     slots:[{time:'09:00',price:80,basePrice:80}]});
-  sandbox.renderPlanner({startDate:'2026-10-15',days:[
-    mk('2026-10-17','samedi',17,'octobre'),
-    mk('2026-10-19','lundi',19,'octobre'),
-    mk('2026-10-20','mardi',20,'octobre'),
-    mk('2026-10-21','mercredi',21,'octobre'),
-  ]});
-  assert.equal(root.children.length,7);
-  assert.match(caption.textContent,/15 octobre.*21 octobre/);
-  const d=root.children;
-  for(let i=0;i<7;i++)assert.equal(d[i].children[1].tagName,'div');
-  assert.equal(d[0].className.includes('unavailable'),true);
-  assert.equal(d[1].className.includes('unavailable'),true);
-  assert.equal(d[3].className.includes('unavailable'),true);
-  assert.equal(d[2].children[1].children.length,1);
-  assert.equal(d[2].children[1].children[0].dataset.date,'2026-10-17');
-  for(const i of [0,1,3]) {
-    assert.equal(d[i].children[1].children.length,1);
-    assert.equal(d[i].children[1].children[0].tagName,'p');
-    assert.equal(d[i].children[1].children[0].textContent,'Aucun créneau disponible');
-  }
+test('seven-day window shows only genuinely open Mercure days, never Sunday',()=>{
+ const {sandbox,root,caption}=fixture();
+ const slot={time:'09:00',price:80,basePrice:80};
+ const mk=(date,available=true,slots=[slot],weekday='weekday')=>({date,weekday,day:date.slice(-2),month:'octobre',available,slots});
+ sandbox.renderPlanner({startDate:'2026-10-15',days:[
+   mk('2026-10-15',false),mk('2026-10-16',true,[]),
+   mk('2026-10-17'),mk('2026-10-18',true,[slot],'lundi'),
+   mk('2026-10-19'),mk('2026-10-20'),mk('2026-10-21'),mk('2026-10-22'),
+ ]});
+ assert.equal(root.children.length,4);
+ assert.match(caption.textContent,/15 octobre.*21 octobre/);
+ assert.deepEqual(root.children.map(d=>d.children[1].children[0].dataset.date),
+   ['2026-10-17','2026-10-19','2026-10-20','2026-10-21']);
+ assert.equal(root.children.some(d=>d.className.includes('unavailable')),false);
 });
 
-test('provider day with nonpadded ISO still maps to the correct full week',()=>{
-  const {sandbox,root}=fixture();
-  sandbox.renderPlanner({startDate:'2026-10-15',days:[{
-     date:'2026-10-17',weekday:'samedi',day:'17',month:'octobre',
-     available:true,slots:[{time:'10:20',price:80,basePrice:80}]
-  }]});
-  assert.equal(root.children.length,7);
-  assert.equal(root.children[2].children[1].children[0].dataset.time,'10:20');
+test('one available date is one card rather than seven empty placeholders',()=>{
+ const {sandbox,root}=fixture();
+ sandbox.renderPlanner({startDate:'2026-10-15',days:[{
+  date:'2026-10-17',weekday:'samedi',day:'17',month:'octobre',available:true,
+  slots:[{time:'10:20',price:80,basePrice:80}]}]});
+ assert.equal(root.children.length,1);
+ assert.equal(root.children[0].children[1].children[0].dataset.time,'10:20');
+});
+
+test('Sunday, closed Mercure days, and dates without slots render none',()=>{
+ const {sandbox,root}=fixture(),slot={time:'09:00',price:80,basePrice:80};
+ sandbox.renderPlanner({startDate:'2026-10-18',days:[
+  {date:'2026-10-18',weekday:'lundi',day:'18',month:'octobre',available:true,slots:[slot]},
+  {date:'2026-10-19',weekday:'lundi',day:'19',month:'octobre',available:false,slots:[slot]},
+  {date:'2026-10-20',weekday:'mardi',day:'20',month:'octobre',available:true,slots:[]}
+ ]});
+ assert.equal(root.children.length,0);
+ assert.match(root.innerHTML,/Aucun créneau disponible/);
 });
 
 test('a clickable calendar trigger calls showPicker in the user gesture on desktop',()=>{
@@ -118,12 +118,12 @@ test('calendar fallback remains actionable without showPicker or when showPicker
   assert.equal(clicks,2);
 });
 
-test('markup and responsive CSS guarantee one seven-day desktop row and native iOS date taps',()=>{
+test('responsive CSS keeps adaptive booking columns and native iOS date taps',()=>{
   assert.match(html,/id="bookingDateTrigger"[^>]*type="button"|type="button" id="bookingDateTrigger"/);
   assert.match(html,/<\/button><input id="bookingStartDate" type="date"/);
   assert.match(html,/id="bookingWeekCaption"/);
   assert.match(html,/booking-week-desktop\.css\?v=/);
-  assert.match(css,/grid-template-columns:repeat\(7,minmax\(204px,1fr\)\)!important/);
+  assert.ok(css.includes('grid-template-columns:repeat(var(--booking-visible-days,6),minmax(204px,1fr))!important'));
   assert.match(css,/@media\(min-width:761px\)/);
   assert.match(css, /@media\(max-width:760px\) and \(pointer:coarse\)/);
   assert.match(css,/pointer-events:auto!important/);
