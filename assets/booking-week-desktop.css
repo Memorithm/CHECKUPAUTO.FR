@@ -1,0 +1,176 @@
+/* Booking Week / Desktop Premium 2026-10-15.
+ * A single contiguous seven-day row: no orphan fourth card or empty grid row.
+ * At narrower desktop widths the week scrolls horizontally instead of shrinking
+ * times/prices below accessible text sizes. Mobile retains its existing carousel.
+ */
+#reservation.booking-planner .booking-week-caption{
+  margin:14px 0 -5px;
+  color:#526f5d;
+  font:600 12px/1.5 Arial,sans-serif;
+  letter-spacing:.06em;
+}
+#reservation.booking-planner .booking-day-unavailable{
+  background:linear-gradient(145deg,#f6f8f5,#f1f4f0);
+  border-color:#e1e8e0;
+}
+#reservation.booking-planner .booking-day-unavailable .booking-day-head{
+  color:#77857a;
+}
+#reservation.booking-planner .booking-day-empty{
+  grid-column:1/-1;
+  color:#637369;
+  font:500 12px/1.5 Arial,sans-serif;
+  margin:12px 4px;
+  padding:12px 6px;
+  text-align:center;
+  border:1px dashed #cdd8cf;
+  border-radius:10px;
+}
+#reservation.booking-planner .booking-date-control{
+  isolation:isolate;
+}
+body #reservation.booking-planner .booking-date-control>.booking-date-trigger{
+  position:relative!important;
+  z-index:2!important;
+  justify-content:stretch;
+  text-align:left;
+  font:inherit;
+  -webkit-appearance:none;
+  appearance:none;
+  touch-action:manipulation;
+  cursor:pointer!important;
+}
+body #reservation.booking-planner .booking-date-control>input#bookingStartDate{
+  z-index:1!important;
+  pointer-events:none!important;
+}
+body #reservation.booking-planner .booking-date-trigger:focus-visible{
+  outline:3px solid #235842!important;
+  outline-offset:3px!important;
+}
+body #reservation.booking-planner .booking-date-trigger:disabled{
+  cursor:not-allowed!important;
+  opacity:.65;
+}
+@media(min-width:761px){
+  #reservation.booking-planner .booking-days{
+    display:grid!important;
+    grid-template-columns:repeat(7,minmax(204px,1fr))!important;
+    gap:10px;
+    align-items:stretch;
+    overflow-x:auto;
+    overflow-y:hidden;
+    scroll-snap-type:x proximity;
+    overscroll-behavior-inline:contain;
+    padding:5px 2px 15px;
+    scrollbar-width:thin;
+    scrollbar-color:#aabcae #eef2ec;
+  }
+  #reservation.booking-planner .booking-day{
+    border:1px solid #d8e3d8;
+    border-radius:13px;
+    background:#fff;
+    overflow:hidden;
+    min-width:0;
+    scroll-snap-align:start;
+    box-shadow:0 5px 14px rgba(23,53,34,.045);
+  }
+  #reservation.booking-planner .booking-day-unavailable{
+    background:#f5f8f4;
+  }
+  #reservation.booking-planner .booking-day-head{
+    background:#f3f7f2;
+    padding:13px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:3px;
+    align-items:flex-start;
+    border-bottom:1px solid #dce7db;
+  }
+  #reservation.booking-planner .booking-day-head small{
+    font:600 11px/1.2 Arial,sans-serif;
+    letter-spacing:.035em;
+    text-transform:capitalize;
+    color:#6c8272;
+  }
+  #reservation.booking-planner .booking-day-head strong{
+    font:650 16px/1.3 Arial,sans-serif;
+    color:#1f3f2b;
+  }
+  #reservation.booking-planner .booking-slots{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    align-content:start;
+    gap:6px;
+    padding:10px 8px 12px;
+  }
+  #reservation.booking-planner .slot-button{
+    padding:8px 7px;
+    min-height:58px;
+    min-width:0;
+    gap:4px;
+    border-radius:7px;
+    border-color:#d6e0d6;
+    transition:background-color .15s,border-color .15s;
+  }
+  #reservation.booking-planner .slot-button span{
+    font:650 14px/1.2 Arial,sans-serif;
+    color:#183f2a;
+  }
+  #reservation.booking-planner .slot-button small{
+    font:500 11px/1.2 Arial,sans-serif;
+    letter-spacing:0;
+  }
+  #reservation.booking-planner .slot-button em{
+    font:600 10px/1.35 Arial,sans-serif;
+    letter-spacing:0;
+    overflow-wrap:anywhere;
+  }
+  #reservation.booking-planner .slot-button:focus-visible{
+    outline:2px solid #235842;
+    outline-offset:1px;
+  }
+  #reservation.booking-planner .booking-day-empty{
+    margin:20px 3px;
+    min-height:80px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  body #reservation.booking-planner .booking-date-control>.booking-date-trigger{
+    min-height:74px!important;
+    padding:13px 18px!important;
+    border-radius:13px!important;
+    border:1px solid #d6e3d7!important;
+    background:linear-gradient(115deg,#f5f8f4,#edf3ee)!important;
+  }
+  body #reservation.booking-planner .booking-date-control>.booking-date-trigger:hover{
+    border-color:#618d71!important;
+    background:#e9f3eb!important;
+    box-shadow:0 3px 12px rgba(34,75,46,.08)!important;
+  }
+  body #reservation.booking-planner .booking-date-control>input#bookingStartDate{
+    min-height:74px!important;
+  }
+  #reservation.booking-planner .booking-scroll-hint{
+    display:block;
+    margin-top:10px;
+    font:500 11px/1.5 Arial,sans-serif;
+    color:#77877b;
+  }
+}
+@media(min-width:1660px){
+  #reservation.booking-planner .booking-scroll-hint{
+    display:none;
+  }
+}
+@media(max-width:760px) and (pointer:coarse){
+  /* iOS native date input takes the physical tap where showPicker may not be available. */
+  body #reservation.booking-planner .booking-date-control>input#bookingStartDate{
+    z-index:3!important;
+    pointer-events:auto!important;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  #reservation.booking-planner .slot-button{transition:none}
+}

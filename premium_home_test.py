@@ -101,7 +101,7 @@ class PremiumHomepageTest(unittest.TestCase):
     def test_stylesheet_version_changes_without_new_runtime_script(self):
         self.assertIn('/style.css?v=premium-lavis-20261008-1', self.page)
         scripts = [a.get('src') for tag, a in self.tags if tag == 'script']
-        self.assertEqual(scripts, ['/consent.js', '/app.js?v=lavis-static-20261015-1'])
+        self.assertEqual(scripts, ['/consent.js', '/app.js?v=desktop-week-picker-20261015-1'])
 
 
 if __name__ == '__main__':
