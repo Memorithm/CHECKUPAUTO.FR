@@ -223,6 +223,8 @@ class PreviewHTML(HTMLParser):
                 css = public_bytes(self.root, 'assets/action-controls.css', 64 * 1024).decode('utf-8')
             elif target.path == '/assets/booking-date-reference.css':
                 css = public_bytes(self.root, 'assets/booking-date-reference.css', 64 * 1024).decode('utf-8')
+            elif target.path == '/assets/booking-week-desktop.css':
+                css = public_bytes(self.root, 'assets/booking-week-desktop.css', 64 * 1024).decode('utf-8')
             else:
                 raise ValueError("Unknown stylesheet")
             if re.search(r'url\s*\(|@import|</style', css, re.I):
