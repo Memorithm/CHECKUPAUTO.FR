@@ -151,6 +151,12 @@ class HostedCheckoutTest(unittest.TestCase):
         result = checkout.reconcile(dict(PAYLOAD), account=ACCOUNT, finder=lambda **_: {"found": False})
         self.assertEqual((result["state"], result["confirmed"]), ("payment_cancelled", False))
 
+    def test_slot_held_but_unmatched_is_never_reported_as_cancelled(self):
+        self._start(_session())
+        result = checkout.reconcile(dict(PAYLOAD), account=ACCOUNT,
+                                    finder=lambda **_: {"found": False, "slotOccupied": True})
+        self.assertEqual((result["state"], result["confirmed"]), ("payment_pending", False))
+
     def test_reconcile_refuses_a_slot_other_than_the_one_started(self):
         self._start(_session())
         other = {**PAYLOAD, "time": "10:00"}
@@ -189,7 +195,22 @@ class FindOnlineBookingTest(unittest.TestCase):
                 date="2026-10-20", time="09:00", email="autre@example.test",
                 service_id="1763", session=Mock())
         self.assertFalse(unpaid["paidOnline"])
-        self.assertEqual(missing, {"found": False})
+        self.assertEqual(missing, {"found": False, "slotOccupied": True})
+
+    def test_live_planning_shapes(self):
+        # 2026-10-15: start uses a space and seconds, prestationId is a list.
+        events = self._events(prestationId=[1763])
+        events[0]["start"] = "2026-10-20 09:00:00"
+        with patch.object(mercure_admin_client, "_calendar_events", return_value=events):
+            result = mercure_admin_client.find_online_booking(
+                date="2026-10-20", time="09:00", email="client@example.test",
+                service_id="1763", session=Mock())
+            other_service = mercure_admin_client.find_online_booking(
+                date="2026-10-20", time="09:00", email="client@example.test",
+                service_id="1771", session=Mock())
+        self.assertEqual(result["appointmentId"], "991")
+        self.assertTrue(result["paidOnline"])
+        self.assertEqual(other_service, {"found": False, "slotOccupied": False})
 
 
 if __name__ == "__main__":
