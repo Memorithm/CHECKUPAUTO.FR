@@ -169,6 +169,24 @@ async def run(args) -> int:
                             await page.goto(ORIGIN+path,wait_until='load')
                             if path=='/':
                                 await page.locator('.booking-day').first.wait_for()
+                                if width >= 1100:
+                                    # Four public service cards must occupy the same desktop row.
+                                    services = await page.locator('#services .cards > article').all()
+                                    assert len(services) == 4, len(services)
+                                    service_boxes = [await card.bounding_box() for card in services]
+                                    assert all(b is not None for b in service_boxes), service_boxes
+                                    assert max(b['y'] for b in service_boxes) - min(b['y'] for b in service_boxes) <= 2, service_boxes
+                                    assert service_boxes[0]['x'] >= -1 and service_boxes[-1]['x'] + service_boxes[-1]['width'] <= width + 1, service_boxes
+                                # Mercure is the business source of truth. No closed day, empty
+                                # slot card or Sunday can appear, regardless of weekday labels.
+                                shown_days = await page.locator('#bookingDays .booking-day').all()
+                                assert shown_days, 'expected synthetic availability'
+                                for day_card in shown_days:
+                                    buttons = await day_card.locator('.slot-button').all()
+                                    assert buttons, 'closed Mercure day leaked to public planning'
+                                    day_code = await buttons[0].get_attribute('data-date')
+                                    assert dt.date.fromisoformat(day_code).weekday() != 6, day_code
+
                                 await page.get_by_role('button',name='Tout refuser',exact=True).click()
                                 assert await page.locator('body.premium-home').count()==1
                                 assert await page.locator('.lavis-caption,.lavis-topline,.hero .offer-seal,#lavisReplay,#lavisStill,.lavis-controls').count()==0
