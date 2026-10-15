@@ -36,8 +36,20 @@ def _read_private(path: Path) -> str:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-                or info.st_mode & 0o077 or info.st_size > 4096):
+        # The systemd service runs as cybercheck, but the production secret is
+        # intentionally root-owned and readable only by the cybercheck group
+        # (root:cybercheck 0640). This is *not* a publicly readable secret.
+        # A service-owned secret must retain the stricter owner-only policy.
+        mode = stat.S_IMODE(info.st_mode)
+        owner_private = info.st_uid == os.geteuid() and not (mode & 0o077)
+        root_group_private = (
+            info.st_uid == 0
+            and info.st_gid == os.getegid()
+            and mode == 0o640
+        )
+        if (not stat.S_ISREG(info.st_mode)
+                or not (owner_private or root_group_private)
+                or info.st_size > 4096):
             raise AdminPasswordError("admin_password_file_invalid")
         with os.fdopen(os.dup(fd), "rb") as handle:
             raw = handle.read(4097)
