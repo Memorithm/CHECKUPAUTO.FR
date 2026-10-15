@@ -20,6 +20,7 @@ import time
 from urllib.parse import quote
 
 import public_surface_provenance
+import public_config_fastlane
 import migration_write_freeze
 
 _BACKEND_LOCK = threading.RLock()
@@ -483,6 +484,11 @@ def application(environ, start_response):
         bootstrap = _mobile_bootstrap_response(environ, start_response)
         if bootstrap is not None:
             return bootstrap
+        # Anonymous public data only: no customer cookies or session responses.
+        # Guard/freeze checks above remain authoritative.
+        fastlane = public_config_fastlane.handle(environ, start_response)
+        if fastlane is not None:
+            return fastlane
 
         stage = "backend_start"
         host, port = _ensure_backend()
