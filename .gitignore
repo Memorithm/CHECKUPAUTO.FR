@@ -50,3 +50,6 @@ assets/premium/*-source.*
 
 .browser-venv/
 responsive-evidence/
+
+# Generated Cloudflare Pages public-only distribution
+.cloudflare-pages-public/
