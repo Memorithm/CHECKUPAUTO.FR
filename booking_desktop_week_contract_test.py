@@ -18,8 +18,8 @@ class BookingDesktopWeekContractTest(unittest.TestCase):
 
     def test_desktop_script_and_css_are_explicitly_versioned(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        self.assertIn('/assets/booking-week-desktop.css?v=20261015-1', html)
-        self.assertIn('/app.js?v=desktop-week-picker-20261015-1', html)
+        self.assertIn('/assets/booking-week-desktop.css?v=20261015-2', html)
+        self.assertIn('/app.js?v=desktop-week-picker-20261015-2', html)
         self.assertIn('id="bookingDateTrigger"', html)
         self.assertIn('tabindex="-1" aria-label="Choisir la date de départ', html)
 
