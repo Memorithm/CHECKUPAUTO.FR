@@ -45,6 +45,12 @@ class CustomerOIDCAdminHttpTest(unittest.TestCase):
             self.assertTrue(http.handle(h,secret=self.secret))
         self.assertEqual(h.response["status"],403);status.assert_not_called()
 
+    def test_server_get_and_post_do_not_eagerly_load_oidc_admin_key(self):
+        from pathlib import Path
+        source=(Path(__file__).resolve().parent/"admin_server.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("if customer_oidc_admin_http.handle(self): return"),2)
+        self.assertNotIn("customer_oidc_admin_http.csrf_secret()",source)
+
     def test_unrelated_route_never_reads_private_key(self):
         h=Handler(path="/compte")
         with patch.object(http,"csrf_secret",side_effect=PermissionError) as secret:
