@@ -1,5 +1,6 @@
 """Regression tests: governed admin announcements and the customer marquee."""
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest import mock
@@ -18,11 +19,13 @@ class CustomerAnnouncementsTest(unittest.TestCase):
 
     def test_seed_is_visible_once_and_survives_database_reopens(self):
         initial = announcements.list_public()
-        self.assertEqual(len(initial), 1)
+        self.assertEqual(len(initial), 2)
         self.assertIn("système de fidélité et de parrainage", initial[0]["message"])
+        self.assertEqual(initial[1]["message"], announcements.IPHONE_ANNOUNCEMENT)
         self.assertEqual(initial, announcements.list_public())
         self.assertTrue(announcements.data_path().is_file())
-        announcements.change({"action": "delete", "id": initial[0]["id"]})
+        for item in initial:
+            announcements.change({"action": "delete", "id": item["id"]})
         self.assertEqual(announcements.list_public(), [])
         self.assertEqual(announcements.list_all(), [])  # No accidental reseeding.
 
@@ -31,10 +34,10 @@ class CustomerAnnouncementsTest(unittest.TestCase):
         result = announcements.change({
             "action": "create", "message": "  Horaires   modifiés ", "enabled": False
         })
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 3)
         self.assertEqual(result[-1]["message"], "Horaires modifiés")
         self.assertFalse(result[-1]["enabled"])
-        self.assertEqual(len(announcements.list_public()), 1)
+        self.assertEqual(len(announcements.list_public()), 2)
 
         ident = result[-1]["id"]
         announcements.change({
@@ -42,9 +45,55 @@ class CustomerAnnouncementsTest(unittest.TestCase):
             "enabled": True
         })
         self.assertEqual([i["id"] for i in announcements.list_public()],
-                         [first["id"], ident])
+                         [first["id"], result[1]["id"], ident])
         announcements.change({"action": "delete", "id": ident})
-        self.assertEqual([i["id"] for i in announcements.list_all()], [first["id"]])
+        self.assertEqual([i["id"] for i in announcements.list_all()], [first["id"], result[1]["id"]])
+
+    def test_legacy_editorial_db_receives_iphone_campaign_exactly_once(self):
+        path = announcements.data_path()
+        with sqlite3.connect(path) as db:
+            db.execute(
+                "CREATE TABLE customer_announcements ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "message TEXT NOT NULL, enabled INTEGER NOT NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+            )
+            db.execute(
+                "INSERT INTO customer_announcements "
+                "(message,enabled,created_at,updated_at) VALUES (?,1,?,?)",
+                (announcements.DEFAULT_ANNOUNCEMENT, "2026-10-01", "2026-10-01")
+            )
+        first = announcements.list_public()
+        self.assertEqual(len(first), 2)
+        self.assertEqual(first[-1]["message"], announcements.IPHONE_ANNOUNCEMENT)
+        self.assertEqual(first, announcements.list_public())
+        # The migration ledger prevents promotional messages being re-seeded
+        # after an editorial administrator deliberately deletes them.
+        announcements.change({"action": "delete", "id": first[-1]["id"]})
+        self.assertEqual(len(announcements.list_public()), 1)
+        self.assertEqual(len(announcements.list_all()), 1)
+
+    def test_legacy_disabled_iphone_message_is_not_reenabled(self):
+        path = announcements.data_path()
+        with sqlite3.connect(path) as db:
+            db.execute(
+                "CREATE TABLE customer_announcements ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "message TEXT NOT NULL, enabled INTEGER NOT NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+            )
+            for message, enabled in (
+                (announcements.DEFAULT_ANNOUNCEMENT, 1),
+                (announcements.IPHONE_ANNOUNCEMENT, 0),
+            ):
+                db.execute(
+                    "INSERT INTO customer_announcements "
+                    "(message,enabled,created_at,updated_at) VALUES (?,?,?,?)",
+                    (message, enabled, "2026-10-01", "2026-10-01")
+                )
+        self.assertEqual(len(announcements.list_public()), 1)
+        self.assertEqual(len(announcements.list_all()), 2)
+        self.assertFalse(announcements.list_all()[1]["enabled"])
 
     def test_invalid_payloads_and_nonexistent_ids_are_rejected(self):
         cases = [
@@ -115,14 +164,7 @@ class CustomerAnnouncementsTest(unittest.TestCase):
     def test_two_editorial_announcements_have_distinct_transition_slides(self):
         from pathlib import Path
         first = announcements.list_all()[0]
-        iphone_message = (
-            "Bientôt, l’application CHECKUPAUTO pour iPhone ! "
-            "Programmez des rappels GRATUITS pour votre véhicule et "
-            "n’oubliez plus jamais votre contrôle technique."
-        )
-        announcements.change({
-            "action": "create", "message": iphone_message, "enabled": True
-        })
+        iphone_message = announcements.IPHONE_ANNOUNCEMENT
         with mock.patch.object(customer_http, "_providers_html", return_value=""):
             page = customer_http._login_page().decode("utf-8")
         self.assertEqual(page.count('class="announcement-copy'), 2)
@@ -142,11 +184,11 @@ class CustomerAnnouncementsTest(unittest.TestCase):
         self.assertNotIn("innerHTML", javascript)
 
     def test_banner_is_hidden_when_editor_disables_all_announcements(self):
-        item = announcements.list_all()[0]
-        announcements.change({
-            "action": "update", "id": item["id"],
-            "message": item["message"], "enabled": False,
-        })
+        for item in announcements.list_all():
+            announcements.change({
+                "action": "update", "id": item["id"],
+                "message": item["message"], "enabled": False,
+            })
         with mock.patch.object(customer_http, "_providers_html", return_value=""):
             login = customer_http._login_page().decode("utf-8")
         self.assertIn('aria-label="Informations Checkup Auto" hidden>', login)
@@ -168,7 +210,7 @@ class CustomerAnnouncementsTest(unittest.TestCase):
         with mock.patch.object(customer_http, "_account", return_value=("session", {"accountId": "id"})):
             self.assertTrue(customer_http.handle(authenticated))
         self.assertEqual(authenticated.response["status"], 200)
-        self.assertEqual(len(authenticated.response["json"]["items"]), 1)
+        self.assertEqual(len(authenticated.response["json"]["items"]), 2)
         self.assertEqual(authenticated.response["headers"]["Cache-Control"], "no-store")
 
 
