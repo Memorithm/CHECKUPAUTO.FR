@@ -17,6 +17,7 @@ import in_site_booking_readiness as booking_readiness
 import customer_booking_vehicle_mapping
 import customer_booking_api
 import mercure_hosted_checkout
+import customer_next_appointment
 import customer_booking_create_api
 import customer_booking_http_trusted_context
 import customer_booking_server_config_source
@@ -48,6 +49,7 @@ PROVIDERS_ROUTE="/api/customer/providers"
 ME_ROUTE="/api/customer/me"
 PROFILE_ROUTE="/api/customer/profile"
 VEHICLES_ROUTE="/api/customer/vehicles"
+APPOINTMENTS_ROUTE="/api/customer/appointments"
 VEHICLE_REFERENCES_ROUTE="/api/customer/vehicle-references"
 BOOKING_VEHICLE_MAPPING_ROUTE="/api/customer/booking/vehicle-mapping"
 MERCURE_CHECKOUT_ROUTE="/api/customer/booking/mercure-checkout"
@@ -377,7 +379,7 @@ def _dashboard_page(token: str, account: dict, nonce: str) -> bytes:
 .hero{{background:#fff;border:1px solid var(--line);padding:clamp(28px,5vw,52px);display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end}}
 .eyebrow{{font:10px Consolas,monospace;letter-spacing:.14em;color:var(--green)}}h1{{font:400 clamp(42px,6vw,70px)/.98 Georgia,serif;letter-spacing:-.045em;margin:14px 0 8px}}p{{color:var(--muted);line-height:1.6}}
 .badge{{padding:9px 12px;border:1px solid #a9bcaf;background:var(--soft);font:700 9px Consolas,monospace;letter-spacing:.1em}}
-.appointment-panel{{margin-top:14px;min-height:0}}.panel{{background:#fff;border:1px solid var(--line);padding:24px;min-height:210px}}
+.appointment-panel{{margin-top:14px;min-height:0}}.next-appointment{{margin:0 0 16px}}.next-appointment-card{{display:grid;gap:8px;justify-items:start;border:1px solid var(--line);background:#fafbf8;padding:18px;margin-bottom:10px}}.next-appointment-card .metric{{font-size:clamp(26px,4vw,38px);text-transform:capitalize}}.next-appointment-card p{{margin:0}}.next-appointment-others{{margin:6px 0 0;padding-left:18px;color:var(--muted)}}.panel{{background:#fff;border:1px solid var(--line);padding:24px;min-height:210px}}
 .panel h2{{font:400 28px Georgia,serif;margin:8px 0 18px}}.metric{{font:400 44px Georgia,serif;letter-spacing:-.04em}}.sub{{font-size:11px;color:var(--muted)}}
 .report{{border:1px dashed #aebbb2;background:#fafbf8;padding:18px;margin-top:16px}}.profile{{margin-top:14px;background:#fff;border:1px solid var(--line);padding:24px}}
 form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:grid;gap:7px;font-size:11px;font-weight:700}}input,select{{padding:12px;border:1px solid var(--line);background:#fbfcfa;font:inherit}}
@@ -409,6 +411,7 @@ form{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}label{{display:
 <section class="hero"><div><div class="eyebrow">TABLEAU DE BORD CLIENT</div><h1>Bonjour, {display}.</h1><p>{email} · Connexion : {providers}</p></div><span class="badge">{"PROFESSIONNEL" if pro else "PARTICULIER"}</span></section>
 <section class="panel appointment-panel" aria-label="Mes rendez-vous">
 <div class="eyebrow">MES RENDEZ-VOUS</div><h2>Rendez-vous</h2>
+<div id="nextAppointment" class="next-appointment" aria-live="polite"><p>Recherche de votre prochain rendez-vous…</p></div>
 <div class="report-links"><a class="action-button action-button--primary" href="/#reservation">Réserver un contrôle →</a></div>
 </section>
 
@@ -577,6 +580,19 @@ const renderVehicles=()=>{{vehicleList.replaceChildren();if(!vehicleRows.length)
 vehicleSystem.addEventListener('change',()=>{{vehicleRegistration.value=CheckupAutoVehicleInputs.formatRegistration(vehicleRegistration.value,vehicleSystem.value,false);syncVehicleFields();}});vehicleCancel.addEventListener('click',resetVehicleForm);
 vehicleForm.addEventListener('submit',async event=>{{event.preventDefault();if(vehicleSaving||!vehicleSelectorsValid()){{vehicleStatus.textContent='Sélectionnez une marque, un modèle et une énergie valides.';return;}}if(!vehicleInputs.validate())return;const nextControlDate=parseFrenchControlDate(vehicleNextControlDate.value);if(!nextControlDate){{vehicleStatus.textContent='Saisissez une date valide au format JJ/MM/AAAA.';return;}}vehicleSaving=true;syncVehicleSave();vehicleStatus.textContent=vehicleId.value?'Enregistrement des modifications…':'Ajout du véhicule…';const payload={{vehicleId:vehicleId.value,registrationSystem:vehicleSystem.value,registration:vehicleRegistration.value,formulaNumber:vehicleFormula.value,cardIssueDate:vehicleCardIssueDate.value,nextControlDate,characteristics:getVehicleCharacteristics()}};try{{const r=await fetch('{VEHICLES_ROUTE}',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json','X-CheckupAuto-Customer-CSRF':csrf}},body:JSON.stringify(payload)}});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'vehicle_save_failed');vehicleRows=d.vehicles||vehicleRows;renderVehicles();resetVehicleForm();vehicleStatus.textContent='Véhicule enregistré.';}}catch(error){{vehicleStatus.textContent=vehicleMessage(error.message);}}finally{{vehicleSaving=false;syncVehicleSave();}}}});
 renderVehicles();syncVehicleFields();syncVehicleSave();loadVehicleReferences();
+}})();
+(()=>{{'use strict';const box=document.getElementById('nextAppointment');if(!box)return;
+const el=(tag,cls,text)=>{{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}};
+const when=v=>{{const d=new Date(v);return isNaN(d)?'':d.toLocaleDateString('fr-FR',{{weekday:'long',day:'numeric',month:'long',year:'numeric'}})+' à '+d.toLocaleTimeString('fr-FR',{{hour:'2-digit',minute:'2-digit'}});}};
+const line=a=>[a.service,a.vehicle].filter(Boolean).join(' · ');
+const pay=a=>a.paidOnline?('Payé en ligne'+(a.amount!=null?' · '+Number(a.amount).toLocaleString('fr-FR',{{style:'currency',currency:'EUR'}}):'')):'Paiement au centre';
+fetch('{APPOINTMENTS_ROUTE}',{{credentials:'same-origin',cache:'no-store'}}).then(r=>r.json()).then(d=>{{box.replaceChildren();
+if(!d||d.available!==true){{box.appendChild(el('p','',d&&d.reason==='email_not_verified'?'Confirmez votre adresse e-mail pour afficher vos rendez-vous.':'Vos rendez-vous ne peuvent pas être affichés pour le moment. Votre réservation reste valable.'));return;}}
+if(!d.next){{box.appendChild(el('p','','Aucun rendez-vous à venir.'));return;}}
+const a=d.next,card=el('div','next-appointment-card');card.appendChild(el('div','sub','PROCHAIN RENDEZ-VOUS CONFIRMÉ'));card.appendChild(el('div','metric',when(a.start)));card.appendChild(el('p','',line(a)));
+card.appendChild(el('span','badge',pay(a)));card.appendChild(el('p','sub','Référence Mercure '+a.appointmentId+' · Centre Checkup Auto'));box.appendChild(card);
+if(d.others&&d.others.length){{const list=el('ul','next-appointment-others');d.others.forEach(o=>list.appendChild(el('li','',when(o.start)+' — '+line(o))));box.appendChild(el('p','sub','Rendez-vous suivants'));box.appendChild(list);}}
+}}).catch(()=>{{box.replaceChildren(el('p','','Vos rendez-vous ne peuvent pas être affichés pour le moment.'));}});
 }})();</script></body></html>""".encode("utf-8")
 
 
@@ -1596,6 +1612,16 @@ def handle(handler) -> bool:
             handler.send_json({"ok":False,"error":"customer_apple_auth_failed"},401)
         return True
 
+
+    if path==APPOINTMENTS_ROUTE:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_json({"ok":False,"error":"customer_auth_required"},401)
+        elif command!="GET":
+            handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
+        else:
+            handler.send_json(customer_next_appointment.upcoming(account))
+        return True
 
     if path in {VEHICLES_ROUTE,VEHICLE_DELETE_ROUTE}:
         token,account=_account(handler)
