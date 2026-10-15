@@ -16,8 +16,8 @@ and blocks the slot before payment, answers with the Payline production page
 Payline then returns the customer to Mercure's /confirmation_rdv/<hash> page,
 not to this site. A payment cancelled on Payline makes Mercure delete the
 unpaid appointment itself within a minute; a Payline tab simply closed keeps
-the slot about 15 minutes before the same deletion. Still to confirm (see docs/api-mercure.md): the
-date/time and energy formats the public call expects.
+the slot about 15 minutes before the same deletion. A paid booking made from
+the test site on 2026-10-15 confirmed the call format.
 """
 from __future__ import annotations
 
@@ -214,6 +214,10 @@ def reconcile(payload: object, *, account: dict, finder=None) -> dict:
     found = (finder or mercure_admin_client.find_online_booking)(
         date=payload["date"], time=payload["time"], email=str(account.get("email") or ""),
         service_id=service_id)
+    if not found.get("found") and found.get("slotOccupied"):
+        # The slot is held for this service but the booking could not be tied
+        # to this account: keep waiting rather than report a failed payment.
+        return {"ok": True, "state": "payment_pending", "confirmed": False, "paid": False}
     if not found.get("found"):
         # Live test 2026-10-14: when the customer cancels on Payline, Mercure
         # deletes the unpaid appointment itself within a minute and frees the

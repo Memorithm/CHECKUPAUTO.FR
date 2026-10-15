@@ -648,6 +648,11 @@ def review_followup_rows(days=2):
     return out
 
 
+def _prestation_ids(value):
+    values=value if isinstance(value,(list,tuple)) else [value]
+    return {str(v).strip() for v in values if v is not None and str(v).strip()}
+
+
 def find_online_booking(*, date, time, email, service_id, session=None):
     """Locate one appointment in the admin planning by slot, service and
     customer e-mail, and report whether Mercure recorded an online payment.
@@ -659,16 +664,21 @@ def find_online_booking(*, date, time, email, service_id, session=None):
     s=session or _session()
     events=_calendar_events(s,day.isoformat(),(day+datetime.timedelta(days=1)).isoformat())
     start=f'{day.isoformat()}T{str(time)[:5]}'
-    matches=[]
+    matches=[]; occupied=False
     for ev in events:
         if not isinstance(ev,dict): continue
         ext=ev.get('extendedProps') or {}
         if ext.get('rdvDispo') is True: continue
-        if not str(ev.get('start') or '').startswith(start): continue
-        if str(ext.get('prestationId') or '').strip()!=service_id: continue
+        # Live planning 2026-10-15: start is "YYYY-MM-DD HH:MM:SS" (space, not
+        # "T") and prestationId is a list such as [1763].
+        if not str(ev.get('start') or '').strip().replace(' ','T',1).startswith(start): continue
+        if service_id not in _prestation_ids(ext.get('prestationId')): continue
+        occupied=True
         if str(ext.get('email') or '').strip().lower()!=email: continue
         matches.append(ev)
-    if not matches: return {'found':False}
+    # slotOccupied: a booking for this service holds the slot but could not be
+    # tied to this customer; never read that as a cancelled payment.
+    if not matches: return {'found':False,'slotOccupied':occupied}
     if len(matches)!=1: raise RuntimeError('Plusieurs rendez-vous Mercure correspondent')
     ext=matches[0].get('extendedProps') or {}
     rid=str(ext.get('rendezVousId') or matches[0].get('id') or '').strip()
