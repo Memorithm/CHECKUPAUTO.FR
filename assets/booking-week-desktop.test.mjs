@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {runInNewContext} from 'node:vm';
+import {createContext,runInContext} from 'node:vm';
 
 const source=readFileSync(new URL('../app.js',import.meta.url),'utf8');
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
@@ -49,8 +49,9 @@ function fixture() {
   };
   sandbox.self=sandbox;sandbox.globalThis=sandbox;
   Object.assign(window,sandbox);
-  runInNewContext(source,sandbox);
-  return {sandbox,nodes,root,date,caption};
+  const context=createContext(sandbox);
+  runInContext(source,context);
+  return {sandbox,nodes,root,date,caption,context};
 }
 
 test('seven actual calendar dates render in one contiguous week with no fabricated slots',()=>{
@@ -90,9 +91,9 @@ test('provider day with nonpadded ISO still maps to the correct full week',()=>{
 });
 
 test('a clickable calendar trigger calls showPicker in the user gesture on desktop',()=>{
-  const {sandbox,nodes,date}=fixture();
+  const {sandbox,nodes,date,context}=fixture();
   let calls=0;date.showPicker=()=>calls++;
-  sandbox.plannerState.bounds={businessDate:'2026-10-15',horizonEnd:'2026-11-20'};
+  runInContext("plannerState.bounds={businessDate:'2026-10-15',horizonEnd:'2026-11-20'}",context);
   sandbox.initPlanner();
   const trigger=nodes.get('#bookingDateTrigger');
   assert.equal(typeof trigger.listeners.click,'function');
