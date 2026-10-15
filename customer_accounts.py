@@ -1274,6 +1274,12 @@ def issue_session(account_id: object, *, lifetime_seconds: int | None = None) ->
     }
 
 
+# A session's expiry is fixed, not extended by activity. Update last_seen only
+# periodically for retention; turning each authorized GET into BEGIN IMMEDIATE
+# made concurrent /compte and Google/Apple callbacks contend for SQLite.
+SESSION_LAST_SEEN_WRITE_INTERVAL_SECONDS = 300
+
+
 def authenticate_session(token: object) -> str:
     raw = str(token or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", raw):
@@ -1282,21 +1288,26 @@ def authenticate_session(token: object) -> str:
     _ensure_schema()
     now = _now()
     with _connect() as db:
-        db.execute("BEGIN IMMEDIATE")
         row = db.execute(
-            "SELECT account_id,expires_at FROM customer_session WHERE session_hash=?",
+            "SELECT account_id,expires_at,last_seen_at FROM customer_session WHERE session_hash=?",
             (token_hash,),
         ).fetchone()
         if not row:
             raise PermissionError("customer_session_invalid")
         expires = dt.datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
         if now >= expires:
-            db.execute("DELETE FROM customer_session WHERE session_hash=?", (token_hash,))
             raise PermissionError("customer_session_expired")
-        db.execute(
-            "UPDATE customer_session SET last_seen_at=? WHERE session_hash=?",
-            (now.isoformat(timespec="seconds"), token_hash),
-        )
+        last_seen = dt.datetime.fromisoformat(str(row["last_seen_at"]).replace("Z", "+00:00"))
+        cutoff = now - dt.timedelta(seconds=SESSION_LAST_SEEN_WRITE_INTERVAL_SECONDS)
+        if last_seen < cutoff:
+            # Optimistic conditional refresh: avoids a write for warm sessions,
+            # including parallel tabs. A concurrent logout is never recreated.
+            db.execute(
+                "UPDATE customer_session SET last_seen_at=? WHERE session_hash=?"
+                " AND expires_at>? AND last_seen_at<?",
+                (now.isoformat(timespec="seconds"), token_hash,
+                 now.isoformat(timespec="seconds"), cutoff.isoformat(timespec="seconds")),
+            )
         return str(row["account_id"])
 
 
