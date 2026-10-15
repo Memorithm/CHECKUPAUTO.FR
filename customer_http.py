@@ -45,6 +45,7 @@ import site_config_store
 ACCOUNT_ROUTE="/compte"
 ANNOUNCEMENTS_ROUTE="/api/customer/announcements"
 CONTACT_ROUTE="/contact"
+CONTACT_COMPLETION_ROUTE="/compte/completer-coordonnees"
 PASSAGE_ROUTE="/compte/reserver"
 PASSAGE_CONFIRM_ROUTE="/api/customer/passage/confirm"
 PROVIDERS_ROUTE="/api/customer/providers"
@@ -347,6 +348,63 @@ def _vehicle_document_guides() -> str:
 <p class="document-footnote">La disposition et les intitulés varient sur les anciennes cartes grises : reportez la date imprimée relative à l’établissement du document.</p>
 </details>
 </div>"""
+
+
+def _contact_completion_page(token: str, account: dict, message: str = "") -> bytes:
+    csrf = customer_accounts.csrf_token(token)
+    def esc(value: object) -> str:
+        return html.escape(str(value or ""), quote=True)
+    def field(name: str, title: str, autocomplete: str, *, required: bool = True,
+              maxlength: int = 180, mode: str = "text") -> str:
+        requirement = " required" if required else ""
+        return (
+            f'<label>{html.escape(title)}<input name="{name}" type="{mode}" '
+            f'value="{esc(account.get(name))}" autocomplete="{autocomplete}" '
+            f'maxlength="{maxlength}"{requirement}></label>'
+        )
+    kind = str(account.get("kind") or "individual")
+    note = f'<p class="error" role="alert">{esc(message)}</p>' if message else ""
+    company_required = ' required' if kind == "professional" else ""
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Compléter mes coordonnées | Checkup Auto</title>
+<style>
+:root{{--paper:#f6f7f2;--line:#d9dfd3;--green:#1f5443;--ink:#213b30}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--paper);font-family:Arial,sans-serif;color:var(--ink)}}
+main{{width:min(800px,calc(100% - 24px));margin:auto;padding:28px 0 62px}}
+a{{color:var(--green)}}.brand{{font-weight:750;text-decoration:none}}
+.card{{margin-top:20px;background:white;border:1px solid var(--line);border-radius:16px;padding:clamp(22px,5vw,44px)}}
+h1{{font:400 clamp(32px,7vw,54px)/1.12 Georgia,serif;letter-spacing:-.035em;margin:12px 0}}
+p{{line-height:1.65;color:#526b5d}}.error{{background:#fff0ee;padding:12px 14px;color:#9b2e27}}
+form{{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:24px}}
+label{{display:grid;gap:7px;font-size:13px;font-weight:700}}
+input,select{{width:100%;min-width:0;background:#fbfcfa;border:1px solid var(--line);padding:13px;font:16px Arial,sans-serif;border-radius:7px}}
+.actions{{grid-column:1/-1;display:grid;gap:10px;margin-top:8px}}
+button{{min-height:50px;background:var(--green);color:#fff;border:0;border-radius:8px;cursor:pointer;font-weight:700;font-size:15px}}
+.small{{font-size:12px}}@media(max-width:620px){{form{{grid-template-columns:1fr}}}}
+</style></head><body><main><a class="brand" href="/">✓ CHECKUP AUTO</a>
+<section class="card"><small>BIENVENUE DANS VOTRE ESPACE CLIENT</small>
+<h1>Complétez vos coordonnées.</h1>
+<p>Pour accéder à votre espace client et nous contacter sans erreur, renseignez vos coordonnées.
+Ces informations pourront ensuite être mises à jour à tout moment.</p>
+{note}
+<form action="{CONTACT_COMPLETION_ROUTE}" method="post" autocomplete="on">
+<input type="hidden" name="csrf" value="{esc(csrf)}">
+{field("surname","Nom","family-name",maxlength=120)}
+{field("givenName","Prénom","given-name",maxlength=120)}
+{field("displayName","Nom affiché","nickname",maxlength=120)}
+<label>Type de compte<select name="kind" id="onboardingKind"><option value="individual"{" selected" if kind != "professional" else ""}>Particulier</option><option value="professional"{" selected" if kind == "professional" else ""}>Professionnel</option></select></label>
+<label>Raison sociale (professionnels)<input name="companyName" value="{esc(account.get("companyName"))}" maxlength="160"{company_required}></label>
+<label>SIRET (facultatif)<input name="siret" value="{esc(account.get("siret"))}" maxlength="14" inputmode="numeric"></label>
+{field("phone","Téléphone","tel",maxlength=32,mode="tel")}
+{field("addressLine1","Adresse postale","address-line1")}
+{field("addressLine2","Complément d’adresse (facultatif)","address-line2",required=False)}
+{field("postalCode","Code postal","postal-code",maxlength=16)}
+{field("city","Ville","address-level2",maxlength=120)}
+<div class="actions"><button type="submit">Enregistrer mes coordonnées et accéder à mon espace client →</button>
+<span class="small">Adresse e-mail vérifiée : {esc(account.get("email"))}. Vos informations ne sont pas publiées dans le bandeau d’actualités.</span></div>
+</form></section></main></body></html>""".encode("utf-8")
 
 
 def _announcement_html() -> str:
@@ -931,6 +989,62 @@ def handle(handler) -> bool:
     path=parsed.path
     command=getattr(handler,"command","")
 
+    if path==CONTACT_COMPLETION_ROUTE:
+        token,account=_account(handler)
+        if not token or not account:
+            handler.send_redirect(ACCOUNT_ROUTE,303)
+            return True
+        if command=="GET":
+            if account.get("contactDetailsComplete"):
+                handler.send_redirect(ACCOUNT_ROUTE,303)
+            else:
+                handler.send_bytes(_contact_completion_page(token,account),
+                                   "text/html; charset=utf-8",200,"no-store")
+            return True
+        if command!="POST":
+            handler.send_bytes(b"Method not allowed", "text/plain; charset=utf-8", 405, "no-store")
+            return True
+        if not _same_origin(handler):
+            handler.send_bytes(_contact_completion_page(
+                token,account,"Cette demande provient d’une origine non autorisée."),
+                "text/html; charset=utf-8",403,"no-store")
+            return True
+        try:
+            expected={"csrf","surname","givenName","displayName","kind","companyName",
+                      "siret","phone","addressLine1","addressLine2","postalCode","city"}
+            payload=_customer_form(handler,expected)
+            if not customer_accounts.verify_csrf(token,payload.pop("csrf")):
+                handler.send_bytes(_contact_completion_page(
+                    token,account,"Votre session a expiré. Rechargez le formulaire."),
+                    "text/html; charset=utf-8",403,"no-store")
+                return True
+            required=("surname","givenName","displayName","phone","addressLine1","postalCode","city")
+            if not all(isinstance(payload.get(key),str) and payload[key].strip()
+                       for key in required):
+                raise ValueError("missing_customer_contact_details")
+            updated=customer_accounts.update_profile(
+                account["accountId"],kind=payload["kind"],
+                display_name=payload["displayName"],company_name=payload["companyName"],
+                siret=payload["siret"],phone=payload["phone"],
+                address_line1=payload["addressLine1"],address_line2=payload["addressLine2"],
+                postal_code=payload["postalCode"],city=payload["city"],
+                surname=payload["surname"],given_name=payload["givenName"],
+            )
+            if not updated.get("contactDetailsComplete"):
+                raise ValueError("missing_customer_contact_details")
+            handler.send_redirect(ACCOUNT_ROUTE,303)
+        except (ValueError, customer_accounts.CustomerAccountError):
+            handler.send_bytes(
+                _contact_completion_page(
+                    token,account,"Vérifiez chaque champ obligatoire. Le téléphone, "
+                    "l’adresse et le code postal doivent être valides."),
+                "text/html; charset=utf-8",422,"no-store")
+        except Exception:
+            handler.send_bytes(_contact_completion_page(
+                token,account,"Service temporairement indisponible. Vous pouvez réessayer."),
+                "text/html; charset=utf-8",503,"no-store")
+        return True
+
     if path==ANNOUNCEMENTS_ROUTE:
         if command!="GET":
             handler.send_json({"ok":False,"error":"customer_method_not_allowed"},405)
@@ -1369,6 +1483,9 @@ def handle(handler) -> bool:
                 if intent=="contact" else ""
             )
             handler.send_bytes(_login_page(info=info,return_to=return_to),"text/html; charset=utf-8",200,"no-store",{"X-Robots-Tag":"noindex, nofollow, noarchive"})
+            return True
+        if not account.get("contactDetailsComplete"):
+            handler.send_redirect(CONTACT_COMPLETION_ROUTE,303)
             return True
         nonce=secrets.token_urlsafe(18)
         handler._csp_nonce=nonce
