@@ -6,6 +6,7 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import admin_password
@@ -69,6 +70,39 @@ class PasswordRotationTests(unittest.TestCase):
         self.path.chmod(0o644)
         self.assertFalse(admin_password.verify(self.old, path=self.path))
         self.path.chmod(0o600)
+
+    def test_root_owned_0640_secret_is_allowed_for_its_service_group(self):
+        # Exercise a simulated cybercheck process without chowning a real
+        # fixture or reading a production credential.
+        info = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o640,
+            st_uid=0,
+            st_gid=2301,
+            st_size=self.path.stat().st_size,
+        )
+        with patch.object(admin_password.os, "fstat", return_value=info), \
+             patch.object(admin_password.os, "geteuid", return_value=2300), \
+             patch.object(admin_password.os, "getegid", return_value=2301):
+            self.assertTrue(admin_password.verify(self.old, path=self.path))
+            self.assertFalse(admin_password.verify("incorrect", path=self.path))
+
+    def test_root_owned_secret_rejects_wrong_group_or_extra_permissions(self):
+        actual_size=self.path.stat().st_size
+        for owner, group, mode in (
+            (0, 9999, 0o640),  # different primary group
+            (0, 2301, 0o660),  # group can mutate credential
+            (0, 2301, 0o644),  # everyone can read
+            (0, 2301, 0o440),  # only the approved 0640 layout is supported
+            (2302, 2301, 0o640),  # arbitrary file owner
+        ):
+            with self.subTest(owner=owner, group=group, mode=oct(mode)):
+                info = SimpleNamespace(st_mode=stat.S_IFREG | mode,
+                                       st_uid=owner, st_gid=group,
+                                       st_size=actual_size)
+                with patch.object(admin_password.os, "fstat", return_value=info), \
+                     patch.object(admin_password.os, "geteuid", return_value=2300), \
+                     patch.object(admin_password.os, "getegid", return_value=2301):
+                    self.assertFalse(admin_password.verify(self.old, path=self.path))
 
     def test_two_concurrent_changes_cannot_overwrite_one_another(self):
         def attempt(password):
