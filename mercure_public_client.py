@@ -189,7 +189,18 @@ def _normalize_availability(service_key: str, meta: dict[str, Any], start_date: 
     days = []
     for item in raw.get('message', {}).get('donnees', []):
         d = item.get('date') or {}
-        day_date = f"{d.get('annee')}-{d.get('mois', {}).get('numero')}-{d.get('jour')}"
+        try:
+            calendar_day = datetime.date(
+                int(d.get('annee')), int((d.get('mois') or {}).get('numero')),
+                int(d.get('jour')),
+            )
+        except (TypeError, ValueError):
+            # Never expose provider records without a verifiable calendar day.
+            continue
+        if calendar_day.weekday() == 6:
+            # Sunday is closed for public booking, even if Mercure labels it otherwise.
+            continue
+        day_date = calendar_day.isoformat()
         slots = []
         for period in ('AM', 'PM'):
             for slot in (item.get(period) or {}).get('creneaux', []):
@@ -204,6 +215,9 @@ def _normalize_availability(service_key: str, meta: dict[str, Any], start_date: 
                     'saving': saving,
                     'discountPercent': pct,
                 })
+        if not slots:
+            # A Mercure day without bookable slots is not shown to customers.
+            continue
         days.append({
             'date': day_date,
             'weekday': str(d.get('dow') or ''),
