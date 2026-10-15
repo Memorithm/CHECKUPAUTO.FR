@@ -98,7 +98,7 @@ function renderPlanner(data){
    if(new Date(utc).getUTCDay()===0)return false;
    return !start||(utc>=windowStart&&utc<windowStart+7*86400000);
  }).slice(0,7);
- root.style.setProperty('--booking-visible-days',String(Math.max(1,days.length)));
+ root.style?.setProperty?.('--booking-visible-days',String(Math.max(1,days.length)));
  const caption=document.querySelector('#bookingWeekCaption');
  if(caption){caption.textContent=start?'Créneaux ouverts · du '+new Date(start+'T12:00:00Z').toLocaleDateString('fr-FR',{day:'numeric',month:'long',timeZone:'UTC'})+' au '+new Date(addISODays(start,6)+'T12:00:00Z').toLocaleDateString('fr-FR',{day:'numeric',month:'long',timeZone:'UTC'}):'Créneaux disponibles';}
  if(!days.length){root.innerHTML='<p class="booking-empty">Aucun créneau disponible sur les jours ouverts de cette période. Choisissez une autre date.</p>';return}
