@@ -18,10 +18,13 @@ class PaymentContractRoutesTest(unittest.TestCase):
     def server(self, mfa=True):
         with tempfile.TemporaryDirectory() as private:
             Path(private, 'admin-password').write_text('synthetic-test-password\n')
+            Path(private, 'admin-password').chmod(0o600)  # admin_password refuses group/other access
             with patch.dict(os.environ, {'CYBERCHECK_PRIVATE_DIR': private, 'CYBERCHECK_DATA_DIR': private,
                                        'CYBERCHECK_SECURITY_DIR': str(Path(private, 'security'))}):
                 app = importlib.import_module('admin_server')
-                with patch.object(app.Handler, '_guard', return_value=True), \
+                # admin_server is imported once; point it at this test's private dir.
+                with patch.object(app, 'PRIVATE_DIR', Path(private)), \
+                     patch.object(app.Handler, '_guard', return_value=True), \
                      patch.object(app.Handler, '_mfa_session_valid', return_value=mfa):
                     httpd = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
                     thread = threading.Thread(target=httpd.serve_forever, daemon=True); thread.start()
