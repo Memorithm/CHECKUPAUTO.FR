@@ -89,6 +89,39 @@ class CustomerAnnouncementsTest(unittest.TestCase):
         self.assertIn('nonce="nonce-test"', page)
         self.assertIn("prefers-reduced-motion:reduce", page)
 
+    def test_banner_is_visible_on_login_onboarding_and_dashboard(self):
+        account = {
+            "kind": "individual", "displayName": "Client Test",
+            "email": "client@example.test", "companyName": "", "siret": "",
+            "providers": [], "vehicles": [],
+        }
+        with mock.patch.object(customer_http.customer_accounts, "csrf_token", return_value="csrf"), \
+             mock.patch.object(customer_http, "_providers_html", return_value=""):
+            pages = {
+                "login": customer_http._login_page().decode("utf-8"),
+                "onboarding": customer_http._contact_completion_page("token", account).decode("utf-8"),
+                "dashboard": customer_http._dashboard_page("token", account, "nonce-test").decode("utf-8"),
+            }
+        for location, page in pages.items():
+            with self.subTest(location=location):
+                self.assertEqual(page.count('id="customerAnnouncements"'), 1)
+                self.assertIn('class="customer-announcements" aria-label="Informations Checkup Auto">', page)
+                self.assertIn("système de fidélité et de parrainage", page)
+                self.assertIn("customer-news-left", page)
+                self.assertIn("prefers-reduced-motion:reduce", page)
+        self.assertIn("refreshCustomerAnnouncements();", pages["dashboard"])
+
+    def test_banner_is_hidden_when_editor_disables_all_announcements(self):
+        item = announcements.list_all()[0]
+        announcements.change({
+            "action": "update", "id": item["id"],
+            "message": item["message"], "enabled": False,
+        })
+        with mock.patch.object(customer_http, "_providers_html", return_value=""):
+            login = customer_http._login_page().decode("utf-8")
+        self.assertIn('aria-label="Informations Checkup Auto" hidden>', login)
+        self.assertNotIn(announcements.DEFAULT_ANNOUNCEMENT, login)
+
     def test_customer_announcement_endpoint_rejects_anonymous_and_non_get(self):
         from customer_http_test import Handler
         anon = Handler(customer_http.ANNOUNCEMENTS_ROUTE)
