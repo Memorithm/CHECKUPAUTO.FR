@@ -24,6 +24,7 @@ class PaymentContractRoutesTest(unittest.TestCase):
                 app = importlib.import_module('admin_server')
                 # admin_server is imported once; point it at this test's private dir.
                 with patch.object(app, 'PRIVATE_DIR', Path(private)), \
+                     patch.object(app, 'PASSWORD', 'synthetic-test-password'), \
                      patch.object(app.Handler, '_guard', return_value=True), \
                      patch.object(app.Handler, '_mfa_session_valid', return_value=mfa):
                     httpd = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
