@@ -108,7 +108,7 @@ def build(root: Path = ROOT, output: Path = OUTPUT) -> dict:
         "  Referrer-Policy: strict-origin-when-cross-origin",
     )
     (output / "_headers").write_text(
-        "\\n".join(header_lines).replace("\\\\n", "\\n") + "\\n",
+        chr(10).join(header_lines) + chr(10),
         encoding="utf-8",
     )
     (output / "public-assets-manifest.json").write_text(
