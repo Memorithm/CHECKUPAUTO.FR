@@ -59,6 +59,15 @@ class CustomerOIDCAdminHttpTest(unittest.TestCase):
                 self.assertEqual(h.response["status"],expected_status)
                 secret.assert_not_called()
 
+    def test_admin_request_loads_private_key_only_after_authentication(self):
+        h=Handler()
+        with patch.object(http,"csrf_secret",return_value=self.secret) as secret:
+            with patch.object(http.customer_oidc_admin,"status",return_value={"providers":[],"secretsReadable":False}):
+                self.assertTrue(http.handle(h))
+        secret.assert_called_once_with()
+        self.assertEqual(h.response["status"],200)
+        self.assertRegex(h.response["json"]["csrfToken"],r"^[0-9a-f]{64}$")
+
     def test_missing_admin_key_only_disables_admin_oidc_route(self):
         for method in ("GET","POST"):
             with self.subTest(method=method):
