@@ -19,7 +19,7 @@ def event(rid, start, **ext):
 
 class NextAppointmentTest(unittest.TestCase):
     def setUp(self):
-        nxt._SNAPSHOT.update(at=0.0, day="", events=None)
+        nxt._SNAPSHOT.update(at=0.0, day="", events=None, failedAt=None, inflight=None)
 
     def run_with(self, events, account=ACCOUNT, now=NOW):
         return nxt.upcoming(account, now=now, fetch=lambda a, b: events)
@@ -73,6 +73,46 @@ class NextAppointmentTest(unittest.TestCase):
         start, end = fetch.call_args.args
         self.assertEqual(start, "2026-10-15")
         self.assertEqual(end, "2027-02-12")
+
+    def test_failure_is_not_retried_by_every_waiter(self):
+        broken = Mock(side_effect=RuntimeError("timeout"))
+        for offset in (0, 5, 10):
+            result = nxt.upcoming(ACCOUNT, now=NOW + offset, fetch=broken)
+            self.assertEqual(result["reason"], "provider_unavailable")
+        self.assertEqual(broken.call_count, 1)
+        ok = Mock(return_value=[event(2, "2026-10-21 18:20:00")])
+        result = nxt.upcoming(ACCOUNT, now=NOW + nxt.FAILURE_BACKOFF_SECONDS + 1, fetch=ok)
+        self.assertEqual(result["next"]["appointmentId"], "2")
+
+    def test_recent_snapshot_is_served_while_mercure_fails(self):
+        nxt.upcoming(ACCOUNT, now=NOW, fetch=lambda a, b: [event(2, "2026-10-21 18:20:00")])
+        broken = Mock(side_effect=RuntimeError("timeout"))
+        later = NOW + nxt.SNAPSHOT_TTL_SECONDS + 1
+        self.assertEqual(nxt.upcoming(ACCOUNT, now=later, fetch=broken)["next"]["appointmentId"], "2")
+        self.assertEqual(nxt.upcoming(ACCOUNT, now=later + 1, fetch=broken)["next"]["appointmentId"], "2")
+        self.assertEqual(broken.call_count, 1)
+
+    def test_concurrent_callers_share_one_read_and_lock_is_free_during_it(self):
+        import threading
+        started, release = threading.Event(), threading.Event()
+
+        def slow(a, b):
+            started.set()
+            release.wait(5)
+            return [event(2, "2026-10-21 18:20:00")]
+        fetch = Mock(side_effect=slow)
+        results = []
+        first = threading.Thread(target=lambda: results.append(nxt.upcoming(ACCOUNT, now=NOW, fetch=fetch)))
+        first.start()
+        self.assertTrue(started.wait(5))
+        self.assertFalse(nxt._LOCK.locked())
+        second = threading.Thread(target=lambda: results.append(nxt.upcoming(ACCOUNT, now=NOW + 1, fetch=fetch)))
+        second.start()
+        release.set()
+        first.join(5)
+        second.join(5)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual([r["next"]["appointmentId"] for r in results], ["2", "2"])
 
     def test_no_upcoming(self):
         self.assertIsNone(self.run_with([])["next"])
