@@ -83,7 +83,7 @@ class CustomerAnnouncementsTest(unittest.TestCase):
             page = customer_http._dashboard_page("token", account, "nonce-test").decode()
         self.assertIn('id="customerAnnouncements"', page)
         self.assertIn("announcement-track", page)
-        self.assertIn("customer-news-left", page)
+        self.assertIn("customer-news-progress", page)
         self.assertIn("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;", page)
         self.assertNotIn('<img src=x onerror="alert(1)">', page)
         self.assertIn('nonce="nonce-test"', page)
@@ -107,9 +107,39 @@ class CustomerAnnouncementsTest(unittest.TestCase):
                 self.assertEqual(page.count('id="customerAnnouncements"'), 1)
                 self.assertIn('class="customer-announcements" aria-label="Informations Checkup Auto">', page)
                 self.assertIn("système de fidélité et de parrainage", page)
-                self.assertIn("customer-news-left", page)
+                self.assertIn("customer-news-progress", page)
                 self.assertIn("prefers-reduced-motion:reduce", page)
         self.assertIn("refreshCustomerAnnouncements();", pages["dashboard"])
+        self.assertIn("checkupauto:announcements", pages["dashboard"])
+
+    def test_two_editorial_announcements_have_distinct_transition_slides(self):
+        from pathlib import Path
+        first = announcements.list_all()[0]
+        iphone_message = (
+            "Bientôt, l’application CHECKUPAUTO pour iPhone ! "
+            "Programmez des rappels GRATUITS pour votre véhicule et "
+            "n’oubliez plus jamais votre contrôle technique."
+        )
+        announcements.change({
+            "action": "create", "message": iphone_message, "enabled": True
+        })
+        with mock.patch.object(customer_http, "_providers_html", return_value=""):
+            page = customer_http._login_page().decode("utf-8")
+        self.assertEqual(page.count('class="announcement-copy'), 2)
+        self.assertEqual(page.count('class="announcement-copy is-active"'), 1)
+        self.assertIn(iphone_message, page)
+        self.assertIn(first["message"], page)
+        self.assertIn('aria-label="Information précédente"', page)
+        self.assertIn('aria-label="Information suivante"', page)
+        self.assertIn('01 / 02', page)
+        self.assertIn('/assets/customer-announcements.js?v=20261016-1', page)
+        self.assertIn('customer-news-progress', page)
+        self.assertIn('prefers-reduced-motion:reduce', page)
+        javascript = (Path(__file__).parent / "assets" / "customer-announcements.js").read_text()
+        self.assertIn("checkupauto:announcements", javascript)
+        self.assertIn("matchMedia('(prefers-reduced-motion: reduce)')", javascript)
+        self.assertIn("slide.textContent = message", javascript)
+        self.assertNotIn("innerHTML", javascript)
 
     def test_banner_is_hidden_when_editor_disables_all_announcements(self):
         item = announcements.list_all()[0]
