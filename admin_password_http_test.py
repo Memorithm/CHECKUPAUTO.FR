@@ -20,6 +20,12 @@ class AdminPasswordHTTPTests(unittest.TestCase):
         folder = self.stack.enter_context(tempfile.TemporaryDirectory())
         root = Path(folder)
         self.stack.enter_context(patch.object(admin_server, "PRIVATE_DIR", root))
+        # These tests exercise the Handler's Basic/MFA/CSRF boundaries, not the
+        # global IP-burst Sentinel. Avoid polluting its shared in-memory limits
+        # for subsequent HTTP tests in the full 2800+ test suite.
+        self.stack.enter_context(patch.object(
+            admin_server.security, "evaluate",
+            return_value={"allow": True, "client": "", "path": "", "risk": 0}))
         self.old = admin_server.PASSWORD
         self.password_file = root / "admin-password"
         self.password_file.write_text(self.old + "\n", encoding="utf-8")
