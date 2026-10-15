@@ -16,6 +16,12 @@ DEFAULT_ANNOUNCEMENT = (
     "avantageux pour vous récompenser. Restez à l’écoute et renseignez vos "
     "coordonnées dans votre espace client !"
 )
+IPHONE_ANNOUNCEMENT = (
+    "Bientôt, l’application CHECKUPAUTO pour iPhone ! "
+    "Programmez des rappels GRATUITS pour votre véhicule "
+    "et n’oubliez plus jamais votre contrôle technique."
+)
+_IPHONE_SEED_ID = "2026-10-16-iphone-free-technical-reminders"
 MAX_LENGTH = 400
 MAX_ITEMS = 20
 
@@ -54,6 +60,40 @@ def _initialize(db: sqlite3.Connection) -> None:
             "INSERT INTO customer_announcements (message,enabled,created_at,updated_at) "
             "VALUES (?,1,?,?)", (DEFAULT_ANNOUNCEMENT, now, now)
         )
+
+    # An explicitly requested editorial campaign, once per database. The
+    # migration ledger is distinct from admin-managed rows so an editor may
+    # later hide, amend or delete the message without automatic re-creation.
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS customer_announcement_seed_history (
+            slug TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        )
+    """)
+    applied = db.execute(
+        "SELECT 1 FROM customer_announcement_seed_history WHERE slug=?",
+        (_IPHONE_SEED_ID,)
+    ).fetchone()
+    if not applied:
+        # Existing/disabled editor-created copies take precedence. On a full
+        # editorial catalog, do not disrupt customer account availability.
+        already = db.execute(
+            "SELECT 1 FROM customer_announcements WHERE message=? LIMIT 1",
+            (IPHONE_ANNOUNCEMENT,)
+        ).fetchone()
+        count = db.execute("SELECT COUNT(*) FROM customer_announcements").fetchone()[0]
+        if already or count < MAX_ITEMS:
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if not already:
+                db.execute(
+                    "INSERT INTO customer_announcements "
+                    "(message,enabled,created_at,updated_at) VALUES (?,1,?,?)",
+                    (IPHONE_ANNOUNCEMENT, now, now)
+                )
+            db.execute(
+                "INSERT INTO customer_announcement_seed_history (slug,applied_at) "
+                "VALUES (?,?)", (_IPHONE_SEED_ID, now)
+            )
 
 
 def _open_initialized():
