@@ -21,6 +21,7 @@ struct NativeCustomerAccountView: View {
     @State private var showGPSPicker = false
     @State private var showBlockedExternalNavigation = false
     @State private var reportToShare: CustomerReportFile?
+    @State private var showingBooking = false
 
     var body: some View {
         NavigationStack {
@@ -142,6 +143,10 @@ struct NativeCustomerAccountView: View {
                         try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent())
                     }
             }
+            .fullScreenCover(isPresented: $showingBooking) {
+                BookingJourneyView(onWebFallback: openBookingInWeb)
+                    .environmentObject(model)
+            }
             .task { await openAccountWebsite() }
             .onDisappear {
                 // Website edits and deletions must also update the native home list.
@@ -178,6 +183,15 @@ struct NativeCustomerAccountView: View {
     }
 
     private func openBooking() {
+        // Booking happens inside the app, reusing the current session, so the
+        // customer is never asked to sign in again.
+        showingBooking = true
+    }
+
+    private func openBookingInWeb() {
+        // Degraded fallback only: used when the in-app journey cannot prepare
+        // the scoped session. The environment-aware web journey never leaves
+        // for the legacy rdv.checkupauto.fr site.
         #if canImport(UIKit)
         UIApplication.shared.open(MobileAPI.bookingJourneyURL())
         #endif

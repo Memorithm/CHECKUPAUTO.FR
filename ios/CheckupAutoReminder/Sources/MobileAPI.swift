@@ -54,6 +54,65 @@ enum MobileAPI {
         return components.url!
     }
 
+    // Public Mercure planning, served as JSON through the Cloudflare-cached
+    // site. The native in-app planner reads these directly so the first booking
+    // screen appears instantly, without loading a web page.
+    static func mercureServicesURL(baseURL: URL = currentBaseURL) -> URL {
+        endpoint("/api/booking/services", baseURL: baseURL)
+    }
+
+    static func mercureAvailabilityURL(
+        serviceKey: String, date: String, baseURL: URL = currentBaseURL
+    ) -> URL {
+        var components = URLComponents(
+            url: endpoint("/api/booking/availability", baseURL: baseURL),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "service", value: serviceKey),
+            URLQueryItem(name: "date", value: date),
+        ]
+        return components.url!
+    }
+
+    /// First-party entry point for the in-app booking journey: the authenticated
+    /// passage page (vehicle + contact), which then continues to the in-site
+    /// Mercure summary and the hosted checkout, all inside the app's own
+    /// signed-in WebKit view. The scoped browser cookie is used, never the
+    /// native bearer, and no second login is ever presented.
+    static func inAppBookingEntryURL(
+        serviceLabel: String, date: String, time: String, baseURL: URL = currentBaseURL
+    ) -> URL? {
+        guard !serviceLabel.isEmpty, serviceLabel.count <= 100,
+              date.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil,
+              time.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        var unreserved = CharacterSet.alphanumerics
+        unreserved.insert(charactersIn: "-._~")
+        func enc(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
+        }
+        // Raw inner target, percent-encoded once as the single returnTo value.
+        let inner = "/go/booking?service=\(serviceLabel)"
+            + "&preferredDate=\(date)&preferredTime=\(time)"
+            + "&utmSource=app:ios&device=mobile"
+        let base = baseURL.absoluteString
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        return URL(string: prefix + "compte/reserver?returnTo=" + enc(inner))
+    }
+
+    /// Only the external card-payment page (Payline) and the legacy Mercure
+    /// reservation host may leave the in-app journey into the system payment
+    /// sheet. Everything else stays first-party inside the app.
+    static func isHostedPaymentURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else {
+            return false
+        }
+        if host == "rdv.checkupauto.fr" { return true }
+        return host == "payline.com" || host.hasSuffix(".payline.com")
+    }
+
     static let debugEnvironmentKey = "CHECKUPAUTO_API_BASE_URL"
 
     static func resolvedBaseURL(

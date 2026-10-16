@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showingDeleteConfirmation = false
     @State private var vehiclePendingDeletion: VehicleDeadline?
     @State private var browserDestination: BrowserDestination?
+    @State private var showingBooking = false
 
     var body: some View {
         NavigationStack {
@@ -44,7 +45,7 @@ struct ContentView: View {
                     }
 
                     quickActions
-                    Text("Choisissez votre créneau sur le portail sécurisé rdv.checkupauto.fr.")
+                    Text("Choisissez votre créneau et payez en toute sécurité, sans quitter l’application.")
                         .font(.caption).foregroundStyle(CheckupTheme.muted)
                     nextControlCard
                     vehicleSection
@@ -147,12 +148,21 @@ struct ContentView: View {
                 InAppBrowserView(url: destination.url)
                     .ignoresSafeArea()
             }
+            .fullScreenCover(isPresented: $showingBooking) {
+                BookingJourneyView(onWebFallback: { openInApp(MobileAPI.bookingJourneyURL()) })
+                    .environmentObject(model)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .checkupBookingRequested)) { _ in
+                showingBooking = true
+            }
         }
         .task(id: model.customerSignedIn) {
             if model.customerSignedIn {
                 // Prepare the scoped HttpOnly WebKit session while the user is
                 // already on the home screen; account opening then skips POST.
                 await NativeDashboardBridge.prewarm()
+                // Warm the planning so the first booking screen is instant.
+                await BookingPlannerCache.prefetch()
             }
         }
         .tint(CheckupTheme.accent)
@@ -236,7 +246,7 @@ struct ContentView: View {
             sectionLabel("ACCÈS RAPIDE")
 
             Button {
-                openInApp(MobileAPI.bookingJourneyURL())
+                startBooking()
             } label: {
                 HStack(spacing: 16) {
                     Image(systemName: "calendar.badge.plus")
@@ -651,6 +661,17 @@ struct ContentView: View {
 
     private func openInApp(_ url: URL) {
         browserDestination = BrowserDestination(url: url)
+    }
+
+    private func startBooking() {
+        // The whole booking journey runs inside the app with the existing
+        // session. Only if the signed-in session is somehow unavailable does it
+        // fall back to the web journey.
+        if model.customerSignedIn {
+            showingBooking = true
+        } else {
+            openInApp(MobileAPI.bookingJourneyURL())
+        }
     }
 
     private func daysLabel(until date: Date) -> String {

@@ -15,6 +15,7 @@ let package = Package(
                 "AddVehicleView.swift", "AppModel.swift", "CheckupAutoReminderApp.swift",
                 "ContentView.swift", "PremiumWelcomeView.swift", "NativeCustomerAccountView.swift",
                 "NativeDashboardBridge.swift", "AuthenticatedCustomerDashboardWebView.swift",
+                "AuthenticatedBookingWebView.swift", "BookingJourneyView.swift",
                 "CentreGPSChoice.swift",
                 "CustomerAuthenticationOptions.swift", "EmailAccountView.swift",
                 "EmailCustomerAuth.swift", "InAppBrowserView.swift",
