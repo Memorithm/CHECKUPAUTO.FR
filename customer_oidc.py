@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 import customer_accounts
 from sqlite_closing import ClosingConnection
 from customer_schema_once import SchemaOnce
+import customer_postgres_runtime as pg_runtime
 
 PROVIDERS = {
     "google": {
@@ -143,6 +144,8 @@ def _provider_config(provider: str) -> dict:
 
 
 def _connect() -> sqlite3.Connection:
+    if pg_runtime.enabled():
+        return pg_runtime.connect()
     path = _flow_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=10, factory=ClosingConnection)
@@ -151,6 +154,8 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    if pg_runtime.enabled():
+        raise RuntimeError("customer_pg_schema_operator_only")
     with _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
@@ -196,6 +201,9 @@ _SCHEMA_ONCE = SchemaOnce()
 
 
 def _ensure_schema() -> None:
+    if pg_runtime.enabled():
+        pg_runtime.assert_schema("oidc")
+        return
     _SCHEMA_ONCE.ensure(_flow_path(), init_db)
 
 
@@ -499,7 +507,7 @@ def complete(provider: object, state: object, code: object, *, browser_binding: 
 
 def purge_expired_flows(*, dry_run: bool = False) -> int:
     """Remove abandoned OIDC login flows once they can no longer complete."""
-    if not _flow_path().is_file():
+    if not pg_runtime.enabled() and not _flow_path().is_file():
         return 0
     _ensure_schema()
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
