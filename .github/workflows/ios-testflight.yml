@@ -1,16 +1,13 @@
 name: iOS TestFlight Delivery
 
+# Deliver only after the exact iOS commit has passed BOTH Swift and Xcode CI.
+# No upload from pull_request code or from an unfinished/failed build.
 on:
-  workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: ['iOS Core CI']
+    types: [completed]
     branches: [main]
-    paths:
-      - 'ios/CheckupAutoReminder/**'
-      - 'ios_release_runner.py'
-      - 'scripts/checkupauto-testflight-credentials.sh'
-      - 'scripts/ensure-mac-ssh-identity.sh'
-      - 'scripts/install-appstore-team-key.sh'
-      - '.github/workflows/ios-testflight.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,6 +18,18 @@ concurrency:
 
 jobs:
   testflight:
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.ref == 'refs/heads/main' &&
+      (
+        (github.event_name == 'workflow_dispatch' && github.actor == 'CHECKUPAUTO') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository &&
+         github.event.workflow_run.head_sha == github.sha)
+      )
     runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci]
     timeout-minutes: 45
     env:
@@ -32,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -42,9 +52,21 @@ jobs:
             echo "::error::TestFlight delivery must run from main"
             exit 2
           }
-          git checkout -B main "$GITHUB_SHA"
-          git update-ref refs/remotes/origin/main "$GITHUB_SHA"
+          # GITHUB_SHA on workflow_run is the default-branch revision; the
+          # verified source commit is workflow_run.head_sha. Never upload an
+          # untested or unrelated revision.
+          expected="${{ github.event.workflow_run.head_sha || github.sha }}"
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$expected"
+          git checkout -B main "$expected"
+          git update-ref refs/remotes/origin/main "$expected"
           test -z "$(git status --porcelain)"
+          version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION: (.*)$/\1/p' ios/CheckupAutoReminder/project.yml)"
+          build="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION: ([0-9]+)$/\1/p' ios/CheckupAutoReminder/project.yml)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$build" =~ ^[1-9][0-9]{0,3}$ ]]
+          printf 'CHECKUPAUTO_RELEASE_BUILD=%s\n' "$build" >> "$GITHUB_ENV"
+          echo "TESTFLIGHT_RELEASE_PINNED=$version ($build) sha=$expected"
 
       - name: Resolve reachable Mac mini SSH endpoint
         shell: bash
@@ -158,17 +180,17 @@ jobs:
             esac
           done <<< "$state"
 
-      - name: Report external Apple credential gate
+      - name: Fail closed if Apple upload credentials are missing
         if: ${{ steps.apple.outputs.ready != 'true' }}
         run: |
           echo "TESTFLIGHT_BLOCKED_EXTERNAL=app-store-connect-team-key"
-          echo "::notice::TestFlight upload skipped until the App Store Connect Team API key is installed"
+          echo "::error::The iOS build is not uploaded. Apple Team API key is missing from the Mac-local vault."
           {
-            echo "### TestFlight blocked by external Apple credential"
-            echo
-            echo "The application and release pipeline are healthy."
-            echo "Install the App Store Connect Team API key in the Mac-local Checkup Auto vault to enable upload."
+            echo "### TestFlight DELIVERY FAILED"
+            echo "The validated iOS source was NOT uploaded to App Store Connect."
+            echo "Provision the App Store Connect Team API key in the Mac-local CheckupAuto vault via authorized RemoteOps."
           } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Stage exact GitHub source on Mac mini
         if: ${{ steps.apple.outputs.ready == 'true' }}
@@ -200,7 +222,10 @@ jobs:
           fi
 
           remote_dir="$(cat "$RUNNER_TEMP/checkupauto-testflight-remote-dir")"
-          build_number="$(date -u +%y%m%d%H%M%S)"
+          # Preserve the real marketing build identifier instead of uploading
+          # a timestamp-derived build that cannot be matched to CI.
+          build_number="$CHECKUPAUTO_RELEASE_BUILD"
+          [[ "$build_number" =~ ^[1-9][0-9]{0,3}$ ]]
           ssh "${ssh_args[@]}" "$CHECKUPAUTO_MAC_USER@$CHECKUPAUTO_MAC_HOST"             "set -euo pipefail
              export PATH='/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
              cd '$remote_dir'
