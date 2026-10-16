@@ -228,7 +228,7 @@ def _cutoff(days: int, now: datetime.datetime | None = None) -> str:
 
 
 def init_db(db_path: Path | str | None = None) -> None:
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     with compliance_store.connect(db_path) as db:
         db.executescript(
             """
@@ -649,7 +649,7 @@ def _purge_checkout_acceptance_transient(
     A finalized row without a durable receipt is deliberately retained so a
     provider/browser reconciliation failure is never hidden by retention.
     """
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     cutoff = (
         _now()
         - datetime.timedelta(hours=booking_bridge.BOOKING_BROWSER_TOKEN_TTL_HOURS)
@@ -680,7 +680,7 @@ def _purge_checkout_acceptance_transient(
 
 def _purge_consent_receipts(days: int, *, dry_run: bool, db_path: Path | str | None = None) -> int:
     cutoff = _cutoff(days)
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     with compliance_store.connect(db_path) as db:
         count = int(db.execute(
             "SELECT COUNT(*) n FROM consent_receipts WHERE accepted_at<?",
@@ -693,7 +693,7 @@ def _purge_consent_receipts(days: int, *, dry_run: bool, db_path: Path | str | N
 
 def _purge_withdrawal_evidence(days: int, *, dry_run: bool, db_path: Path | str | None = None) -> int:
     cutoff = _cutoff(days)
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     with compliance_store.connect(db_path) as db:
         try:
             count = int(db.execute(
@@ -709,7 +709,7 @@ def _purge_withdrawal_evidence(days: int, *, dry_run: bool, db_path: Path | str 
 
 def _purge_rights_evidence(days: int, *, dry_run: bool, db_path: Path | str | None = None) -> int:
     cutoff = _cutoff(days)
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     removed = 0
     with compliance_store.connect(db_path) as db:
         closed_ids = [
