@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-import os
 import tempfile
 import unittest
 from unittest import mock
@@ -42,11 +41,15 @@ class SecurityStartupOnceTest(unittest.TestCase):
     def test_worker_pid_change_forces_schema_requalification(self):
         def initialize():
             self.db.touch()
+        pid = [42]
         with mock.patch.object(security, "DB", self.db), \
              mock.patch.object(security, "_SCHEMA_ONCE", SchemaOnce()), \
              mock.patch.object(security, "init_db", side_effect=initialize) as init, \
-             mock.patch("customer_schema_once.os.getpid", side_effect=(42, 42, 42, 43, 43)):
+             mock.patch("customer_schema_once.os.getpid", side_effect=lambda: pid[0]):
             security.ensure_db()
+            security.ensure_db()
+            self.assertEqual(init.call_count, 1)
+            pid[0] = 43
             security.ensure_db()
             self.assertEqual(init.call_count, 2)
 
