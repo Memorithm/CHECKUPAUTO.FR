@@ -84,6 +84,12 @@ def migrate(account_path, oidc_path, *, apply=False, confirmed=False, connector=
             raise RuntimeError("customer_migration_tls_service_required")
         if not os.environ.get("PGSSLROOTCERT"):
             raise RuntimeError("customer_migration_ca_required")
+        # The staging freeze must protect exactly the two sources copied.
+        # Refuse copying arbitrary files under an unrelated freeze marker.
+        runtime_root = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData")).resolve()
+        if (Path(account_path).resolve() != runtime_root / "customer-accounts.sqlite3"
+                or Path(oidc_path).resolve() != runtime_root / "customer-oidc.sqlite3"):
+            raise RuntimeError("customer_migration_source_not_frozen_runtime")
 
     with _source(account_path) as accounts, _source(oidc_path) as oidc:
         before = snapshot(accounts, oidc)
