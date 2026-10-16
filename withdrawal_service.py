@@ -45,7 +45,7 @@ def _hash(value: str) -> str:
 
 
 def init_db(db_path: Path | str | None = None) -> None:
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     with compliance_store.connect(db_path) as db:
         db.executescript(
             """
@@ -78,7 +78,7 @@ def init_db(db_path: Path | str | None = None) -> None:
 
 
 def _contract_receipt(contract_ref: str, db_path: Path | str | None = None):
-    compliance_store.init_db(db_path)
+    compliance_store.ensure_db(db_path)
     with compliance_store.connect(db_path) as db:
         return db.execute(
             """SELECT r.contract_ref,r.accepted_at,r.immediate_performance,
