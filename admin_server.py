@@ -2,7 +2,7 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, urlencode
-import base64, datetime, hashlib, hmac, html, ipaddress, json, os, re, secrets, threading, sys
+import base64, datetime, hashlib, hmac, html, ipaddress, json, os, re, secrets, threading, time, sys
 import gsc_client as gsc
 import analytics_store as analytics
 import app_download as app_download
@@ -1563,12 +1563,19 @@ def initialize_runtime(*,background=True):
     ('competitive_review',competitive.seed_review_baseline),
    )
    for step,operation in core_steps:
+    started=time.monotonic()
     try: operation()
     except Exception as exc:
      code=getattr(exc,'sqlite_errorname',None)
      code=code if isinstance(code,str) and re.fullmatch(r'SQLITE_[A-Z0-9_]{1,40}',code) else 'unknown'
      print(f'CHECKUPAUTO_RUNTIME_INIT_FAILURE step={step} sqlite={code} class={type(exc).__name__}',file=sys.stderr,flush=True)
      raise
+    finally:
+     # Diagnose slow cold-worker schema/seed operations without logging SQL,
+     # database paths, request headers, customer identifiers or OAuth values.
+     elapsed_ms=max(0,min(900000,int((time.monotonic()-started)*1000)))
+     if elapsed_ms>=500:
+      print(f'CHECKUPAUTO_RUNTIME_INIT_SLOW step={step} duration_ms={elapsed_ms}',file=sys.stderr,flush=True)
    _RUNTIME_CORE_READY=True
   if background and not _RUNTIME_BACKGROUND_READY:
    booking_test.start(300); reviews.start(); reminder_dispatch.start()
