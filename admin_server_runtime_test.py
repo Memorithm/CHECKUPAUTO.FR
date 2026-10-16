@@ -157,6 +157,38 @@ class AdminServerRuntimeTest(unittest.TestCase):
         self.assertEqual(modules["retention_enforcement"].start.call_count, 1)
 
 
+    def test_slow_passenger_initializer_reports_bounded_stage_only(self):
+        tmp, ns = self.load_server()
+        self.addCleanup(tmp.cleanup)
+        names = (
+            "analytics","referrals","notifications","mobile_devices","reminder_dispatch",
+            "booking","booking_test","reviews","withdrawals","retention_enforcement",
+            "security","security_alerts","competitive",
+        )
+        modules = {name: mock.Mock(name=name) for name in names}
+        ns.update(modules)
+        ns["_RUNTIME_CORE_READY"] = False
+        ns["_RUNTIME_BACKGROUND_READY"] = False
+        fn = ns["initialize_runtime"]
+        fn.__globals__.update(ns)
+        # First operation costs 750 ms; every remaining operation costs 10 ms.
+        timeline = [1.0, 1.75]
+        for index in range(13):
+            timeline.extend([2.0 + index, 2.01 + index])
+        with mock.patch.object(ns["migration_write_freeze"], "status",
+                               return_value={"active": False}), \
+             mock.patch.object(ns["os"], "chdir"), \
+             mock.patch.object(ns["time"], "monotonic", side_effect=timeline), \
+             mock.patch.object(ns["sys"], "stderr", new_callable=io.StringIO) as log:
+            result = fn(background=False)
+        self.assertTrue(result["coreReady"])
+        self.assertEqual(
+            log.getvalue().strip(),
+            "CHECKUPAUTO_RUNTIME_INIT_SLOW step=analytics duration_ms=750",
+        )
+        self.assertNotIn("customer", log.getvalue())
+        self.assertNotIn("sqlite", log.getvalue().lower())
+
     def test_startup_error_reports_only_module_and_sqlite_code(self):
         tmp, ns = self.load_server()
         self.addCleanup(tmp.cleanup)
