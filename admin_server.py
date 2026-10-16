@@ -1557,7 +1557,7 @@ def initialize_runtime(*,background=True):
     ('reviews',reviews.init_db),
     ('withdrawals',withdrawals.init_db),
     ('retention_enforcement',retention_enforcement.init_db),
-    ('security',security.init_db),
+    ('security',security.ensure_db),
     ('security_alerts',security_alerts.init_db),
     ('competitive_public',competitive.seed_public_baseline),
     ('competitive_review',competitive.seed_review_baseline),
