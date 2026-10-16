@@ -1,8 +1,10 @@
 import json
+from contextlib import ExitStack
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import in_site_booking_page
@@ -94,6 +96,55 @@ class HostedCheckoutJourneyTest(unittest.TestCase):
 
 
 class HostedSummaryPageTest(unittest.TestCase):
+    @staticmethod
+    def _summary(mode: str) -> str:
+        with ExitStack() as stack:
+            booking = in_site_booking_page.booking
+            for method, value in (
+                ("mercure_prestation", "Contrôle technique"),
+                ("require_published_terms", {"version": "2026-10", "contentHash": "hash"}),
+                ("browser_token", "signed-browser-token"),
+                ("_checkout_requirements", {
+                    "preferredDate": "2026-10-20", "preferredTime": "09:00",
+                    "requiresImmediatePerformance": False,
+                }),
+                ("preferred_mercure_quote", {"price": 72}),
+            ):
+                stack.enter_context(patch.object(booking, method, return_value=value))
+            stack.enter_context(patch.object(in_site_booking_page.mercure_public_client,
+                                             "SERVICES", {"technical": "Contrôle technique"}))
+            return in_site_booking_page.render_summary(
+                token="intent-token", service_label="Contrôle technique", service_key="technical",
+                nonce="test-nonce", vehicle={"vehicleId": "vehicle-1"},
+                account={"billingContactComplete": True, "email": "client@example.com"},
+                csrf="csrf", business={}, checkout_mode=mode,
+            ).decode("utf-8")
+
+    def test_payline_return_warning_is_visible_before_checkout_and_during_wait(self):
+        html = self._summary("mercure-hosted")
+        self.assertIn("IMPORTANT : ne fermez pas cette fenêtre", html)
+        self.assertIn("Gardez cette page CHECKUPAUTO ouverte.", html)
+        self.assertIn("revenez sur cette page pour vérifier", html)
+        self.assertIn("que votre réservation a bien été prise en compte par le centre.", html)
+        self.assertIn('aria-labelledby="bjReturnNoticeTitle"', html)
+        self.assertIn('aria-labelledby="bjReturnWaitTitle"', html)
+        self.assertIn('aria-hidden="true">!</span>', html)
+        self.assertEqual(html.count('class="bj-return-notice'), 2)
+        self.assertLess(html.index('id="bjReturnNoticeTitle"'), html.index('id="bjConfirm"'))
+        self.assertLess(html.index('id="bjHostedWait"'), html.index('id="bjReturnWaitTitle"'))
+        self.assertIn("booking-journey.css?v=20261016-1", html)
+
+    def test_no_payline_other_tab_warning_for_same_tab_site_mode(self):
+        html = self._summary("site")
+        self.assertNotIn("bj-return-notice", html)
+        self.assertNotIn("bjReturnWaitTitle", html)
+
+    def test_warning_animation_is_optional_and_accessible(self):
+        css = (ROOT / "assets" / "booking-journey.css").read_text(encoding="utf-8")
+        self.assertIn("@keyframes bj-return-halo", css)
+        self.assertIn("@media (prefers-reduced-motion:reduce)", css)
+        self.assertIn(".bj .bj-return-notice__badge{animation:none}", css)
+
     def test_checkout_mode_is_validated(self):
         with self.assertRaises(ValueError):
             in_site_booking_page.render_summary(
