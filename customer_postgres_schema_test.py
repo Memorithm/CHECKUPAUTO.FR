@@ -60,7 +60,7 @@ class CustomerPostgresSchemaTest(unittest.TestCase):
         for table in (*CUSTOMER_TABLES, *OIDC_TABLES):
             self.assertRegex(
                 ddl, r"CREATE TABLE IF NOT EXISTS checkupauto_customer\." +
-                table + r"\\s*\\(",
+                table + r"\s*\(",
             )
         self.assertEqual(len(re.findall(r"CREATE TABLE IF NOT EXISTS", ddl)), 9)
 
