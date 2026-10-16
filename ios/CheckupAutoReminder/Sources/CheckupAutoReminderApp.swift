@@ -77,11 +77,12 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
             return
         }
         Task {
-            let url = MobileAPI.bookingJourneyURL()
             await MainActor.run {
-                UIApplication.shared.open(url, options: [:]) { _ in
-                    completionHandler()
-                }
+                // The "Réserver" action brings the signed-in app to the front
+                // and opens the in-app booking journey; it never leaves for the
+                // website. The .foreground action option handles activation.
+                NotificationCenter.default.post(name: .checkupBookingRequested, object: nil)
+                completionHandler()
             }
         }
     }
