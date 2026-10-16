@@ -14,7 +14,7 @@ import re
 import booking_bridge as booking
 import mercure_public_client
 
-ASSET_VERSION = "20261014-1"
+ASSET_VERSION = "20261016-1"
 CONFIRMATION_ROUTE = "/compte/reservation"
 
 
@@ -102,9 +102,26 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
                  "en ligne par carte bancaire. Le créneau n’est bloqué qu’après confirmation.")
         payment_text = ("En ligne par carte bancaire, sur la page de paiement sécurisée, juste après la "
                         "confirmation du rendez-vous.")
+    # The instruction appears before leaving for Payline and while the hosted payment is pending.
+    # Motion is decorative only: the complete instruction is always present in text.
+    return_notice_markup = (
+        '<aside class="bj-return-notice" role="note" aria-labelledby="bjReturnNoticeTitle">'
+        '<span class="bj-return-notice__badge" aria-hidden="true">!</span>'
+        '<div><h3 id="bjReturnNoticeTitle">IMPORTANT : ne fermez pas cette fenêtre</h3>'
+        '<p>Le paiement sécurisé Payline s’ouvrira dans un nouvel onglet. '
+        '<strong>Gardez cette page CHECKUPAUTO ouverte.</strong> '
+        'Une fois votre paiement validé, <strong>revenez sur cette page pour vérifier '
+        'que votre réservation a bien été prise en compte par le centre.</strong></p></div></aside>'
+    ) if hosted else ""
     hosted_markup = (
         '<section id="bjHostedWait" class="bj-panel" hidden aria-labelledby="bjHostedWaitTitle">'
         '<h2 id="bjHostedWaitTitle">Paiement en cours sur la page sécurisée du centre</h2>'
+        '<aside class="bj-return-notice bj-return-notice--waiting" role="note" aria-labelledby="bjReturnWaitTitle">'
+        '<span class="bj-return-notice__badge" aria-hidden="true">!</span>'
+        '<div><h3 id="bjReturnWaitTitle">Ne fermez pas cette fenêtre CHECKUPAUTO</h3>'
+        '<p>Finalisez votre règlement dans l’onglet Payline, puis <strong>revenez ici '
+        'pour vérifier la prise en compte de votre réservation.</strong> '
+        'Ne considérez le rendez-vous comme confirmé qu’après l’affichage de sa confirmation.</p></div></aside>'
         '<p id="bjHostedText" role="status" aria-live="polite">Finalisez le paiement dans l’onglet Payline. '
         'Cette page se met à jour automatiquement.</p>'
         '<p><a id="bjHostedLink" class="action-button action-button--primary" href="#" target="_blank" '
@@ -148,6 +165,7 @@ def render_summary(*, token: str, service_label: str, service_key: str, nonce: s
 <h2 id="bjConfirmTitle">Conditions et confirmation</h2>
 <label class="bj-consent"><input id="bjTerms" type="checkbox"> <span>J’ai lu et j’accepte les <a href="/cgv">conditions générales de vente</a> applicables à cette réservation.</span></label>
 {immediate_markup}
+{return_notice_markup}
 <div class="bj-actions"><button id="bjConfirm" class="primary" type="submit" disabled>Confirmer et payer</button>
 <a class="action-button" href="/#reservation">Modifier mon choix</a></div>
 <p id="bjStatus" class="bj-status" role="status" aria-live="polite"></p></form>
