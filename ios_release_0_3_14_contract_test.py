@@ -24,7 +24,7 @@ class IOSRelease014Contract(unittest.TestCase):
         self.assertIn("NativeCustomerAccountView()",content)
         self.assertIn("AddVehicleView(isPresented:",content)
         self.assertNotIn("openInApp(model.accountURL)",content)
-        self.assertIn("MobileAPI.directMercureBookingURL",content)
+        self.assertIn("MobileAPI.bookingJourneyURL()",content)
         self.assertIn("vehicleFormulaGuideURL()", (IOS/"Sources/AddVehicleView.swift").read_text())
         self.assertIn("sessionRecoveryRequired", (IOS/"Sources/AppModel.swift").read_text())
         self.assertIn("ASWebAuthenticationSession(", (IOS/"Sources/GoogleCustomerSignIn.swift").read_text())

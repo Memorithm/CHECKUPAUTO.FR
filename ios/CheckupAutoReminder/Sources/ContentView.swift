@@ -236,7 +236,7 @@ struct ContentView: View {
             sectionLabel("ACCÈS RAPIDE")
 
             Button {
-                openInApp(MobileAPI.directMercureBookingURL)
+                openInApp(MobileAPI.bookingJourneyURL())
             } label: {
                 HStack(spacing: 16) {
                     Image(systemName: "calendar.badge.plus")
@@ -246,7 +246,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Réserver un créneau en direct")
                             .font(.headline.weight(.semibold))
-                        Text("Disponibilités Mercure · Réservation sécurisée")
+                        Text("Disponibilités Mercure · Paiement sécurisé sur Checkup Auto")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.82))
                     }

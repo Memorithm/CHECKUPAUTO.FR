@@ -66,7 +66,7 @@ class IOSPixelIdenticalDashboardTests(unittest.TestCase):
         self.assertIn("onNavigationBlocked()", view)
         self.assertIn("model.signOutCustomer()", parent)
         self.assertIn("model.consumeMobileClaim(url: url)", parent)
-        self.assertIn("MobileAPI.directMercureBookingURL", parent)
+        self.assertIn("MobileAPI.bookingJourneyURL()", parent)
         self.assertIn("cookieValidUntil", parent)
         self.assertIn("openAccountWebsite() async", parent)
 
