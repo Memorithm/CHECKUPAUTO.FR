@@ -1,7 +1,10 @@
 name: iOS TestFlight Delivery
 
-# Deliver only after the exact iOS commit has passed BOTH Swift and Xcode CI.
-# No upload from pull_request code or from an unfinished/failed build.
+# CI-green iOS revisions are released by the central RemoteOps Mac-mini
+# automatic publisher (every 15 minutes), which already holds the authorized
+# Apple App Store Connect signing secrets. This repository records an honest
+# handoff, not a fictitious successful upload. Its legacy direct SSH release
+# remains available ONLY for an explicit owner-dispatched manual operation.
 on:
   workflow_run:
     workflows: ['iOS Core CI']
@@ -17,19 +20,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  testflight:
+  handoff:
+    name: Queue green iOS build for RemoteOps automatic TestFlight delivery
     if: >-
       github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
       github.ref == 'refs/heads/main' &&
-      (
-        (github.event_name == 'workflow_dispatch' && github.actor == 'CHECKUPAUTO') ||
-        (github.event_name == 'workflow_run' &&
-         github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.event == 'push' &&
-         github.event.workflow_run.head_branch == 'main' &&
-         github.event.workflow_run.head_repository.full_name == github.repository &&
-         github.event.workflow_run.head_sha == github.sha)
-      )
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_sha == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Attest passed iOS Core CI release and hand off to RemoteOps Mac mini
+        shell: bash
+        env:
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFIED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
+          version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' ios/CheckupAutoReminder/project.yml)"
+          build="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION: ([0-9]+)$/\1/p' ios/CheckupAutoReminder/project.yml)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$build" =~ ^[1-9][0-9]{0,3}$ ]]
+          echo "TESTFLIGHT_HANDOFF=remoteops_scheduled_release"
+          echo "TESTFLIGHT_RELEASE_INTENT=$version ($build) source=$VERIFIED_SHA"
+          {
+            echo "### TestFlight release handed off to RemoteOps"
+            echo
+            echo "Green source: \`$VERIFIED_SHA\`; iOS version \`$version\`, build \`$build\`."
+            echo "RemoteOps checks for each newer green build about every 15 minutes and uses its Mac mini Apple signing chain."
+            echo "This job verifies the handoff condition ONLY, not Apple processing or tester access."
+            echo "The authoritative delivery result is under:"
+            echo "https://github.com/Memorithm/RemoteOps/actions/workflows/checkupauto-testflight-auto.yml"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  testflight:
+    # The direct Mac-local key vault is currently absent. It must never run on
+    # CI push and then fail after the independent RemoteOps delivery succeeds.
+    # Retain as explicit owner-only recovery if that vault is provisioned.
+    if: >-
+      github.repository == 'Memorithm/CHECKUPAUTO.FR' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.actor == 'CHECKUPAUTO'
     runs-on: [self-hosted, Linux, ARM64, internal, checkupauto-ci]
     timeout-minutes: 45
     env:
