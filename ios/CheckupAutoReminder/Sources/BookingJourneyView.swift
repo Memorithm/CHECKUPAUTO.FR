@@ -118,6 +118,13 @@ struct BookingJourneyView: View {
     @State private var loadingServices = true
     @State private var loadingSlots = false
     @State private var plannerError: String?
+    // Pagination: the public availability endpoint returns a single window per
+    // request, bounded by the booking horizon, so the planner advances a cursor
+    // to let the customer browse further days when the first window is full.
+    @State private var canLoadMore = false
+    @State private var loadingMore = false
+    @State private var nextStart = ""
+    @State private var loadMoreCount = 0
 
     // Journey state
     @State private var bookingCookie: HTTPCookie?
@@ -169,8 +176,7 @@ struct BookingJourneyView: View {
             }
             .centreGPSChoice(isPresented: $showGPSPicker)
             .fullScreenCover(item: $payment) { page in
-                InAppBrowserView(url: page.url)
-                    .ignoresSafeArea()
+                PaymentHandoffView(url: page.url, onClose: { payment = nil })
             }
             .task { await loadServices() }
         }
@@ -235,7 +241,7 @@ struct BookingJourneyView: View {
             loadingRow("Connexion à Mercure…")
         } else {
             let bookableDays = days.filter { $0.available && !$0.slots.isEmpty }
-            if bookableDays.isEmpty {
+            if bookableDays.isEmpty && !canLoadMore {
                 errorRow(plannerError ?? "Aucun créneau disponible pour le moment. Vous pouvez appeler le centre.") {
                     Task { await loadSlots() }
                 }
@@ -244,9 +250,35 @@ struct BookingJourneyView: View {
                     ForEach(bookableDays) { day in
                         dayCard(day)
                     }
+                    if bookableDays.isEmpty {
+                        Text("Aucun créneau sur cette période. Cherchez un peu plus loin :")
+                            .font(.subheadline)
+                            .foregroundStyle(CheckupTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if canLoadMore {
+                        loadMoreButton
+                    }
                 }
             }
         }
+    }
+
+    private var loadMoreButton: some View {
+        Button {
+            Task { await loadMore() }
+        } label: {
+            HStack(spacing: 8) {
+                if loadingMore { ProgressView() }
+                Text(loadingMore ? "Recherche de créneaux…" : "Afficher plus de créneaux")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity, minHeight: 46)
+        }
+        .buttonStyle(.bordered)
+        .tint(CheckupTheme.accent)
+        .disabled(loadingMore)
+        .accessibilityIdentifier("booking-load-more")
     }
 
     private func dayCard(_ day: BookingDay) -> some View {
@@ -456,6 +488,21 @@ struct BookingJourneyView: View {
         "\(Int(value.rounded())) €"
     }
 
+    /// Shifts a `yyyy-MM-dd` business date by whole days, in the centre's
+    /// timezone, to page the availability cursor forward.
+    private func shiftDate(_ ymd: String, by days: Int) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Paris") ?? TimeZone(identifier: "UTC")!
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: ymd),
+              let shifted = calendar.date(byAdding: .day, value: days, to: date) else { return nil }
+        return formatter.string(from: shifted)
+    }
+
     @MainActor
     private func loadServices() async {
         if services.isEmpty, let warm = BookingPlannerCache.fresh() {
@@ -497,6 +544,10 @@ struct BookingJourneyView: View {
         plannerError = nil
         selectedDate = ""
         selectedTime = ""
+        canLoadMore = false
+        loadingMore = false
+        nextStart = ""
+        loadMoreCount = 0
         let serviceKey = selectedServiceKey
         let date = businessDate
         do {
@@ -504,11 +555,47 @@ struct BookingJourneyView: View {
             guard serviceKey == selectedServiceKey else { return }
             days = loaded
             loadingSlots = false
+            // Point the cursor just past the furthest day returned (or a week
+            // ahead if this first window is empty) so "plus de créneaux" can
+            // reach the following days, up to the server's booking horizon.
+            nextStart = (loaded.map { $0.date }.max()).flatMap { shiftDate($0, by: 1) }
+                ?? shiftDate(date, by: 7) ?? ""
+            canLoadMore = !nextStart.isEmpty
         } catch {
             guard serviceKey == selectedServiceKey else { return }
             days = []
             loadingSlots = false
             plannerError = "Les créneaux sont momentanément indisponibles. Réessayez ou appelez le centre."
+        }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard canLoadMore, !loadingMore, !loadingSlots, !nextStart.isEmpty else { return }
+        let serviceKey = selectedServiceKey
+        let start = nextStart
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let more = try await BookingPlannerLoader.availability(serviceKey: serviceKey, date: start)
+            guard serviceKey == selectedServiceKey else { return }
+            let known = Set(days.map { $0.date })
+            let fresh = more.filter { !known.contains($0.date) }
+            days.append(contentsOf: fresh)
+            loadMoreCount += 1
+            if !fresh.isEmpty, let furthest = days.map({ $0.date }).max(),
+               let next = shiftDate(furthest, by: 1) {
+                nextStart = next
+            } else if let next = shiftDate(start, by: 7) {
+                // This window added nothing: step past it to keep looking.
+                nextStart = next
+            } else {
+                nextStart = ""
+            }
+            if nextStart.isEmpty || loadMoreCount >= 8 { canLoadMore = false }
+        } catch {
+            // Beyond the booking horizon, or momentarily unavailable: stop here.
+            canLoadMore = false
         }
     }
 
@@ -551,5 +638,102 @@ struct BookingJourneyView: View {
         bookingCookie = nil
         entryURL = nil
         phase = .planner
+    }
+}
+
+/// The information step shown inside the app immediately before the external
+/// Payline card page opens. It makes unmistakably clear — with an animated
+/// alert — that the customer must not close the app and must come back to it
+/// after paying, since the rendez-vous is only confirmed here. Respects Reduce
+/// Motion (the alert stays steady and high-contrast instead of flashing).
+private struct PaymentHandoffView: View {
+    let url: URL
+    let onClose: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var step: Step = .warning
+    @State private var pulse: Double = 1
+
+    private enum Step { case warning, paying }
+
+    var body: some View {
+        switch step {
+        case .warning:
+            warning
+        case .paying:
+            InAppBrowserView(url: url)
+                .ignoresSafeArea()
+        }
+    }
+
+    private var warning: some View {
+        VStack(spacing: 22) {
+            Spacer(minLength: 8)
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 46, weight: .bold))
+                Text("Ne fermez pas l’application")
+                    .font(.system(size: 27, weight: .heavy))
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 26)
+            .padding(.horizontal, 20)
+            .background(Color(red: 0.80, green: 0.14, blue: 0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.yellow, lineWidth: 5)
+                    .opacity(pulse)
+            )
+            .scaleEffect(reduceMotion ? 1 : 1 + CGFloat(1 - pulse) * 0.02)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+
+            VStack(spacing: 12) {
+                Text("Le paiement par carte (Payline) va s’ouvrir.")
+                    .font(.headline)
+                    .foregroundStyle(CheckupTheme.ink)
+                    .multilineTextAlignment(.center)
+                Text("Dès que le paiement est validé, revenez sur l’application : votre rendez-vous s’y confirme automatiquement. Si vous fermez l’application, la réservation ne pourra pas être confirmée.")
+                    .font(.subheadline)
+                    .foregroundStyle(CheckupTheme.muted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                step = .paying
+            } label: {
+                Text("Continuer vers le paiement sécurisé")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CheckupTheme.accent)
+            .accessibilityIdentifier("booking-payment-continue")
+
+            Button("Annuler", action: onClose)
+                .font(.subheadline)
+                .tint(CheckupTheme.accent)
+                .padding(.bottom, 6)
+        }
+        .frame(maxWidth: 460)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckupTheme.paper.ignoresSafeArea())
+        .accessibilityIdentifier("booking-payment-warning")
+        .onAppear {
+            guard !reduceMotion else {
+                pulse = 1
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                pulse = 0.1
+            }
+        }
     }
 }

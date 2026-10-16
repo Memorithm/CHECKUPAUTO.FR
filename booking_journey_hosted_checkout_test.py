@@ -132,7 +132,7 @@ class HostedSummaryPageTest(unittest.TestCase):
         self.assertEqual(html.count('<aside class="bj-return-notice'), 2)
         self.assertLess(html.index('id="bjReturnNoticeTitle"'), html.index('id="bjConfirm"'))
         self.assertLess(html.index('id="bjHostedWait"'), html.index('id="bjReturnWaitTitle"'))
-        self.assertIn("booking-journey.css?v=20261016-1", html)
+        self.assertIn("booking-journey.css?v=20261016-2", html)
 
     def test_no_payline_other_tab_warning_for_same_tab_site_mode(self):
         html = self._summary("site")
@@ -142,8 +142,12 @@ class HostedSummaryPageTest(unittest.TestCase):
     def test_warning_animation_is_optional_and_accessible(self):
         css = (ROOT / "assets" / "booking-journey.css").read_text(encoding="utf-8")
         self.assertIn("@keyframes bj-return-halo", css)
+        self.assertIn("@keyframes bj-return-flash", css)
+        self.assertIn("animation:bj-return-flash", css)
         self.assertIn("@media (prefers-reduced-motion:reduce)", css)
-        self.assertIn(".bj .bj-return-notice__badge{animation:none}", css)
+        reduced = css.split("@media (prefers-reduced-motion:reduce)", 1)[1]
+        self.assertIn(".bj .bj-return-notice{animation:none", reduced)
+        self.assertIn(".bj .bj-return-notice__badge{animation:none}", reduced)
 
     def test_checkout_mode_is_validated(self):
         with self.assertRaises(ValueError):

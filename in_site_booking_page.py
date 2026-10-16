@@ -14,7 +14,7 @@ import re
 import booking_bridge as booking
 import mercure_public_client
 
-ASSET_VERSION = "20261016-1"
+ASSET_VERSION = "20261016-2"
 CONFIRMATION_ROUTE = "/compte/reservation"
 
 
