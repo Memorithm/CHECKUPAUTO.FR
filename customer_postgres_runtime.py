@@ -55,6 +55,8 @@ class Row(dict):
 
 
 def _row_factory(cursor):
+    if cursor.description is None:
+        return lambda values: values
     names = tuple(col.name for col in cursor.description)
     return lambda values: Row(names, values)
 
