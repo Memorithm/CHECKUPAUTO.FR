@@ -13,6 +13,7 @@ import legacy_legal_baseline
 from pathlib import Path
 from urllib.parse import urlparse
 from sqlite_closing import ClosingConnection
+from customer_schema_once import SchemaOnce
 
 
 DATA_DIR = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
@@ -248,8 +249,19 @@ def init_db(db_path: Path | str | None = None) -> None:
         pass
 
 
+# This hint only prevents redundant DDL on ordinary requests; explicit init_db
+# always executes the real schema creation for migrations/repair operations.
+# SchemaOnce requalifies the DB on PID/inode change and after any failure.
+_SCHEMA_ONCE = SchemaOnce()
+
+
+def ensure_db(db_path: Path | str | None = None) -> None:
+    target = Path(db_path) if db_path is not None else runtime_db_path()
+    _SCHEMA_ONCE.ensure(target, lambda: init_db(target))
+
+
 def settings(db_path: Path | str | None = None) -> dict:
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         row = db.execute("SELECT payload,updated_at FROM compliance_settings WHERE id=1").fetchone()
     payload = json.loads(row["payload"]) if row else {}
@@ -311,7 +323,7 @@ def save_document(payload: dict, db_path: Path | str | None = None) -> dict:
         raise ValueError("action document invalide")
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
     stamp = _now_iso()
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         existing = db.execute(
             "SELECT status FROM legal_documents WHERE document_type=? AND version=?",
@@ -343,7 +355,7 @@ def save_document(payload: dict, db_path: Path | str | None = None) -> dict:
 
 
 def documents(db_path: Path | str | None = None) -> list[dict]:
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         rows = db.execute(
             """SELECT * FROM legal_documents
@@ -357,7 +369,7 @@ def documents(db_path: Path | str | None = None) -> list[dict]:
 def published_document(doc_type: str, db_path: Path | str | None = None) -> dict | None:
     if doc_type not in DOCUMENT_TYPES:
         return None
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         row = db.execute(
             """SELECT * FROM legal_documents
@@ -421,7 +433,7 @@ def upsert_cookie(payload: dict, db_path: Path | str | None = None) -> dict:
     if duration < 0 or duration > 4000:
         raise ValueError("durée traceur invalide")
     stamp = _now_iso()
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO cookie_registry(cookie_key,provider,purpose,category,legal_basis,duration_days,storage_kind,essential,enabled,updated_at)
@@ -437,7 +449,7 @@ def upsert_cookie(payload: dict, db_path: Path | str | None = None) -> dict:
 
 
 def cookies(db_path: Path | str | None = None) -> list[dict]:
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         rows = db.execute("SELECT * FROM cookie_registry ORDER BY category,cookie_key").fetchall()
     return [
@@ -493,7 +505,7 @@ def create_rights_request(payload: dict, db_path: Path | str | None = None) -> d
     request_id = uuid.uuid4().hex
     subject_hash = hashlib.sha256(subject_ref.encode("utf-8")).hexdigest()
     due = _calendar_month_later(received)
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO rights_requests(request_id,request_type,status,subject_ref_hash,received_at,due_at,notes)
@@ -509,7 +521,7 @@ def set_rights_request_status(request_id: str, status: str, db_path: Path | str 
     if status not in RIGHT_STATES:
         raise ValueError("statut demande invalide")
     closed = _now_iso() if status in {"closed", "rejected"} else ""
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         cur = db.execute(
             "UPDATE rights_requests SET status=?,closed_at=? WHERE request_id=?",
@@ -521,7 +533,7 @@ def set_rights_request_status(request_id: str, status: str, db_path: Path | str 
 
 
 def rights_requests(db_path: Path | str | None = None, limit: int = 100) -> list[dict]:
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         rows = db.execute(
             "SELECT * FROM rights_requests ORDER BY received_at DESC LIMIT ?",
@@ -558,7 +570,7 @@ def create_incident(payload: dict, db_path: Path | str | None = None) -> dict:
     detected = _now()
     due = detected + datetime.timedelta(hours=72) if risk in {"risk", "high_risk"} else None
     incident_id = uuid.uuid4().hex
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO data_incidents(incident_id,risk_level,status,detected_at,cnil_due_at,summary,notes)
@@ -574,7 +586,7 @@ def set_incident_status(incident_id: str, status: str, db_path: Path | str | Non
     if status not in INCIDENT_STATES:
         raise ValueError("statut incident invalide")
     notified = _now_iso() if status == "notified" else ""
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         cur = db.execute(
             """UPDATE data_incidents SET status=?,
@@ -588,7 +600,7 @@ def set_incident_status(incident_id: str, status: str, db_path: Path | str | Non
 
 
 def incidents(db_path: Path | str | None = None, limit: int = 100) -> list[dict]:
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         rows = db.execute(
             "SELECT * FROM data_incidents ORDER BY detected_at DESC LIMIT ?",
@@ -631,7 +643,7 @@ def record_acceptance(
         raise RuntimeError("aucune version publiée du document")
     receipt_id = uuid.uuid4().hex
     stamp = _now_iso()
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         db.execute(
             """INSERT INTO consent_receipts(
@@ -664,7 +676,7 @@ def record_acceptance(
 
 
 def consent_receipts(db_path: Path | str | None = None, limit: int = 50) -> list[dict]:
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         rows = db.execute(
             """SELECT receipt_id,contract_ref,purpose,document_type,document_version,content_hash,
@@ -694,7 +706,7 @@ def contract_acceptance_receipt(
     db_path: Path | str | None = None,
 ) -> dict | None:
     contract_ref = _text(contract_ref, "contractRef", 200, required=True)
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         row = db.execute(
             """SELECT receipt_id,contract_ref,purpose,document_type,document_version,content_hash,
@@ -764,7 +776,7 @@ def record_checkout_acceptance(
 
     token_hash = _checkout_token_hash(booking_token)
     stamp = _now_iso()
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         existing = db.execute(
             "SELECT * FROM checkout_acceptance_intents WHERE booking_token_hash=?",
@@ -836,7 +848,7 @@ def finalize_checkout_acceptance(
     source = _text(source, "source", 80, required=True)
     if source not in CONTRACT_ACCEPTANCE_SOURCES:
         raise ValueError("source de finalisation contrat invalide")
-    init_db(db_path)
+    ensure_db(db_path)
     with connect(db_path) as db:
         row = db.execute(
             "SELECT * FROM checkout_acceptance_intents WHERE booking_token_hash=?",
