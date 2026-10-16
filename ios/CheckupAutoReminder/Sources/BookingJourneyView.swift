@@ -351,9 +351,9 @@ struct BookingJourneyView: View {
             }
             .frame(maxWidth: 430)
             .padding(24)
-        } else if let bookingCookie, let entryURL {
+        } else if let activeBookingCookie = bookingCookie, let entryURL {
             AuthenticatedBookingWebView(
-                cookie: bookingCookie,
+                cookie: activeBookingCookie,
                 entryURL: entryURL,
                 onPayment: { url in payment = BookingPaymentPage(url: url) },
                 onResult: { result in
