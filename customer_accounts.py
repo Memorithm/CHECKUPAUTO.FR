@@ -26,6 +26,7 @@ import mercure_invoice_contact_contract as invoice_contact
 from customer_vehicle_characteristics import normalize as normalize_vehicle_characteristics, require_booking_essentials, VehicleCharacteristicsError
 from sqlite_closing import ClosingConnection
 from customer_schema_once import SchemaOnce
+import customer_postgres_runtime as pg_runtime
 
 PROVIDERS = {"google", "apple", "microsoft"}
 ACCOUNT_KINDS = {"individual", "professional"}
@@ -318,6 +319,8 @@ def _booking_hash(account_id: str, booking_target: object) -> str:
 
 
 def _connect() -> sqlite3.Connection:
+    if pg_runtime.enabled():
+        return pg_runtime.connect()
     path = data_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -331,6 +334,8 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    if pg_runtime.enabled():
+        raise RuntimeError("customer_pg_schema_operator_only")
     with _connect() as db:
         db.executescript(
             """
@@ -423,6 +428,9 @@ _SCHEMA_ONCE = SchemaOnce()
 
 
 def _ensure_schema() -> None:
+    if pg_runtime.enabled():
+        pg_runtime.assert_schema("accounts")
+        return
     _SCHEMA_ONCE.ensure(data_path(), init_db)
 
 
@@ -1339,7 +1347,7 @@ def close_session(token: object) -> None:
 
 def purge_expired_sessions(*, dry_run: bool = False) -> int:
     """Remove expired customer sessions (retention job, not only on next use)."""
-    if not data_path().is_file():
+    if not pg_runtime.enabled() and not data_path().is_file():
         return 0
     _ensure_schema()
     now = _now_iso()
@@ -1354,7 +1362,7 @@ def purge_expired_sessions(*, dry_run: bool = False) -> int:
 
 def inactive_account_ids(cutoff_iso: str) -> list[str]:
     """Accounts with no profile update, login or session since ``cutoff_iso``."""
-    if not data_path().is_file():
+    if not pg_runtime.enabled() and not data_path().is_file():
         return []
     _ensure_schema()
     from contextlib import closing
