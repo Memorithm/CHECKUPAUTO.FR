@@ -34,7 +34,7 @@ class CustomerPostgresMigrationTest(unittest.TestCase):
             db.execute(
                 "INSERT INTO customer_account(account_id,kind,email_hash,profile_blob,"
                 "created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                ("A", "individual", "a" * 64, b"\\x00\\xffencrypted", "now", "now"),
+                ("A", "individual", "a" * 64, b"\x00\xffencrypted", "now", "now"),
             )
         result = migration.migrate(self.accounts, self.oidc)
         self.assertFalse(result["copied"])
@@ -43,13 +43,13 @@ class CustomerPostgresMigrationTest(unittest.TestCase):
         with sqlite3.connect(self.accounts) as db:
             self.assertEqual(db.execute(
                 "SELECT profile_blob FROM customer_account"
-            ).fetchone()[0], b"\\x00\\xffencrypted")
+            ).fetchone()[0], b"\x00\xffencrypted")
 
     def test_no_staging_freeze_means_no_postgres_connect(self):
         with mock.patch.dict(os.environ, {"CHECKUPAUTO_ENVIRONMENT": "staging",
                                        "PGSERVICE": "staging",
                                        "PGSSLMODE": "verify-full",
-                                       "PGSSLROOTCERT": "/etc/ssl/root.pem"}), \\
+                                       "PGSSLROOTCERT": "/etc/ssl/root.pem"}), \
              mock.patch("migration_write_freeze.status", return_value={"active": False, "valid": True}):
             with self.assertRaisesRegex(RuntimeError, "freeze_required"):
                 migration.migrate(self.accounts, self.oidc, apply=True, confirmed=True)
@@ -57,7 +57,7 @@ class CustomerPostgresMigrationTest(unittest.TestCase):
     def test_plaintext_or_insecure_pg_transport_is_refused(self):
         with mock.patch.dict(os.environ, {"CHECKUPAUTO_ENVIRONMENT": "staging",
                                        "PGSERVICE": "staging", "PGSSLMODE": "disable",
-                                       "PGSSLROOTCERT": "/etc/ssl/root.pem"}), \\
+                                       "PGSSLROOTCERT": "/etc/ssl/root.pem"}), \
              mock.patch("migration_write_freeze.status", return_value={"active": True, "valid": True}):
             with self.assertRaisesRegex(RuntimeError, "tls_service_required"):
                 migration.migrate(self.accounts, self.oidc, apply=True, confirmed=True)
@@ -69,9 +69,9 @@ class CustomerPostgresMigrationTest(unittest.TestCase):
             migration.migrate(alias, self.oidc)
 
     def test_integrity_digest_detects_blob_modification(self):
-        expected = migration._digest([(1, b"\\x00\\xff"), ("alpha",)])
-        self.assertNotEqual(expected, migration._digest([(1, b"\\x00\\xfe"), ("alpha",)]))
-        self.assertNotEqual(expected, migration._digest([(1, b"\\x00\\xff"), ("bravo",)]))
+        expected = migration._digest([(1, b"\x00\xff"), ("alpha",)])
+        self.assertNotEqual(expected, migration._digest([(1, b"\x00\xfe"), ("alpha",)]))
+        self.assertNotEqual(expected, migration._digest([(1, b"\x00\xff"), ("bravo",)]))
 
 
 if __name__ == "__main__":
