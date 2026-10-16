@@ -73,6 +73,31 @@ si un nombre de lignes ou une empreinte de contenu diffère, si un schéma
 manque ou si une source change pendant le transfert. Le script ne modifie
 jamais les fichiers SQLite et **n'active pas PostgreSQL dans Passenger**.
 
+## Adaptateur applicatif optionnel (préparé, non activé)
+
+Le module `customer_postgres_runtime.py` branche les accès
+`customer_accounts` et `customer_oidc` derrière un backend explicite,
+désactivé par défaut. Il convertit les paramètres SQL et les transactions
+critiques (verrou transactionnel consultatif global conservateur) et expose
+des lignes compatibles avec les accès par nom et par position.
+
+**Ne pas activer ce backend avant la preuve de copie, l'installation d'un
+driver Psycopg verrouillé dans les dépendances, la validation d'une instance
+PostgreSQL réelle et l'audit des travaux de rétention.** Il exige :
+- `CHECKUPAUTO_CUSTOMER_DB_BACKEND=postgres` (sinon SQLite par défaut) ;
+- `CHECKUPAUTO_CUSTOMER_PG_SERVICE` : nom libpq du service dont les secrets
+  demeurent hors du dépôt et hors des journaux ;
+- `CHECKUPAUTO_CUSTOMER_PG_CA` : certificat CA local de validation TLS ;
+- `CHECKUPAUTO_CUSTOMER_PG_CUTOVER_FILE` : marqueur privé, régulier,
+  détenu par l'utilisateur de service et mode 0600, avec le contenu exact
+  `CHECKUPAUTO_CUSTOMER_POSTGRES_CUTOVER_V1`.
+
+Sans ces quatre conditions ou sans PostgreSQL disponible, la connexion
+échoue explicitement ; aucune lecture de secours non autorisée depuis
+SQLite ne peut créer une divergence de sessions ou d'authentification.
+Le runtime ne tente jamais de créer automatiquement des tables PostgreSQL
+sur une requête client ; le schéma doit avoir été préprovisionné et rempli.
+
 ## Garde de mise en service — phase 2
 
 La bascule fonctionnelle devra reposer sur un backend PostgreSQL explicite
