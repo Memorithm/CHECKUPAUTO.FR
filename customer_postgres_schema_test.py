@@ -7,9 +7,6 @@ import re
 import sqlite3
 import unittest
 
-import customer_accounts
-import customer_oidc
-
 
 SQL = Path(__file__).resolve().parent / "ops/postgres/customer-schema.sql"
 CUSTOMER_TABLES = (
@@ -62,7 +59,7 @@ class CustomerPostgresSchemaTest(unittest.TestCase):
         ddl = SQL.read_text(encoding="utf-8")
         for table in (*CUSTOMER_TABLES, *OIDC_TABLES):
             self.assertRegex(
-                ddl, r"CREATE TABLE IF NOT EXISTS checkupauto_customer\\." +
+                ddl, r"CREATE TABLE IF NOT EXISTS checkupauto_customer\." +
                 table + r"\\s*\\(",
             )
         self.assertEqual(len(re.findall(r"CREATE TABLE IF NOT EXISTS", ddl)), 9)
