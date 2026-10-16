@@ -179,7 +179,7 @@ struct NativeCustomerAccountView: View {
 
     private func openBooking() {
         #if canImport(UIKit)
-        UIApplication.shared.open(MobileAPI.directMercureBookingURL)
+        UIApplication.shared.open(MobileAPI.bookingJourneyURL())
         #endif
     }
 }

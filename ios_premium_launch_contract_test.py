@@ -27,11 +27,15 @@ class IOSPremiumLaunchContractTests(unittest.TestCase):
             with self.subTest(name=forbidden):
                 self.assertNotIn(forbidden, screen)
 
-    def test_direct_mercure_booking_is_premium_full_width(self):
+    def test_premium_booking_button_routes_to_in_site_journey(self):
         screen = (SOURCES / "ContentView.swift").read_text()
         urls = (SOURCES / "MobileAPI.swift").read_text()
         self.assertIn("premium-direct-booking", screen)
-        self.assertIn("openInApp(MobileAPI.directMercureBookingURL)", screen)
+        # Booking now goes through the site's own journey (in-site Mercure/
+        # Payline hosted checkout, served via the Cloudflare-cached site),
+        # not straight to the legacy rdv.checkupauto.fr Mercure site.
+        self.assertIn("openInApp(MobileAPI.bookingJourneyURL())", screen)
+        self.assertNotIn("openInApp(MobileAPI.directMercureBookingURL)", screen)
         self.assertIn(".frame(maxWidth: .infinity, minHeight: 106)", screen)
         self.assertIn("https://rdv.checkupauto.fr", urls)
 

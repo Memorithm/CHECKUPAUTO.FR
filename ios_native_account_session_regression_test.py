@@ -101,7 +101,7 @@ class NativeIOSSessionContracts(unittest.TestCase):
         # The website now owns the precise account/profile presentation.
         self.assertNotIn("SFSafariViewController", native)
         self.assertNotIn('"/compte"', native)
-        self.assertIn('MobileAPI.directMercureBookingURL', content)
+        self.assertIn('MobileAPI.bookingJourneyURL()', content)
 
     def test_foreground_outage_retains_current_authenticated_session(self):
         model = self.read("AppModel.swift")
