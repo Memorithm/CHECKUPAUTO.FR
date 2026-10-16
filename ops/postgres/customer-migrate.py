@@ -103,6 +103,17 @@ def migrate(account_path, oidc_path, *, apply=False, confirmed=False, connector=
             from psycopg import sql
 
         with connector(connect_timeout=5, options="-c statement_timeout=30000") as target:
+            # PGSERVICE entries may override libpq environment defaults.
+            # Verify the effective policy and the actual transport before copy.
+            effective = target.info.get_parameters()
+            if (effective.get("sslmode") != "verify-full"
+                    or not effective.get("sslrootcert")):
+                raise RuntimeError("customer_migration_tls_verification_missing")
+            with target.cursor() as transport:
+                transport.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()")
+                active_tls = transport.fetchone()
+            if not active_tls or active_tls[0] is not True:
+                raise RuntimeError("customer_migration_tls_not_active")
             for table, _, _ in TABLES:
                 qualified = sql.SQL("checkupauto_customer.{}").format(sql.Identifier(table))
                 with target.cursor() as cursor:
