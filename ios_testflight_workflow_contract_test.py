@@ -47,6 +47,20 @@ class TestFlightDeliveryContract(unittest.TestCase):
         self.assertIn('export CHECKUPAUTO_RELEASE_PINNED_SHA=', WORKFLOW)
         self.assertIn('export CHECKUPAUTO_BUILD_NUMBER=', WORKFLOW)
 
+    def test_automatic_ci_upload_has_exactly_one_authoritative_publisher(self):
+        # The green CHECKUPAUTO iOS CI run hands off to the RemoteOps macOS
+        # publisher, which owns the authorized Apple App Store Connect secrets.
+        self.assertIn("  handoff:", WORKFLOW)
+        self.assertIn("TESTFLIGHT_HANDOFF=remoteops_scheduled_release", WORKFLOW)
+        self.assertIn("checkupauto-testflight-auto.yml", WORKFLOW)
+        self.assertIn("This job verifies the handoff condition ONLY", WORKFLOW)
+        # Direct Mac-local signing remains owner-only manual recovery and must
+        # never attempt a duplicate publish on a workflow_run event.
+        manual = WORKFLOW.split("  testflight:", 1)[1].split("    runs-on:", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", manual)
+        self.assertNotIn("github.event_name == 'workflow_run'", manual)
+        self.assertIn("github.actor == 'CHECKUPAUTO'", manual)
+
     def test_no_untrusted_pr_upload_and_no_push_race(self):
         # This workflow should only run after full iOS CI, never on a PR
         # or immediately on the still-untested main push.
