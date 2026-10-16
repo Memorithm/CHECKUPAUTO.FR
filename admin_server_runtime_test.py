@@ -129,7 +129,8 @@ class AdminServerRuntimeTest(unittest.TestCase):
             modules[name].start.assert_not_called()
 
         self.assertEqual(modules["analytics"].init_db.call_count, 1)
-        self.assertEqual(modules["security"].init_db.call_count, 1)
+        self.assertEqual(modules["security"].ensure_db.call_count, 1)
+        modules["security"].init_db.assert_not_called()
         self.assertEqual(modules["reviews"].init_db.call_count, 1)
         self.assertEqual(modules["withdrawals"].init_db.call_count, 1)
         self.assertEqual(modules["retention_enforcement"].init_db.call_count, 1)

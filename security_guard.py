@@ -16,6 +16,7 @@ import ipaddress
 
 import security_behavior as behavior
 import security_sqlite
+from customer_schema_once import SchemaOnce
 import security_alerts as alerts
 
 STATE_DIR = Path(os.environ.get('CYBERCHECK_SECURITY_DIR', '/root/CyberCheckSecurity'))
@@ -108,6 +109,20 @@ def init_db():
     DB.chmod(0o600)
     _ensure_secret()
     _restore_persistent_state()
+
+
+# admin_server imports this module on every cold Passenger worker. The eager
+# import-time initialization below has already created the Sentinel schema;
+# the later admin_server.initialize_runtime security step must not repeat the
+# same DDL, retention DELETE and persistence rehydration in that process.
+# The gate is strictly local: PID/inode changes invalidate it, and a failed
+# schema initialization never becomes ready. It does not cache an account,
+# authentication decision or any request data.
+_SCHEMA_ONCE = SchemaOnce()
+
+
+def ensure_db():
+    _SCHEMA_ONCE.ensure(DB, init_db)
 
 
 def client_hash(ip: str) -> str:
@@ -467,4 +482,4 @@ def status(days=1):
             'behaviorProfiles':behavior.profiles(20,days),'alerts':alerts.summary(),
             'statePersistence':'sqlite','privacy':'daily HMAC client hash + daily behavioral fingerprint; no raw IP storage'}
 
-init_db()
+ensure_db()
