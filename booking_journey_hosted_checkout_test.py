@@ -129,7 +129,7 @@ class HostedSummaryPageTest(unittest.TestCase):
         self.assertIn('aria-labelledby="bjReturnNoticeTitle"', html)
         self.assertIn('aria-labelledby="bjReturnWaitTitle"', html)
         self.assertIn('aria-hidden="true">!</span>', html)
-        self.assertEqual(html.count('class="bj-return-notice'), 2)
+        self.assertEqual(html.count('<aside class="bj-return-notice'), 2)
         self.assertLess(html.index('id="bjReturnNoticeTitle"'), html.index('id="bjConfirm"'))
         self.assertLess(html.index('id="bjHostedWait"'), html.index('id="bjReturnWaitTitle"'))
         self.assertIn("booking-journey.css?v=20261016-1", html)
