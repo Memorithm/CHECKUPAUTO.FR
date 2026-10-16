@@ -53,6 +53,28 @@ class PassengerWSGITest(unittest.TestCase):
     def setUp(self):
         FakeConnection.instances.clear()
 
+    def test_passenger_startup_timing_is_sanitized_and_thresholded(self):
+        with mock.patch("passenger_wsgi.time.monotonic", return_value=2.0), \
+             mock.patch("passenger_wsgi.sys.stderr", new_callable=io.StringIO) as log:
+            wsgi._report_slow_startup("lock_wait", 1.7)
+            wsgi._report_slow_startup("import_admin", 1.0)
+            wsgi._report_slow_startup("request=secret-OAuth-state", -20.0)
+        self.assertEqual(
+            log.getvalue().strip(),
+            "CHECKUPAUTO_PASSENGER_STARTUP_SLOW stage=import_admin duration_ms=1000",
+        )
+        self.assertNotIn("secret", log.getvalue())
+
+    def test_passenger_startup_duration_capped_and_known_stage_only(self):
+        with mock.patch("passenger_wsgi.time.monotonic", return_value=10000.0), \
+             mock.patch("passenger_wsgi.sys.stderr", new_callable=io.StringIO) as log:
+            wsgi._report_slow_startup("runtime_setup", 0.0)
+            wsgi._report_slow_startup("init_lock&cookie=secret", 0.0)
+        self.assertEqual(
+            log.getvalue().strip(),
+            "CHECKUPAUTO_PASSENGER_STARTUP_SLOW stage=runtime_setup duration_ms=900000",
+        )
+
     def test_stale_loopback_thread_is_replaced_before_oauth_request(self):
         old_server = mock.Mock()
         old_server.server_address = ("127.0.0.1", 1234)

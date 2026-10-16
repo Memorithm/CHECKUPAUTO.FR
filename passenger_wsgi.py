@@ -178,6 +178,21 @@ def _write_runtime_marker(path, release_sha, identities):
                 pass
 
 
+_STARTUP_STAGE_LABELS = frozenset({"lock_wait", "import_admin", "runtime_setup"})
+
+
+def _report_slow_startup(stage: str, started: float) -> None:
+    """Sanitized cold-worker timing, with no request URL, cookie or DB path."""
+    if stage not in _STARTUP_STAGE_LABELS:
+        return
+    duration_ms = max(0, min(900000, int((time.monotonic() - started) * 1000)))
+    if duration_ms >= 500:
+        print(
+            f"CHECKUPAUTO_PASSENGER_STARTUP_SLOW stage={stage} duration_ms={duration_ms}",
+            file=sys.stderr, flush=True,
+        )
+
+
 def _ensure_backend() -> tuple[str, int]:
     global _BACKEND_SERVER, _BACKEND_THREAD, _BACKEND_PID
     with _BACKEND_LOCK:
@@ -206,26 +221,36 @@ def _ensure_backend() -> tuple[str, int]:
         data_dir = Path(os.environ.get("CYBERCHECK_DATA_DIR", "/root/CyberCheckData"))
         if not data_dir.is_absolute():
             data_dir = _ROOT / data_dir
+        lock_started = time.monotonic()
         with _runtime_initialization_lock(data_dir):
-            import admin_server
+            _report_slow_startup("lock_wait", lock_started)
+            import_started = time.monotonic()
+            try:
+                import admin_server
+            finally:
+                _report_slow_startup("import_admin", import_started)
 
-            os.chdir(admin_server.ROOT)
-            admin_server.configure_internal_proxy(_PROXY_TOKEN)
-            # The same lock guards module-import writes AND schema/seed writes.
-            # Do not acquire it a second time using a different file descriptor.
-            release_sha = _runtime_release_marker_sha()
-            marker = _runtime_ready_marker(admin_server.analytics.DB.parent)
-            identities = _runtime_database_identities(admin_server)
-            if _runtime_marker_matches(marker, release_sha, identities):
-                # All schema/seed operations completed for this exact release
-                # and the same SQLite files in a previous Passenger worker.
-                admin_server._RUNTIME_CORE_READY = True
-            else:
-                result = admin_server.initialize_runtime(background=False)
-                if result.get("coreReady"):
-                    _write_runtime_marker(
-                        marker, release_sha, _runtime_database_identities(admin_server),
-                    )
+            setup_started = time.monotonic()
+            try:
+                os.chdir(admin_server.ROOT)
+                admin_server.configure_internal_proxy(_PROXY_TOKEN)
+                # The same lock guards module-import writes AND schema/seed writes.
+                # Do not acquire it a second time using a different file descriptor.
+                release_sha = _runtime_release_marker_sha()
+                marker = _runtime_ready_marker(admin_server.analytics.DB.parent)
+                identities = _runtime_database_identities(admin_server)
+                if _runtime_marker_matches(marker, release_sha, identities):
+                    # All schema/seed operations completed for this exact release
+                    # and the same SQLite files in a previous Passenger worker.
+                    admin_server._RUNTIME_CORE_READY = True
+                else:
+                    result = admin_server.initialize_runtime(background=False)
+                    if result.get("coreReady"):
+                        _write_runtime_marker(
+                            marker, release_sha, _runtime_database_identities(admin_server),
+                        )
+            finally:
+                _report_slow_startup("runtime_setup", setup_started)
         server = ThreadingHTTPServer(("127.0.0.1", 0), admin_server.Handler)
         thread = threading.Thread(
             target=server.serve_forever,
