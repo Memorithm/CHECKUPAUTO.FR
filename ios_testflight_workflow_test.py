@@ -14,14 +14,15 @@ class IOSTestFlightWorkflowTest(unittest.TestCase):
         self.assertIn("id: apple", text)
         self.assertIn("steps.apple.outputs.ready != 'true'", text)
         self.assertIn("steps.apple.outputs.ready == 'true'", text)
-        self.assertIn("Report external Apple credential gate", text)
+        self.assertIn("Fail closed if Apple upload credentials are missing", text)
         self.assertIn("TESTFLIGHT_BLOCKED_EXTERNAL=app-store-connect-team-key", text)
+        self.assertIn("exit 1", text.split("Fail closed if Apple upload credentials are missing", 1)[1].split("      - name:", 1)[0])
 
     def test_workflow_has_one_upload_and_one_cleanup_block(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(text.count("- name: Build, sign and upload to TestFlight"), 1)
         self.assertEqual(text.count("- name: Clean temporary release material"), 1)
-        self.assertEqual(text.count("- name: Report external Apple credential gate"), 1)
+        self.assertEqual(text.count("- name: Fail closed if Apple upload credentials are missing"), 1)
         self.assertEqual(text.count("- name: Resolve Apple release state"), 1)
 
     def test_credential_helper_distinguishes_missing_from_invalid_state(self):
