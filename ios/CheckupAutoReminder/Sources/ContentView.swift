@@ -69,23 +69,25 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showingNativeAccount = true
+                        startBooking()
                     } label: {
                         Image(systemName: "person.crop.circle")
                             .font(.title3)
                             .foregroundStyle(CheckupTheme.ink)
                     }
-                    .accessibilityLabel("Mon compte")
+                    .accessibilityLabel("Réserver un créneau")
+                    .accessibilityIdentifier("home-booking-account-toolbar")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingAddVehicle = true
+                        startBooking()
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
                             .foregroundStyle(CheckupTheme.accent)
                     }
-                    .accessibilityLabel("Ajouter un véhicule")
+                    .accessibilityLabel("Réserver un créneau")
+                    .accessibilityIdentifier("home-booking-plus-toolbar")
                 }
             }
             .onOpenURL { url in
@@ -184,6 +186,7 @@ struct ContentView: View {
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
     }
@@ -309,7 +312,7 @@ struct ContentView: View {
             .accessibilityIdentifier("native-journey-gps-choice")
 
             Button {
-                showingNativeAccount = true
+                startBooking()
             } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "person.text.rectangle")
@@ -380,11 +383,12 @@ struct ContentView: View {
                 sectionLabel("MES VÉHICULES")
                 Spacer()
                 Button {
-                    showingAddVehicle = true
+                    startBooking()
                 } label: {
-                    Label("Ajouter", systemImage: "plus")
+                    Label("Réserver", systemImage: "plus")
                         .font(.caption.weight(.semibold))
                 }
+                .accessibilityIdentifier("home-booking-vehicles-plus")
             }
 
             if model.accountVehicles.isEmpty && model.authoritativeVehicles.isEmpty && model.vehicles.isEmpty {
