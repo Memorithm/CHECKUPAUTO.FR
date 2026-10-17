@@ -1,5 +1,4 @@
 """Regression contract: all requested home entry points share the native booking journey."""
-import re
 import unittest
 from pathlib import Path
 
@@ -43,7 +42,8 @@ class IOSHomeUnifiedBookingContract(unittest.TestCase):
 
     def test_central_client_action_opens_booking(self):
         actions = self.section("private var quickActions:", "private var nextControlCard:")
-        client = actions.split('Text("Espace client")', 1)[0]
+        client = actions.split('.accessibilityIdentifier("native-journey-gps-choice")', 1)[1]
+        client = client.split('Text("Espace client")', 1)[0]
         self.assertRegex(client, r"Button\s*\{\s*startBooking\(\)")
         self.assertNotIn("showingNativeAccount = true", actions)
 
