@@ -69,23 +69,25 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showingNativeAccount = true
+                        startBooking()
                     } label: {
                         Image(systemName: "person.crop.circle")
                             .font(.title3)
                             .foregroundStyle(CheckupTheme.ink)
                     }
-                    .accessibilityLabel("Mon compte")
+                    .accessibilityLabel("Réserver un créneau")
+                    .accessibilityIdentifier("home-booking-account-toolbar")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showingAddVehicle = true
+                        startBooking()
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
                             .foregroundStyle(CheckupTheme.accent)
                     }
-                    .accessibilityLabel("Ajouter un véhicule")
+                    .accessibilityLabel("Réserver un créneau")
+                    .accessibilityIdentifier("home-booking-plus-toolbar")
                 }
             }
             .onOpenURL { url in
@@ -169,7 +171,7 @@ struct ContentView: View {
     }
 
     private var appleAccountCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .center, spacing: 12) {
             Label("Compte Checkup Auto", systemImage: "person.crop.circle.badge.checkmark")
                 .font(.headline)
                 .foregroundStyle(CheckupTheme.ink)
@@ -177,13 +179,27 @@ struct ContentView: View {
                 Text("Compte connecté")
                     .font(.subheadline)
                     .foregroundStyle(CheckupTheme.muted)
-                Button("Se déconnecter", role: .cancel) { model.signOutCustomer() }
-                    .buttonStyle(.bordered)
+                HStack(spacing: 12) {
+                    Button("Se déconnecter", role: .cancel) { model.signOutCustomer() }
+                        .buttonStyle(.bordered)
+                    Menu {
+                        Button("Gérer mon compte", systemImage: "person.crop.circle") {
+                            showingNativeAccount = true
+                        }
+                        Button("Ajouter un véhicule", systemImage: "car.side") {
+                            showingAddVehicle = true
+                        }
+                    } label: {
+                        Label("Gérer", systemImage: "ellipsis.circle")
+                    }
+                    .accessibilityIdentifier("home-account-management-menu")
+                }
             } else {
                 CustomerAuthenticationOptions()
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, alignment: .center)
         .background(CheckupTheme.card, in: RoundedRectangle(cornerRadius: 22))
         .overlay(RoundedRectangle(cornerRadius: 22).stroke(CheckupTheme.line))
     }
@@ -309,7 +325,7 @@ struct ContentView: View {
             .accessibilityIdentifier("native-journey-gps-choice")
 
             Button {
-                showingNativeAccount = true
+                startBooking()
             } label: {
                 HStack(spacing: 14) {
                     Image(systemName: "person.text.rectangle")
@@ -380,11 +396,12 @@ struct ContentView: View {
                 sectionLabel("MES VÉHICULES")
                 Spacer()
                 Button {
-                    showingAddVehicle = true
+                    startBooking()
                 } label: {
-                    Label("Ajouter", systemImage: "plus")
+                    Label("Réserver", systemImage: "plus")
                         .font(.caption.weight(.semibold))
                 }
+                .accessibilityIdentifier("home-booking-vehicles-plus")
             }
 
             if model.accountVehicles.isEmpty && model.authoritativeVehicles.isEmpty && model.vehicles.isEmpty {
@@ -493,6 +510,15 @@ struct ContentView: View {
                     remove: { vehiclePendingDeletion = vehicle }
                 )
             }
+
+            Button {
+                showingAddVehicle = true
+            } label: {
+                Label("Ajouter un véhicule", systemImage: "car.side")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("home-add-vehicle-secondary")
         }
     }
 
