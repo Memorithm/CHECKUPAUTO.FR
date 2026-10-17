@@ -24,7 +24,11 @@ class IOSHomeUnifiedBookingContract(unittest.TestCase):
         self.assertIn('Text("Compte connecté")', card)
         self.assertIn('Button("Se déconnecter", role: .cancel)', card)
         self.assertIn("model.signOutCustomer()", card)
-        self.assertIn(".frame(maxWidth: .infinity, alignment: .leading)", card)
+        self.assertIn("VStack(alignment: .center", card)
+        self.assertIn("home-account-management-menu", card)
+        self.assertIn('Button("Gérer mon compte"', card)
+        self.assertIn('Button("Ajouter un véhicule", systemImage:', card)
+        self.assertIn(".frame(maxWidth: .infinity, alignment: .center)", card)
         self.assertLess(card.index(".frame(maxWidth:"), card.index(".background("))
 
     def test_toolbar_account_and_plus_open_booking(self):
@@ -58,6 +62,7 @@ class IOSHomeUnifiedBookingContract(unittest.TestCase):
         vehicles = self.section("private var vehicleSection:", "private var notificationCard:")
         self.assertIn('Button("Ajouter un véhicule")', vehicles)
         self.assertIn("showingAddVehicle = true", vehicles)
+        self.assertIn("home-add-vehicle-secondary", vehicles)
         self.assertIn(".sheet(isPresented: $showingAddVehicle)", self.home)
 
     def test_entry_points_keep_identical_session_and_fallback_policy(self):
