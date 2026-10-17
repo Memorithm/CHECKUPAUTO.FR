@@ -81,6 +81,10 @@ final class CheckupAutoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
                 // The "Réserver" action brings the signed-in app to the front
                 // and opens the in-app booking journey; it never leaves for the
                 // website. The .foreground action option handles activation.
+                // Buffer the intent first: on a cold launch the signed-in screen
+                // is not yet subscribed, so the in-process notification alone
+                // would be lost. ContentView consumes this once it appears.
+                BookingLaunchIntent.markPending()
                 NotificationCenter.default.post(name: .checkupBookingRequested, object: nil)
                 completionHandler()
             }
@@ -101,6 +105,25 @@ enum CheckupAutoLaunchMode {
 
     static var isJourneyVisualReview: Bool {
         isJourneyVisualReview(arguments: ProcessInfo.processInfo.arguments)
+    }
+}
+
+/// Buffers a "Réserver" reminder tap so a cold launch — where the signed-in
+/// screen is not yet on screen to receive the in-process notification — still
+/// opens the booking journey once the account view appears. Used only from the
+/// main thread.
+enum BookingLaunchIntent {
+    private static var pending = false
+
+    static func markPending() {
+        pending = true
+    }
+
+    /// Returns whether a booking was requested since the last call, clearing it.
+    static func take() -> Bool {
+        let wasPending = pending
+        pending = false
+        return wasPending
     }
 }
 

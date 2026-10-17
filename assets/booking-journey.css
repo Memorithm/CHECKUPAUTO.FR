@@ -28,13 +28,14 @@ body.bj{margin:0;background:var(--bj-paper);color:var(--bj-ink);font-family:Aria
 .bj .bj-warning{color:var(--bj-warn)}
 
 /* Payline handoff: persistent instruction, motion limited to a slow decorative halo. */
-.bj .bj-return-notice{display:flex;align-items:flex-start;gap:16px;padding:20px 22px;margin:20px 0;border:2px solid #a45d1a;border-radius:12px;background:#fff6e8;box-shadow:0 8px 24px rgba(112,71,15,.11)}
+.bj .bj-return-notice{display:flex;align-items:flex-start;gap:16px;padding:20px 22px;margin:20px 0;border:2px solid #a45d1a;border-radius:12px;background:#fff6e8;box-shadow:0 8px 24px rgba(112,71,15,.11);animation:bj-return-flash 1.15s ease-in-out infinite}
 .bj .bj-return-notice__badge{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:50%;background:#88410b;color:#fff;font:700 26px Arial,sans-serif;animation:bj-return-halo 3.2s ease-in-out infinite}
 .bj .bj-return-notice h3{margin:0 0 8px;color:#713709;font:700 clamp(19px,3vw,23px)/1.2 Arial,Helvetica,sans-serif}
 .bj .bj-return-notice p{margin:0;color:#3e3529;font-size:16px;line-height:1.6}
 .bj .bj-return-notice strong{color:#713709}
 .bj .bj-return-notice--waiting{margin:12px 0 18px}
 @keyframes bj-return-halo{0%,100%{box-shadow:0 0 0 0 rgba(164,93,26,.38)}50%{box-shadow:0 0 0 10px rgba(164,93,26,0)}}
+@keyframes bj-return-flash{0%,100%{border-color:#a45d1a;background:#fff6e8;box-shadow:0 0 0 0 rgba(176,42,11,0),0 8px 24px rgba(112,71,15,.11)}50%{border-color:#d7420b;background:#ffe3c2;box-shadow:0 0 0 5px rgba(215,66,11,.35),0 8px 24px rgba(112,71,15,.2)}}
 .bj [hidden]{display:none!important}
 .bj :focus-visible{outline:3px solid var(--bj-green);outline-offset:3px}
 @media (max-width:620px){
@@ -46,4 +47,4 @@ body.bj{margin:0;background:var(--bj-paper);color:var(--bj-ink);font-family:Aria
  .bj .bj-return-notice{gap:12px;padding:17px 14px}
  .bj .bj-return-notice__badge{width:34px;height:34px;font-size:23px}
 }
-@media (prefers-reduced-motion:reduce){.bj *{transition:none!important}.bj .bj-return-notice__badge{animation:none}}
+@media (prefers-reduced-motion:reduce){.bj *{transition:none!important}.bj .bj-return-notice{animation:none;border-color:#d7420b;background:#ffe3c2}.bj .bj-return-notice__badge{animation:none}}

@@ -155,11 +155,17 @@ struct ContentView: View {
                     .environmentObject(model)
             }
             .onReceive(NotificationCenter.default.publisher(for: .checkupBookingRequested)) { _ in
+                _ = BookingLaunchIntent.take()
                 showingBooking = true
             }
         }
         .task(id: model.customerSignedIn) {
             if model.customerSignedIn {
+                // A "Réserver" reminder tapped during a cold launch is buffered
+                // until the signed-in screen exists; honour it now that it does.
+                if BookingLaunchIntent.take() {
+                    showingBooking = true
+                }
                 // Prepare the scoped HttpOnly WebKit session while the user is
                 // already on the home screen; account opening then skips POST.
                 await NativeDashboardBridge.prewarm()
